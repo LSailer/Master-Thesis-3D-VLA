@@ -4,8 +4,8 @@ version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
     # VGGT deps
-    "torch==2.3.1",
-    "torchvision==0.18.1",
+    "torch>=2.7",
+    "torchvision>=0.22",
     "numpy==1.26.1",
     "Pillow",
     "huggingface_hub",
