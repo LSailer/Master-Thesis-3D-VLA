@@ -10,3 +10,7 @@ data/
 *.pth
 *.h5
 *.hdf5
+
+# external repos — cloned locally, not committed
+external/*/
+!external/.gitkeep
