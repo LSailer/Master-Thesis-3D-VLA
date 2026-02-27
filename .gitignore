@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.egg-info/
+.env
+wandb/
+output/
+data/
+*.pth
+*.h5
+*.hdf5
