@@ -19,5 +19,10 @@ data/
 external/*/
 !external/.gitkeep
 
+# uv lockfile
+uv.lock
+
 # Manim partial movie files
 media/videos/*/partial_movie_files/
+media/texts/*
+media/videos/vggt_manim/

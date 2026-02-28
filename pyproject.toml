@@ -14,6 +14,7 @@ dependencies = [
     # notebook
     "ipykernel",
     "matplotlib",
+    "manim>=0.18.1",
 ]
 
 [tool.uv]
