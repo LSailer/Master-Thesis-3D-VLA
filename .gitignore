@@ -18,3 +18,6 @@ data/
 # external repos — cloned locally, not committed
 external/*/
 !external/.gitkeep
+
+# Manim partial movie files
+media/videos/*/partial_movie_files/
