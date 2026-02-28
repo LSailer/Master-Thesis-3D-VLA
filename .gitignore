@@ -11,6 +11,10 @@ data/
 *.h5
 *.hdf5
 
+# LaTeX build artifacts
+*.aux
+*.log
+
 # external repos — cloned locally, not committed
 external/*/
 !external/.gitkeep
