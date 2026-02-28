@@ -810,7 +810,7 @@
 
 <!-- New Architecture Approach -->
 <div class="slide" id="slide-newarch">
-  <h3>Proposed Architecture</h3>
+  <h3>Possible Approach</h3>
   <h2>VGGT + Multi-Head DPT + Diffusion Policy Planner</h2>
 
   <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg"
@@ -836,10 +836,11 @@
               markerWidth="6" markerHeight="6" orient="auto">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#f472b6"/>
       </marker>
-      <marker id="na-red" viewBox="0 0 10 10" refX="8" refY="5"
+      <marker id="na-orange" viewBox="0 0 10 10" refX="8" refY="5"
               markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171"/>
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c"/>
       </marker>
+
       <filter id="ng-amber" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fbbf24" flood-opacity="0.55"/>
       </filter>
@@ -854,6 +855,9 @@
       </filter>
       <filter id="ng-rose" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#f472b6" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fb923c" flood-opacity="0.55"/>
       </filter>
     </defs>
 
@@ -948,11 +952,11 @@
 
     <!-- Arrows: DPT boxes → Planner (converging) -->
     <line x1="135" y1="210" x2="270" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-green)" opacity="0.65"/>
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
     <line x1="331" y1="210" x2="395" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-green)" opacity="0.65"/>
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
     <line x1="527" y1="210" x2="510" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-green)" opacity="0.65"/>
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
 
     <!-- ROW D: Planner inputs + Planner ───────────── -->
     <!-- Text Goal (amber) -->
@@ -969,22 +973,22 @@
           fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
           filter="url(#ng-rose)"/>
     <text x="67" y="302" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9.5" font-weight="600" fill="#f472b6">Action Emb.</text>
+          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Action Emb.</text>
 
     <!-- Reward Emb (rose) -->
     <rect x="8" y="314" width="118" height="22" rx="5"
           fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
           filter="url(#ng-rose)"/>
     <text x="67" y="330" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9.5" font-weight="600" fill="#f472b6">Reward Emb.</text>
+          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Reward Emb.</text>
 
     <!-- Arrows: left inputs → Planner -->
     <line x1="126" y1="264" x2="150" y2="264"
-          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-green)" opacity="0.8"/>
+          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-amber)" opacity="0.8"/>
     <line x1="126" y1="297" x2="150" y2="282"
-          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-green)" opacity="0.7"/>
+          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
     <line x1="126" y1="325" x2="150" y2="295"
-          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-green)" opacity="0.7"/>
+          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
 
     <!-- Planner: Diffusion Policy Transformer (green) -->
     <rect x="152" y="245" width="720" height="96" rx="10"
@@ -997,70 +1001,50 @@
     <text x="512" y="318" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="8.5" fill="#34d399" opacity="0.55">DPT outputs &#xb7; Text Goal &#xb7; Action Emb &#xb7; Reward Emb &#x2192; action plan</text>
 
-    <!-- Arrow: Planner → Sequential Action Plan label -->
-    <line x1="450" y1="341" x2="450" y2="355"
-          stroke="#34d399" stroke-width="1.5" marker-end="url(#na-green)" opacity="0.8"/>
+    <!-- Planner → Agent arrow + label -->
+    <line x1="480" y1="341" x2="480" y2="358"
+          stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
+    <text x="487" y="352" font-family="Inter,sans-serif"
+          font-size="9" fill="#34d399" opacity="0.8" font-style="italic">n-step Policy</text>
 
-    <!-- Sequential Action Plan -->
-    <text x="450" y="367" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="10" fill="#34d399" opacity="0.75" font-style="italic">Sequential Action Plan</text>
+    <!-- ROW F: Agent (top) + Environment (bottom) stacked, Buffer circle left ── -->
 
-    <!-- Arrow: plan → Agent -->
-    <line x1="450" y1="370" x2="450" y2="382"
-          stroke="#34d399" stroke-width="1.5" marker-end="url(#na-indigo)" opacity="0.75"/>
-
-    <!-- ROW F: Agent → Environment → Buffer ────────── -->
     <!-- Agent (indigo) -->
-    <rect x="150" y="384" width="178" height="44" rx="8"
+    <rect x="370" y="358" width="220" height="42" rx="8"
           fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="1.8"
           filter="url(#ng-indigo)"/>
-    <text x="239" y="411" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="480" y="384" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="13" font-weight="600" fill="#818cf8">Agent</text>
 
-    <!-- Arrow: Agent → Environment -->
-    <line x1="328" y1="406" x2="370" y2="406"
-          stroke="#818cf8" stroke-width="1.5" marker-end="url(#na-rose)" opacity="0.8"/>
+    <!-- Environment (orange) -->
+    <rect x="370" y="451" width="220" height="42" rx="8"
+          fill="rgba(251,146,60,0.10)" stroke="#fb923c" stroke-width="1.5"
+          filter="url(#ng-orange)"/>
+    <text x="480" y="467" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="600" fill="#fb923c">Environment</text>
+    <text x="480" y="483" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fb923c" opacity="0.6">HM3D Habitat</text>
 
-    <!-- Environment (rose) -->
-    <rect x="372" y="384" width="178" height="44" rx="8"
-          fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
-          filter="url(#ng-rose)"/>
-    <text x="461" y="401" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="12" font-weight="600" fill="#f472b6">Environment</text>
-    <text x="461" y="418" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#f472b6" opacity="0.6">HM3D Habitat</text>
+    <!-- Buffer circle (between Agent and Env, no arrows) -->
+    <circle cx="480" cy="425" r="20"
+            fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
+            filter="url(#ng-rose)"/>
+    <text x="480" y="422" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" font-weight="700" fill="#f472b6">Buffer</text>
+    <text x="480" y="434" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6" fill="#f472b6" opacity="0.65">actions · rewards · states</text>
 
-    <!-- Arrow: Environment → Buffer -->
-    <line x1="550" y1="406" x2="590" y2="406"
-          stroke="#f472b6" stroke-width="1.5" marker-end="url(#na-rose)" opacity="0.8"/>
+    <!-- Action arc: Agent right → Env right (solid indigo) -->
+    <path d="M 590,379 C 650,379 650,472 590,472"
+          fill="none" stroke="#818cf8" stroke-width="1.8" marker-end="url(#na-indigo)"/>
+    <text x="668" y="428" text-anchor="start" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#818cf8" opacity="0.85">action aₜ</text>
 
-    <!-- Buffer (rose) -->
-    <rect x="592" y="384" width="158" height="44" rx="8"
-          fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
-          filter="url(#ng-rose)"/>
-    <text x="671" y="403" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="13" font-weight="600" fill="#f472b6">Buffer</text>
-    <text x="671" y="418" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#f472b6" opacity="0.6">obs + reward</text>
-
-    <!-- Feedback: Buffer → Input (curved right side) -->
-    <path d="M 750,384 C 750,358 875,348 875,200 C 875,52 860,30 745,30"
-          fill="none" stroke="#f472b6" stroke-width="1.5"
-          stroke-dasharray="5,3" marker-end="url(#na-rose)" opacity="0.55"/>
-    <text x="878" y="215" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8" fill="#f472b6" opacity="0.55"
-          transform="rotate(90 878 215)">Buffer feedback</text>
-
-    <!-- Feedback: action fails → Replan (curved left side) -->
-    <path d="M 239,428 C 239,468 38,468 38,350 C 38,275 150,278 150,278"
-          fill="none" stroke="#f87171" stroke-width="1.3"
-          stroke-dasharray="4,3" marker-end="url(#na-red)" opacity="0.55"/>
-    <text x="30" y="455" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#f87171" opacity="0.65">action</text>
-    <text x="30" y="466" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#f87171" opacity="0.65">fails &#x2192;</text>
-    <text x="30" y="477" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#f87171" opacity="0.65">replan</text>
+    <!-- Reward+state arc: Env left → Agent left (solid orange) -->
+    <path d="M 370,472 C 310,472 310,379 370,379"
+          fill="none" stroke="#fb923c" stroke-width="1.8" marker-end="url(#na-orange)"/>
+    <text x="288" y="428" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#fb923c" opacity="0.85">reward + state</text>
   </svg>
 </div>
 
