@@ -26,6 +26,14 @@ else
   clone_and_install "VGGT"    "https://github.com/facebookresearch/vggt.git"
   clone_and_install "OpenVLA" "https://github.com/openvla/openvla.git"
   # clone_and_install "UNITE" "<url-when-available>"
+
+  # ALFRED — plain clone only (requirements.txt pins torch==1.1.0, incompatible)
+  if [ ! -d "$EXTERNAL/alfred" ]; then
+    echo "Cloning ALFRED..."
+    git clone "https://github.com/askforalfred/alfred.git" "$EXTERNAL/alfred"
+  else
+    echo "alfred already exists, skipping."
+  fi
 fi
 
 echo "Done. External repos in external/"
