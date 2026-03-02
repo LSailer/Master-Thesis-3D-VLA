@@ -1,0 +1,15 @@
+[workspace]
+name = "habitat-env"
+channels = ["aihabitat-nightly", "conda-forge"]
+platforms = ["osx-arm64"]
+
+[dependencies]
+python = "3.12.*"
+habitat-sim = { version = ">=0.3.3", build = "*bullet*" }
+pip = "*"
+numpy = ">=1.26"
+ipykernel = "*"
+matplotlib = "*"
+
+[pypi-dependencies]
+# habitat-lab installed manually via external/ clone
