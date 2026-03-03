@@ -1,1 +1,1 @@
-*.mp4 filter=lfs diff=lfs merge=lfs -text
+media/**/*.mp4 filter=lfs diff=lfs merge=lfs -text

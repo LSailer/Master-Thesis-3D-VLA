@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Thesis Pivot: VLA + 3D Semantic Understanding</title>
+<title>3D Scene Understanding for Object Navigation</title>
 <!-- KaTeX -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
@@ -403,15 +403,15 @@
 
 <!-- SLIDE 1: Title -->
 <div class="slide active" id="slide-1">
-  <h3>Supervisor Meeting · Feb 25, 2026</h3>
-  <h1>Should We Pivot?<br>VLA + 3D Semantic<br>Scene Understanding</h1>
+  <h3>Supervisor Meeting · Mar 3, 2026</h3>
+  <h1>3D Scene Understanding<br>for Object Navigation</h1>
   <div class="subtitle" style="margin-top: 16px;">
-    Augmenting Vision-Language-Action models with UNITE 3D features for object navigation
+    VGGT exploration results + thesis approach — augmenting VLAs with dense 3D semantic features
   </div>
   <div style="margin-top: 32px;">
-    <span class="tag tag-accent">OpenVLA</span>
-    <span class="tag tag-green">UNITE 3D</span>
-    <span class="tag tag-cyan">Object Navigation</span>
+    <span class="tag tag-accent">VGGT</span>
+    <span class="tag tag-green">3D Scene Understanding</span>
+    <span class="tag tag-cyan">ObjectNav</span>
   </div>
 </div>
 
@@ -502,28 +502,30 @@
       </div>
     </div>
 
-    <div class="card" style="border-top: 3px solid var(--accent-green); display: flex; flex-direction: column; justify-content: space-between; padding: 18px;">
-      <h4 style="margin-bottom: 12px;">Trained on Large Collection of Public Datasets</h4>
-
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-        <div>
-          <p style="font-size: 0.8rem; color: var(--accent2); margin-bottom: 3px; font-weight: 600;">SfM-Annotated</p>
-          <p style="font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">CO3D, MegaDepth</p>
-        </div>
-        <div>
-          <p style="font-size: 0.8rem; color: var(--accent-cyan); margin-bottom: 3px; font-weight: 600;">Real-World LiDAR</p>
-          <p style="font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">KITTI, nuScenes, Mapillary</p>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="border-top: 3px solid var(--accent-green); padding: 18px;">
+        <h4 style="margin-bottom: 10px;">Parameter Breakdown (1.26B total)</h4>
+        <table style="margin: 0; font-size: 0.8rem;">
+          <tr><td style="padding: 4px 10px;">Aggregator</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">909M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">72.4%</td></tr>
+          <tr><td style="padding: 4px 10px;">Camera Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">216M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">17.2%</td></tr>
+          <tr><td style="padding: 4px 10px;">Depth Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Point Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Track Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">66M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">5.2%</td></tr>
+        </table>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-dim); display: flex; justify-content: space-between;">
+          <span><strong>Inference:</strong> 2.37s/frame (MPS)</span>
+          <span>64× A100 training</span>
         </div>
       </div>
-
-      <div style="margin-top: 10px;">
-        <p style="font-size: 0.8rem; color: var(--accent-green); margin-bottom: 3px; font-weight: 600;">Synthetic (~60%)</p>
-        <p style="font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">BlendedMVS, Hypersim, Habitat, Replica, Virtual KITTI, PointOdyssey</p>
-      </div>
-
-      <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 0.7rem; color: var(--text-dim); display: flex; justify-content: space-between;">
-        <span><strong>Training Cost:</strong> ~10 days</span>
-        <span>64× A100 (80GB)</span>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+          <img src="images/vggt_depth_confidence.png" alt="VGGT depth + confidence maps" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">Depth (plasma) + confidence (viridis) — 5 views</div>
+        </div>
+        <div>
+          <img src="images/vggt_pca_rgb.png" alt="VGGT PCA-RGB backbone features" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">PCA-RGB backbone features — 5 frames</div>
+        </div>
       </div>
     </div>
   </div>
@@ -542,11 +544,12 @@
         <li><strong>SpatialVLA</strong> — 3D position encoding only (RSS 2025)</li>
         <li><strong>Spatial Forcing</strong> — implicit alignment, no 3D at inference (ICLR 2026)</li>
         <li><strong>3D-VLA</strong> — point clouds but no semantics per point (ICML 2024)</li>
+        <li><strong>eVGGT</strong> — distilled VGGT as frozen encoder for ACT/DP manipulation (Vuong et al. 2025)</li>
       </ul>
     </div>
     <div class="card" style="border-left: 4px solid var(--accent-green);">
       <h4>Line B: Rich 3D Understanding</h4>
-      <p style="margin-bottom: 10px;">Foundation models for dense 3D scene understanding exist, but <strong>not connected to action</strong>:</p>
+      <p style="margin-bottom: 10px;">Foundation models for dense 3D scene understanding exist, but <strong>not yet used with semantics for action</strong>:</p>
       <ul>
         <li><strong>UNITE</strong> — full semantic 3D from RGB (Koch et al. 2025)</li>
         <li><strong>VGGT</strong> — geometry backbone (CVPR 2025 Best Paper)</li>
@@ -554,18 +557,18 @@
     </div>
     <div class="card" style="border-left: 4px solid var(--accent-amber);">
       <h4 style="color: var(--accent-amber);">The Gap</h4>
-      <p style="margin-bottom: 10px; color: var(--text); font-weight: 500;">No one has connected rich, dense 3D semantics to VLA action output.</p>
+      <p style="margin-bottom: 10px; color: var(--text); font-weight: 500;">eVGGT validates VGGT for robotics — but uses latent geometry only.</p>
       <ul>
-        <li>Existing VLA+3D = sparse or geometry-only</li>
+        <li>eVGGT: geometry-only, no semantics/CLIP/instance features</li>
+        <li>eVGGT: manipulation only, not navigation</li>
         <li>UNITE's per-point semantics + instances never used for action</li>
-        <li>Room-scale navigation especially underserved</li>
       </ul>
     </div>
   </div>
 
   <div class="highlight-box" style="margin-top: 16px;">
     <strong style="color: #fff;">Proposed contribution:</strong>
-    <span style="color: var(--text-dim);"> First to use UNITE-style dense semantic 3D features (CLIP + instance + articulation) as structured input to a VLA for object navigation.</span>
+    <span style="color: var(--text-dim);"> eVGGT validates VGGT for robotics but uses latent geometry only. We add dense semantic features (CLIP + instance) and target room-scale navigation.</span>
   </div>
 </div>
 
@@ -1196,40 +1199,6 @@
   </div>
 </div>
 
-<!-- SLIDE 10: Open Questions & Risks -->
-<div class="slide" id="slide-12">
-  <h3>Honest Assessment</h3>
-  <h2>Open Questions &amp; Risks</h2>
-
-  <div class="card-grid grid-3">
-    <div class="card" style="border-left: 4px solid var(--accent-red);">
-      <h4 style="color: var(--accent-red);">UNITE Access</h4>
-      <p>No public code or weights (Dec 2025 paper). Must ask Ropinski for access.</p>
-      <p style="margin-top: 8px; color: var(--text);"><strong>Fallback:</strong> VGGT (public, geometry-only) + add own semantic heads, or ConceptGraphs pipeline.</p>
-    </div>
-    <div class="card" style="border-left: 4px solid var(--accent-red);">
-      <h4 style="color: var(--accent-red);">Multi-View Problem</h4>
-      <p>UNITE expects multiple views of a scene. Navigating agent only sees one frame at a time.</p>
-      <p style="margin-top: 8px; color: var(--text);"><strong>Idea:</strong> Frame accumulation — collect frames as agent moves, progressively build 3D. But: latency, memory, quality?</p>
-    </div>
-    <div class="card" style="border-left: 4px solid var(--accent-red);">
-      <h4 style="color: var(--accent-red);">Sim Quality</h4>
-      <p>UNITE trained on real images. Habitat renders are synthetic. Unknown how well UNITE generalizes to sim.</p>
-      <p style="margin-top: 8px; color: var(--text);"><strong>Mitigation:</strong> HM3D uses photorealistic scans, not procedural — may be close enough.</p>
-    </div>
-  </div>
-
-  <div class="card-grid grid-2" style="margin-top: 14px;">
-    <div class="card" style="border-left: 4px solid var(--accent-amber);">
-      <h4 style="color: var(--accent-amber);">Tokenization</h4>
-      <p>How to compress a dense 3D point cloud into a fixed number of tokens for an LLM? No established method. Need to design and validate a strategy (FPS, voxel, learned projection).</p>
-    </div>
-    <div class="card" style="border-left: 4px solid var(--accent-amber);">
-      <h4 style="color: var(--accent-amber);">Competitive Field</h4>
-      <p>VLA+3D is a hot area — new papers weekly. Risk of being scooped. But: nobody has used UNITE-style dense features yet, and room-scale nav is underserved vs tabletop.</p>
-    </div>
-  </div>
-</div>
 
 <!-- SLIDE 11: Timeline -->
 <div class="slide" id="slide-13">
@@ -1237,15 +1206,14 @@
   <h2>6-Month Execution Plan</h2>
 
   <div class="timeline">
-    <div class="timeline-item" style="border-top: 3px solid var(--accent);">
-      <div class="month">Month 1</div>
-      <h4>Setup + UNITE Access</h4>
-      <p>Get UNITE code via Ropinski · Set up OpenVLA pipeline · Configure Habitat Simulator · Pre-compute 3D features</p>
-    </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
+      <h4>VGGT Exploration</h4>
+      <p>JAX re-implementation · Depth/pose/feature extraction · Architecture understood · Custom head interface identified</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent);">
       <div class="month">Month 2</div>
-      <h4>Baseline + Tokenization Pilot</h4>
-      <p>Train 2D-only VLA baseline on HM3D ObjectNav · Pilot tokenization strategies · Validate UNITE on sim renders</p>
+      <h4>Semantic Heads + Baseline</h4>
+      <p>Train DPT semantic heads on VGGT backbone · 2D-only VLA baseline on HM3D ObjectNav · Tokenization pilot</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
       <div class="month">Month 3</div>
@@ -1279,18 +1247,19 @@
 <div class="slide" id="slide-14">
   <div class="discussion-center">
     <h3>Discussion</h3>
-    <h2>What Do You Think?</h2>
+    <h2>Questions &amp; Next Steps</h2>
     <p class="discussion-question">
-      Should I pivot to this VLA + 3D semantic topic,<br>or stay with the current DreamerV3 direction?
+      VGGT exploration complete — custom head replacement is concrete.<br>
+      What questions do you have about the approach?
     </p>
     <div style="margin-top: 48px; display: flex; gap: 20px;">
       <div class="card" style="text-align: center; padding: 20px 36px;">
-        <h4 style="color: var(--accent-green);">Pivot</h4>
-        <p>New topic, stronger novelty,<br>Ropinski connection</p>
+        <h4 style="color: var(--accent-green);">Next Up</h4>
+        <p>Train semantic DPT heads<br>on VGGT backbone tokens</p>
       </div>
       <div class="card" style="text-align: center; padding: 20px 36px;">
-        <h4 style="color: var(--accent-amber);">Stay</h4>
-        <p>Existing progress,<br>known codebase</p>
+        <h4 style="color: var(--accent-cyan);">Parallel</h4>
+        <p>Set up HM3D ObjectNav<br>baseline pipeline</p>
       </div>
     </div>
   </div>
