@@ -811,9 +811,9 @@
 <!-- New Architecture Approach -->
 <div class="slide" id="slide-newarch">
   <h3>Possible Approach</h3>
-  <h2>VGGT + Multi-Head DPT + Diffusion Policy Planner</h2>
+  <h2>VGGT + Semantic DPT + Fusion + 3D Diffusion / Flow Head</h2>
 
-  <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg"
+    <svg viewBox="0 0 900 530" xmlns="http://www.w3.org/2000/svg"
        style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
     <defs>
       <marker id="na-amber" viewBox="0 0 10 10" refX="8" refY="5"
@@ -840,6 +840,10 @@
               markerWidth="6" markerHeight="6" orient="auto">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c"/>
       </marker>
+      <marker id="na-purple" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/>
+      </marker>
 
       <filter id="ng-amber" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fbbf24" flood-opacity="0.55"/>
@@ -859,191 +863,207 @@
       <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fb923c" flood-opacity="0.55"/>
       </filter>
+      <filter id="ng-purple" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#a78bfa" flood-opacity="0.55"/>
+      </filter>
     </defs>
 
     <!-- Background -->
-    <rect width="900" height="510" fill="#0f0f13"/>
+    <rect width="900" height="530" fill="#0f0f13"/>
 
-    <!-- ROW A: Inputs ─────────────────────────────── -->
-    <!-- Current Obs (amber) -->
-    <rect x="155" y="10" width="278" height="42" rx="8"
+    <!-- ══════════ ROW A: Inputs ══════════ -->
+    <rect x="170" y="8" width="255" height="40" rx="8"
           fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
           filter="url(#ng-amber)"/>
-    <text x="294" y="29" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="297" y="25" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="12" font-weight="700" fill="#fbbf24">Current Obs</text>
-    <text x="294" y="45" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="297" y="41" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9" fill="#fbbf24" opacity="0.7">obs&#x2081; &#x2026; obs&#x2099;</text>
 
-    <!-- ⊕ concat symbol -->
-    <circle cx="450" cy="31" r="12" fill="none" stroke="#475569" stroke-width="1.5"/>
-    <line x1="438" y1="31" x2="462" y2="31" stroke="#475569" stroke-width="1.5"/>
-    <line x1="450" y1="19" x2="450" y2="43" stroke="#475569" stroke-width="1.5"/>
+    <circle cx="440" cy="28" r="11" fill="none" stroke="#475569" stroke-width="1.5"/>
+    <line x1="429" y1="28" x2="451" y2="28" stroke="#475569" stroke-width="1.5"/>
+    <line x1="440" y1="17" x2="440" y2="39" stroke="#475569" stroke-width="1.5"/>
 
-    <!-- Buffer Obs (rose) -->
-    <rect x="467" y="10" width="278" height="42" rx="8"
+    <rect x="456" y="8" width="255" height="40" rx="8"
           fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
           filter="url(#ng-rose)"/>
-    <text x="606" y="29" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="583" y="25" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="12" font-weight="700" fill="#f472b6">Buffer Obs</text>
-    <text x="606" y="45" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="583" y="41" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9" fill="#f472b6" opacity="0.7">history frames</text>
 
-    <!-- Arrow: inputs → VGGT -->
-    <line x1="450" y1="53" x2="450" y2="67"
+    <line x1="440" y1="49" x2="440" y2="61"
           stroke="#818cf8" stroke-width="2" marker-end="url(#na-indigo)"/>
 
-    <!-- ROW B: VGGT ────────────────────────────────── -->
-    <rect x="55" y="69" width="790" height="42" rx="10"
+    <!-- ══════════ ROW B: VGGT ══════════ -->
+    <rect x="130" y="63" width="740" height="40" rx="10"
           fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="2"
           filter="url(#ng-indigo)"/>
-    <text x="450" y="87" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="500" y="80" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="14" font-weight="700" fill="#818cf8">VGGT</text>
-    <text x="450" y="103" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="500" y="96" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9.5" fill="#818cf8" opacity="0.7">Multi-View 3D Feature Extraction Backbone</text>
 
-    <!-- Arrow: VGGT → DPT Block -->
-    <line x1="450" y1="112" x2="450" y2="125"
+    <line x1="500" y1="104" x2="500" y2="115"
           stroke="#22d3ee" stroke-width="1.5" marker-end="url(#na-cyan)"/>
 
-    <!-- ROW C: DPT Block container (modular) ──────── -->
-    <rect x="30" y="127" width="840" height="96" rx="12"
+    <!-- ══════════ ROW C: DPT Block ══════════ -->
+    <rect x="130" y="117" width="740" height="82" rx="12"
           fill="rgba(34,211,238,0.03)" stroke="#22d3ee"
           stroke-width="1.2" stroke-dasharray="6,4" opacity="0.65"/>
-    <text x="450" y="122" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="500" y="113" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="8" font-weight="700" fill="#22d3ee" letter-spacing="2" opacity="0.7">DPT BLOCK (MODULAR, EXTENSIBLE)</text>
 
-    <!-- DPT 1: Geometric -->
-    <rect x="46" y="138" width="178" height="72" rx="8"
+    <!-- Semantic DPT (leftmost — receives goal) -->
+    <rect x="145" y="127" width="185" height="62" rx="8"
           fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
           filter="url(#ng-cyan)"/>
-    <text x="135" y="162" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" font-weight="600" fill="#22d3ee">Geometric DPT</text>
-    <text x="135" y="178" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">current position</text>
-    <text x="135" y="192" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">in room</text>
-
-    <!-- DPT 2: Semantic -->
-    <rect x="242" y="138" width="178" height="72" rx="8"
-          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
-          filter="url(#ng-cyan)"/>
-    <text x="331" y="162" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="237" y="147" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="11" font-weight="600" fill="#22d3ee">Semantic DPT</text>
-    <text x="331" y="178" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">Open Vocabulary</text>
-    <text x="331" y="192" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">(UNITE-style)</text>
+    <text x="237" y="163" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">cosine(feat, goal)</text>
+    <text x="237" y="178" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#fbbf24" opacity="0.9">&#x2192; relevance map</text>
 
-    <!-- DPT 3: Camera -->
-    <rect x="438" y="138" width="178" height="72" rx="8"
+    <!-- Geometric DPT -->
+    <rect x="345" y="127" width="160" height="62" rx="8"
           fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
           filter="url(#ng-cyan)"/>
-    <text x="527" y="162" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" font-weight="600" fill="#22d3ee">Camera DPT</text>
-    <text x="527" y="178" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">camera pose</text>
+    <text x="425" y="149" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee">Geometric DPT</text>
+    <text x="425" y="166" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">depth + world pts</text>
+    <text x="425" y="180" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">3D scene geometry</text>
 
-    <!-- DPT 4: extensible placeholder -->
-    <rect x="634" y="138" width="178" height="72" rx="8"
+    <!-- Camera DPT -->
+    <rect x="520" y="127" width="155" height="62" rx="8"
+          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
+          filter="url(#ng-cyan)"/>
+    <text x="597" y="149" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee">Camera DPT</text>
+    <text x="597" y="166" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">camera pose</text>
+    <text x="597" y="180" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">ego-localization</text>
+
+    <!-- Extensible placeholder -->
+    <rect x="690" y="127" width="100" height="62" rx="8"
           fill="rgba(34,211,238,0.04)" stroke="#22d3ee"
           stroke-width="1" stroke-dasharray="4,3" opacity="0.40"/>
-    <text x="723" y="181" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="740" y="164" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="28" fill="#22d3ee" opacity="0.30">&#x2026;</text>
 
-    <!-- Arrows: DPT boxes → Planner (converging) -->
-    <line x1="135" y1="210" x2="270" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
-    <line x1="331" y1="210" x2="395" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
-    <line x1="527" y1="210" x2="510" y2="245"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
-
-    <!-- ROW D: Planner inputs + Planner ───────────── -->
-    <!-- Text Goal (amber) -->
-    <rect x="8" y="248" width="118" height="32" rx="7"
+    <!-- ══════════ LEFT: Text Goal + CLIP ══════════ -->
+    <rect x="6" y="120" width="112" height="56" rx="7"
           fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
           filter="url(#ng-amber)"/>
-    <text x="67" y="261" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" font-weight="600" fill="#fbbf24">Text Goal</text>
-    <text x="67" y="274" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8" fill="#fbbf24" opacity="0.7">encoded</text>
+    <text x="62" y="139" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#fbbf24">"find the chair"</text>
+    <text x="62" y="155" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fbbf24" opacity="0.8">CLIP text enc.</text>
+    <text x="62" y="169" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#fbbf24" opacity="0.6">goal_emb [B,D]</text>
 
-    <!-- Action Emb (rose) -->
-    <rect x="8" y="286" width="118" height="22" rx="5"
+    <!-- Arrow 1: Text Goal → Semantic DPT (horizontal) -->
+    <line x1="118" y1="148" x2="143" y2="148"
+          stroke="#fbbf24" stroke-width="1.8" marker-end="url(#na-amber)"/>
+    <text x="131" y="141" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2460;</text>
+
+    <!-- Arrow 2: Text Goal → Fusion Module (down then right) -->
+    <path d="M 62,176 L 62,222 L 128,222"
+          fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-amber)" opacity="0.8"/>
+    <text x="73" y="205" font-family="Inter,sans-serif"
+          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2461;</text>
+    <text x="84" y="215" font-family="Inter,sans-serif"
+          font-size="7" fill="#fbbf24" opacity="0.7">goal cond.</text>
+
+    <!-- Arrows: DPT boxes → Fusion (converging) -->
+    <line x1="237" y1="189" x2="350" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+    <line x1="425" y1="189" x2="450" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+    <line x1="597" y1="189" x2="550" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+
+    <!-- ══════════ ROW D: Fusion Module (NEW) ══════════ -->
+    <rect x="130" y="212" width="740" height="40" rx="10"
+          fill="rgba(167,139,250,0.10)" stroke="#a78bfa" stroke-width="1.8"
+          filter="url(#ng-purple)"/>
+    <text x="500" y="229" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="700" fill="#a78bfa">Fusion Module</text>
+    <text x="500" y="245" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#a78bfa" opacity="0.7">Cross-Attention / Concat &#x2014; geometry &#x2295; relevance &#x2295; pose &#x2295; goal &#x2192; cond</text>
+
+    <line x1="500" y1="252" x2="500" y2="264"
+          stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
+
+    <!-- ══════════ LEFT: Buffer inputs ══════════ -->
+    <rect x="6" y="274" width="112" height="22" rx="5"
           fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
           filter="url(#ng-rose)"/>
-    <text x="67" y="302" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="62" y="290" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9.5" font-weight="600" fill="#f472b6">Buffer Action Emb.</text>
 
-    <!-- Reward Emb (rose) -->
-    <rect x="8" y="314" width="118" height="22" rx="5"
+    <rect x="6" y="302" width="112" height="22" rx="5"
           fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
           filter="url(#ng-rose)"/>
-    <text x="67" y="330" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="62" y="318" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9.5" font-weight="600" fill="#f472b6">Buffer Reward Emb.</text>
 
-    <!-- Arrows: left inputs → Planner -->
-    <line x1="126" y1="264" x2="150" y2="264"
-          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-amber)" opacity="0.8"/>
-    <line x1="126" y1="297" x2="150" y2="282"
+    <line x1="118" y1="285" x2="128" y2="285"
           stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
-    <line x1="126" y1="325" x2="150" y2="295"
+    <line x1="118" y1="313" x2="128" y2="303"
           stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
 
-    <!-- Planner: Diffusion Policy Transformer (green) -->
-    <rect x="152" y="245" width="720" height="96" rx="10"
+    <!-- ══════════ ROW E: 3D DP / Flow Matching Head ══════════ -->
+    <rect x="130" y="266" width="740" height="74" rx="10"
           fill="rgba(52,211,153,0.10)" stroke="#34d399" stroke-width="2"
           filter="url(#ng-green)"/>
-    <text x="512" y="280" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="15" font-weight="700" fill="#34d399">Planner</text>
-    <text x="512" y="299" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" fill="#34d399" opacity="0.8">Diffusion Policy Transformer</text>
-    <text x="512" y="318" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#34d399" opacity="0.55">DPT outputs &#xb7; Text Goal &#xb7; Action Emb &#xb7; Reward Emb &#x2192; action plan</text>
+    <text x="500" y="294" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="14" font-weight="700" fill="#34d399">3D Diffusion Policy / Flow Matching Head</text>
+    <text x="500" y="314" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" fill="#34d399" opacity="0.8">denoises action chunks a&#x2081;&#x2026;a&#x2081; conditioned on fused representation</text>
+    <text x="500" y="330" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#34d399" opacity="0.55">fused cond &#xb7; Buffer Action Emb &#xb7; Buffer Reward Emb &#x2192; n-step actions</text>
 
-    <!-- Planner → Agent arrow + label -->
-    <line x1="480" y1="341" x2="480" y2="358"
+    <line x1="500" y1="340" x2="500" y2="358"
           stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
-    <text x="487" y="352" font-family="Inter,sans-serif"
-          font-size="9" fill="#34d399" opacity="0.8" font-style="italic">n-step Policy</text>
+    <text x="510" y="354" font-family="Inter,sans-serif"
+          font-size="9" fill="#34d399" opacity="0.8" font-style="italic">n-step actions</text>
 
-    <!-- ROW F: Agent (top) + Environment (bottom) stacked, Buffer circle left ── -->
-
-    <!-- Agent (indigo) -->
-    <rect x="370" y="358" width="220" height="42" rx="8"
+    <!-- ══════════ ROW F: Agent + Buffer + Environment ══════════ -->
+    <rect x="380" y="360" width="220" height="38" rx="8"
           fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="1.8"
           filter="url(#ng-indigo)"/>
-    <text x="480" y="384" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="490" y="384" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="13" font-weight="600" fill="#818cf8">Agent</text>
 
-    <!-- Environment (orange) -->
-    <rect x="370" y="451" width="220" height="42" rx="8"
+    <rect x="380" y="452" width="220" height="38" rx="8"
           fill="rgba(251,146,60,0.10)" stroke="#fb923c" stroke-width="1.5"
           filter="url(#ng-orange)"/>
-    <text x="480" y="467" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="490" y="468" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="12" font-weight="600" fill="#fb923c">Environment</text>
-    <text x="480" y="483" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="490" y="482" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9" fill="#fb923c" opacity="0.6">HM3D Habitat</text>
 
-    <!-- Buffer circle (between Agent and Env, no arrows) -->
-    <circle cx="480" cy="425" r="20"
+    <circle cx="490" cy="422" r="18"
             fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
             filter="url(#ng-rose)"/>
-    <text x="480" y="422" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" font-weight="700" fill="#f472b6">Buffer</text>
-    <text x="480" y="434" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="6" fill="#f472b6" opacity="0.65">actions · rewards · states</text>
+    <text x="490" y="419" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="700" fill="#f472b6">Buffer</text>
+    <text x="490" y="431" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="5.5" fill="#f472b6" opacity="0.65">act &#xb7; rew &#xb7; state</text>
 
-    <!-- Action arc: Agent right → Env right (solid indigo) -->
-    <path d="M 590,379 C 650,379 650,472 590,472"
+    <path d="M 600,379 C 655,379 655,471 600,471"
           fill="none" stroke="#818cf8" stroke-width="1.8" marker-end="url(#na-indigo)"/>
-    <text x="668" y="428" text-anchor="start" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#818cf8" opacity="0.85">action aₜ</text>
+    <text x="672" y="428" text-anchor="start" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#818cf8" opacity="0.85">action a&#x2081;</text>
 
-    <!-- Reward+state arc: Env left → Agent left (solid orange) -->
-    <path d="M 370,472 C 310,472 310,379 370,379"
+    <path d="M 380,471 C 325,471 325,379 380,379"
           fill="none" stroke="#fb923c" stroke-width="1.8" marker-end="url(#na-orange)"/>
-    <text x="288" y="428" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="298" y="428" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="8.5" fill="#fb923c" opacity="0.85">reward + state</text>
   </svg>
 </div>
