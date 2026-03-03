@@ -4,6 +4,19 @@
 
 This is the prerequisite work needed before implementing the action heads spec (`action-heads-spec.md` on `main`). Everything here happens on `feat/datasets`.
 
+## Decision: Pixi as single package manager
+
+habitat-sim is only distributed via conda (no PyPI wheel). Rather than juggling two package managers (Pixi for habitat + uv for Python deps), use **Pixi for everything**. Pixi supports `[pypi-dependencies]` for pip packages alongside conda packages.
+
+```
+Before (split):          After (unified):
+  pixi → habitat-sim      pixi → habitat-sim (conda)
+  uv   → torch, etc.             torch, einops, etc. (pypi-dependencies)
+                                  master-thesis-3d-vla (editable install)
+```
+
+All commands use `pixi run` as universal prefix.
+
 ## Current State
 
 | Component | Status | Evidence |
@@ -17,6 +30,7 @@ This is the prerequisite work needed before implementing the action heads spec (
 | ShortestPathFollower test | **NOT DONE** | No code anywhere |
 | Expert demo collection | **NOT DONE** | No script |
 | Expert dataset on disk | **NOT DONE** | Nothing saved |
+| Pixi pypi-dependencies | **NOT SET UP** | `pixi.toml` only has conda deps, torch etc. installed separately via uv |
 
 ## Blocker: HM3D Scene Meshes
 
@@ -26,25 +40,30 @@ Everything depends on downloading the scene meshes. Without `.glb` files Habitat
 
 Requires a free Matterport API token:
 1. Register at https://matterport.com/partners/facebook (free for academic use)
-2. Get `API_TOKEN_ID` and `API_TOKEN_SECRET`
-3. Run:
+2. Get `HM3D_TOKEN_ID` (public) and `HM3D_TOKEN_SECRET` (private)
+3. Add to `~/.zshrc` or `.env`:
+   ```bash
+   export HM3D_TOKEN_ID="your-public-token"
+   export HM3D_TOKEN_SECRET="your-private-token"
+   ```
+4. Run:
 
 ```bash
 # Start with minival (2 scenes, ~500 MB) to verify pipeline
-python -m habitat_sim.utils.datasets_download \
-    --username <API_TOKEN_ID> --password <API_TOKEN_SECRET> \
+pixi run python -m habitat_sim.utils.datasets_download \
+    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
     --data-path data/ \
     --uids hm3d_minival_v0.2
 
 # Then full val (36 scenes, ~5 GB)
-python -m habitat_sim.utils.datasets_download \
-    --username <API_TOKEN_ID> --password <API_TOKEN_SECRET> \
+pixi run python -m habitat_sim.utils.datasets_download \
+    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
     --data-path data/ \
     --uids hm3d_val_v0.2
 
 # Then train (145 scenes, ~25 GB) — only when ready to scale
-python -m habitat_sim.utils.datasets_download \
-    --username <API_TOKEN_ID> --password <API_TOKEN_SECRET> \
+pixi run python -m habitat_sim.utils.datasets_download \
+    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
     --data-path data/ \
     --uids hm3d_train_v0.2
 ```
@@ -52,6 +71,38 @@ python -m habitat_sim.utils.datasets_download \
 Expected result: `data/scene_datasets/hm3d_v0.2/{minival,val,train}/00xxx-SceneID/SceneID.basis.glb`
 
 ## Tasks (in order)
+
+### Task 0: Migrate to Pixi as single package manager
+
+Update `pixi.toml` to include all pip deps under `[pypi-dependencies]`:
+
+```toml
+[pypi-dependencies]
+torch = ">=2.7"
+torchvision = ">=0.22"
+einops = "*"
+safetensors = "*"
+huggingface_hub = "*"
+pillow = "*"
+tqdm = "*"
+plotly = ">=6.5"
+manim = ">=0.18.1"
+pytest = "*"
+master-thesis-3d-vla = { path = ".", editable = true }
+```
+
+Verify:
+```bash
+pixi install
+pixi run python -c "
+import habitat_sim
+import torch
+import einops
+print(f'habitat-sim: {habitat_sim.__version__}')
+print(f'torch: {torch.__version__}')
+print('all deps resolved')
+"
+```
 
 ### Task 1: Download HM3D minival scenes
 
@@ -157,21 +208,23 @@ Fill in notebook sections 6 (cells 27-29) with actual outputs:
 ## File Structure (new files this PR)
 
 ```
+pixi.toml                             # Updated with [pypi-dependencies]
+
 scripts/
-└── collect_expert_demos.py    # Expert data collection
+└── collect_expert_demos.py            # Expert data collection
 
 data/
 ├── scene_datasets/
-│   └── hm3d_v0.2/            # Downloaded scene meshes (gitignored)
+│   └── hm3d_v0.2/                    # Downloaded scene meshes (gitignored)
 │       ├── minival/
 │       ├── val/
 │       └── train/
-└── expert_demos/              # Collected expert demonstrations (gitignored)
+└── expert_demos/                      # Collected expert demonstrations (gitignored)
     ├── val_mini_30.pt
     └── val_1000.pt
 
 docs/specs/
-└── dataset-prerequisites-spec.md   # This file
+└── dataset-prerequisites-spec.md      # This file
 ```
 
 ## .gitignore additions
@@ -179,15 +232,20 @@ docs/specs/
 ```
 data/scene_datasets/hm3d_v0.2/
 data/expert_demos/
+.env
 ```
 
 ## Dependencies
 
-No new deps — habitat-sim and habitat-lab already available via Pixi.
+All managed through `pixi.toml`:
+- **Conda**: habitat-sim, python, numpy, cmake
+- **PyPI** (via `[pypi-dependencies]`): torch, torchvision, einops, safetensors, huggingface_hub, pillow, tqdm, plotly, manim, pytest, this project (editable)
 
 ## Done criteria
 
 ```
+[ ] pixi.toml updated, `pixi install` resolves all deps
+[ ] `pixi run python -c "import habitat_sim; import torch"` works
 [ ] HM3D minival scenes downloaded (.glb + .navmesh)
 [ ] Habitat env loads and renders observations
 [ ] ShortestPathFollower completes episodes with SPL ≈ 1.0

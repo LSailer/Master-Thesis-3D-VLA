@@ -8,8 +8,23 @@ python = "3.12.*"
 habitat-sim = { version = ">=0.3.3", build = "*bullet*" }
 pip = "*"
 numpy = ">=1.26"
+cmake = ">=3.27"
 ipykernel = "*"
 matplotlib = "*"
 
 [pypi-dependencies]
-# habitat-lab installed manually via external/ clone
+# Core ML
+torch = ">=2.7"
+torchvision = ">=0.22"
+einops = "*"
+safetensors = "*"
+huggingface_hub = "*"
+pillow = "*"
+tqdm = "*"
+# Visualization
+plotly = ">=6.5"
+manim = ">=0.18.1"
+# Dev
+pytest = "*"
+# This project (editable install)
+master-thesis-3d-vla = { path = ".", editable = true }
