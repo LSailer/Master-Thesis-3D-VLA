@@ -11,6 +11,9 @@ dependencies = [
     "huggingface_hub",
     "einops",
     "safetensors",
+    # Habitat
+    "habitat-lab",
+    "habitat-sim",
     # notebook
     "ipykernel",
     "matplotlib",

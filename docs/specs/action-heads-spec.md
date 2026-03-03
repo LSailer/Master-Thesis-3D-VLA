@@ -8,11 +8,38 @@ Implement both action head variants (DDPM Diffusion Policy and Conditional Flow 
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Action space** | Discrete first (4 classes), continuous later | Habitat ObjectNav uses `MOVE_FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `STOP`. Diffusion/FM only needed if we switch to continuous velocity control |
+| **Action space** | Discrete first (6 classes), continuous later | Habitat ObjectNav uses `STOP`, `MOVE_FORWARD`, `TURN_LEFT`, `TURN_RIGHT`, `LOOK_UP`, `LOOK_DOWN`. Diffusion/FM only needed if we switch to continuous velocity control |
 | **Chunk size** | 4 | Nav episodes ~50-100 steps at ~5Hz. Chunk of 4 = plan 4 ahead, re-plan every 4. Larger chunks (8-16) for high-freq manipulation, overkill for nav |
 | **Denoiser arch** | MLP (concat cond + x_t + time_emb, 4 hidden layers). Potential upgrade to Transformer later | Simpler, faster to iterate. Transformer only needed when chunk grows or multi-token goal conditioning |
 | **EMA** | Yes | Exponential Moving Average of weights: `ema = 0.999 * ema + 0.001 * weights` after each step. Use EMA weights at inference. Smooths training noise → better samples. ~5 lines of code |
 | **Training paradigm** | IL (Imitation Learning) first | Clone expert demonstrations from Habitat's `ShortestPathFollower` oracle. RL fine-tune later (optional, via FMPG) |
+
+### Action Magnitudes
+
+| Action | Index | Physical effect |
+|--------|-------|-----------------|
+| STOP | 0 | terminate episode |
+| MOVE_FORWARD | 1 | +0.25 m forward |
+| TURN_LEFT | 2 | +30° yaw |
+| TURN_RIGHT | 3 | −30° yaw |
+| LOOK_UP | 4 | −30° pitch |
+| LOOK_DOWN | 5 | +30° pitch |
+
+## Dataset Prerequisites
+
+Before collecting expert demonstrations:
+
+1. **Install habitat-lab** (added to `pyproject.toml` pip deps)
+2. **Download HM3D scene meshes**:
+   ```bash
+   python -m habitat_sim.utils.datasets_download --data-path data/ --uids hm3d_*
+   ```
+   Requires Matterport API token in `.env`.
+3. **Episode dataset**: `objectnav_hm3d_v2`, path layout:
+   ```
+   data/datasets/objectnav/hm3d/objectnav_hm3d_v2/{split}/{split}.json.gz
+   ```
+4. **Observation config**: 640×480 RGB-D, hfov=79°, camera height 0.88 m, agent radius 0.18 m
 
 ## Expert Data Collection (IL)
 
@@ -30,12 +57,12 @@ for episode in env.episodes:
     trajectory = []
     while not env.episode_over:
         # Oracle computes optimal action using ground-truth navmesh
-        expert_action = follower.get_next_action(goal_position)
+        expert_action = follower.get_next_action(env.current_episode.goals[0].position)
         trajectory.append({
             "rgb": obs["rgb"],              # [H, W, 3]
             "depth": obs["depth"],          # [H, W, 1]
             "goal_category": episode.object_category,  # "chair"
-            "action": expert_action,        # 0-3 discrete
+            "action": expert_action,        # 0-5 discrete
         })
         obs = env.step(expert_action)
     episodes.append(trajectory)
@@ -76,7 +103,7 @@ All three heads share the same conditioning interface:
 ```python
 # Phase 1: Discrete baseline (start here)
 class DiscreteActionHead(nn.Module):
-    def __init__(self, cond_dim=256, n_actions=4, hidden_dim=256):
+    def __init__(self, cond_dim=256, n_actions=6, hidden_dim=256):
         ...
 
     def forward(self, cond: Tensor) -> Tensor:
@@ -175,7 +202,7 @@ class FusionModule(nn.Module):
 ```python
 for batch in dataloader:
     cond = fusion(batch["scene"], batch["goal"])
-    logits = discrete_head(cond)                 # [B, 4]
+    logits = discrete_head(cond)                 # [B, 6]
     loss = F.cross_entropy(logits, batch["expert_action"])
     loss.backward()
     optimizer.step()
@@ -286,7 +313,7 @@ No new heavy deps — both methods are pure PyTorch.
 # test_action_heads.py
 
 def test_discrete_head_shape():
-    """DiscreteActionHead returns [B, n_actions=4] logits."""
+    """DiscreteActionHead returns [B, n_actions=6] logits."""
 
 def test_ddpm_forward_shape():
     """DDPMActionHead.forward returns [B, chunk=4, action_dim]."""
