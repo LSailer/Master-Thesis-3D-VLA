@@ -1207,28 +1207,28 @@
 
   <div class="timeline">
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
-      <h4>VGGT Exploration</h4>
-      <p>JAX re-implementation · Depth/pose/feature extraction · Architecture understood · Custom head interface identified</p>
+      <h4>VGGT Exploration + Habitat Setup</h4>
+      <p>Architecture understood · Habitat env setup · VGGT integration into pipeline</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent);">
       <div class="month">Month 2</div>
-      <h4>Semantic Heads + Baseline</h4>
-      <p>Train DPT semantic heads on VGGT backbone · 2D-only VLA baseline on HM3D ObjectNav · Tokenization pilot</p>
+      <h4>End-to-End Pipeline v0</h4>
+      <p>Semantic DPT + fusion module + first policy &mdash; full pipeline running rough</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
       <div class="month">Month 3</div>
-      <h4>Core: 3D Token Injection</h4>
-      <p>3D token injection experiments · Sweep token count &amp; feature combinations · Compare to 2D-only baseline</p>
+      <h4>3D Policy vs Flow Matching</h4>
+      <p>Train both heads from scratch · Compare on full pipeline</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
       <div class="month">Month 4</div>
-      <h4>Ablation + Analysis</h4>
-      <p>Feature ablation (which UNITE components matter?) · Spatial vs non-spatial episode analysis</p>
+      <h4>Baseline VLA + Ablations</h4>
+      <p>Train baseline VLA for comparison · Ablate features (geometry vs semantics vs both)</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
       <div class="month">Month 5</div>
-      <h4>Extensions + Buffer</h4>
-      <p>Generalization tests (MP3D) · Data efficiency · Buffer for reruns and debugging</p>
+      <h4>Iterate + Refine</h4>
+      <p>Improve weakest components · Generalization tests · Buffer for reruns</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-cyan);">
       <div class="month">Month 6</div>
@@ -1243,27 +1243,7 @@
   </div>
 </div>
 
-<!-- SLIDE 14: Discussion -->
-<div class="slide" id="slide-14">
-  <div class="discussion-center">
-    <h3>Discussion</h3>
-    <h2>Questions &amp; Next Steps</h2>
-    <p class="discussion-question">
-      VGGT exploration complete — custom head replacement is concrete.<br>
-      What questions do you have about the approach?
-    </p>
-    <div style="margin-top: 48px; display: flex; gap: 20px;">
-      <div class="card" style="text-align: center; padding: 20px 36px;">
-        <h4 style="color: var(--accent-green);">Next Up</h4>
-        <p>Train semantic DPT heads<br>on VGGT backbone tokens</p>
-      </div>
-      <div class="card" style="text-align: center; padding: 20px 36px;">
-        <h4 style="color: var(--accent-cyan);">Parallel</h4>
-        <p>Set up HM3D ObjectNav<br>baseline pipeline</p>
-      </div>
-    </div>
-  </div>
-</div>
+
 
 </div><!-- end slide-container -->
 
