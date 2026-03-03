@@ -25,7 +25,7 @@ All commands use `pixi run` as universal prefix.
 | habitat-lab | Cloned | `external/habitat-lab/` |
 | Episode data | Ready (145 train scenes, ~7.25M episodes) | `data/datasets/objectnav/hm3d/objectnav_hm3d_v2/train/content/*.json.gz` |
 | Episode statistics | Done | `notebooks/habitat_objectnav_benchmark.ipynb` (sections 1-5) |
-| HM3D scene meshes (.glb) | **MISSING** | Notebook cell 22: "No .glb scene files found" |
+| HM3D scene meshes (.glb) | **minival DONE** (10 scenes) | `data/scene_datasets/hm3d/minival/00xxx-*//*.basis.glb` |
 | Habitat env test | **SKIPPED** | Notebook cells 27-29 all skipped (no scenes) |
 | ShortestPathFollower test | **NOT DONE** | No code anywhere |
 | Expert demo collection | **NOT DONE** | No script |
@@ -46,29 +46,38 @@ Requires a free Matterport API token:
    export HM3D_TOKEN_ID="your-public-token"
    export HM3D_TOKEN_SECRET="your-private-token"
    ```
-4. Run:
+4. Download manually with curl (habitat-sim's built-in downloader is broken — missing `-L` for redirects):
 
 ```bash
-# Start with minival (2 scenes, ~500 MB) to verify pipeline
-pixi run python -m habitat_sim.utils.datasets_download \
-    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
-    --data-path data/ \
-    --uids hm3d_minival_v0.2
+# Minival (10 scenes, ~392 MB)
+curl -L --user "$HM3D_TOKEN_ID:$HM3D_TOKEN_SECRET" \
+  "https://api.matterport.com/resources/habitat/hm3d-minival-habitat.tar" \
+  -o data/hm3d-minival-habitat.tar
+mkdir -p data/versioned_data/hm3d-0.2/hm3d/minival
+tar xf data/hm3d-minival-habitat.tar -C data/versioned_data/hm3d-0.2/hm3d/minival/
+ln -s "$(pwd)/data/versioned_data/hm3d-0.2/hm3d" data/scene_datasets/hm3d
+rm data/hm3d-minival-habitat.tar
 
-# Then full val (36 scenes, ~5 GB)
-pixi run python -m habitat_sim.utils.datasets_download \
-    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
-    --data-path data/ \
-    --uids hm3d_val_v0.2
+# Val (36 scenes, ~5 GB) — same pattern
+curl -L --user "$HM3D_TOKEN_ID:$HM3D_TOKEN_SECRET" \
+  "https://api.matterport.com/resources/habitat/hm3d-val-habitat.tar" \
+  -o data/hm3d-val-habitat.tar
+mkdir -p data/versioned_data/hm3d-0.2/hm3d/val
+tar xf data/hm3d-val-habitat.tar -C data/versioned_data/hm3d-0.2/hm3d/val/
+rm data/hm3d-val-habitat.tar
 
-# Then train (145 scenes, ~25 GB) — only when ready to scale
-pixi run python -m habitat_sim.utils.datasets_download \
-    --username "$HM3D_TOKEN_ID" --password "$HM3D_TOKEN_SECRET" \
-    --data-path data/ \
-    --uids hm3d_train_v0.2
+# Train (145 scenes, ~25 GB) — only when ready to scale
+curl -L --user "$HM3D_TOKEN_ID:$HM3D_TOKEN_SECRET" \
+  "https://api.matterport.com/resources/habitat/hm3d-train-habitat.tar" \
+  -o data/hm3d-train-habitat.tar
+mkdir -p data/versioned_data/hm3d-0.2/hm3d/train
+tar xf data/hm3d-train-habitat.tar -C data/versioned_data/hm3d-0.2/hm3d/train/
+rm data/hm3d-train-habitat.tar
 ```
 
-Expected result: `data/scene_datasets/hm3d_v0.2/{minival,val,train}/00xxx-SceneID/SceneID.basis.glb`
+> **Bug**: `habitat_sim.utils.datasets_download` uses `curl --continue-at -` without `-L`. Matterport API returns 307 redirect → curl saves redirect body (56 bytes) instead of following. Manual curl with `-L` works.
+
+Expected result: `data/scene_datasets/hm3d/minival/00xxx-SceneID/SceneID.basis.glb`
 
 ## Tasks (in order)
 
