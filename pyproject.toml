@@ -11,12 +11,20 @@ dependencies = [
     "huggingface_hub",
     "einops",
     "safetensors",
+    # Habitat
+    "habitat-lab",
+    "habitat-sim",
     # notebook
     "ipykernel",
     "matplotlib",
     "manim>=0.18.1",
+    "plotly>=6.5.2",
+    "nbformat>=5.10.4",
     # ALFRED / AI2-THOR
     "ai2thor>=5.0.0",
+    # data
+    "h5py",
+    "tqdm",
     # dev
     "pytest",
 ]
