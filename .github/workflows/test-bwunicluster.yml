@@ -5,4 +5,4 @@ jobs:
     runs-on: self-hosted
     steps:
       - run: squeue --me || squeue -u $USER
-      - run: sinfo --summarize
+      - run: scontrol show config | head -5
