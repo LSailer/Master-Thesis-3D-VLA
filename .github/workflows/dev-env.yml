@@ -1,0 +1,41 @@
+name: Dev Environment (BWUniCluster)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["dev/env"]
+
+env:
+  WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+  HM3D_TOKEN: ${{ secrets.HM3D_TOKEN }}
+
+jobs:
+  smoke-test:
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          environments: dev
+          cache: true
+
+      - name: Download test scenes (if missing)
+        run: |
+          if [ ! -f data/scene_datasets/habitat-test-scenes/van-gogh-room.glb ]; then
+            mkdir -p data/scene_datasets/habitat-test-scenes
+            curl -sSL -o data/scene_datasets/habitat-test-scenes/van-gogh-room.glb \
+              "https://raw.githubusercontent.com/facebookresearch/habitat-sim/main/data/scene_datasets/habitat-test-scenes/van-gogh-room.glb"
+          fi
+
+      - name: Smoke test (GPU)
+        run: |
+          srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 \
+            pixi run -e dev python scripts/smoke_test.py
+
+      - name: Run tests (GPU)
+        run: |
+          srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 \
+            pixi run -e dev pytest tests/ -x -q

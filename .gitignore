@@ -6,6 +6,8 @@ __pycache__/
 .env
 wandb/
 output/
+output/slurm/
+output/observations/
 data/
 *.pth
 *.h5
