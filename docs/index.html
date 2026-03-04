@@ -562,259 +562,257 @@
         <li>eVGGT: geometry-only, no semantics/CLIP/instance features</li>
         <li>eVGGT: manipulation only, not navigation</li>
         <li>UNITE's per-point semantics + instances never used for action</li>
+        <li>World models (DreamerV3) learn from 2D pixels only — never tested with rich 3D features</li>
       </ul>
     </div>
   </div>
 
   <div class="highlight-box" style="margin-top: 16px;">
     <strong style="color: #fff;">Proposed contribution:</strong>
-    <span style="color: var(--text-dim);"> eVGGT validates VGGT for robotics but uses latent geometry only. We add dense semantic features (CLIP + instance) and target room-scale navigation.</span>
+    <span style="color: var(--text-dim);"> Rich 3D semantic features (VGGT/DPT geometry + CLIP semantics) have never been injected into world models. We test whether DreamerV3's RSSM benefits from dense 3D scene understanding for navigation.</span>
   </div>
 </div>
 
-<!-- SLIDE 6: Proposed Approach -->
-<div class="slide" id="slide-11">
-  <h3>Possible Approach</h3>
-  <h2>UNITE 3D Tokens → VLA for Object Navigation</h2>
+<!-- Research Question -->
+<div class="slide" id="slide-question">
+  <h3 style="text-align: center;">Research Question</h3>
+  <h2 style="text-align: center; font-size: 1.6em; margin-top: 12px;">Can 3D scene understanding improve world models for navigation?</h2>
 
-  <div class="arrow-flow">
-    <div class="flow-box">RGB frames (accumulated)</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-box" style="border-color: var(--accent-green);">UNITE</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-box">3D semantic tokens</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-box" style="border-color: var(--accent);">VLA</div>
-    <div class="flow-arrow">→</div>
-    <div class="flow-box">Navigate to target object</div>
+  <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+    <span style="background: rgba(129,140,248,0.15); border: 1px solid #818cf8; color: #818cf8; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">VGGT</span>
+    <span style="background: rgba(34,211,238,0.15); border: 1px solid #22d3ee; color: #22d3ee; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">DPT Depth</span>
+    <span style="background: rgba(52,211,153,0.15); border: 1px solid #34d399; color: #34d399; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">CLIP Semantics</span>
+    <span style="background: rgba(251,191,36,0.15); border: 1px solid #fbbf24; color: #fbbf24; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">+ DreamerV3 RSSM</span>
   </div>
 
-  <div class="card-grid grid-2" style="margin-top: 16px;">
-    <div class="card">
-      <h4>Research Questions</h4>
-      <ul>
-        <li>Does UNITE's 3D representation improve VLA on object navigation?</li>
-        <li>Which features matter most? (geometry vs semantics vs instances)</li>
-        <li>How to tokenize 3D point clouds for LLM input?</li>
-      </ul>
-    </div>
-    <div class="card">
-      <h4>Approach</h4>
-      <ul>
-        <li>Pre-compute UNITE features for all scenes (offline)</li>
-        <li>Agent accumulates RGB frames as it navigates → progressively builds 3D scene with UNITE</li>
-        <li>Downsample point cloud to fixed token count, inject into VLA transformer</li>
-        <li>Evaluate on HM3D ObjectNav (standard benchmark, works on BWUniCluster H100)</li>
-      </ul>
-    </div>
+  <div class="card" style="border-left: 4px solid var(--accent-amber); margin-top: 24px; max-width: 780px; margin-left: auto; margin-right: auto;">
+    <h4 style="color: var(--accent-amber);">Hypothesis</h4>
+    <p style="color: var(--text); line-height: 1.6;">Replacing DreamerV3's CNN encoder with frozen VGGT + DPT features gives the world model an explicit geometric and semantic prior — leading to better <strong>sample efficiency</strong> and <strong>navigation success</strong> on HM3D ObjectNav.</p>
   </div>
 
-  <div class="highlight-box green" style="margin-top: 12px;">
-    <strong style="color: var(--accent-green);">Multi-view in navigation:</strong>
-    <span style="color: var(--text-dim);"> UNITE needs multiple views — the agent naturally collects these as it explores. Frame accumulation lets the 3D scene progressively improve with each step.</span>
-  </div>
+  <p style="text-align: center; color: var(--text-dim); font-size: 0.88em; margin-top: 18px; max-width: 680px; margin-left: auto; margin-right: auto;">
+    Standard DreamerV3 learns all 3D structure implicitly from 2D pixels. We provide it directly via a frozen VGGT backbone.
+  </p>
 </div>
 
-<!-- Architecture: PointVLA-Style Integration -->
-<div class="slide" id="slide-arch">
-  <h3>Possible Approach</h3>
-  <h2>PointVLA-Style: 3D Token Injection into Action Expert</h2>
+<!-- DreamerV3 RSSM Background -->
+<div class="slide" id="slide-dreamer">
+  <h3>Background</h3>
+  <h2>DreamerV3 — Recurrent State-Space Model (RSSM)</h2>
 
-  <svg viewBox="0 0 900 548" xmlns="http://www.w3.org/2000/svg"
-       style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
-    <defs>
-      <marker id="ah-amber" viewBox="0 0 10 10" refX="8" refY="5"
-              markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
-      </marker>
-      <marker id="ah-cyan" viewBox="0 0 10 10" refX="8" refY="5"
-              markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
-      </marker>
-      <marker id="ah-indigo" viewBox="0 0 10 10" refX="8" refY="5"
-              markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#818cf8"/>
-      </marker>
-      <marker id="ah-green" viewBox="0 0 10 10" refX="8" refY="5"
-              markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
-      </marker>
-      <filter id="fg-amber" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fbbf24" flood-opacity="0.55"/>
-      </filter>
-      <filter id="fg-cyan" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#22d3ee" flood-opacity="0.55"/>
-      </filter>
-      <filter id="fg-indigo" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#818cf8" flood-opacity="0.55"/>
-      </filter>
-      <filter id="fg-green" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#34d399" flood-opacity="0.55"/>
-      </filter>
-    </defs>
+  <div class="two-col" style="grid-template-columns: 56% 42%; align-items: start;">
+    <!-- Left: RSSM loop diagram -->
+    <svg viewBox="0 0 500 410" xmlns="http://www.w3.org/2000/svg"
+       style="width:100%;display:block;">
+      <defs>
+        <marker id="dm-coral" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171"/>
+        </marker>
+        <marker id="dm-green" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+        </marker>
+        <marker id="dm-amber" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+        </marker>
+        <marker id="dm-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+        </marker>
+        <marker id="dm-indigo" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#818cf8"/>
+        </marker>
+        <filter id="dm-g-coral" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#f87171" flood-opacity="0.45"/>
+        </filter>
+        <filter id="dm-g-green" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#34d399" flood-opacity="0.45"/>
+        </filter>
+        <filter id="dm-g-amber" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#fbbf24" flood-opacity="0.45"/>
+        </filter>
+      </defs>
 
-    <!-- Background -->
-    <rect width="900" height="548" fill="#0f0f13"/>
+      <rect width="500" height="410" fill="#0f0f13"/>
 
-    <!-- Dashed group: 2D Path -->
-    <rect x="38" y="141" width="270" height="196" rx="12"
-          fill="rgba(34,211,238,0.03)" stroke="#22d3ee"
-          stroke-width="1" stroke-dasharray="6,4" opacity="0.45"/>
-    <text x="173" y="136" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="10" font-weight="600" fill="#22d3ee" letter-spacing="2" opacity="0.6">2D PATH</text>
+      <!-- ═══ Input labels (left edge) ═══ -->
+      <text x="12" y="68" font-family="Inter,sans-serif" font-size="10" fill="#f87171" opacity="0.8">h&#x2091;&#x208B;&#x2081;</text>
+      <text x="12" y="84" font-family="Inter,sans-serif" font-size="10" fill="#f87171" opacity="0.8">z&#x2091;&#x208B;&#x2081;</text>
+      <line x1="48" y1="75" x2="130" y2="75"
+            stroke="#f87171" stroke-width="1.5" marker-end="url(#dm-coral)" opacity="0.7"/>
 
-    <!-- Dashed group: 3D Path -->
-    <rect x="592" y="141" width="270" height="196" rx="12"
-          fill="rgba(129,140,248,0.03)" stroke="#818cf8"
-          stroke-width="1" stroke-dasharray="6,4" opacity="0.45"/>
-    <text x="727" y="136" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="10" font-weight="600" fill="#818cf8" letter-spacing="2" opacity="0.6">3D PATH</text>
+      <!-- a_{t-1} from top -->
+      <text x="232" y="28" font-family="Inter,sans-serif" font-size="10" fill="#34d399" font-weight="600">a&#x2091;&#x208B;&#x2081;</text>
+      <line x1="250" y1="32" x2="250" y2="50"
+            stroke="#34d399" stroke-width="1.5" marker-end="url(#dm-green)"/>
 
-    <!-- RGB Observation (amber) -->
-    <g filter="url(#fg-amber)">
-      <rect x="55" y="15" width="236" height="46" rx="10"
-            fill="rgba(251,191,36,0.1)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="173" y="38" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#fbbf24">
-        RGB Observation
-      </text>
-    </g>
+      <!-- ═══ GRU Box ═══ -->
+      <rect x="132" y="52" width="236" height="48" rx="10"
+            fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="1.8"
+            filter="url(#dm-g-coral)"/>
+      <text x="250" y="72" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="13" font-weight="700" fill="#f87171">GRU Sequence Model</text>
+      <text x="250" y="90" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#f87171" opacity="0.65">h&#x2091; = f(h&#x2091;&#x208B;&#x2081;, z&#x2091;&#x208B;&#x2081;, a&#x2091;&#x208B;&#x2081;)</text>
 
-    <!-- Language Instruction (amber) -->
-    <g filter="url(#fg-amber)">
-      <rect x="55" y="83" width="236" height="42" rx="10"
-            fill="rgba(251,191,36,0.1)" stroke="#fbbf24" stroke-width="1.5"/>
-      <text x="173" y="104" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#fbbf24">
-        Language Instruction
-      </text>
-    </g>
+      <!-- h_t label + arrow down to branch -->
+      <line x1="250" y1="100" x2="250" y2="148"
+            stroke="#f87171" stroke-width="1.5"/>
+      <text x="262" y="118" font-family="Inter,sans-serif"
+            font-size="11" fill="#f87171" font-weight="600">h&#x2091;</text>
+      <!-- small dot at branch point -->
+      <circle cx="250" cy="148" r="3" fill="#f87171"/>
 
-    <!-- VLA (cyan) -->
-    <g filter="url(#fg-cyan)">
-      <rect x="46" y="151" width="254" height="78" rx="10"
-            fill="rgba(34,211,238,0.08)" stroke="#22d3ee" stroke-width="1.5"/>
-      <text x="173" y="178" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#22d3ee">VLA</text>
-      <text x="173" y="199" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="11" fill="#22d3ee" opacity="0.8">
-        OpenVLA / DexVLA
-      </text>
-      <text x="173" y="217" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="10" fill="#22d3ee" opacity="0.55">
-        vision encoder + LLM backbone
-      </text>
-    </g>
+      <!-- ═══ Posterior (left branch) ═══ -->
+      <line x1="250" y1="148" x2="145" y2="170"
+            stroke="#f87171" stroke-width="1.3" marker-end="url(#dm-coral)"/>
+      <rect x="55" y="172" width="180" height="52" rx="10"
+            fill="rgba(248,113,113,0.10)" stroke="#f87171" stroke-width="1.5"
+            filter="url(#dm-g-coral)"/>
+      <text x="145" y="194" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="12" font-weight="600" fill="#f87171">Posterior</text>
+      <text x="145" y="213" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#f87171" opacity="0.65">z&#x2091; &#x223C; q(z&#x2091; | h&#x2091;, x&#x2091;)</text>
 
-    <!-- VGGT (indigo) -->
-    <g filter="url(#fg-indigo)">
-      <rect x="600" y="151" width="254" height="78" rx="10"
-            fill="rgba(129,140,248,0.08)" stroke="#818cf8" stroke-width="1.5"/>
-      <text x="727" y="175" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#818cf8">VGGT</text>
-      <text x="727" y="196" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="11" fill="#818cf8" opacity="0.8">
-        Visual Geometry Grounded Transformer
-      </text>
-      <text x="727" y="216" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="10" fill="#818cf8" opacity="0.65">
-        ↳ new projection head (trained)
-      </text>
-    </g>
+      <!-- x_t observation input (amber, from left) -->
+      <text x="8" y="198" font-family="Inter,sans-serif"
+            font-size="10" fill="#fbbf24" font-weight="600">x&#x2091;</text>
+      <line x1="28" y1="196" x2="55" y2="196"
+            stroke="#fbbf24" stroke-width="1.5" marker-end="url(#dm-amber)"/>
 
-    <!-- 2D Visual Tokens (cyan) -->
-    <g filter="url(#fg-cyan)">
-      <rect x="46" y="283" width="254" height="42" rx="10"
-            fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
-      <text x="173" y="304" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#22d3ee">
-        2D Visual Tokens
-      </text>
-    </g>
+      <!-- ═══ Prior (right branch, dashed) ═══ -->
+      <line x1="250" y1="148" x2="355" y2="170"
+            stroke="#f87171" stroke-width="1.3" stroke-dasharray="5,3"
+            marker-end="url(#dm-coral)" opacity="0.7"/>
+      <rect x="265" y="172" width="180" height="52" rx="10"
+            fill="rgba(248,113,113,0.06)" stroke="#f87171" stroke-width="1.5"
+            stroke-dasharray="6,3" opacity="0.8"/>
+      <text x="355" y="194" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="12" font-weight="600" fill="#f87171" opacity="0.8">Prior</text>
+      <text x="355" y="213" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#f87171" opacity="0.5">&#x17A;&#x2091; &#x223C; p(&#x17A;&#x2091; | h&#x2091;)</text>
 
-    <!-- 3D Semantic Tokens (indigo) -->
-    <g filter="url(#fg-indigo)">
-      <rect x="600" y="283" width="254" height="42" rx="10"
-            fill="rgba(129,140,248,0.1)" stroke="#818cf8" stroke-width="1.5"/>
-      <text x="727" y="304" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#818cf8">
-        3D Semantic Tokens
-      </text>
-    </g>
+      <!-- z_t output from posterior -->
+      <line x1="145" y1="224" x2="145" y2="260"
+            stroke="#f87171" stroke-width="1.5"/>
+      <text x="157" y="248" font-family="Inter,sans-serif"
+            font-size="10" fill="#f87171" font-weight="600">z&#x2091;</text>
 
-    <!-- Action Expert (green) -->
-    <g filter="url(#fg-green)">
-      <rect x="310" y="378" width="280" height="70" rx="12"
-            fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="450" y="402" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#34d399">
-        Action Expert
-      </text>
-      <text x="450" y="422" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="11" fill="#34d399" opacity="0.8">
-        Diffusion Transformer
-      </text>
-      <text x="450" y="440" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="10" fill="#34d399" opacity="0.55">
-        attends over 2D + 3D token sequence
-      </text>
-    </g>
+      <!-- combined state label -->
+      <rect x="80" y="262" width="130" height="22" rx="6"
+            fill="rgba(248,113,113,0.06)" stroke="#f87171" stroke-width="0.8" opacity="0.5"/>
+      <text x="145" y="278" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9.5" fill="#e2e8f0" opacity="0.7">(h&#x2091;, z&#x2091;) → heads</text>
 
-    <!-- Actions output (green) -->
-    <g filter="url(#fg-green)">
-      <rect x="55" y="482" width="790" height="52" rx="10"
-            fill="rgba(52,211,153,0.07)" stroke="#34d399" stroke-width="1.5"/>
-      <text x="450" y="500" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#34d399">
-        Actions (Discrete)
-      </text>
-      <text x="450" y="519" text-anchor="middle" dominant-baseline="middle"
-            font-family="Inter,sans-serif" font-size="10" fill="#34d399" opacity="0.75">
-        MOVE_FWD · MOVE_BWD · MOVE_LEFT · MOVE_RIGHT · TURN_LEFT · TURN_RIGHT · STOP
-      </text>
-    </g>
+      <!-- ẑ_t from prior (imagination) -->
+      <line x1="355" y1="224" x2="355" y2="260"
+            stroke="#f87171" stroke-width="1.2" stroke-dasharray="5,3" opacity="0.6"/>
+      <text x="367" y="248" font-family="Inter,sans-serif"
+            font-size="10" fill="#f87171" font-weight="600" opacity="0.6">&#x17A;&#x2091;</text>
 
-    <!-- Arrow: RGB → Language (amber) -->
-    <line x1="173" y1="61" x2="173" y2="83"
-          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)" opacity="0.8"/>
+      <!-- ═══ Prediction Heads ═══ -->
+      <!-- Decoder -->
+      <line x1="100" y1="284" x2="75" y2="304"
+            stroke="#22d3ee" stroke-width="1" marker-end="url(#dm-cyan)" opacity="0.7"/>
+      <rect x="22" y="306" width="105" height="38" rx="8"
+            fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.2"/>
+      <text x="74" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#22d3ee">Decoder</text>
+      <text x="74" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#22d3ee" opacity="0.6">reconstruct x&#x0302;&#x2091;</text>
 
-    <!-- Arrow: Language → VLA (amber) -->
-    <line x1="173" y1="125" x2="173" y2="151"
-          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)" opacity="0.8"/>
+      <!-- Reward -->
+      <line x1="145" y1="284" x2="180" y2="304"
+            stroke="#fbbf24" stroke-width="1" marker-end="url(#dm-amber)" opacity="0.7"/>
+      <rect x="135" y="306" width="90" height="38" rx="8"
+            fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.2"/>
+      <text x="180" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#fbbf24">Reward</text>
+      <text x="180" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#fbbf24" opacity="0.6">r&#x0302;&#x2091;</text>
 
-    <!-- Arrow: RGB (right edge) → VGGT via top horizontal (indigo L-path) -->
-    <path d="M 291,38 H 727 V 151"
-          fill="none" stroke="#818cf8" stroke-width="1.5"
-          marker-end="url(#ah-indigo)" opacity="0.7"/>
+      <!-- Continue -->
+      <line x1="185" y1="284" x2="275" y2="304"
+            stroke="#818cf8" stroke-width="1" marker-end="url(#dm-indigo)" opacity="0.7"/>
+      <rect x="240" y="306" width="90" height="38" rx="8"
+            fill="rgba(129,140,248,0.10)" stroke="#818cf8" stroke-width="1.2"/>
+      <text x="285" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#818cf8">Continue</text>
+      <text x="285" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#818cf8" opacity="0.6">&#x0109;&#x2091;</text>
 
-    <!-- Arrow: VLA → 2D Visual Tokens (cyan) -->
-    <line x1="173" y1="229" x2="173" y2="283"
-          stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)" opacity="0.8"/>
+      <!-- ═══ Actor-Critic (from imagination, green) ═══ -->
+      <line x1="355" y1="260" x2="400" y2="304"
+            stroke="#34d399" stroke-width="1.3" stroke-dasharray="5,3"
+            marker-end="url(#dm-green)" opacity="0.7"/>
+      <rect x="350" y="306" width="130" height="38" rx="8"
+            fill="rgba(52,211,153,0.10)" stroke="#34d399" stroke-width="1.5"
+            filter="url(#dm-g-green)"/>
+      <text x="415" y="322" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="700" fill="#34d399">Actor-Critic</text>
+      <text x="415" y="337" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#34d399" opacity="0.7">learns in imagination</text>
 
-    <!-- Arrow: VGGT → 3D Semantic Tokens (indigo) -->
-    <line x1="727" y1="229" x2="727" y2="283"
-          stroke="#818cf8" stroke-width="1.5" marker-end="url(#ah-indigo)" opacity="0.8"/>
+      <!-- a_t output -->
+      <line x1="415" y1="344" x2="415" y2="370"
+            stroke="#34d399" stroke-width="1.3" marker-end="url(#dm-green)"/>
+      <text x="415" y="386" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" fill="#34d399" font-weight="600">a&#x2091;</text>
 
-    <!-- Arrow: 2D Tokens → Action Expert (green, converging bezier) -->
-    <path d="M 173,325 C 173,378 430,370 430,380"
-          fill="none" stroke="#34d399" stroke-width="1.5"
-          marker-end="url(#ah-green)" opacity="0.8"/>
+      <!-- ═══ Recurrence loop (right side, faint) ═══ -->
+      <path d="M 200,265 C 220,265 485,250 485,150 C 485,50 380,28 270,28"
+            fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="4,3"
+            opacity="0.35" marker-end="url(#dm-coral)"/>
+      <text x="492" y="155" font-family="Inter,sans-serif"
+            font-size="7.5" fill="#f87171" opacity="0.4"
+            transform="rotate(90,492,155)">recurrence</text>
 
-    <!-- Arrow: 3D Tokens → Action Expert (green, converging bezier) -->
-    <path d="M 727,325 C 727,378 470,370 470,380"
-          fill="none" stroke="#34d399" stroke-width="1.5"
-          marker-end="url(#ah-green)" opacity="0.8"/>
+      <!-- ═══ Annotation: imagination zone ═══ -->
+      <rect x="260" y="162" width="190" height="192" rx="10"
+            fill="none" stroke="#34d399" stroke-width="0.8"
+            stroke-dasharray="4,4" opacity="0.25"/>
+      <text x="355" y="362" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#34d399" opacity="0.4">imagination rollout (no obs)</text>
+    </svg>
 
-    <!-- Arrow: Action Expert → Actions (green) -->
-    <line x1="450" y1="448" x2="450" y2="482"
-          stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-green)" opacity="0.8"/>
-  </svg>
+    <!-- Right: key properties -->
+    <div>
+      <div class="card" style="margin-bottom: 14px; border-color: rgba(248,113,113,0.3);">
+        <h4 style="color: #f87171;">World Model (RSSM)</h4>
+        <ul>
+          <li><strong>Deterministic</strong> — GRU carries long-range memory via \(h_t\)</li>
+          <li><strong>Stochastic</strong> — categorical latent \(z_t\) (32 classes × 32 dims)</li>
+          <li><strong>Posterior</strong> uses real observations; <strong>Prior</strong> imagines without them</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-bottom: 14px; border-color: rgba(52,211,153,0.3);">
+        <h4 style="color: #34d399;">Actor-Critic in Imagination</h4>
+        <ul>
+          <li>Unroll prior 15 steps — no environment needed</li>
+          <li>Actor maximises \(\lambda\)-returns over imagined trajectories</li>
+          <li>Critic predicts discounted value</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color: rgba(251,191,36,0.3);">
+        <h4 style="color: #fbbf24;">DreamerV3 Innovations</h4>
+        <ul>
+          <li><strong>Symlog predictions</strong> — scale-free losses across tasks</li>
+          <li><strong>Discrete latents</strong> — 32 × 32 categorical (no KL balancing needed)</li>
+          <li><strong>Unimix entropy</strong> — 1% uniform mix prevents posterior collapse</li>
+          <li>Single hyperparameter set works across 150+ tasks</li>
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- New Architecture Approach -->
 <div class="slide" id="slide-newarch">
-  <h3>Possible Approach</h3>
-  <h2>VGGT + Semantic DPT + Fusion + 3D Diffusion / Flow Head</h2>
+  <h3>Proposed Architecture</h3>
+  <h2>VGGT + DPT + DreamerV3 RSSM World Model</h2>
 
     <svg viewBox="0 0 900 530" xmlns="http://www.w3.org/2000/svg"
        style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
@@ -835,17 +833,17 @@
               markerWidth="6" markerHeight="6" orient="auto">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
       </marker>
-      <marker id="na-rose" viewBox="0 0 10 10" refX="8" refY="5"
+      <marker id="na-coral" viewBox="0 0 10 10" refX="8" refY="5"
               markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f472b6"/>
-      </marker>
-      <marker id="na-orange" viewBox="0 0 10 10" refX="8" refY="5"
-              markerWidth="6" markerHeight="6" orient="auto">
-        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c"/>
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f87171"/>
       </marker>
       <marker id="na-purple" viewBox="0 0 10 10" refX="8" refY="5"
               markerWidth="6" markerHeight="6" orient="auto">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/>
+      </marker>
+      <marker id="na-orange" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c"/>
       </marker>
 
       <filter id="ng-amber" x="-30%" y="-30%" width="160%" height="160%">
@@ -860,214 +858,245 @@
       <filter id="ng-green" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#34d399" flood-opacity="0.55"/>
       </filter>
-      <filter id="ng-rose" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#f472b6" flood-opacity="0.55"/>
-      </filter>
-      <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
-        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fb923c" flood-opacity="0.55"/>
+      <filter id="ng-coral" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#f87171" flood-opacity="0.55"/>
       </filter>
       <filter id="ng-purple" x="-30%" y="-30%" width="160%" height="160%">
         <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#a78bfa" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fb923c" flood-opacity="0.55"/>
       </filter>
     </defs>
 
     <!-- Background -->
     <rect width="900" height="530" fill="#0f0f13"/>
 
-    <!-- ══════════ ROW A: Inputs ══════════ -->
-    <rect x="170" y="8" width="255" height="40" rx="8"
+    <!-- ══════════ ROW A: Obs Chunk ══════════ -->
+    <rect x="275" y="8" width="350" height="36" rx="8"
           fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
           filter="url(#ng-amber)"/>
-    <text x="297" y="25" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="12" font-weight="700" fill="#fbbf24">Current Obs</text>
-    <text x="297" y="41" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#fbbf24" opacity="0.7">obs&#x2081; &#x2026; obs&#x2099;</text>
+    <text x="450" y="24" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#fbbf24">Obs Chunk</text>
+    <text x="450" y="38" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fbbf24" opacity="0.7">RGB frames [t&#x2212;B+1 &#x2026; t] (batch B&#x2248;16)</text>
 
-    <circle cx="440" cy="28" r="11" fill="none" stroke="#475569" stroke-width="1.5"/>
-    <line x1="429" y1="28" x2="451" y2="28" stroke="#475569" stroke-width="1.5"/>
-    <line x1="440" y1="17" x2="440" y2="39" stroke="#475569" stroke-width="1.5"/>
-
-    <rect x="456" y="8" width="255" height="40" rx="8"
-          fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
-          filter="url(#ng-rose)"/>
-    <text x="583" y="25" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="12" font-weight="700" fill="#f472b6">Buffer Obs</text>
-    <text x="583" y="41" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#f472b6" opacity="0.7">history frames</text>
-
-    <line x1="440" y1="49" x2="440" y2="61"
+    <line x1="450" y1="45" x2="450" y2="57"
           stroke="#818cf8" stroke-width="2" marker-end="url(#na-indigo)"/>
 
-    <!-- ══════════ ROW B: VGGT ══════════ -->
-    <rect x="130" y="63" width="740" height="40" rx="10"
+    <!-- ══════════ ROW B: VGGT (frozen, batch) ══════════ -->
+    <rect x="130" y="60" width="740" height="40" rx="10"
           fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="2"
           filter="url(#ng-indigo)"/>
-    <text x="500" y="80" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="14" font-weight="700" fill="#818cf8">VGGT</text>
-    <text x="500" y="96" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9.5" fill="#818cf8" opacity="0.7">Multi-View 3D Feature Extraction Backbone</text>
+    <text x="500" y="77" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="14" font-weight="700" fill="#818cf8">VGGT (frozen)</text>
+    <text x="500" y="93" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9.5" fill="#818cf8" opacity="0.7">Multi-View 3D Feature Extraction &#x2014; batch over obs chunk</text>
 
-    <line x1="500" y1="104" x2="500" y2="115"
+    <line x1="450" y1="101" x2="450" y2="112"
           stroke="#22d3ee" stroke-width="1.5" marker-end="url(#na-cyan)"/>
 
     <!-- ══════════ ROW C: DPT Block ══════════ -->
-    <rect x="130" y="117" width="740" height="82" rx="12"
+    <rect x="130" y="114" width="740" height="70" rx="12"
           fill="rgba(34,211,238,0.03)" stroke="#22d3ee"
           stroke-width="1.2" stroke-dasharray="6,4" opacity="0.65"/>
-    <text x="500" y="113" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="500" y="111" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="8" font-weight="700" fill="#22d3ee" letter-spacing="2" opacity="0.7">DPT BLOCK (MODULAR, EXTENSIBLE)</text>
 
-    <!-- Semantic DPT (leftmost — receives goal) -->
-    <rect x="145" y="127" width="185" height="62" rx="8"
-          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
-          filter="url(#ng-cyan)"/>
-    <text x="237" y="147" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" font-weight="600" fill="#22d3ee">Semantic DPT</text>
-    <text x="237" y="163" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">cosine(feat, goal)</text>
-    <text x="237" y="178" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#fbbf24" opacity="0.9">&#x2192; relevance map</text>
+    <!-- Semantic DPT (dashed stroke, lower opacity — planned) -->
+    <rect x="145" y="123" width="185" height="52" rx="8"
+          fill="rgba(34,211,238,0.06)" stroke="#22d3ee" stroke-width="1.2"
+          stroke-dasharray="5,3" opacity="0.5"/>
+    <text x="237" y="143" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee" opacity="0.6">Semantic DPT</text>
+    <text x="237" y="158" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.5">dense CLIP features</text>
+    <text x="237" y="170" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#fbbf24" opacity="0.7">(planned)</text>
 
-    <!-- Geometric DPT -->
-    <rect x="345" y="127" width="160" height="62" rx="8"
+    <!-- Geometric DPT (solid) -->
+    <rect x="345" y="123" width="160" height="52" rx="8"
           fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
           filter="url(#ng-cyan)"/>
-    <text x="425" y="149" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="425" y="145" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="11" font-weight="600" fill="#22d3ee">Geometric DPT</text>
-    <text x="425" y="166" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="425" y="161" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="8.5" fill="#22d3ee" opacity="0.7">depth + world pts</text>
-    <text x="425" y="180" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">3D scene geometry</text>
-
-    <!-- Camera DPT -->
-    <rect x="520" y="127" width="155" height="62" rx="8"
-          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
-          filter="url(#ng-cyan)"/>
-    <text x="597" y="149" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="11" font-weight="600" fill="#22d3ee">Camera DPT</text>
-    <text x="597" y="166" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">camera pose</text>
-    <text x="597" y="180" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#22d3ee" opacity="0.7">ego-localization</text>
 
     <!-- Extensible placeholder -->
-    <rect x="690" y="127" width="100" height="62" rx="8"
+    <rect x="690" y="123" width="100" height="52" rx="8"
           fill="rgba(34,211,238,0.04)" stroke="#22d3ee"
           stroke-width="1" stroke-dasharray="4,3" opacity="0.40"/>
-    <text x="740" y="164" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="740" y="155" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="28" fill="#22d3ee" opacity="0.30">&#x2026;</text>
 
-    <!-- ══════════ LEFT: Text Goal + CLIP ══════════ -->
-    <rect x="6" y="120" width="112" height="56" rx="7"
-          fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
-          filter="url(#ng-amber)"/>
-    <text x="62" y="139" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="10" font-weight="600" fill="#fbbf24">"find the chair"</text>
-    <text x="62" y="155" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#fbbf24" opacity="0.8">CLIP text enc.</text>
-    <text x="62" y="169" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8" fill="#fbbf24" opacity="0.6">goal_emb [B,D]</text>
-
-    <!-- Arrow 1: Text Goal → Semantic DPT (horizontal) -->
-    <line x1="118" y1="148" x2="143" y2="148"
-          stroke="#fbbf24" stroke-width="1.8" marker-end="url(#na-amber)"/>
-    <text x="131" y="141" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2460;</text>
-
-    <!-- Arrow 2: Text Goal → Fusion Module (down then right) -->
-    <path d="M 62,176 L 62,222 L 128,222"
-          fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-amber)" opacity="0.8"/>
-    <text x="73" y="205" font-family="Inter,sans-serif"
-          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2461;</text>
-    <text x="84" y="215" font-family="Inter,sans-serif"
-          font-size="7" fill="#fbbf24" opacity="0.7">goal cond.</text>
-
     <!-- Arrows: DPT boxes → Fusion (converging) -->
-    <line x1="237" y1="189" x2="350" y2="210"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
-    <line x1="425" y1="189" x2="450" y2="210"
-          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
-    <line x1="597" y1="189" x2="550" y2="210"
+    <line x1="237" y1="175" x2="330" y2="196"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.5"/>
+    <line x1="425" y1="175" x2="410" y2="196"
           stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
 
-    <!-- ══════════ ROW D: Fusion Module (NEW) ══════════ -->
-    <rect x="130" y="212" width="740" height="40" rx="10"
+    <!-- ══════════ ROW D: Fusion Module ══════════ -->
+    <rect x="130" y="198" width="560" height="34" rx="10"
           fill="rgba(167,139,250,0.10)" stroke="#a78bfa" stroke-width="1.8"
           filter="url(#ng-purple)"/>
-    <text x="500" y="229" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="410" y="213" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="13" font-weight="700" fill="#a78bfa">Fusion Module</text>
-    <text x="500" y="245" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9" fill="#a78bfa" opacity="0.7">Cross-Attention / Concat &#x2014; geometry &#x2295; relevance &#x2295; pose &#x2295; goal &#x2192; cond</text>
+    <text x="410" y="227" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#a78bfa" opacity="0.7">geometry (&#x2295; semantics) &#x2192; cond</text>
 
-    <line x1="500" y1="252" x2="500" y2="264"
+    <!-- Arrow: Fusion → RSSM (cond) -->
+    <line x1="410" y1="233" x2="345" y2="248"
+          stroke="#f87171" stroke-width="1.8" marker-end="url(#na-coral)"/>
+    <text x="388" y="244" font-family="Inter,sans-serif"
+          font-size="7.5" fill="#a78bfa" opacity="0.7" font-style="italic">cond</text>
+
+    <!-- ══════════ ROW E: RSSM World Model + Imagination ══════════ -->
+
+    <!-- RSSM main box -->
+    <rect x="130" y="250" width="430" height="92" rx="10"
+          fill="rgba(248,113,113,0.10)" stroke="#f87171" stroke-width="2"
+          filter="url(#ng-coral)"/>
+    <text x="345" y="265" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="700" fill="#f87171">RSSM World Model</text>
+
+    <!-- GRU sub-box -->
+    <rect x="140" y="272" width="130" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#f87171" stroke-width="1" opacity="0.8"/>
+    <text x="205" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#f87171">GRU Seq. Model</text>
+    <text x="205" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#f87171" opacity="0.65">h&#x209C; = f(h&#x209C;&#x208B;&#x2081;, z&#x209C;&#x208B;&#x2081;, a&#x209C;&#x208B;&#x2081;)</text>
+    <text x="205" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#f87171" opacity="0.8">deterministic state</text>
+
+    <!-- Recurrence loop on GRU -->
+    <path d="M 148,324 C 130,324 130,280 148,280" fill="none"
+          stroke="#f87171" stroke-width="1" marker-end="url(#na-coral)" opacity="0.5"/>
+    <text x="126" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="5.5" fill="#f87171" opacity="0.45">t&#x2212;1</text>
+
+    <!-- Posterior sub-box -->
+    <rect x="278" y="272" width="130" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#f87171" stroke-width="1" opacity="0.8"/>
+    <text x="343" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#f87171">Posterior</text>
+    <text x="343" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#f87171" opacity="0.65">z&#x209C; ~ q(z&#x209C; | h&#x209C;, cond)</text>
+    <text x="343" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#a78bfa" opacity="0.7">&#x2191; uses observation</text>
+
+    <!-- Prior sub-box -->
+    <rect x="416" y="272" width="134" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#f87171" stroke-width="1" opacity="0.8"/>
+    <text x="483" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#f87171">Prior</text>
+    <text x="483" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#f87171" opacity="0.65">z&#x0302;&#x209C; ~ p(z&#x0302;&#x209C; | h&#x209C;)</text>
+    <text x="483" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#f87171" opacity="0.6">imagination only</text>
+
+    <!-- Internal arrows: GRU h_t → Posterior, GRU h_t → Prior -->
+    <line x1="270" y1="298" x2="276" y2="298"
+          stroke="#f87171" stroke-width="1.2" marker-end="url(#na-coral)" opacity="0.5"/>
+    <line x1="270" y1="285" x2="414" y2="285"
+          stroke="#f87171" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.3"/>
+
+    <!-- Decoder box (branches left) -->
+    <rect x="10" y="282" width="108" height="32" rx="6"
+          fill="rgba(248,113,113,0.06)" stroke="#f87171" stroke-width="1.2"
+          stroke-dasharray="4,3" opacity="0.65"/>
+    <text x="64" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" font-weight="600" fill="#f87171" opacity="0.75">Decoder</text>
+    <text x="64" y="309" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#f87171" opacity="0.55">reconstruct cond</text>
+    <!-- Arrow: RSSM → Decoder -->
+    <line x1="128" y1="298" x2="120" y2="298"
+          stroke="#f87171" stroke-width="1" marker-end="url(#na-coral)" opacity="0.45"/>
+
+    <!-- ─── Imagination branch (dashed, right of RSSM) ─── -->
+    <rect x="580" y="250" width="290" height="92" rx="10"
+          fill="rgba(248,113,113,0.04)" stroke="#f87171"
+          stroke-width="1.5" stroke-dasharray="6,4" opacity="0.65"/>
+    <text x="725" y="265" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="700" fill="#f87171" opacity="0.8">Imagination</text>
+    <text x="725" y="277" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7.5" fill="#f87171" opacity="0.45">(no env interaction)</text>
+
+    <!-- Imagination predictor boxes -->
+    <rect x="595" y="284" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#f87171" opacity="0.8">Reward r&#x0302;&#x209C;</text>
+
+    <rect x="595" y="303" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="315" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#f87171" opacity="0.8">Continue &#x0109;&#x209C;</text>
+
+    <rect x="595" y="322" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#f87171" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="334" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#f87171" opacity="0.8">Value V(s&#x209C;)</text>
+
+    <!-- Actor-Critic label in imagination -->
+    <text x="770" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="600" fill="#34d399" opacity="0.65">Actor-Critic</text>
+    <text x="770" y="308" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#34d399" opacity="0.45">learns here</text>
+    <text x="770" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#34d399" opacity="0.45">via prior z&#x0302;&#x209C;</text>
+
+    <!-- Arrow: Prior → Imagination -->
+    <line x1="550" y1="298" x2="578" y2="298"
+          stroke="#f87171" stroke-width="1.8" marker-end="url(#na-coral)" opacity="0.65"/>
+    <text x="564" y="292" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#f87171" opacity="0.55">z&#x0302;&#x209C;</text>
+
+    <!-- ══════════ ARROW E → F ══════════ -->
+    <line x1="345" y1="342" x2="345" y2="356"
           stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
 
-    <!-- ══════════ LEFT: Buffer inputs ══════════ -->
-    <rect x="6" y="274" width="112" height="22" rx="5"
-          fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
-          filter="url(#ng-rose)"/>
-    <text x="62" y="290" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Action Emb.</text>
-
-    <rect x="6" y="302" width="112" height="22" rx="5"
-          fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
-          filter="url(#ng-rose)"/>
-    <text x="62" y="318" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Reward Emb.</text>
-
-    <line x1="118" y1="285" x2="128" y2="285"
-          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
-    <line x1="118" y1="313" x2="128" y2="303"
-          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
-
-    <!-- ══════════ ROW E: 3D DP / Flow Matching Head ══════════ -->
-    <rect x="130" y="266" width="740" height="74" rx="10"
+    <!-- ══════════ ROW F: MLP Actor ══════════ -->
+    <rect x="130" y="358" width="430" height="34" rx="8"
           fill="rgba(52,211,153,0.10)" stroke="#34d399" stroke-width="2"
           filter="url(#ng-green)"/>
-    <text x="500" y="294" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="14" font-weight="700" fill="#34d399">3D Diffusion Policy / Flow Matching Head</text>
-    <text x="500" y="314" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="10" fill="#34d399" opacity="0.8">denoises action chunks a&#x2081;&#x2026;a&#x2081; conditioned on fused representation</text>
-    <text x="500" y="330" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#34d399" opacity="0.55">fused cond &#xb7; Buffer Action Emb &#xb7; Buffer Reward Emb &#x2192; n-step actions</text>
+    <text x="345" y="374" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#34d399">MLP Actor &#x03C0;(a&#x209C; | h&#x209C;, z&#x209C;)</text>
+    <text x="345" y="388" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#34d399" opacity="0.6">DreamerV3 default</text>
 
-    <line x1="500" y1="340" x2="500" y2="358"
+    <!-- Arrow: Actor → Agent -->
+    <line x1="345" y1="393" x2="345" y2="408"
           stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
-    <text x="510" y="354" font-family="Inter,sans-serif"
-          font-size="9" fill="#34d399" opacity="0.8" font-style="italic">n-step actions</text>
+    <text x="360" y="405" font-family="Inter,sans-serif"
+          font-size="8" fill="#34d399" opacity="0.7" font-style="italic">a&#x209C;</text>
 
-    <!-- ══════════ ROW F: Agent + Buffer + Environment ══════════ -->
-    <rect x="380" y="360" width="220" height="38" rx="8"
+    <!-- ══════════ ROW G: Agent ↔ Environment (no buffer) ══════════ -->
+    <rect x="260" y="410" width="220" height="34" rx="8"
           fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="1.8"
           filter="url(#ng-indigo)"/>
-    <text x="490" y="384" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="370" y="431" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="13" font-weight="600" fill="#818cf8">Agent</text>
 
-    <rect x="380" y="452" width="220" height="38" rx="8"
+    <rect x="260" y="472" width="220" height="34" rx="8"
           fill="rgba(251,146,60,0.10)" stroke="#fb923c" stroke-width="1.5"
           filter="url(#ng-orange)"/>
-    <text x="490" y="468" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="370" y="487" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="12" font-weight="600" fill="#fb923c">Environment</text>
-    <text x="490" y="482" text-anchor="middle" font-family="Inter,sans-serif"
+    <text x="370" y="500" text-anchor="middle" font-family="Inter,sans-serif"
           font-size="9" fill="#fb923c" opacity="0.6">HM3D Habitat</text>
 
-    <circle cx="490" cy="422" r="18"
-            fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
-            filter="url(#ng-rose)"/>
-    <text x="490" y="419" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8" font-weight="700" fill="#f472b6">Buffer</text>
-    <text x="490" y="431" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="5.5" fill="#f472b6" opacity="0.65">act &#xb7; rew &#xb7; state</text>
-
-    <path d="M 600,379 C 655,379 655,471 600,471"
+    <!-- Bidirectional curved arrows (direct, no buffer) -->
+    <path d="M 480,444 C 530,444 530,472 480,472"
           fill="none" stroke="#818cf8" stroke-width="1.8" marker-end="url(#na-indigo)"/>
-    <text x="672" y="428" text-anchor="start" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#818cf8" opacity="0.85">action a&#x2081;</text>
+    <text x="545" y="462" text-anchor="start" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#818cf8" opacity="0.85">action a&#x209C;</text>
 
-    <path d="M 380,471 C 325,471 325,379 380,379"
+    <path d="M 260,472 C 210,472 210,444 260,444"
           fill="none" stroke="#fb923c" stroke-width="1.8" marker-end="url(#na-orange)"/>
-    <text x="298" y="428" text-anchor="middle" font-family="Inter,sans-serif"
-          font-size="8.5" fill="#fb923c" opacity="0.85">reward + state</text>
+    <text x="178" y="462" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#fb923c" opacity="0.85">obs + reward</text>
   </svg>
 </div>
 
@@ -1153,49 +1182,36 @@
 <!-- SLIDE 9: VLAs -->
 <div class="slide" id="slide-7">
   <h3>Baseline</h3>
-  <h2>Vision-Language-Action Models (VLAs)</h2>
+  <h2>DreamerV3 — Pixel-Only World Model</h2>
 
   <div class="arrow-flow">
-    <div class="flow-box">RGB Image</div>
-    <div class="flow-arrow">+</div>
-    <div class="flow-box">"Go to the red cup"</div>
+    <div class="flow-box">RGB (224×224)</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-box" style="border-color: var(--accent); background: rgba(99,102,241,0.1);">VLA (7B LLM)</div>
+    <div class="flow-box">CNN Encoder</div>
     <div class="flow-arrow">→</div>
-    <div class="flow-box">Navigation Action</div>
+    <div class="flow-box" style="border-color: var(--accent-amber); background: rgba(251,191,36,0.1);">RSSM World Model</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">Actor-Critic</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">Nav Action</div>
   </div>
 
-  <div class="card-grid grid-3" style="margin-top: 20px;">
-    <div class="card">
-      <h4>OpenVLA</h4>
-      <span class="tag tag-green" style="margin-bottom: 10px;">Open Source · 7B</span>
+  <div class="card-grid" style="margin-top: 20px;">
+    <div class="card" style="max-width: 100%;">
+      <h4>DreamerV3 — Pixel-Only</h4>
+      <span class="tag tag-amber" style="margin-bottom: 10px;">Baseline · JAX</span>
       <ul>
-        <li>Llama 2 + DINOv2 + SigLIP</li>
-        <li>970K manipulation trajectories</li>
-        <li>LoRA fine-tune on single GPU</li>
-        <li>+16.5% over RT-2-X (55B)</li>
+        <li>Standard CNN encoder on 2D RGB only</li>
+        <li>Learns geometry implicitly from pixels — no depth, no 3D, no semantics</li>
+        <li>State-of-the-art general RL agent (150+ tasks, Nature 2025)</li>
+        <li>First application to HM3D ObjectNav (no prior work)</li>
+        <li>Same RSSM architecture as our approach — only encoder differs</li>
       </ul>
     </div>
-    <div class="card">
-      <h4>OmniVLA</h4>
-      <span class="tag tag-accent" style="margin-bottom: 10px;">Navigation · Multi-Modal</span>
-      <ul>
-        <li>First omni-modal VLA for navigation</li>
-        <li>Language + Image + GPS goals</li>
-        <li>13 datasets, 9500h training</li>
-        <li>No 3D understanding at all</li>
-      </ul>
-    </div>
-    <div class="card">
-      <h4>The Gap</h4>
-      <span class="tag tag-red" style="margin-bottom: 10px;">No 3D · No Spatial</span>
-      <ul>
-        <li>Only 2D image input (224×224)</li>
-        <li>No depth, no point clouds</li>
-        <li>Agent navigates rooms without understanding 3D layout</li>
-        <li>No spatial relationships between objects</li>
-      </ul>
-    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: #fff;">Our approach:</strong> keeps DreamerV3's RSSM unchanged but replaces the CNN encoder with frozen VGGT + DPT features — providing explicit 3D geometry and CLIP semantics that the pixel-only baseline lacks.
   </div>
 </div>
 
@@ -1207,23 +1223,24 @@
 
   <div class="timeline">
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
-      <h4>VGGT Exploration + Habitat Setup</h4>
-      <p>Architecture understood · Habitat env setup · VGGT integration into pipeline</p>
+      <div class="month">Month 1</div>
+      <h4>BWUniCluster Setup + Baseline</h4>
+      <p>Environment setup on cluster · Start DreamerV3 baseline training · Compare VGGT variants</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent);">
       <div class="month">Month 2</div>
-      <h4>End-to-End Pipeline v0</h4>
-      <p>Semantic DPT + fusion module + first policy &mdash; full pipeline running rough</p>
+      <h4>VGGT Integration + Baseline Done</h4>
+      <p>Integrate chosen VGGT variant into DreamerV3 encoder · Finish baseline training</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
       <div class="month">Month 3</div>
-      <h4>3D Policy vs Flow Matching</h4>
-      <p>Train both heads from scratch · Compare on full pipeline</p>
+      <h4>Full Pipeline + Semantic Head</h4>
+      <p>Finish full pipeline of our approach · Start training custom semantic head</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
       <div class="month">Month 4</div>
-      <h4>Baseline VLA + Ablations</h4>
-      <p>Train baseline VLA for comparison · Ablate features (geometry vs semantics vs both)</p>
+      <h4>Semantic Head Integration</h4>
+      <p>Integrate new semantic head into pipeline · Ablation runs</p>
     </div>
     <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
       <div class="month">Month 5</div>
@@ -1239,7 +1256,7 @@
 
   <div class="highlight-box" style="margin-top: 16px;">
     <strong style="color: #fff;">GPU budget:</strong>
-    <span style="color: var(--text-dim);"> ~90 A100-days needed · BWUniCluster available · LoRA fine-tuning on single A100 · UNITE features pre-computed offline</span>
+    <span style="color: var(--text-dim);"> ~90 A100-days needed · BWUniCluster available · DreamerV3 + VGGT training on A100</span>
   </div>
 </div>
 
