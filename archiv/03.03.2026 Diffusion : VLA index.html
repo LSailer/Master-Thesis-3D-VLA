@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Scene Understanding for Object Navigation</title>
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --accent-green: #34d399;
+    --accent-amber: #fbbf24;
+    --accent-red: #f87171;
+    --accent-cyan: #22d3ee;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --border: #2d2d3d;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .slide-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .slide {
+    display: none;
+    width: 100%;
+    height: 100%;
+    padding: 50px 70px;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    animation: fadeIn 0.4s ease;
+  }
+
+  .slide.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-number {
+    position: fixed;
+    bottom: 20px;
+    right: 30px;
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+    transition: width 0.3s ease;
+    z-index: 100;
+  }
+
+  h1 {
+    font-size: 3.2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  h2 {
+    font-size: 2.2rem;
+    font-weight: 600;
+    margin-bottom: 28px;
+    color: #fff;
+  }
+
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--accent2);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    line-height: 1.6;
+    max-width: 800px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 4px 4px 4px 0;
+  }
+
+  .tag-accent { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
+  .tag-green { background: rgba(52,211,153,0.12); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.25); }
+  .tag-amber { background: rgba(251,191,36,0.12); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.25); }
+  .tag-red { background: rgba(248,113,113,0.12); color: var(--accent-red); border: 1px solid rgba(248,113,113,0.25); }
+  .tag-cyan { background: rgba(34,211,238,0.12); color: var(--accent-cyan); border: 1px solid rgba(34,211,238,0.25); }
+
+  .card-grid {
+    display: grid;
+    gap: 16px;
+    margin-top: 14px;
+  }
+
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--accent); }
+
+  .card h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #fff;
+  }
+
+  .card p, .card li {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .card ul li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  .card ul li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--accent2);
+  }
+
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(34,211,238,0.05));
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 14px;
+    padding: 22px 28px;
+    margin: 14px 0;
+  }
+
+  .highlight-box.green {
+    background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(34,211,238,0.05));
+    border-color: rgba(52,211,153,0.25);
+  }
+
+  .highlight-box.amber {
+    background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(248,113,113,0.05));
+    border-color: rgba(251,191,36,0.25);
+  }
+
+  .highlight-box.red {
+    background: linear-gradient(135deg, rgba(248,113,113,0.08), rgba(251,191,36,0.05));
+    border-color: rgba(248,113,113,0.25);
+  }
+
+  .arrow-flow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .flow-arrow {
+    color: var(--accent2);
+    font-size: 1.3rem;
+  }
+
+  .timeline {
+    display: flex;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .timeline-item {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .timeline-item .month {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .timeline-item h4 {
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+    color: #fff;
+  }
+
+  .timeline-item p {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.85rem;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface);
+    color: var(--accent2);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .nav-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 30px;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .question-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+  }
+
+  .question-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 1rem;
+    color: var(--text);
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .question-list li .q-num {
+    color: var(--accent2);
+    font-weight: 600;
+    min-width: 28px;
+  }
+
+  .figure-img {
+    max-width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  }
+
+  .figure-caption {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 58% 40%;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .math-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 8px 0;
+    font-size: 1rem;
+    overflow-x: auto;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 8px;
+  }
+
+  .badge-best { background: rgba(251,191,36,0.2); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.3); }
+  .badge-new { background: rgba(52,211,153,0.15); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.25); }
+  .badge-standard { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
+
+  .discussion-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: 100%;
+  }
+
+  .discussion-center h2 {
+    font-size: 2.8rem;
+    margin-bottom: 40px;
+  }
+
+  .discussion-question {
+    font-size: 1.6rem;
+    color: var(--text);
+    font-weight: 400;
+    line-height: 1.6;
+    max-width: 700px;
+  }
+
+  .compact-list li {
+    padding: 2px 0 !important;
+    font-size: 0.82rem !important;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress"></div>
+
+<div class="slide-container">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" id="slide-1">
+  <h3>Supervisor Meeting · Mar 3, 2026</h3>
+  <h1>3D Scene Understanding<br>for Object Navigation</h1>
+  <div class="subtitle" style="margin-top: 16px;">
+    VGGT exploration results + thesis approach — augmenting VLAs with dense 3D semantic features
+  </div>
+  <div style="margin-top: 32px;">
+    <span class="tag tag-accent">VGGT</span>
+    <span class="tag tag-green">3D Scene Understanding</span>
+    <span class="tag tag-cyan">ObjectNav</span>
+  </div>
+</div>
+
+<!-- SLIDE 2: What is UNITE? -->
+<div class="slide" id="slide-2">
+  <h3>UNITE</h3>
+  <h2>What Is UNITE?</h2>
+  <div class="two-col">
+    <div>
+      <img src="images/unite_fig1_overview.png" alt="UNITE Overview — Fig 1 from Koch et al. 2025" class="figure-img">
+      <div class="figure-caption">Fig 1 from Koch et al. (2025) — UNITE takes posed images and outputs a semantically rich 3D point cloud.</div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <p style="font-size: 1rem; line-height: 1.7; color: var(--text);">
+          Takes a set of RGB images → reconstructs the full 3D scene → labels every 3D point with <em>what</em> it is, <em>which object</em> it belongs to, and <em>how it moves</em>.
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Key Properties</h4>
+        <ul>
+          <li>Works from RGB only — no depth sensor needed</li>
+          <li>Single forward pass, a few seconds per scene</li>
+          <li>Outputs are language-queryable (CLIP-aligned)</li>
+          <li>Instance-level segmentation in 3D</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Per-Point Output</h4>
+        <ul>
+          <li><strong>3D coordinates</strong> — geometry</li>
+          <li><strong>CLIP features</strong> — open-vocabulary semantics</li>
+          <li><strong>Instance ID</strong> — object grouping</li>
+          <li><strong>Articulation vector</strong> — how parts move</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3: How UNITE Works -->
+<div class="slide" id="slide-3">
+  <h3>UNITE</h3>
+  <h2>How It Works</h2>
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="images/unite_fig2_architecture.png" alt="UNITE Architecture — Fig 2 from Koch et al. 2025" class="figure-img" style="max-width: 85%;">
+    <div class="figure-caption">Fig 2 from Koch et al. (2025) — Architecture overview</div>
+  </div>
+
+  <div class="card-grid grid-4">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>1. Input</h4>
+      <p>Set of RGB images from different viewpoints of the same scene</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>2. Backbone (VGGT)</h4>
+      <p>Pre-trained vision transformer encodes images, fuses across views via attention → predicts 3D geometry</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>3. Semantic Heads (DPT)</h4>
+      <p>Task-specific DPT heads on shared backbone predict semantics, instances, and articulation per point</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-cyan);">
+      <h4>4. Output</h4>
+      <p>Dense 3D point cloud where each point has: coordinates, CLIP features, instance ID, articulation vector</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: VGGT -->
+<div class="slide" id="slide-4">
+  <h3>Foundation</h3>
+  <h2>VGGT: Visual Geometry Grounded Transformer <span class="badge badge-best">CVPR 2025 Best Paper</span></h2>
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="images/vggt_fig2_architecture.png" alt="VGGT Architecture" class="figure-img" style="width: 100%; max-height: 280px; object-fit: contain;">
+    <div class="figure-caption">Fig 2 from Wang et al. — Alternating global/frame-wise attention (no frame index embedding needed).</div>
+  </div>
+
+  <div class="two-col" style="grid-template-columns: 42% 56%; gap: 20px; align-items: stretch;">
+    <div style="display: flex; flex-direction: column;">
+      <div style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 20px rgba(0,0,0,0.3); flex-grow: 1; display: flex; flex-direction: column;">
+        <video src="images/teaser_vggt_v3_compressed_short.mp4" style="width: 100%; height: auto; display: block;" autoplay loop muted playsinline></video>
+        <div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: rgba(0,0,0,0.2);">
+          <strong>Result Demo:</strong>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="border-top: 3px solid var(--accent-green); padding: 18px;">
+        <h4 style="margin-bottom: 10px;">Parameter Breakdown (1.26B total)</h4>
+        <table style="margin: 0; font-size: 0.8rem;">
+          <tr><td style="padding: 4px 10px;">Aggregator</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">909M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">72.4%</td></tr>
+          <tr><td style="padding: 4px 10px;">Camera Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">216M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">17.2%</td></tr>
+          <tr><td style="padding: 4px 10px;">Depth Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Point Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Track Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">66M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">5.2%</td></tr>
+        </table>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-dim); display: flex; justify-content: space-between;">
+          <span><strong>Inference:</strong> 2.37s/frame (MPS)</span>
+          <span>64× A100 training</span>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+          <img src="images/vggt_depth_confidence.png" alt="VGGT depth + confidence maps" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">Depth (plasma) + confidence (viridis) — 5 views</div>
+        </div>
+        <div>
+          <img src="images/vggt_pca_rgb.png" alt="VGGT PCA-RGB backbone features" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">PCA-RGB backbone features — 5 frames</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5: The Research Gap -->
+<div class="slide" id="slide-10">
+  <h3>Landscape</h3>
+  <h2>The Research Gap</h2>
+
+  <div class="card-grid grid-3">
+    <div class="card" style="border-left: 4px solid var(--accent);">
+      <h4>Line A: VLAs with 3D</h4>
+      <p style="margin-bottom: 10px;">Several recent works add 3D to VLAs, but all use <strong>simple or implicit</strong> 3D:</p>
+      <ul>
+        <li><strong>SpatialVLA</strong> — 3D position encoding only (RSS 2025)</li>
+        <li><strong>Spatial Forcing</strong> — implicit alignment, no 3D at inference (ICLR 2026)</li>
+        <li><strong>3D-VLA</strong> — point clouds but no semantics per point (ICML 2024)</li>
+        <li><strong>eVGGT</strong> — distilled VGGT as frozen encoder for ACT/DP manipulation (Vuong et al. 2025)</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--accent-green);">
+      <h4>Line B: Rich 3D Understanding</h4>
+      <p style="margin-bottom: 10px;">Foundation models for dense 3D scene understanding exist, but <strong>not yet used with semantics for action</strong>:</p>
+      <ul>
+        <li><strong>UNITE</strong> — full semantic 3D from RGB (Koch et al. 2025)</li>
+        <li><strong>VGGT</strong> — geometry backbone (CVPR 2025 Best Paper)</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--accent-amber);">
+      <h4 style="color: var(--accent-amber);">The Gap</h4>
+      <p style="margin-bottom: 10px; color: var(--text); font-weight: 500;">eVGGT validates VGGT for robotics — but uses latent geometry only.</p>
+      <ul>
+        <li>eVGGT: geometry-only, no semantics/CLIP/instance features</li>
+        <li>eVGGT: manipulation only, not navigation</li>
+        <li>UNITE's per-point semantics + instances never used for action</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: #fff;">Proposed contribution:</strong>
+    <span style="color: var(--text-dim);"> eVGGT validates VGGT for robotics but uses latent geometry only. We add dense semantic features (CLIP + instance) and target room-scale navigation.</span>
+  </div>
+</div>
+
+<!-- SLIDE 6: Proposed Approach -->
+<div class="slide" id="slide-11">
+  <h3>Possible Approach</h3>
+  <h2>UNITE 3D Tokens → VLA for Object Navigation</h2>
+
+  <div class="arrow-flow">
+    <div class="flow-box">RGB frames (accumulated)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color: var(--accent-green);">UNITE</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">3D semantic tokens</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color: var(--accent);">VLA</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">Navigate to target object</div>
+  </div>
+
+  <div class="card-grid grid-2" style="margin-top: 16px;">
+    <div class="card">
+      <h4>Research Questions</h4>
+      <ul>
+        <li>Does UNITE's 3D representation improve VLA on object navigation?</li>
+        <li>Which features matter most? (geometry vs semantics vs instances)</li>
+        <li>How to tokenize 3D point clouds for LLM input?</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Approach</h4>
+      <ul>
+        <li>Pre-compute UNITE features for all scenes (offline)</li>
+        <li>Agent accumulates RGB frames as it navigates → progressively builds 3D scene with UNITE</li>
+        <li>Downsample point cloud to fixed token count, inject into VLA transformer</li>
+        <li>Evaluate on HM3D ObjectNav (standard benchmark, works on BWUniCluster H100)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box green" style="margin-top: 12px;">
+    <strong style="color: var(--accent-green);">Multi-view in navigation:</strong>
+    <span style="color: var(--text-dim);"> UNITE needs multiple views — the agent naturally collects these as it explores. Frame accumulation lets the 3D scene progressively improve with each step.</span>
+  </div>
+</div>
+
+<!-- Architecture: PointVLA-Style Integration -->
+<div class="slide" id="slide-arch">
+  <h3>Possible Approach</h3>
+  <h2>PointVLA-Style: 3D Token Injection into Action Expert</h2>
+
+  <svg viewBox="0 0 900 548" xmlns="http://www.w3.org/2000/svg"
+       style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
+    <defs>
+      <marker id="ah-amber" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+      </marker>
+      <marker id="ah-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+      </marker>
+      <marker id="ah-indigo" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#818cf8"/>
+      </marker>
+      <marker id="ah-green" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+      </marker>
+      <filter id="fg-amber" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fbbf24" flood-opacity="0.55"/>
+      </filter>
+      <filter id="fg-cyan" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#22d3ee" flood-opacity="0.55"/>
+      </filter>
+      <filter id="fg-indigo" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#818cf8" flood-opacity="0.55"/>
+      </filter>
+      <filter id="fg-green" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#34d399" flood-opacity="0.55"/>
+      </filter>
+    </defs>
+
+    <!-- Background -->
+    <rect width="900" height="548" fill="#0f0f13"/>
+
+    <!-- Dashed group: 2D Path -->
+    <rect x="38" y="141" width="270" height="196" rx="12"
+          fill="rgba(34,211,238,0.03)" stroke="#22d3ee"
+          stroke-width="1" stroke-dasharray="6,4" opacity="0.45"/>
+    <text x="173" y="136" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#22d3ee" letter-spacing="2" opacity="0.6">2D PATH</text>
+
+    <!-- Dashed group: 3D Path -->
+    <rect x="592" y="141" width="270" height="196" rx="12"
+          fill="rgba(129,140,248,0.03)" stroke="#818cf8"
+          stroke-width="1" stroke-dasharray="6,4" opacity="0.45"/>
+    <text x="727" y="136" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#818cf8" letter-spacing="2" opacity="0.6">3D PATH</text>
+
+    <!-- RGB Observation (amber) -->
+    <g filter="url(#fg-amber)">
+      <rect x="55" y="15" width="236" height="46" rx="10"
+            fill="rgba(251,191,36,0.1)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="173" y="38" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#fbbf24">
+        RGB Observation
+      </text>
+    </g>
+
+    <!-- Language Instruction (amber) -->
+    <g filter="url(#fg-amber)">
+      <rect x="55" y="83" width="236" height="42" rx="10"
+            fill="rgba(251,191,36,0.1)" stroke="#fbbf24" stroke-width="1.5"/>
+      <text x="173" y="104" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#fbbf24">
+        Language Instruction
+      </text>
+    </g>
+
+    <!-- VLA (cyan) -->
+    <g filter="url(#fg-cyan)">
+      <rect x="46" y="151" width="254" height="78" rx="10"
+            fill="rgba(34,211,238,0.08)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="173" y="178" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#22d3ee">VLA</text>
+      <text x="173" y="199" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="11" fill="#22d3ee" opacity="0.8">
+        OpenVLA / DexVLA
+      </text>
+      <text x="173" y="217" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="10" fill="#22d3ee" opacity="0.55">
+        vision encoder + LLM backbone
+      </text>
+    </g>
+
+    <!-- VGGT (indigo) -->
+    <g filter="url(#fg-indigo)">
+      <rect x="600" y="151" width="254" height="78" rx="10"
+            fill="rgba(129,140,248,0.08)" stroke="#818cf8" stroke-width="1.5"/>
+      <text x="727" y="175" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#818cf8">VGGT</text>
+      <text x="727" y="196" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="11" fill="#818cf8" opacity="0.8">
+        Visual Geometry Grounded Transformer
+      </text>
+      <text x="727" y="216" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="10" fill="#818cf8" opacity="0.65">
+        ↳ new projection head (trained)
+      </text>
+    </g>
+
+    <!-- 2D Visual Tokens (cyan) -->
+    <g filter="url(#fg-cyan)">
+      <rect x="46" y="283" width="254" height="42" rx="10"
+            fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
+      <text x="173" y="304" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#22d3ee">
+        2D Visual Tokens
+      </text>
+    </g>
+
+    <!-- 3D Semantic Tokens (indigo) -->
+    <g filter="url(#fg-indigo)">
+      <rect x="600" y="283" width="254" height="42" rx="10"
+            fill="rgba(129,140,248,0.1)" stroke="#818cf8" stroke-width="1.5"/>
+      <text x="727" y="304" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="13" font-weight="600" fill="#818cf8">
+        3D Semantic Tokens
+      </text>
+    </g>
+
+    <!-- Action Expert (green) -->
+    <g filter="url(#fg-green)">
+      <rect x="310" y="378" width="280" height="70" rx="12"
+            fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="450" y="402" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="15" font-weight="700" fill="#34d399">
+        Action Expert
+      </text>
+      <text x="450" y="422" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="11" fill="#34d399" opacity="0.8">
+        Diffusion Transformer
+      </text>
+      <text x="450" y="440" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="10" fill="#34d399" opacity="0.55">
+        attends over 2D + 3D token sequence
+      </text>
+    </g>
+
+    <!-- Actions output (green) -->
+    <g filter="url(#fg-green)">
+      <rect x="55" y="482" width="790" height="52" rx="10"
+            fill="rgba(52,211,153,0.07)" stroke="#34d399" stroke-width="1.5"/>
+      <text x="450" y="500" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="11" font-weight="700" fill="#34d399">
+        Actions (Discrete)
+      </text>
+      <text x="450" y="519" text-anchor="middle" dominant-baseline="middle"
+            font-family="Inter,sans-serif" font-size="10" fill="#34d399" opacity="0.75">
+        MOVE_FWD · MOVE_BWD · MOVE_LEFT · MOVE_RIGHT · TURN_LEFT · TURN_RIGHT · STOP
+      </text>
+    </g>
+
+    <!-- Arrow: RGB → Language (amber) -->
+    <line x1="173" y1="61" x2="173" y2="83"
+          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)" opacity="0.8"/>
+
+    <!-- Arrow: Language → VLA (amber) -->
+    <line x1="173" y1="125" x2="173" y2="151"
+          stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)" opacity="0.8"/>
+
+    <!-- Arrow: RGB (right edge) → VGGT via top horizontal (indigo L-path) -->
+    <path d="M 291,38 H 727 V 151"
+          fill="none" stroke="#818cf8" stroke-width="1.5"
+          marker-end="url(#ah-indigo)" opacity="0.7"/>
+
+    <!-- Arrow: VLA → 2D Visual Tokens (cyan) -->
+    <line x1="173" y1="229" x2="173" y2="283"
+          stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)" opacity="0.8"/>
+
+    <!-- Arrow: VGGT → 3D Semantic Tokens (indigo) -->
+    <line x1="727" y1="229" x2="727" y2="283"
+          stroke="#818cf8" stroke-width="1.5" marker-end="url(#ah-indigo)" opacity="0.8"/>
+
+    <!-- Arrow: 2D Tokens → Action Expert (green, converging bezier) -->
+    <path d="M 173,325 C 173,378 430,370 430,380"
+          fill="none" stroke="#34d399" stroke-width="1.5"
+          marker-end="url(#ah-green)" opacity="0.8"/>
+
+    <!-- Arrow: 3D Tokens → Action Expert (green, converging bezier) -->
+    <path d="M 727,325 C 727,378 470,370 470,380"
+          fill="none" stroke="#34d399" stroke-width="1.5"
+          marker-end="url(#ah-green)" opacity="0.8"/>
+
+    <!-- Arrow: Action Expert → Actions (green) -->
+    <line x1="450" y1="448" x2="450" y2="482"
+          stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-green)" opacity="0.8"/>
+  </svg>
+</div>
+
+<!-- New Architecture Approach -->
+<div class="slide" id="slide-newarch">
+  <h3>Possible Approach</h3>
+  <h2>VGGT + Semantic DPT + Fusion + 3D Diffusion / Flow Head</h2>
+
+    <svg viewBox="0 0 900 530" xmlns="http://www.w3.org/2000/svg"
+       style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
+    <defs>
+      <marker id="na-amber" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+      </marker>
+      <marker id="na-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee"/>
+      </marker>
+      <marker id="na-indigo" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#818cf8"/>
+      </marker>
+      <marker id="na-green" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+      </marker>
+      <marker id="na-rose" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f472b6"/>
+      </marker>
+      <marker id="na-orange" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#fb923c"/>
+      </marker>
+      <marker id="na-purple" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#a78bfa"/>
+      </marker>
+
+      <filter id="ng-amber" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fbbf24" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-cyan" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#22d3ee" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-indigo" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#818cf8" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-green" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#34d399" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-rose" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#f472b6" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#fb923c" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-purple" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#a78bfa" flood-opacity="0.55"/>
+      </filter>
+    </defs>
+
+    <!-- Background -->
+    <rect width="900" height="530" fill="#0f0f13"/>
+
+    <!-- ══════════ ROW A: Inputs ══════════ -->
+    <rect x="170" y="8" width="255" height="40" rx="8"
+          fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
+          filter="url(#ng-amber)"/>
+    <text x="297" y="25" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#fbbf24">Current Obs</text>
+    <text x="297" y="41" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fbbf24" opacity="0.7">obs&#x2081; &#x2026; obs&#x2099;</text>
+
+    <circle cx="440" cy="28" r="11" fill="none" stroke="#475569" stroke-width="1.5"/>
+    <line x1="429" y1="28" x2="451" y2="28" stroke="#475569" stroke-width="1.5"/>
+    <line x1="440" y1="17" x2="440" y2="39" stroke="#475569" stroke-width="1.5"/>
+
+    <rect x="456" y="8" width="255" height="40" rx="8"
+          fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
+          filter="url(#ng-rose)"/>
+    <text x="583" y="25" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#f472b6">Buffer Obs</text>
+    <text x="583" y="41" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#f472b6" opacity="0.7">history frames</text>
+
+    <line x1="440" y1="49" x2="440" y2="61"
+          stroke="#818cf8" stroke-width="2" marker-end="url(#na-indigo)"/>
+
+    <!-- ══════════ ROW B: VGGT ══════════ -->
+    <rect x="130" y="63" width="740" height="40" rx="10"
+          fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="2"
+          filter="url(#ng-indigo)"/>
+    <text x="500" y="80" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="14" font-weight="700" fill="#818cf8">VGGT</text>
+    <text x="500" y="96" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9.5" fill="#818cf8" opacity="0.7">Multi-View 3D Feature Extraction Backbone</text>
+
+    <line x1="500" y1="104" x2="500" y2="115"
+          stroke="#22d3ee" stroke-width="1.5" marker-end="url(#na-cyan)"/>
+
+    <!-- ══════════ ROW C: DPT Block ══════════ -->
+    <rect x="130" y="117" width="740" height="82" rx="12"
+          fill="rgba(34,211,238,0.03)" stroke="#22d3ee"
+          stroke-width="1.2" stroke-dasharray="6,4" opacity="0.65"/>
+    <text x="500" y="113" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="700" fill="#22d3ee" letter-spacing="2" opacity="0.7">DPT BLOCK (MODULAR, EXTENSIBLE)</text>
+
+    <!-- Semantic DPT (leftmost — receives goal) -->
+    <rect x="145" y="127" width="185" height="62" rx="8"
+          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
+          filter="url(#ng-cyan)"/>
+    <text x="237" y="147" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee">Semantic DPT</text>
+    <text x="237" y="163" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">cosine(feat, goal)</text>
+    <text x="237" y="178" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#fbbf24" opacity="0.9">&#x2192; relevance map</text>
+
+    <!-- Geometric DPT -->
+    <rect x="345" y="127" width="160" height="62" rx="8"
+          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
+          filter="url(#ng-cyan)"/>
+    <text x="425" y="149" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee">Geometric DPT</text>
+    <text x="425" y="166" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">depth + world pts</text>
+    <text x="425" y="180" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">3D scene geometry</text>
+
+    <!-- Camera DPT -->
+    <rect x="520" y="127" width="155" height="62" rx="8"
+          fill="rgba(34,211,238,0.10)" stroke="#22d3ee" stroke-width="1.5"
+          filter="url(#ng-cyan)"/>
+    <text x="597" y="149" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#22d3ee">Camera DPT</text>
+    <text x="597" y="166" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">camera pose</text>
+    <text x="597" y="180" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#22d3ee" opacity="0.7">ego-localization</text>
+
+    <!-- Extensible placeholder -->
+    <rect x="690" y="127" width="100" height="62" rx="8"
+          fill="rgba(34,211,238,0.04)" stroke="#22d3ee"
+          stroke-width="1" stroke-dasharray="4,3" opacity="0.40"/>
+    <text x="740" y="164" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="28" fill="#22d3ee" opacity="0.30">&#x2026;</text>
+
+    <!-- ══════════ LEFT: Text Goal + CLIP ══════════ -->
+    <rect x="6" y="120" width="112" height="56" rx="7"
+          fill="rgba(251,191,36,0.10)" stroke="#fbbf24" stroke-width="1.5"
+          filter="url(#ng-amber)"/>
+    <text x="62" y="139" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#fbbf24">"find the chair"</text>
+    <text x="62" y="155" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fbbf24" opacity="0.8">CLIP text enc.</text>
+    <text x="62" y="169" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#fbbf24" opacity="0.6">goal_emb [B,D]</text>
+
+    <!-- Arrow 1: Text Goal → Semantic DPT (horizontal) -->
+    <line x1="118" y1="148" x2="143" y2="148"
+          stroke="#fbbf24" stroke-width="1.8" marker-end="url(#na-amber)"/>
+    <text x="131" y="141" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2460;</text>
+
+    <!-- Arrow 2: Text Goal → Fusion Module (down then right) -->
+    <path d="M 62,176 L 62,222 L 128,222"
+          fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#na-amber)" opacity="0.8"/>
+    <text x="73" y="205" font-family="Inter,sans-serif"
+          font-size="7.5" font-weight="700" fill="#fbbf24">&#x2461;</text>
+    <text x="84" y="215" font-family="Inter,sans-serif"
+          font-size="7" fill="#fbbf24" opacity="0.7">goal cond.</text>
+
+    <!-- Arrows: DPT boxes → Fusion (converging) -->
+    <line x1="237" y1="189" x2="350" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+    <line x1="425" y1="189" x2="450" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+    <line x1="597" y1="189" x2="550" y2="210"
+          stroke="#22d3ee" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+
+    <!-- ══════════ ROW D: Fusion Module (NEW) ══════════ -->
+    <rect x="130" y="212" width="740" height="40" rx="10"
+          fill="rgba(167,139,250,0.10)" stroke="#a78bfa" stroke-width="1.8"
+          filter="url(#ng-purple)"/>
+    <text x="500" y="229" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="700" fill="#a78bfa">Fusion Module</text>
+    <text x="500" y="245" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#a78bfa" opacity="0.7">Cross-Attention / Concat &#x2014; geometry &#x2295; relevance &#x2295; pose &#x2295; goal &#x2192; cond</text>
+
+    <line x1="500" y1="252" x2="500" y2="264"
+          stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
+
+    <!-- ══════════ LEFT: Buffer inputs ══════════ -->
+    <rect x="6" y="274" width="112" height="22" rx="5"
+          fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
+          filter="url(#ng-rose)"/>
+    <text x="62" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Action Emb.</text>
+
+    <rect x="6" y="302" width="112" height="22" rx="5"
+          fill="rgba(244,114,182,0.08)" stroke="#f472b6" stroke-width="1.2"
+          filter="url(#ng-rose)"/>
+    <text x="62" y="318" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9.5" font-weight="600" fill="#f472b6">Buffer Reward Emb.</text>
+
+    <line x1="118" y1="285" x2="128" y2="285"
+          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
+    <line x1="118" y1="313" x2="128" y2="303"
+          stroke="#f472b6" stroke-width="1.2" marker-end="url(#na-rose)" opacity="0.7"/>
+
+    <!-- ══════════ ROW E: 3D DP / Flow Matching Head ══════════ -->
+    <rect x="130" y="266" width="740" height="74" rx="10"
+          fill="rgba(52,211,153,0.10)" stroke="#34d399" stroke-width="2"
+          filter="url(#ng-green)"/>
+    <text x="500" y="294" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="14" font-weight="700" fill="#34d399">3D Diffusion Policy / Flow Matching Head</text>
+    <text x="500" y="314" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" fill="#34d399" opacity="0.8">denoises action chunks a&#x2081;&#x2026;a&#x2081; conditioned on fused representation</text>
+    <text x="500" y="330" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#34d399" opacity="0.55">fused cond &#xb7; Buffer Action Emb &#xb7; Buffer Reward Emb &#x2192; n-step actions</text>
+
+    <line x1="500" y1="340" x2="500" y2="358"
+          stroke="#34d399" stroke-width="2" marker-end="url(#na-green)"/>
+    <text x="510" y="354" font-family="Inter,sans-serif"
+          font-size="9" fill="#34d399" opacity="0.8" font-style="italic">n-step actions</text>
+
+    <!-- ══════════ ROW F: Agent + Buffer + Environment ══════════ -->
+    <rect x="380" y="360" width="220" height="38" rx="8"
+          fill="rgba(129,140,248,0.12)" stroke="#818cf8" stroke-width="1.8"
+          filter="url(#ng-indigo)"/>
+    <text x="490" y="384" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="600" fill="#818cf8">Agent</text>
+
+    <rect x="380" y="452" width="220" height="38" rx="8"
+          fill="rgba(251,146,60,0.10)" stroke="#fb923c" stroke-width="1.5"
+          filter="url(#ng-orange)"/>
+    <text x="490" y="468" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="600" fill="#fb923c">Environment</text>
+    <text x="490" y="482" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#fb923c" opacity="0.6">HM3D Habitat</text>
+
+    <circle cx="490" cy="422" r="18"
+            fill="rgba(244,114,182,0.10)" stroke="#f472b6" stroke-width="1.5"
+            filter="url(#ng-rose)"/>
+    <text x="490" y="419" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="700" fill="#f472b6">Buffer</text>
+    <text x="490" y="431" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="5.5" fill="#f472b6" opacity="0.65">act &#xb7; rew &#xb7; state</text>
+
+    <path d="M 600,379 C 655,379 655,471 600,471"
+          fill="none" stroke="#818cf8" stroke-width="1.8" marker-end="url(#na-indigo)"/>
+    <text x="672" y="428" text-anchor="start" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#818cf8" opacity="0.85">action a&#x2081;</text>
+
+    <path d="M 380,471 C 325,471 325,379 380,379"
+          fill="none" stroke="#fb923c" stroke-width="1.8" marker-end="url(#na-orange)"/>
+    <text x="298" y="428" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#fb923c" opacity="0.85">reward + state</text>
+  </svg>
+</div>
+
+<!-- SLIDE 7: Habitat ObjectNav -->
+<div class="slide" id="slide-8">
+  <h3>Benchmark</h3>
+  <h2>Habitat ObjectNav Challenge</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>The Task</h4>
+        <p style="font-size: 1rem; line-height: 1.7; color: var(--text);">
+          Agent is spawned in an unseen apartment. Given a target object category (e.g., "chair"), it must <strong>navigate to any instance</strong> of that category using only egocentric RGB-D and a compass.
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>HM3D Dataset</h4>
+        <ul>
+          <li>1,000 real-world 3D scans of homes</li>
+          <li>Photorealistic rendering in Habitat simulator</li>
+          <li>216 object categories with semantic annotations</li>
+          <li>Standard benchmark since 2023 Habitat Challenge</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Key Metric: SPL</h4>
+        <p style="margin-top: 6px;">Rewards both <strong>finding</strong> the target and doing so <strong>efficiently</strong>. Standardizes path length by the shortest possible path.</p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="text-align: center;">
+        <img src="https://aihabitat.org/static/challenge/objectnav_spec_2023.gif" alt="Habitat ObjectNav Demo" class="figure-img" style="max-width: 100%; border-radius: 12px;">
+        <div class="figure-caption">Habitat ObjectNav — agent navigates to target object in photorealistic 3D scan</div>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #fff;">Why this benchmark:</strong>
+        <span style="color: var(--text-dim);"> Room-scale navigation in real 3D scans. Agent must understand spatial layout, object identity, and efficient paths — exactly where 3D semantics should help.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: ALFRED -->
+<div class="slide" id="slide-9">
+  <h3>Benchmark</h3>
+  <h2>ALFRED — Action Learning From Realistic Environments</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>What It Is</h4>
+        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
+          25,743 language-annotated expert demonstrations for household tasks in <strong>AI2-THOR</strong>. Each task has both high-level and step-by-step instructions. 13 discrete actions (5 nav + 7 interaction + stop).
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Task Types (7 categories)</h4>
+        <ul class="compact-list">
+          <li>Pick &amp; Place · Stack &amp; Place</li>
+          <li>Heat &amp; Place · Cool &amp; Place · Clean &amp; Place</li>
+          <li>Pick Two &amp; Place · Examine in Light</li>
+          <li>All require navigation + manipulation + state changes</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left: 4px solid var(--accent-red);">
+        <h4 style="color: var(--accent-red);">Baseline vs Human Gap</h4>
+        <table>
+          <tr><th></th><th>Task Success</th><th>Goal-Cond.</th></tr>
+          <tr><td style="color: var(--accent-red); font-weight: 600;">Seq2Seq+PM</td><td>4.00%</td><td>7.10%</td></tr>
+          <tr><td style="color: var(--accent-green); font-weight: 600;">Human</td><td>91.00%</td><td>86.00%</td></tr>
+        </table>
+        <p style="margin-top: 8px; color: var(--text);">87 pp gap — spatial understanding is the key bottleneck.</p>
+      </div>
+    </div>
+    <div>
+      <img src="images/alfred_fig1_overview.png" alt="ALFRED task walkthrough — Fig 1" class="figure-img" style="max-width: 100%;">
+      <div class="figure-caption">Fig 1 from Shridhar et al. — "Rinse off a mug and place it in the coffee maker": 6-step task with navigation, interaction, and state changes</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: VLAs -->
+<div class="slide" id="slide-7">
+  <h3>Baseline</h3>
+  <h2>Vision-Language-Action Models (VLAs)</h2>
+
+  <div class="arrow-flow">
+    <div class="flow-box">RGB Image</div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-box">"Go to the red cup"</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box" style="border-color: var(--accent); background: rgba(99,102,241,0.1);">VLA (7B LLM)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">Navigation Action</div>
+  </div>
+
+  <div class="card-grid grid-3" style="margin-top: 20px;">
+    <div class="card">
+      <h4>OpenVLA</h4>
+      <span class="tag tag-green" style="margin-bottom: 10px;">Open Source · 7B</span>
+      <ul>
+        <li>Llama 2 + DINOv2 + SigLIP</li>
+        <li>970K manipulation trajectories</li>
+        <li>LoRA fine-tune on single GPU</li>
+        <li>+16.5% over RT-2-X (55B)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>OmniVLA</h4>
+      <span class="tag tag-accent" style="margin-bottom: 10px;">Navigation · Multi-Modal</span>
+      <ul>
+        <li>First omni-modal VLA for navigation</li>
+        <li>Language + Image + GPS goals</li>
+        <li>13 datasets, 9500h training</li>
+        <li>No 3D understanding at all</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>The Gap</h4>
+      <span class="tag tag-red" style="margin-bottom: 10px;">No 3D · No Spatial</span>
+      <ul>
+        <li>Only 2D image input (224×224)</li>
+        <li>No depth, no point clouds</li>
+        <li>Agent navigates rooms without understanding 3D layout</li>
+        <li>No spatial relationships between objects</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+
+<!-- SLIDE 11: Timeline -->
+<div class="slide" id="slide-13">
+  <h3>Timeline</h3>
+  <h2>6-Month Execution Plan</h2>
+
+  <div class="timeline">
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
+      <h4>VGGT Exploration + Habitat Setup</h4>
+      <p>Architecture understood · Habitat env setup · VGGT integration into pipeline</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent);">
+      <div class="month">Month 2</div>
+      <h4>End-to-End Pipeline v0</h4>
+      <p>Semantic DPT + fusion module + first policy &mdash; full pipeline running rough</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
+      <div class="month">Month 3</div>
+      <h4>3D Policy vs Flow Matching</h4>
+      <p>Train both heads from scratch · Compare on full pipeline</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
+      <div class="month">Month 4</div>
+      <h4>Baseline VLA + Ablations</h4>
+      <p>Train baseline VLA for comparison · Ablate features (geometry vs semantics vs both)</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
+      <div class="month">Month 5</div>
+      <h4>Iterate + Refine</h4>
+      <p>Improve weakest components · Generalization tests · Buffer for reruns</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-cyan);">
+      <div class="month">Month 6</div>
+      <h4>Writing</h4>
+      <p>Thesis writing · Final analysis · Defense prep</p>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: #fff;">GPU budget:</strong>
+    <span style="color: var(--text-dim);"> ~90 A100-days needed · BWUniCluster available · LoRA fine-tuning on single A100 · UNITE features pre-computed offline</span>
+  </div>
+</div>
+
+
+
+</div><!-- end slide-container -->
+
+<div class="slide-number" id="slideNum">1 / 13</div>
+<div class="nav-hint">← → arrow keys to navigate</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+  const total = slides.length;
+
+  function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(n, total - 1));
+    slides[current].classList.add('active');
+    document.getElementById('slideNum').textContent = `${current + 1} / ${total}`;
+    document.getElementById('progress').style.width = `${((current + 1) / total) * 100}%`;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); showSlide(current + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); showSlide(current - 1); }
+    if (e.key === 'Home') showSlide(0);
+    if (e.key === 'End') showSlide(total - 1);
+  });
+
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) { diff > 0 ? showSlide(current + 1) : showSlide(current - 1); }
+  });
+
+  showSlide(0);
+</script>
+
+</body>
+</html>
