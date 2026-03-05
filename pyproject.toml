@@ -1,22 +1,32 @@
 [project]
 name = "master-thesis-3d-vla"
 version = "0.1.0"
-requires-python = "==3.12.*"
+requires-python = ">=3.10"
 dependencies = [
     # VGGT deps
     "torch>=2.7",
     "torchvision>=0.22",
-    "numpy==1.26.1",
+    "numpy>=1.26",
     "Pillow",
     "huggingface_hub",
     "einops",
     "safetensors",
+    # Habitat — provided by conda (pixi.toml), NOT pypi
+    # "habitat-lab",
+    # "habitat-sim",
     # notebook
     "ipykernel",
     "matplotlib",
     "manim>=0.18.1",
     "plotly>=6.5.2",
     "nbformat>=5.10.4",
+    # ALFRED / AI2-THOR
+    "ai2thor>=5.0.0",
+    # data
+    "h5py",
+    "tqdm",
+    # dev
+    "pytest",
 ]
 
 [tool.uv]

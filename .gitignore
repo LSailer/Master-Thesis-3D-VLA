@@ -6,6 +6,8 @@ __pycache__/
 .env
 wandb/
 output/
+output/slurm/
+output/observations/
 data/
 *.pth
 *.h5
@@ -26,3 +28,7 @@ uv.lock
 media/videos/*/partial_movie_files/
 media/texts/*
 media/videos/vggt_manim/
+
+# pixi (habitat conda env)
+.pixi/
+pixi.lock
