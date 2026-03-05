@@ -2,12 +2,14 @@ name: Pixi Install
 
 on:
   push:
-    branches: ["dev/pixi"]
+    branches: ["dev/pixi", "claude/**"]
 
 jobs:
   install-pixi:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -17,3 +19,14 @@ jobs:
 
       - name: Verify pixi installation
         run: pixi --version
+
+      - name: Create issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --title "CI: Pixi Install failed on ${{ github.ref_name }}" \
+            --body "Workflow **Pixi Install** failed on branch \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`).
+
+          [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
