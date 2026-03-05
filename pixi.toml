@@ -56,6 +56,10 @@ jax-metal = "*"
 equinox = ">=0.11"
 optax = "*"
 
+# --- CI (lightweight, no GPU features) ---
+[feature.ci]
+platforms = ["linux-64"]
+
 # --- Dev tasks ---
 [feature.dev]
 
@@ -68,3 +72,4 @@ test = "pytest tests/ -x -q"
 default = { features = ["metal"], solve-group = "default" }
 cluster = { features = ["cuda"], solve-group = "cluster" }
 dev = { features = ["cuda", "dev"], solve-group = "cluster" }
+ci = { features = ["ci"], solve-group = "ci" }
