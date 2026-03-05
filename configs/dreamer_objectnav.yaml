@@ -1,0 +1,46 @@
+# DreamerV3 config for HM3D ObjectNav (minival)
+# Usage: python -m src.dreamer.train --config configs/dreamer_objectnav.yaml
+
+# Observation: RGB (3ch) + depth (1ch), 256x256
+obs_shape: [4, 256, 256]
+action_size: 4  # FORWARD, LEFT, RIGHT, STOP
+
+# RSSM
+recurrent_size: 512
+latent_length: 32
+latent_classes: 32
+hidden_size: 512
+num_layers: 2
+
+# CNN
+cnn_depth: 48
+kernel_size: 4
+stride: 2
+
+# Training
+batch_size: 16
+sequence_length: 50
+learning_rate: 1.0e-4
+max_grad_norm: 100.0
+total_steps: 1000000
+prefill_steps: 5000
+train_every: 5
+seed: 42
+
+# Imagination
+imagination_horizon: 15
+gamma: 0.997
+lambda_: 0.95
+entropy_scale: 3.0e-4
+
+# Losses
+kl_free_nats: 1.0
+kl_balance: 0.8
+
+# Replay
+buffer_capacity: 500000
+
+# Logging
+wandb_project: "3d-vla-objectnav"
+log_interval: 100
+checkpoint_dir: "checkpoints/dreamer_objectnav"

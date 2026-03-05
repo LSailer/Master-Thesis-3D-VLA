@@ -28,6 +28,8 @@ h5py = "*"
 # Visualization
 plotly = ">=6.5"
 manim = ">=0.18.1"
+# Config
+pyyaml = "*"
 # Dev
 pytest = "*"
 # This project (editable install)
