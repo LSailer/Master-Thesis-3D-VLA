@@ -27,6 +27,6 @@ jobs:
         run: |
           gh issue create \
             --title "CI: Pixi Install failed on ${{ github.ref_name }}" \
-            --body "Workflow **Pixi Install** failed on branch \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`).
+            --body "@claude Workflow **Pixi Install** failed on branch \`${{ github.ref_name }}\` (commit \`${{ github.sha }}\`). Please investigate and fix.
 
           [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
