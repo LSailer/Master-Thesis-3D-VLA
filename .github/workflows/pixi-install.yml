@@ -13,12 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install pixi
-        run: |
-          if ! command -v pixi &> /dev/null; then
-            curl -fsSL https://pixi.sh/install.sh | sh
-            echo "$HOME/.pixi/bin" >> $GITHUB_PATH
-          fi
+      - uses: prefix-dev/setup-pixi@v0.8.1
 
       - name: Verify pixi installation
         run: pixi --version
