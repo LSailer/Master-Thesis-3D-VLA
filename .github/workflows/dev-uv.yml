@@ -1,0 +1,68 @@
+name: Dev Environment — uv (BWUniCluster)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["dev/uv"]
+
+env:
+  WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+  HM3D_TOKEN: ${{ secrets.HM3D_TOKEN }}
+  # habitat-sim build flags
+  HABITAT_BUILD_GUI_VIEWERS: "OFF"
+  HABITAT_WITH_BULLET: "ON"
+  HABITAT_WITH_CUDA: "ON"
+
+jobs:
+  uv-setup:
+    runs-on: self-hosted
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Load HPC modules
+        run: |
+          source /etc/profile.d/modules.sh || true
+          module load devel/cmake/3.27
+          module load compiler/gnu/14.2
+          module load devel/cuda/12.4
+
+      - name: Install build deps
+        run: uv pip install scikit-build-core pybind11 cmake ninja
+
+      - name: Sync environment (builds habitat-sim from source)
+        run: uv sync
+
+      - name: Download test scene (if missing)
+        run: |
+          if [ ! -f data/scene_datasets/habitat-test-scenes/van-gogh-room.glb ]; then
+            mkdir -p data/scene_datasets/habitat-test-scenes
+            curl -sSL -o data/scene_datasets/habitat-test-scenes/van-gogh-room.glb \
+              "https://raw.githubusercontent.com/facebookresearch/habitat-sim/main/data/scene_datasets/habitat-test-scenes/van-gogh-room.glb"
+          fi
+
+      - name: Smoke test (GPU)
+        run: |
+          srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 \
+            uv run python scripts/smoke_test.py
+
+      - name: Pytest (GPU)
+        run: |
+          srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 \
+            uv run pytest tests/ -x -q
+
+      - name: Collect observations — wandb smoke (GPU)
+        run: |
+          srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:15:00 \
+            uv run python scripts/collect_random_obs.py \
+              --num-episodes 5 \
+              --max-steps 100 \
+              --log-image-every 20 \
+              --no-save

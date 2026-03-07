@@ -1,9 +1,9 @@
 [project]
 name = "master-thesis-3d-vla"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    # VGGT deps
+    # Core ML
     "torch>=2.7",
     "torchvision>=0.22",
     "numpy>=1.26",
@@ -11,23 +11,35 @@ dependencies = [
     "huggingface_hub",
     "einops",
     "safetensors",
-    # Habitat — provided by conda (pixi.toml), NOT pypi
-    # "habitat-lab",
-    # "habitat-sim",
-    # notebook
-    "ipykernel",
-    "matplotlib",
-    "manim>=0.18.1",
-    "plotly>=6.5.2",
-    "nbformat>=5.10.4",
-    # ALFRED / AI2-THOR
-    "ai2thor>=5.0.0",
-    # data
+    # Habitat (built from source via [tool.uv.sources])
+    "habitat-sim",
+    # Experiment tracking
+    "wandb",
+    # Data
     "h5py",
     "tqdm",
-    # dev
+    # ALFRED / AI2-THOR
+    "ai2thor>=5.0.0",
+    # Notebook / viz
+    "ipykernel",
+    "matplotlib",
+    "plotly>=6.5.2",
+    "nbformat>=5.10.4",
+    # Dev
     "pytest",
 ]
 
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+# ---------- uv configuration ----------
+
 [tool.uv]
 python-preference = "only-managed"
+
+# habitat-sim cmake build needs deps available in the project env
+no-build-isolation-package = ["habitat-sim"]
+
+[tool.uv.sources]
+habitat-sim = { git = "https://github.com/facebookresearch/habitat-sim", branch = "stable", subdirectory = "." }
