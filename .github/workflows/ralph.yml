@@ -1,0 +1,61 @@
+name: Ralph Autonomous Executor
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_tasks:
+        description: 'Maximum number of tasks to process'
+        required: false
+        default: '5'
+        type: string
+      time_limit:
+        description: 'Time limit in minutes'
+        required: false
+        default: '120'
+        type: string
+
+jobs:
+  ralph:
+    runs-on: self-hosted
+    timeout-minutes: ${{ fromJSON(inputs.time_limit || '120') }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Ralph Loop
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          direct_prompt: |
+            You are Ralph, the autonomous execution agent.
+
+            Run the ralph-loop: scan for AFK issues labeled `ready`, implement via TDD,
+            create PRs. Max tasks: ${{ inputs.max_tasks }}.
+
+            Board flow: Backlog → Ready → In Progress → In Review
+            - Pick from `ready` label (NOT backlog — human promotes issues to Ready)
+            - Move to `in-progress` while working
+            - Move to `in-review` after PR creation
+
+            Process per task:
+            1. gh issue list --label AFK --label ready --state open → pick lowest unblocked
+            2. git worktree add .claude/worktrees/issue-N -b issue-N
+            3. Read issue acceptance criteria
+            4. TDD loop: ONE test at a time (red→green→refactor→commit)
+               - CPU tests: uv run pytest tests/<file> -x -q -k "<test>"
+               - GPU tests (@pytest.mark.gpu or jax/habitat_sim imports):
+                 srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest tests/<file> -x -q -k "<test>"
+            5. git commit -m "green: <test_name> (#<issue>)"
+            6. gh pr create → move issue to in-review
+            7. 3 failures on same test → label blocked, skip
+
+            Stop when: no ready AFK tasks, or max_tasks reached.
+          allowed_tools: "Bash,Edit,Write,Read,Glob,Grep"

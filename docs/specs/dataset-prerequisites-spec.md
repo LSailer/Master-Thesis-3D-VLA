@@ -4,24 +4,17 @@
 
 This is the prerequisite work needed before implementing the action heads spec (`action-heads-spec.md` on `main`). Everything here happens on `feat/datasets`.
 
-## Decision: Pixi as single package manager
+## Decision: uv as single package manager
 
-habitat-sim is only distributed via conda (no PyPI wheel). Rather than juggling two package managers (Pixi for habitat + uv for Python deps), use **Pixi for everything**. Pixi supports `[pypi-dependencies]` for pip packages alongside conda packages.
+habitat-sim is installable via `pip install git+https://github.com/facebookresearch/habitat-sim.git` — no conda needed. Use **uv for everything**.
 
-```
-Before (split):          After (unified):
-  pixi → habitat-sim      pixi → habitat-sim (conda)
-  uv   → torch, etc.             torch, einops, etc. (pypi-dependencies)
-                                  master-thesis-3d-vla (editable install)
-```
-
-All commands use `pixi run` as universal prefix.
+All commands use `uv run` as universal prefix.
 
 ## Current State
 
 | Component | Status | Evidence |
 |-----------|--------|----------|
-| habitat-sim | Installed (v0.3.3 via Pixi) | `pixi.lock` |
+| habitat-sim | Installed (via uv, git+GitHub) | `pyproject.toml` |
 | habitat-lab | Cloned | `external/habitat-lab/` |
 | Episode data | Ready (145 train scenes, ~7.25M episodes) | `data/datasets/objectnav/hm3d/objectnav_hm3d_v2/train/content/*.json.gz` |
 | Episode statistics | Done | `notebooks/habitat_objectnav_benchmark.ipynb` (sections 1-5) |
@@ -30,7 +23,6 @@ All commands use `pixi run` as universal prefix.
 | ShortestPathFollower test | **NOT DONE** | No code anywhere |
 | Expert demo collection | **NOT DONE** | No script |
 | Expert dataset on disk | **NOT DONE** | Nothing saved |
-| Pixi pypi-dependencies | **NOT SET UP** | `pixi.toml` only has conda deps, torch etc. installed separately via uv |
 
 ## Blocker: HM3D Scene Meshes
 
@@ -81,32 +73,14 @@ Expected result: `data/scene_datasets/hm3d/minival/00xxx-SceneID/SceneID.basis.g
 
 ## Tasks (in order)
 
-### Task 0: Migrate to Pixi as single package manager
+### Task 0: Dependencies via uv
 
-Update `pixi.toml` to include all pip deps under `[pypi-dependencies]`:
-
-```toml
-[pypi-dependencies]
-torch = ">=2.7"
-torchvision = ">=0.22"
-einops = "*"
-safetensors = "*"
-huggingface_hub = "*"
-pillow = "*"
-tqdm = "*"
-plotly = ">=6.5"
-manim = ">=0.18.1"
-pytest = "*"
-master-thesis-3d-vla = { path = ".", editable = true }
-```
-
-Verify:
+All deps declared in `pyproject.toml` (including habitat-sim/lab via git+GitHub). Verify:
 ```bash
-pixi install
-pixi run python -c "
+uv sync
+uv run python -c "
 import habitat_sim
 import torch
-import einops
 print(f'habitat-sim: {habitat_sim.__version__}')
 print(f'torch: {torch.__version__}')
 print('all deps resolved')
@@ -162,7 +136,7 @@ Verify:
 Create `scripts/collect_expert_demos.py`:
 
 ```
-Usage: pixi run python scripts/collect_expert_demos.py \
+Usage: uv run python scripts/collect_expert_demos.py \
     --split val_mini \
     --n-episodes 100 \
     --output data/expert_demos/val_mini_100.pt
@@ -195,10 +169,10 @@ Storage considerations:
 Run collection script:
 ```bash
 # Small sanity set (minutes)
-pixi run python scripts/collect_expert_demos.py --split val_mini --n-episodes 30
+uv run python scripts/collect_expert_demos.py --split val_mini --n-episodes 30
 
 # Medium set for first experiments (30 min - 1 hr)
-pixi run python scripts/collect_expert_demos.py --split val --n-episodes 1000
+uv run python scripts/collect_expert_demos.py --split val --n-episodes 1000
 ```
 
 Verify:
@@ -217,8 +191,6 @@ Fill in notebook sections 6 (cells 27-29) with actual outputs:
 ## File Structure (new files this PR)
 
 ```
-pixi.toml                             # Updated with [pypi-dependencies]
-
 scripts/
 └── collect_expert_demos.py            # Expert data collection
 
@@ -246,15 +218,15 @@ data/expert_demos/
 
 ## Dependencies
 
-All managed through `pixi.toml`:
-- **Conda**: habitat-sim, python, numpy, cmake
-- **PyPI** (via `[pypi-dependencies]`): torch, torchvision, einops, safetensors, huggingface_hub, pillow, tqdm, plotly, manim, pytest, this project (editable)
+All managed through `pyproject.toml` via uv:
+- habitat-sim (git+GitHub), habitat-lab (git+GitHub)
+- torch, torchvision, einops, safetensors, huggingface_hub, pillow, tqdm, plotly, manim, pytest, wandb
 
 ## Done criteria
 
 ```
-[ ] pixi.toml updated, `pixi install` resolves all deps
-[ ] `pixi run python -c "import habitat_sim; import torch"` works
+[ ] `pyproject.toml` has habitat deps, `uv sync` resolves all deps
+[ ] `uv run python -c "import habitat_sim; import torch"` works
 [ ] HM3D minival scenes downloaded (.glb + .navmesh)
 [ ] Habitat env loads and renders observations
 [ ] ShortestPathFollower completes episodes with SPL ≈ 1.0

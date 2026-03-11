@@ -11,9 +11,9 @@ dependencies = [
     "huggingface_hub",
     "einops",
     "safetensors",
-    # Habitat — provided by conda (pixi.toml), NOT pypi
-    # "habitat-lab",
-    # "habitat-sim",
+    # Habitat
+    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git",
+    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git#subdirectory=habitat-lab",
     # notebook
     "ipykernel",
     "matplotlib",
@@ -25,9 +25,15 @@ dependencies = [
     # data
     "h5py",
     "tqdm",
+    # tracking
+    "wandb",
     # dev
     "pytest",
 ]
+
+[project.optional-dependencies]
+metal = ["jax>=0.4.35", "jax-metal", "equinox>=0.11", "optax"]
+cuda = ["jax[cuda12]>=0.4.35", "equinox>=0.11", "optax"]
 
 [tool.uv]
 python-preference = "only-managed"

@@ -29,6 +29,3 @@ media/videos/*/partial_movie_files/
 media/texts/*
 media/videos/vggt_manim/
 
-# pixi (habitat conda env)
-.pixi/
-pixi.lock
