@@ -1,0 +1,1 @@
+srun --partition=dev_gpu_h100 -n1 --gres=gpu:1 --time=00:30:00 --pty bash

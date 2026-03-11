@@ -27,3 +27,11 @@ UNITE (Koch et al. 2025) dense 3D semantic features (CLIP + instance + articulat
 ## GitHub Pages
 
 Slides: `https://<username>.github.io/Master-Thesis-3D-VLA/`
+
+## Notebooks
+
+When modifying or creating notebooks, execute them in-place so outputs are saved:
+
+```bash
+uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
+```
