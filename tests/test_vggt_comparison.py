@@ -67,3 +67,29 @@ def test_benchmark_measures_latency_and_memory():
             assert "peak_mem_mb" in r and isinstance(r["peak_mem_mb"], float)
             assert r["latency_ms"] > 0, f"{name} n={n}: latency must be positive"
             assert r["peak_mem_mb"] > 0, f"{name} n={n}: peak_mem must be positive"
+
+
+@gpu
+def test_feature_output_shape_consistent():
+    """Feature output shape is consistent across variants (same spatial resolution and channel dim)."""
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    from vggt_comparison import get_available_variants, load_variant, run_inference
+
+    dummy_rgb = torch.rand(1, 480, 640, 3)
+    variants = get_available_variants()
+    assert len(variants) > 0
+
+    shapes = {}
+    for name in variants:
+        model = load_variant(name)
+        result = run_inference(model, dummy_rgb)
+        assert "features" in result, f"{name}: missing 'features' key"
+        shapes[name] = result["features"].shape
+
+    # All variants should produce the same feature shape
+    shape_list = list(shapes.values())
+    for name, shape in shapes.items():
+        assert shape == shape_list[0], (
+            f"{name} feature shape {shape} != reference {shape_list[0]}"
+        )
