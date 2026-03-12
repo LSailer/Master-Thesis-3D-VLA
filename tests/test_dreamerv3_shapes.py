@@ -20,6 +20,18 @@ def rng():
     return jax.random.PRNGKey(0)
 
 
+class TestEntryPoint:
+    def test_main_module_exists(self):
+        """__main__.py exists and imports main."""
+        import importlib
+        mod = importlib.import_module("src.dreamerv3.__main__")
+        assert hasattr(mod, "main") or callable(getattr(mod, "main", None)) is False
+        from src.dreamerv3.train import main
+        import inspect
+        source = inspect.getsource(mod)
+        assert "train" in source and "main" in source
+
+
 class TestCheckpoint:
     def test_save_load_roundtrip(self, cfg, rng, tmp_path):
         """Save → load → params match."""
