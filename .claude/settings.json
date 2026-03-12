@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run:*)",
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(srun:*)",
+      "Bash(mkdir:*)",
+      "Bash(ls:*)",
+      "Bash(test:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep"
+    ]
+  }
+}
