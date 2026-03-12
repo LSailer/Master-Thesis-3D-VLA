@@ -1,0 +1,38 @@
+name: Task
+description: Implementation task derived from a PRD
+title: ""
+labels: ["backlog"]
+body:
+  - type: input
+    id: parent-prd
+    attributes:
+      label: Parent PRD
+      description: "Link to parent PRD issue (e.g., #42)"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Specific, testable criteria for completion
+    validations:
+      required: true
+  - type: textarea
+    id: blocked-by
+    attributes:
+      label: Blocked By
+      description: "Issues that must be completed first (e.g., #43, #44)"
+  - type: dropdown
+    id: type
+    attributes:
+      label: Execution Type
+      options:
+        - "AFK"
+        - "HITL"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Implementation Notes
+      description: Additional context for the implementer

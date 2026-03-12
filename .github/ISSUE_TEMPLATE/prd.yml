@@ -1,0 +1,62 @@
+name: PRD
+description: Product Requirements Document for a thesis milestone
+title: "PRD: "
+labels: ["prd"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: research-questions
+    attributes:
+      label: Research Questions
+      description: Thesis research questions this addresses
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: High-level approach
+    validations:
+      required: true
+  - type: textarea
+    id: module-design
+    attributes:
+      label: Module Design
+      description: Modules with interfaces and dependencies
+  - type: textarea
+    id: slurm
+    attributes:
+      label: SLURM Requirements
+      description: "Partitions, GPU needs, time estimates"
+  - type: textarea
+    id: evaluation
+    attributes:
+      label: Evaluation Criteria
+      description: Metrics, baselines, success thresholds
+  - type: dropdown
+    id: milestone
+    attributes:
+      label: Milestone
+      options:
+        - "March 2026"
+        - "April 2026"
+        - "May 2026"
+        - "June 2026"
+        - "July 2026"
+        - "August 2026"
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: When is this PRD complete?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: External dependencies or prerequisites
