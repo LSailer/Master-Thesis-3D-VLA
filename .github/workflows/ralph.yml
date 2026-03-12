@@ -58,4 +58,5 @@ jobs:
             7. 3 failures on same test → label blocked, skip
 
             Stop when: no ready AFK tasks, or max_tasks reached.
-          additional_permissions: "Bash,Edit,Write,Read,Glob,Grep"
+          settings: .claude/settings.json
+          claude_args: "--allowedTools Bash,Read,Write,Edit,Glob,Grep"
