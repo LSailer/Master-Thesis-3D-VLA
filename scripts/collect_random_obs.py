@@ -9,7 +9,7 @@ import numpy as np
 try:
     import habitat_sim
 except ImportError:
-    raise ImportError("habitat-sim required — install via pixi")
+    raise ImportError("habitat-sim required — install via uv sync")
 
 import wandb
 

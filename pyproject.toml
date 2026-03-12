@@ -11,11 +11,11 @@ dependencies = [
     "huggingface_hub",
     "einops",
     "safetensors",
-    # Habitat — provided by conda (pixi.toml), NOT pypi
-    # "habitat-lab",
-    # "habitat-sim",
+    # Habitat — see [project.optional-dependencies] habitat extra
+    # Install with: uv sync --extra habitat
     # notebook
     "ipykernel",
+    "jupyterlab",
     "matplotlib",
     "manim>=0.18.1",
     "plotly>=6.5.2",
@@ -25,11 +25,30 @@ dependencies = [
     # data
     "h5py",
     "tqdm",
+    # tracking
+    "wandb",
     # dev
     "pytest",
     "jax[cpu]>=0.6.2",
     "flax>=0.10.7",
 ]
 
+[project.optional-dependencies]
+habitat = [
+    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main",
+    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
+]
+dreamerv3 = [
+    "jax[cuda12]>=0.4.30",
+    "flax>=0.10",
+    "optax>=0.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
 [tool.uv]
 python-preference = "only-managed"
+override-dependencies = [
+    "numpy>=2.0",
+]

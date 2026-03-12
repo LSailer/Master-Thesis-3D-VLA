@@ -1,0 +1,24 @@
+name: Train DreamerV3 Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      total_steps:
+        description: "Total training steps"
+        default: "100"
+        type: string
+      prefill_steps:
+        description: "Prefill steps"
+        default: "50"
+        type: string
+
+jobs:
+  shape-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - name: Install dreamerv3 deps
+        run: uv sync --extra dreamerv3
+      - name: Run shape tests
+        run: uv run pytest tests/test_dreamerv3_shapes.py -v
