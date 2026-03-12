@@ -45,8 +45,12 @@ jobs:
             - Move to `in-progress` while working
             - Move to `in-review` after PR creation
 
+            Also check for interrupted tasks:
+            - gh issue list --label AFK --label in-progress --state open (resume these first)
+
             Process per task:
             1. gh issue list --label AFK --label ready --state open → pick lowest unblocked
+               (prefer in-progress over ready — resume interrupted work first)
             2. git worktree add .claude/worktrees/issue-N -b issue-N
             3. Read issue acceptance criteria
             4. TDD loop: ONE test at a time (red→green→refactor→commit)
@@ -58,5 +62,7 @@ jobs:
             7. 3 failures on same test → label blocked, skip
 
             Stop when: no ready AFK tasks, or max_tasks reached.
+          max_turns: 200
+          show_full_output: true
           settings: .claude/settings.json
           claude_args: "--allowedTools Bash,Read,Write,Edit,Glob,Grep"
