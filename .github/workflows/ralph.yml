@@ -34,7 +34,6 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          model: opus
           prompt: |
             You are Ralph, an autonomous execution agent for a JAX/Equinox ML project.
 
@@ -99,7 +98,6 @@ jobs:
             - ONE test at a time (strict TDD)
             - Commit after each green test
             - Never add Co-Authored-By lines
-          max_turns: 200
           show_full_output: true
           settings: .claude/settings.json
-          claude_args: "--allowedTools Bash,Read,Write,Edit,Glob,Grep,Agent"
+          claude_args: "--model claude-opus-4-6 --max-turns 200 --allowedTools Bash,Read,Write,Edit,Glob,Grep,Agent"
