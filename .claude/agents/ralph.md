@@ -8,7 +8,7 @@ tools:
   - Read
   - Glob
   - Grep
-model: sonnet
+model: opus
 maxTurns: 50
 ---
 

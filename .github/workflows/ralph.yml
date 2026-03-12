@@ -34,35 +34,72 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          model: opus
           prompt: |
-            You are Ralph, the autonomous execution agent.
+            You are Ralph, an autonomous execution agent for a JAX/Equinox ML project.
 
-            Run the ralph-loop: scan for AFK issues labeled `ready`, implement via TDD,
-            create PRs. Max tasks: ${{ inputs.max_tasks }}.
+            ## Task
+            Process up to ${{ inputs.max_tasks }} AFK issues labeled `ready` or `in-progress`.
+            Prefer `in-progress` (resume interrupted work) over `ready`.
+            Pick lowest issue number first.
 
-            Board flow: Backlog → Ready → In Progress → In Review
-            - Pick from `ready` label (NOT backlog — human promotes issues to Ready)
-            - Move to `in-progress` while working
-            - Move to `in-review` after PR creation
+            ## Workflow per issue
 
-            Also check for interrupted tasks:
-            - gh issue list --label AFK --label in-progress --state open (resume these first)
+            ### 1. Plan
+            Read the issue's acceptance criteria carefully. Write a short implementation plan
+            as a comment on the issue using `gh issue comment <N> --body "..."`.
+            Include: what files to create/modify, test strategy, potential blockers.
 
-            Process per task:
-            1. gh issue list --label AFK --label ready --state open → pick lowest unblocked
-               (prefer in-progress over ready — resume interrupted work first)
-            2. git worktree add .claude/worktrees/issue-N -b issue-N
-            3. Read issue acceptance criteria
-            4. TDD loop: ONE test at a time (red→green→refactor→commit)
-               - CPU tests: uv run pytest tests/<file> -x -q -k "<test>"
-               - GPU tests (@pytest.mark.gpu or jax/habitat_sim imports):
-                 srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest tests/<file> -x -q -k "<test>"
-            5. git commit -m "green: <test_name> (#<issue>)"
-            6. gh pr create → move issue to in-review
-            7. 3 failures on same test → label blocked, skip
+            ### 2. Setup
+            ```bash
+            git fetch origin main
+            git worktree add .claude/worktrees/issue-<N> -b issue-<N> origin/main
+            cd .claude/worktrees/issue-<N>
+            gh issue edit <N> --remove-label ready --add-label in-progress
+            ```
+            If worktree/branch exists, reuse it.
 
-            Stop when: no ready AFK tasks, or max_tasks reached.
+            ### 3. Implement (TDD)
+            For each acceptance criterion:
+            - Write the failing test
+            - Run: `uv run pytest tests/<file> -x -q -k "<test>"`
+            - GPU tests: `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest ...`
+            - Implement minimal code to pass
+            - Commit: `green: <test_name> (#<N>)`
+
+            3 consecutive failures on same test → add `blocked` label, skip to next issue.
+
+            ### 4. PR
+            ```bash
+            git push -u origin issue-<N>
+            gh pr create --title "<issue title>" --body "Closes #<N>\n\n## Changes\n<bullets>\n\n## Test Results\n<paste>"
+            gh issue edit <N> --remove-label in-progress --add-label in-review
+            ```
+
+            ### 5. Cleanup
+            ```bash
+            cd /path/to/repo
+            git worktree remove .claude/worktrees/issue-<N>
+            ```
+
+            ### 6. Loop
+            Go to next ready issue. Stop when no more ready/in-progress AFK issues or max_tasks reached.
+
+            ## Subagents
+            Use the Agent tool to spawn subagents for parallel/context-heavy work:
+            - **Research**: spawn an Explore agent to understand existing code before modifying
+            - **Parallel tests**: after implementation, spawn agents to run independent test files in parallel
+            - **Code review**: spawn a subagent to check for regressions in related files
+            Keep the main context focused on orchestration; delegate deep reads to subagents.
+
+            ## Rules
+            - NEVER push to main directly
+            - NEVER force push
+            - ALWAYS work in worktrees
+            - ONE test at a time (strict TDD)
+            - Commit after each green test
+            - Never add Co-Authored-By lines
           max_turns: 200
           show_full_output: true
           settings: .claude/settings.json
-          claude_args: "--allowedTools Bash,Read,Write,Edit,Glob,Grep"
+          claude_args: "--allowedTools Bash,Read,Write,Edit,Glob,Grep,Agent"
