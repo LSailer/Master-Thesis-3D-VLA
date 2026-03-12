@@ -10,13 +10,11 @@ Baseline for thesis — later compare with UNITE 3D feature injection.
 **Primary: HM3D ObjectNav (`src/dreamerv3/env_habitat.py`)**
 - 4 discrete actions: STOP, FORWARD, LEFT, RIGHT
 - RGB 256x256, 500-step episodes
-- HM3D v2: 80 train scenes, 20 val scenes, 6 object categories
+- HM3D v2: 800 train scenes, 200 val scenes, 6 object categories
 
-**Future work: AI2-THOR / ProcTHOR**
-- ProcTHOR: procedural 10k+ houses, richer object diversity
-- Would need `env_ai2thor.py` mirroring `env_habitat.py` interface
-- Benefit: unlimited scene diversity for WM generalization
-- *Not in scope — separate issue*
+**Goal conditioning:** agent receives RGB-only — `env_habitat.py` does NOT pass `objectgoal` category to the agent. This baseline measures general exploration + navigation learning, not goal-directed search. Adding goal conditioning (e.g. one-hot `objectgoal_sensor` concatenated to encoder) is a known gap for future work.
+
+**Sensor gap:** RGB-only — no depth, no GPS/compass. Results not directly comparable to methods using privileged sensors (e.g. DD-PPO with depth+GPS).
 
 ## 3. World Model — handling different scenes
 
@@ -37,16 +35,7 @@ WM sees only RGB, no scene ID. Must generalize across scenes.
 - `reward = prev_geodesic_dist - curr_geodesic_dist + 10.0 * success`
 - Dense, path-aware, symlog-transformed in WM
 
-**Ablation alternatives:**
-
-| Reward | Formula | Pros | Cons |
-|--------|---------|------|------|
-| Sparse | `10.0 * success` | Clean signal | Very sparse, slow |
-| Geodesic delta | `Δd_geo + 10*success` | Dense, path-aware | Needs Habitat geodesic API |
-| Euclidean delta | `Δd_eucl + 10*success` | Simple | Ignores walls |
-| Slack penalty | `Δd_geo - 0.01 + 10*success` | Anti-dawdling | Tuning needed |
-
-**Plan:** geodesic_delta default, sparse as ablation.
+Reward ablation (geodesic_delta vs sparse vs euclidean vs slack penalty) tracked separately — see GitHub issue.
 
 ## 5. Training Pipeline
 
@@ -58,9 +47,10 @@ WM sees only RGB, no scene ID. Must generalize across scenes.
 5. Checkpoint every 50k steps, log to W&B
 
 **Compute plan (48h single H100):**
-- 5M env steps target (~10k episodes)
+- 5M env steps target (≥10k episodes, depends on early termination rate)
 - **Step 0: profiling run** — 10k steps to measure actual steps/min, then confirm 5M fits in 48h
-- 1 seed first to validate, scale to 3 seeds if promising
+- If 5M steps > 48h after profiling → fallback: (a) reduce to 2.5M, (b) multi-env vectorization, (c) request 2x GPU allocation
+- 3 seeds minimum for any reported result. 1 seed for initial validation only.
 
 **Metrics:**
 - Primary: `success_rate`, `spl`
@@ -73,7 +63,9 @@ WM sees only RGB, no scene ID. Must generalize across scenes.
 - Eval on `val` split every 100k steps (no training)
 - **Both** greedy (argmax) and stochastic policy logged; greedy = primary metric
 - Report: success rate, SPL, distance-to-goal at termination
-- Target: ~10-20% success (DreamerV3 from pixels is hard; DD-PPO w/ depth+GPS ≈ 30-40%)
+- **Not yet implemented:** greedy eval loop, `eval_every`/`eval_episodes` flags, val-split eval, metric logging. Gate 4 prereq: implement eval loop (argmax policy mode, val-split eval, metric logging).
+- **Success target:** unknown — no prior DreamerV3-on-ObjectNav-RGB baseline exists. Profiling run (Gate 3) establishes first data point.
+- **Sensor gap note:** agent is RGB-only (no depth, no GPS/compass). Performance not comparable to methods using privileged sensors.
 
 ## 7. Coding Agent Done-Criteria
 
@@ -83,7 +75,7 @@ Concrete, machine-verifiable checks a coding agent on BWUniCluster can run.
 
 ```bash
 # all must exit 0
-uv run pytest tests/test_dreamerv3_shapes.py -v          # 16 shape tests
+uv run pytest tests/test_dreamerv3_shapes.py -v          # 9 shape tests
 uv run mypy src/dreamerv3/ --ignore-missing-imports       # type check
 uv run ruff check src/dreamerv3/                          # lint
 uv run ruff format --check src/dreamerv3/                 # format
