@@ -12,12 +12,31 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 @pytest.fixture
 def cfg():
-    return {"obs_dim": 4, "hidden": 8}
+    from src.dreamerv3.configs import DreamerConfig
+    return DreamerConfig()
 
 
 @pytest.fixture
 def rng():
     return jax.random.PRNGKey(0)
+
+
+class TestImaginationMetrics:
+    def test_imag_return_in_metrics(self, cfg, rng):
+        """train_step must return imag_return metric."""
+        from src.dreamerv3.agent import DreamerAgent
+        agent = DreamerAgent(cfg, rng)
+        B, T = cfg.batch_size, cfg.seq_len
+        batch = {
+            "obs": jnp.zeros((B, T, *cfg.obs_shape)),
+            "actions": jnp.zeros((B, T), dtype=jnp.int32),
+            "rewards": jnp.zeros((B, T)),
+            "dones": jnp.zeros((B, T)),
+            "is_first": jnp.zeros((B, T)),
+        }
+        metrics = agent.train_step(batch, rng)
+        assert "imag_return" in metrics, "imag_return must be in train_step metrics"
+        assert isinstance(metrics["imag_return"], float)
 
 
 class TestCheckpoint:
