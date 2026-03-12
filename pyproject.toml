@@ -27,6 +27,8 @@ dependencies = [
     "tqdm",
     # dev
     "pytest",
+    "jax[cpu]>=0.6.2",
+    "flax>=0.10.7",
 ]
 
 [tool.uv]
