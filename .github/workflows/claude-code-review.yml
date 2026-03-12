@@ -1,6 +1,8 @@
 name: Claude Code Review
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -11,12 +13,13 @@ on:
 jobs:
   claude-review:
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude-review')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude-review')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude-review'))
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       id-token: write
@@ -25,16 +28,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Run Claude Code Review
-        id: claude-review
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
-          plugins: 'code-review@claude-code-plugins'
-          prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
+          model: sonnet
+          prompt: |
+            Review this PR. Focus on:
+            1. Correctness — bugs, logic errors, edge cases
+            2. JAX/Equinox patterns — immutability, jit compatibility, PRNG key handling
+            3. Test coverage — are acceptance criteria tested?
+            4. Security — no secrets, no injection risks
 
+            Be concise. Only flag real issues, not style nits.
+            If tests exist, verify they actually test the claimed behavior.
+          max_turns: 30
+          show_full_output: true
