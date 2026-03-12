@@ -36,6 +36,14 @@ habitat = [
     "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main",
     "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
 ]
+dreamerv3 = [
+    "jax[cuda12]>=0.4.30",
+    "flax>=0.10",
+    "optax>=0.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
 
 [tool.uv]
 python-preference = "only-managed"
