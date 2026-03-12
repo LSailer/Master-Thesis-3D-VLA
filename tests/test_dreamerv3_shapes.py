@@ -12,12 +12,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 @pytest.fixture
 def cfg():
-    return {"obs_dim": 4, "hidden": 8}
+    from src.dreamerv3.configs import DreamerConfig
+    return DreamerConfig()
 
 
 @pytest.fixture
 def rng():
     return jax.random.PRNGKey(0)
+
+
+class TestEvalConfig:
+    def test_eval_fields_exist(self, cfg):
+        assert hasattr(cfg, "eval_every")
+        assert hasattr(cfg, "eval_episodes")
+        assert isinstance(cfg.eval_every, int)
+        assert isinstance(cfg.eval_episodes, int)
+
+    def test_eval_defaults(self, cfg):
+        assert cfg.eval_every == 100_000
+        assert cfg.eval_episodes == 10
 
 
 class TestCheckpoint:

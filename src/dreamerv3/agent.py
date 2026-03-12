@@ -18,12 +18,14 @@ class WMState(struct.PyTreeNode):
 class DreamerAgent:
     """Minimal DreamerV3 agent with world model state and checkpoint I/O."""
 
-    def __init__(self, cfg: dict, rng: jax.Array):
+    def __init__(self, cfg, rng: jax.Array):
         key1, key2 = jax.random.split(rng)
+        obs_dim = cfg.obs_dim if hasattr(cfg, "obs_dim") else cfg.get("obs_dim", 4)
+        hidden = cfg.hidden if hasattr(cfg, "hidden") else cfg.get("hidden", 8)
         params = {
             "encoder": {
-                "kernel": jax.random.normal(key1, (cfg.get("obs_dim", 4), cfg.get("hidden", 8))),
-                "bias": jax.random.normal(key2, (cfg.get("hidden", 8),)),
+                "kernel": jax.random.normal(key1, (obs_dim, hidden)),
+                "bias": jax.random.normal(key2, (hidden,)),
             }
         }
         self.wm_state = WMState(params=params)
