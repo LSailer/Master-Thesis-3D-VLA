@@ -93,3 +93,29 @@ def test_feature_output_shape_consistent():
         assert shape == shape_list[0], (
             f"{name} feature shape {shape} != reference {shape_list[0]}"
         )
+
+
+def test_comparison_table_structure():
+    """A summary comparison table (pandas DataFrame) has required columns."""
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    from vggt_comparison import build_comparison_table
+
+    mock_results = {
+        "vggt": [
+            {"n_frames": 10, "latency_ms": 12.5, "peak_mem_mb": 1024.0, "output_shape": "(1, 256, 60, 80)"},
+            {"n_frames": 20, "latency_ms": 13.1, "peak_mem_mb": 1100.0, "output_shape": "(1, 256, 60, 80)"},
+        ],
+        "stream_vggt": [
+            {"n_frames": 10, "latency_ms": 8.2, "peak_mem_mb": 800.0, "output_shape": "(1, 256, 60, 80)"},
+            {"n_frames": 20, "latency_ms": 8.5, "peak_mem_mb": 850.0, "output_shape": "(1, 256, 60, 80)"},
+        ],
+    }
+    df = build_comparison_table(mock_results)
+
+    required_cols = {"variant", "latency_ms", "peak_mem_mb", "output_shape"}
+    assert required_cols.issubset(set(df.columns)), (
+        f"Missing columns: {required_cols - set(df.columns)}"
+    )
+    assert len(df) == 4  # 2 variants x 2 sequence lengths
+    assert set(df["variant"].unique()) == {"vggt", "stream_vggt"}
