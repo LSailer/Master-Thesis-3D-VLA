@@ -120,6 +120,14 @@ uv run python -m src.dreamerv3.train \
 
 **Pass condition:** W&B (or stdout) shows `eval/success_rate_greedy` and `eval/success_rate_stochastic` keys.
 
+**Implementation notes (eval loop):**
+- Add `eval_every: int = 100_000` and `eval_episodes: int = 10` to `DreamerConfig` (`configs.py`)
+- Create separate `HabitatObjectNavEnv(split="val_mini")` at startup for eval
+- Every `eval_every` steps, run `eval_episodes` on val env
+- RSSM state resets naturally per episode (`is_first=True` zeros state — already implemented)
+- Greedy mode: wire up existing `training` param in `agent.act()` (currently unused) — `training=False` → `jnp.argmax(logits)` instead of `jax.random.categorical`
+- Run both greedy + stochastic eval, log `eval/success_rate_greedy`, `eval/spl_greedy`, `eval/success_rate_stochastic`
+
 ### Gate 5: Full training launch (human triggers, agent verifies)
 
 ```bash
