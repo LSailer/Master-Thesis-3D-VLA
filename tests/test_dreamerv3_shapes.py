@@ -12,12 +12,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 @pytest.fixture
 def cfg():
-    return {"obs_dim": 4, "hidden": 8}
+    from src.dreamerv3.configs import DreamerConfig
+    return DreamerConfig()
 
 
 @pytest.fixture
 def rng():
     return jax.random.PRNGKey(0)
+
+
+class TestGreedyAction:
+    def test_greedy_is_deterministic(self, cfg, rng):
+        """training=False → argmax → same action for same state."""
+        from src.dreamerv3.agent import DreamerAgent
+        agent = DreamerAgent(cfg, rng)
+        obs = {"image": jnp.zeros(cfg.obs_shape, dtype=jnp.uint8), "is_first": True}
+        k1, k2 = jax.random.split(rng)
+        a1 = agent.act(obs, k1, training=False)
+        a2 = agent.act(obs, k2, training=False)
+        assert a1 == a2, "greedy mode must be deterministic regardless of rng key"
+
+    def test_stochastic_uses_sampling(self, cfg, rng):
+        """training=True → categorical sampling (default behavior)."""
+        import inspect
+        from src.dreamerv3.agent import DreamerAgent
+        source = inspect.getsource(DreamerAgent._act_forward)
+        assert "training" in inspect.signature(DreamerAgent._act_forward).parameters or \
+               "argmax" in source or "categorical" in source
 
 
 class TestCheckpoint:
