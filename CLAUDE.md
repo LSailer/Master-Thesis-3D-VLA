@@ -44,3 +44,25 @@ When modifying or creating notebooks, execute them in-place so outputs are saved
 ```bash
 uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
 ```
+
+## GPU Execution
+
+This project runs on BWUniCluster (SLURM). GPU access requires `srun` — never run GPU code directly.
+
+**GPU tests:**
+```bash
+srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest tests/<file> -x -q -k "<test>"
+```
+
+**General GPU commands:**
+```bash
+srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 <command>
+```
+
+**When to use `srun`:** if the code imports `jax`, `habitat_sim`, `torch.cuda`, or uses `@pytest.mark.gpu`, it needs GPU → wrap with `srun`.
+
+**Partitions:**
+| Partition | Use Case | Max Time |
+|-----------|----------|----------|
+| `dev_gpu_h100` | Testing, validation, quick experiments | 30 min |
+| `gpu_h100` | Standard GPU jobs, training | 48h |
