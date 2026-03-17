@@ -17,17 +17,23 @@ def main():
     for f in dataclasses.fields(DreamerConfig):
         if f.type in (int, float, str):
             parser.add_argument(f"--{f.name}", type=f.type, default=f.default)
+    parser.add_argument("--obs_size", type=int, default=None,
+                        help="Override obs resolution (sets obs_shape=(3,N,N))")
+    parser.add_argument("--max_geodesic", type=float, default=None,
+                        help="Filter episodes to geodesic distance < this value")
     args = parser.parse_args()
 
     config = DreamerConfig(**{f.name: getattr(args, f.name)
                               for f in dataclasses.fields(DreamerConfig)
                               if f.type in (int, float, str)})
+    if args.obs_size is not None:
+        config = dataclasses.replace(config, obs_shape=(3, args.obs_size, args.obs_size))
 
     rng_key = jax.random.PRNGKey(config.seed)
 
     # Lazy import — Habitat may not be available during shape tests
     from .env_habitat import HabitatObjectNavEnv
-    env = HabitatObjectNavEnv(config)
+    env = HabitatObjectNavEnv(config, max_geodesic=args.max_geodesic)
 
     rng_key, init_key = jax.random.split(rng_key)
     agent = DreamerAgent(config, init_key)
