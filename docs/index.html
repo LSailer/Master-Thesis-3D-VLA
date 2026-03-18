@@ -1100,31 +1100,49 @@
   </svg>
 </div>
 
-<!-- SLIDE 7: Habitat ObjectNav -->
+<!-- SLIDE 7: ObjectNav Task Definition -->
 <div class="slide" id="slide-8">
   <h3>Benchmark</h3>
-  <h2>Habitat ObjectNav Challenge</h2>
+  <h2>ObjectNav Task</h2>
 
   <div class="two-col">
     <div>
       <div class="card" style="margin-bottom: 14px;">
-        <h4>The Task</h4>
-        <p style="font-size: 1rem; line-height: 1.7; color: var(--text);">
-          Agent is spawned in an unseen apartment. Given a target object category (e.g., "chair"), it must <strong>navigate to any instance</strong> of that category using only egocentric RGB-D and a compass.
+        <h4>Task Definition</h4>
+        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
+          Agent spawns at random pose in an <strong>unseen environment</strong>. Given a target object category (e.g., "chair"), navigate to <strong>any instance</strong> and call <code style="color: var(--accent-green); background: rgba(52,211,153,0.1); padding: 2px 6px; border-radius: 4px;">STOP</code> within 0.1m.
         </p>
       </div>
       <div class="card" style="margin-bottom: 14px;">
-        <h4>HM3D Dataset</h4>
-        <ul>
-          <li>1,000 real-world 3D scans of homes</li>
-          <li>Photorealistic rendering in Habitat simulator</li>
-          <li>216 object categories with semantic annotations</li>
-          <li>Standard benchmark since 2023 Habitat Challenge</li>
-        </ul>
+        <h4>Observations (Egocentric)</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <div style="background: rgba(99,102,241,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <strong style="color: var(--accent2); font-size: 0.85rem;">RGB</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(34,211,238,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <strong style="color: var(--accent-cyan); font-size: 0.85rem;">Depth</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(251,191,36,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <strong style="color: var(--accent-amber); font-size: 0.85rem;">GPS+Compass</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Relative to start pose</div>
+          </div>
+          <div style="background: rgba(52,211,153,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <strong style="color: var(--accent-green); font-size: 0.85rem;">Goal</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Category ID (1 of 6)</div>
+          </div>
+        </div>
       </div>
       <div class="card">
-        <h4>Key Metric: SPL</h4>
-        <p style="margin-top: 6px;">Rewards both <strong>finding</strong> the target and doing so <strong>efficiently</strong>. Standardizes path length by the shortest possible path.</p>
+        <h4>Action Space</h4>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">MOVE_FORWARD 0.25m</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_LEFT 30°</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_RIGHT 30°</span>
+          <span class="tag" style="background: rgba(52,211,153,0.15); color: var(--accent-green);">STOP</span>
+        </div>
+        <p style="margin-top: 8px; font-size: 0.85rem; color: var(--text-dim);">Episode budget: <strong style="color: var(--text);">500 steps</strong> max. Success = STOP called within 0.1m of any target instance.</p>
       </div>
     </div>
     <div style="display: flex; flex-direction: column; gap: 14px;">
@@ -1132,49 +1150,135 @@
         <img src="https://aihabitat.org/static/challenge/objectnav_spec_2023.gif" alt="Habitat ObjectNav Demo" class="figure-img" style="max-width: 100%; border-radius: 12px;">
         <div class="figure-caption">Habitat ObjectNav — agent navigates to target object in photorealistic 3D scan</div>
       </div>
+      <div class="card">
+        <h4>Key Metrics</h4>
+        <table style="width: 100%; margin-top: 8px;">
+          <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Measures</th></tr>
+          <tr><td style="color: var(--accent-green); font-weight: 600;">Success Rate</td><td style="color: var(--text-dim);">Did agent find the target?</td></tr>
+          <tr><td style="color: var(--accent); font-weight: 600;">SPL</td><td style="color: var(--text-dim);">Success weighted by path efficiency</td></tr>
+          <tr><td style="color: var(--accent-cyan); font-weight: 600;">SoftSPL</td><td style="color: var(--text-dim);">Progress toward goal (partial credit)</td></tr>
+          <tr><td style="color: var(--accent-amber); font-weight: 600;">DTG</td><td style="color: var(--text-dim);">Distance to goal at episode end</td></tr>
+        </table>
+      </div>
       <div class="highlight-box">
-        <strong style="color: #fff;">Why this benchmark:</strong>
-        <span style="color: var(--text-dim);"> Room-scale navigation in real 3D scans. Agent must understand spatial layout, object identity, and efficient paths — exactly where 3D semantics should help.</span>
+        <strong style="color: #fff;">No map, no oracle:</strong>
+        <span style="color: var(--text-dim);"> Agent has zero prior knowledge of the environment. Must build spatial understanding from egocentric observations alone.</span>
       </div>
     </div>
   </div>
 </div>
 
-<!-- SLIDE 8: ALFRED -->
-<div class="slide" id="slide-9">
+<!-- SLIDE 7b: HM3D Environment + Geodesic Distances -->
+<div class="slide" id="slide-8b">
   <h3>Benchmark</h3>
-  <h2>ALFRED — Action Learning From Realistic Environments</h2>
+  <h2>HM3D Environment &amp; Episode Distribution</h2>
 
   <div class="two-col">
     <div>
       <div class="card" style="margin-bottom: 14px;">
-        <h4>What It Is</h4>
-        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
-          25,743 language-annotated expert demonstrations for household tasks in <strong>AI2-THOR</strong>. Each task has both high-level and step-by-step instructions. 13 discrete actions (5 nav + 7 interaction + stop).
-        </p>
-      </div>
-      <div class="card" style="margin-bottom: 14px;">
-        <h4>Task Types (7 categories)</h4>
-        <ul class="compact-list">
-          <li>Pick &amp; Place · Stack &amp; Place</li>
-          <li>Heat &amp; Place · Cool &amp; Place · Clean &amp; Place</li>
-          <li>Pick Two &amp; Place · Examine in Light</li>
-          <li>All require navigation + manipulation + state changes</li>
+        <h4>HM3D Dataset</h4>
+        <ul>
+          <li><strong>1,000</strong> real-world 3D scans of residential spaces</li>
+          <li>Photorealistic rendering via Habitat simulator</li>
+          <li><strong>216</strong> object categories with semantic annotations</li>
+          <li>Multi-room layouts: kitchens, bedrooms, bathrooms, living rooms, hallways</li>
+          <li>Standard benchmark since 2023 Habitat Challenge</li>
         </ul>
       </div>
-      <div class="card" style="border-left: 4px solid var(--accent-red);">
-        <h4 style="color: var(--accent-red);">Baseline vs Human Gap</h4>
-        <table>
-          <tr><th></th><th>Task Success</th><th>Goal-Cond.</th></tr>
-          <tr><td style="color: var(--accent-red); font-weight: 600;">Seq2Seq+PM</td><td>4.00%</td><td>7.10%</td></tr>
-          <tr><td style="color: var(--accent-green); font-weight: 600;">Human</td><td>91.00%</td><td>86.00%</td></tr>
-        </table>
-        <p style="margin-top: 8px; color: var(--text);">87 pp gap — spatial understanding is the key bottleneck.</p>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>6 Target Object Categories</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px;">
+          <div style="text-align: center; background: rgba(99,102,241,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <div style="font-size: 1.4rem;">🪑</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Chair</div>
+          </div>
+          <div style="text-align: center; background: rgba(52,211,153,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <div style="font-size: 1.4rem;">🛏️</div>
+            <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">Bed</div>
+          </div>
+          <div style="text-align: center; background: rgba(251,191,36,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <div style="font-size: 1.4rem;">🪴</div>
+            <div style="font-size: 0.8rem; color: var(--accent-amber); font-weight: 600;">Plant</div>
+          </div>
+          <div style="text-align: center; background: rgba(34,211,238,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <div style="font-size: 1.4rem;">🚽</div>
+            <div style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">Toilet</div>
+          </div>
+          <div style="text-align: center; background: rgba(248,113,113,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(248,113,113,0.2);">
+            <div style="font-size: 1.4rem;">📺</div>
+            <div style="font-size: 0.8rem; color: var(--accent-red); font-weight: 600;">TV Monitor</div>
+          </div>
+          <div style="text-align: center; background: rgba(129,140,248,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(129,140,248,0.2);">
+            <div style="font-size: 1.4rem;">🛋️</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Sofa</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>What's in the Environment</h4>
+        <p style="font-size: 0.85rem; line-height: 1.7; color: var(--text);">
+          Realistic clutter: furniture, appliances, decorations, doors, stairs. Scenes contain <strong>50–300+ objects</strong> per scan. Agent must distinguish target from distractors in cluttered, multi-room layouts with varying lighting and occlusion.
+        </p>
       </div>
     </div>
-    <div>
-      <img src="images/alfred_fig1_overview.png" alt="ALFRED task walkthrough — Fig 1" class="figure-img" style="max-width: 100%;">
-      <div class="figure-caption">Fig 1 from Shridhar et al. — "Rinse off a mug and place it in the coffee maker": 6-step task with navigation, interaction, and state changes</div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="padding: 20px;">
+        <h4 style="margin-bottom: 12px;">Geodesic Distance Distribution</h4>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px;">Shortest navigable path from spawn to nearest target instance (HM3D ObjectNav v2 val split)</p>
+        <svg viewBox="0 0 420 200" style="width: 100%; font-family: 'Inter', sans-serif;">
+          <!-- Axes -->
+          <line x1="50" y1="170" x2="400" y2="170" stroke="#2d2d3d" stroke-width="1"/>
+          <line x1="50" y1="10" x2="50" y2="170" stroke="#2d2d3d" stroke-width="1"/>
+          <!-- Y-axis labels -->
+          <text x="45" y="170" fill="#94a3b8" font-size="9" text-anchor="end">0</text>
+          <text x="45" y="130" fill="#94a3b8" font-size="9" text-anchor="end">10%</text>
+          <text x="45" y="90" fill="#94a3b8" font-size="9" text-anchor="end">20%</text>
+          <text x="45" y="50" fill="#94a3b8" font-size="9" text-anchor="end">30%</text>
+          <!-- Grid lines -->
+          <line x1="50" y1="130" x2="400" y2="130" stroke="#2d2d3d" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="90" x2="400" y2="90" stroke="#2d2d3d" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="50" x2="400" y2="50" stroke="#2d2d3d" stroke-width="0.5" stroke-dasharray="4"/>
+          <!-- Bars: geodesic distance bins (approximate distribution) -->
+          <!-- 0-1m: ~5% -->
+          <rect x="55" y="150" width="28" height="20" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 1-2m: ~12% -->
+          <rect x="90" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 2-3m: ~18% -->
+          <rect x="125" y="98" width="28" height="72" rx="3" fill="#818cf8" opacity="0.8"/>
+          <!-- 3-5m: ~25% (peak) -->
+          <rect x="160" y="70" width="28" height="100" rx="3" fill="#818cf8" opacity="0.9"/>
+          <!-- 5-7m: ~17% -->
+          <rect x="195" y="102" width="28" height="68" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 7-10m: ~12% -->
+          <rect x="230" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.7"/>
+          <!-- 10-15m: ~7% -->
+          <rect x="265" y="142" width="28" height="28" rx="3" fill="#6366f1" opacity="0.6"/>
+          <!-- 15-20m: ~3% -->
+          <rect x="300" y="158" width="28" height="12" rx="3" fill="#6366f1" opacity="0.5"/>
+          <!-- 20m+: ~1% -->
+          <rect x="335" y="166" width="28" height="4" rx="3" fill="#6366f1" opacity="0.4"/>
+          <!-- X-axis labels -->
+          <text x="69" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">0-1</text>
+          <text x="104" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">1-2</text>
+          <text x="139" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">2-3</text>
+          <text x="174" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">3-5</text>
+          <text x="209" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">5-7</text>
+          <text x="244" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">7-10</text>
+          <text x="279" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">10-15</text>
+          <text x="314" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">15-20</text>
+          <text x="349" y="184" fill="#94a3b8" font-size="8" text-anchor="middle">20+</text>
+          <!-- Axis label -->
+          <text x="225" y="198" fill="#94a3b8" font-size="9" text-anchor="middle">Geodesic Distance (meters)</text>
+          <!-- Annotation -->
+          <line x1="174" y1="65" x2="174" y2="40" stroke="#34d399" stroke-width="1" stroke-dasharray="3"/>
+          <text x="174" y="35" fill="#34d399" font-size="8" text-anchor="middle">peak: 3-5m</text>
+          <text x="174" y="25" fill="#34d399" font-size="7" text-anchor="middle">(multi-room nav)</text>
+        </svg>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #fff;">Why geodesic distance matters:</strong>
+        <span style="color: var(--text-dim);"> Most episodes require navigating 3–7m through multiple rooms. This is where 3D spatial understanding becomes critical — the agent must reason about room connectivity and navigate around obstacles, not just recognize objects.</span>
+      </div>
     </div>
   </div>
 </div>

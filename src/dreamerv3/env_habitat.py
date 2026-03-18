@@ -14,7 +14,7 @@ DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 
 
 class HabitatObjectNavEnv:
-    def __init__(self, config: DreamerConfig):
+    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None):
         import habitat
 
         self._cfg = config
@@ -39,6 +39,19 @@ class HabitatObjectNavEnv:
             hab_cfg.habitat.environment.max_episode_steps = config.max_episode_steps
 
         self._env = habitat.Env(config=hab_cfg)
+
+        if max_geodesic is not None:
+            before = len(self._env._dataset.episodes)
+            self._env._dataset.episodes = [
+                ep for ep in self._env._dataset.episodes
+                if ep.info is not None
+                and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
+            ]
+            self._env._setup_episode_iterator()
+            self._env.current_episode = next(self._env.episode_iterator)
+            print(f"Filtered: {before} → {len(self._env._dataset.episodes)} "
+                  f"episodes (geodesic < {max_geodesic}m)")
+
         self._prev_dist = 0.0
         self._step_count = 0
 
