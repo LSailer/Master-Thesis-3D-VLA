@@ -70,6 +70,7 @@ class DreamerAgent:
         # JIT compile
         self._train_step_jit = jax.jit(self._train_step)
         self._act_jit = jax.jit(self._act_forward)
+        self._act_greedy_jit = jax.jit(self._act_greedy_forward)
 
     # ------ Acting ------
 
@@ -81,10 +82,16 @@ class DreamerAgent:
             self._act_z = jnp.zeros_like(self._act_z)
             self._act_a = jnp.zeros_like(self._act_a)
 
-        action, self._act_h, self._act_z = self._act_jit(
-            self.wm_state.params, self.actor_state.params,
-            obs, self._act_h, self._act_z, self._act_a, rng_key,
-        )
+        if training:
+            action, self._act_h, self._act_z = self._act_jit(
+                self.wm_state.params, self.actor_state.params,
+                obs, self._act_h, self._act_z, self._act_a, rng_key,
+            )
+        else:
+            action, self._act_h, self._act_z = self._act_greedy_jit(
+                self.wm_state.params, self.actor_state.params,
+                obs, self._act_h, self._act_z, self._act_a,
+            )
         a = int(action[0])
         self._act_a = action
         return a
@@ -95,6 +102,14 @@ class DreamerAgent:
         feat = _feature(h_new, z_new)
         logits = self.actor.apply(actor_params, feat)
         action = jax.random.categorical(rng_key, logits)
+        return action, h_new, z_new
+
+    def _act_greedy_forward(self, wm_params, actor_params, obs, h, z, prev_a):
+        embed = self.encoder.apply(wm_params["encoder"], obs)
+        h_new, _, _, z_new = self.rssm.apply(wm_params["rssm"], h, z, prev_a, embed)
+        feat = _feature(h_new, z_new)
+        logits = self.actor.apply(actor_params, feat)
+        action = jnp.argmax(logits, axis=-1)
         return action, h_new, z_new
 
     # ------ Training ------
