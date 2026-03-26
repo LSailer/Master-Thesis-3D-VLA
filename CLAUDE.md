@@ -52,54 +52,5 @@ When modifying or creating notebooks, execute them in-place so outputs are saved
 uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
 ```
 
-## GPU Execution
 
-This project runs on BWUniCluster (SLURM). GPU access requires `srun` — never run GPU code directly.
 
-**GPU tests:**
-```bash
-srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest tests/<file> -x -q -k "<test>"
-```
-
-**General GPU commands:**
-```bash
-srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 <command>
-```
-
-**When to use `srun`:** if the code imports `jax`, `habitat_sim`, `torch.cuda`, or uses `@pytest.mark.gpu`, it needs GPU → wrap with `srun`.
-
-**Partitions:**
-| Partition | Use Case | Max Time |
-|-----------|----------|----------|
-| `dev_gpu_h100` | Testing, validation, quick experiments | 30 min |
-| `gpu_h100` | Standard GPU jobs, training | 48h |
-
-## GPU + tmux + Remote Control Workflow
-
-Use `start_gpu_session.sh` to run experiments on a GPU node inside tmux, then optionally hand off to Claude remote control.
-
-**1. Start GPU session (tmux wraps srun):**
-```bash
-./start_gpu_session.sh                          # defaults: gpu-work, gpu_h100, 24h
-./start_gpu_session.sh my-exp dev_gpu_h100 00:30:00  # custom name/partition/time
-```
-
-**2. Run experiments** on the GPU node.
-
-**3. (Optional) Start Claude with remote control:**
-```bash
-claude --remote-control "GPU Experiments"
-```
-Opens a URL + QR code — access from phone/browser at `claude.ai/code`.
-
-**4. Detach tmux** (GPU session keeps running):
-```
-Ctrl+b  d
-```
-
-**5. Reattach later:**
-```bash
-tmux attach -t gpu-work
-```
-
-**Key:** tmux must wrap srun (not the reverse) — detaching tmux preserves the GPU allocation.

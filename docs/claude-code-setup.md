@@ -185,8 +185,7 @@ Already in the repo under `.claude/skills/`. Available skills:
 |-------|-------------|---------|
 | `grill-me` | `/grill-me` | Stress-test a plan or design with relentless questioning |
 | `tdd` | `/tdd` | Test-driven development workflow |
-| `slurm-submit` | `/slurm-submit` | Submit SLURM GPU jobs on BWUniCluster |
-| `write-a-prd` | `/write-a-prd` | Write a product requirements document |
+| `slurm-submit` | `/slurm-submit` Write a product requirements document |
 | `prd-to-issues` | `/prd-to-issues` | Convert PRD into GitHub issues |
 | `qa-review` | `/qa-review` | Quality assurance review |
 | `ralph-loop` | `/ralph-loop` | Autonomous task execution loop |
