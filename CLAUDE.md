@@ -12,6 +12,13 @@ Master's thesis: **World Models + 3D Scene Understanding** — testing whether w
 - **Prof. Dr. Timo Ropinski** (Zweitprüfer): Head of Visual Computing Group, Uni Ulm; expertise in Computer Vision
 - **Fabian** (PhD Betreuer): PhD student, direct day-to-day supervisor; contact via Mattermost or email
 
+## Coding Principles
+
+- **Clarify before coding**: When requirements are ambiguous, present interpretations and ask — don't guess silently.
+- **Goal-driven**: Define testable success criteria before implementing. State what "done" looks like.
+- **Simplicity first**: Write the minimum viable code. No premature abstractions, no speculative error handling, no "just in case" features. Three similar lines are better than a clever helper nobody asked for.
+- **Surgical changes**: Only modify what's necessary. Don't clean up unrelated code, add unrequested features, or refactor "while you're in there."
+
 ## Repo Structure
 
 ```
@@ -44,3 +51,6 @@ When modifying or creating notebooks, execute them in-place so outputs are saved
 ```bash
 uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
 ```
+
+
+

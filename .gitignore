@@ -8,6 +8,7 @@ wandb/
 output/
 output/slurm/
 output/observations/
+outputs/
 data/
 *.pth
 *.h5
@@ -24,8 +25,14 @@ external/*/
 # uv lockfile
 uv.lock
 
+# Claude Code — personal/temporary files
+.claude/settings.local.json
+.claude/worktrees/
+.claude/memory/
+
 # Manim partial movie files
 media/videos/*/partial_movie_files/
 media/texts/*
 media/videos/vggt_manim/
 
+archiv/

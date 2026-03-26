@@ -292,6 +292,7 @@ class DreamerAgent:
 
     def save(self, path: str):
         import os, pickle
+        import numpy as np
         os.makedirs(path, exist_ok=True)
         data = {
             "wm_params": self.wm_state.params,
@@ -300,7 +301,7 @@ class DreamerAgent:
             "critic_target": self.critic_target_params,
         }
         with open(os.path.join(path, "checkpoint.pkl"), "wb") as f:
-            pickle.dump(jax.tree.map(lambda x: x.tolist(), data), f)
+            pickle.dump(jax.tree.map(lambda x: np.array(x), data), f)
 
     def load(self, path: str):
         import os, pickle
