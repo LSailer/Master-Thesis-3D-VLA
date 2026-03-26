@@ -17,7 +17,6 @@ dependencies = [
     "ipykernel",
     "jupyterlab",
     "matplotlib",
-    "manim>=0.18.1",
     "plotly>=6.5.2",
     "nbformat>=5.10.4",
     # ALFRED / AI2-THOR
@@ -31,6 +30,8 @@ dependencies = [
     "pytest",
     "jax[cpu]>=0.6.2",
     "flax>=0.10.7",
+    "pandas>=2.3.3",
+    "transformers>=5.3.0",
 ]
 
 [project.optional-dependencies]
