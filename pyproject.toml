@@ -26,23 +26,20 @@ dependencies = [
     "tqdm",
     # tracking
     "wandb",
-    # dev
-    "pytest",
-    "jax[cpu]>=0.6.2",
-    "flax>=0.10.7",
-    "pandas>=2.3.3",
-    "transformers>=5.3.0",
-]
-
-[project.optional-dependencies]
-habitat = [
-    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main",
-    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
-]
-dreamerv3 = [
+    # DreamerV3 / JAX
     "jax[cuda12]>=0.4.30",
     "flax>=0.10",
     "optax>=0.2",
+    "ruamel.yaml",
+    "gym>=0.22",
+    "tensorboard",
+    # Habitat
+    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main",
+    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
+    # dev
+    "pytest",
+    "pandas>=2.3.3",
+    "transformers>=5.3.0",
 ]
 
 [tool.pytest.ini_options]
