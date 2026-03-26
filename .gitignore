@@ -8,6 +8,7 @@ wandb/
 output/
 output/slurm/
 output/observations/
+outputs/
 data/
 *.pth
 *.h5
@@ -34,3 +35,4 @@ media/videos/*/partial_movie_files/
 media/texts/*
 media/videos/vggt_manim/
 
+archiv/
