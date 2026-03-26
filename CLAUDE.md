@@ -73,3 +73,33 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 <command>
 |-----------|----------|----------|
 | `dev_gpu_h100` | Testing, validation, quick experiments | 30 min |
 | `gpu_h100` | Standard GPU jobs, training | 48h |
+
+## GPU + tmux + Remote Control Workflow
+
+Use `start_gpu_session.sh` to run experiments on a GPU node inside tmux, then optionally hand off to Claude remote control.
+
+**1. Start GPU session (tmux wraps srun):**
+```bash
+./start_gpu_session.sh                          # defaults: gpu-work, gpu_h100, 24h
+./start_gpu_session.sh my-exp dev_gpu_h100 00:30:00  # custom name/partition/time
+```
+
+**2. Run experiments** on the GPU node.
+
+**3. (Optional) Start Claude with remote control:**
+```bash
+claude --remote-control "GPU Experiments"
+```
+Opens a URL + QR code — access from phone/browser at `claude.ai/code`.
+
+**4. Detach tmux** (GPU session keeps running):
+```
+Ctrl+b  d
+```
+
+**5. Reattach later:**
+```bash
+tmux attach -t gpu-work
+```
+
+**Key:** tmux must wrap srun (not the reverse) — detaching tmux preserves the GPU allocation.
