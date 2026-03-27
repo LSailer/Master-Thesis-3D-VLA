@@ -3,7 +3,7 @@
 # Usage: ./sync_outputs.sh
 
 REMOTE="ul_hfj15@bwunicluster.scc.kit.edu"
-REMOTE_PATH="/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/outputs/"
+REMOTE_PATH="/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/output/"
 LOCAL_PATH="/Users/lucamac/Coding/Master-Thesis-3D-VLA/output/"
 
 mkdir -p "$LOCAL_PATH"
