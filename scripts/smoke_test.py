@@ -5,7 +5,7 @@ import sys
 
 def check_imports():
     errors = []
-    for mod in ["jax", "equinox", "optax", "habitat_sim", "wandb", "numpy", "h5py"]:
+    for mod in ["jax", "optax", "flax", "habitat_sim", "wandb", "numpy", "h5py"]:
         try:
             __import__(mod)
             print(f"  [OK] {mod}")
