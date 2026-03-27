@@ -153,8 +153,8 @@ def main():
                 if use_wandb:
                     wandb.log(metrics, step=step)
                 print(f"[step {step}] wm={metrics.get('wm_loss', 0):.3f} "
-                      f"actor={metrics.get('actor_loss', 0):.3f} "
-                      f"critic={metrics.get('critic_loss', 0):.3f}")
+                      f"actor={metrics.get('loss/policy', 0):.3f} "
+                      f"critic={metrics.get('loss/value', 0):.3f}")
 
         # Save
         if step > 0 and step % config.save_every == 0:

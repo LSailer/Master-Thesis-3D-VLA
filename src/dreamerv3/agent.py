@@ -206,8 +206,8 @@ class DreamerAgent:
 
             loss = recon_loss + reward_loss + cont_loss + self.cfg.kl_weight * kl_loss
 
-            metrics = {"recon_loss": recon_loss, "reward_loss": reward_loss,
-                       "cont_loss": cont_loss, "kl_loss": kl_loss, "wm_loss": loss}
+            metrics = {"loss/image": recon_loss, "loss/rew": reward_loss,
+                       "loss/con": cont_loss, "loss/dyn": kl_loss, "wm_loss": loss}
             return loss, (metrics, (hs, zs))
 
         grads, (metrics, states) = jax.grad(wm_loss_fn, has_aux=True)(wm_state.params)
@@ -260,7 +260,7 @@ class DreamerAgent:
             entropy = _categorical_entropy(logits_seq).mean()
 
             actor_loss = -returns.mean() - cfg.entropy_scale * entropy
-            return actor_loss, {"actor_loss": actor_loss, "entropy": entropy,
+            return actor_loss, {"loss/policy": actor_loss, "entropy": entropy,
                                 "imag_reward": rewards.mean(),
                                 "imag_return": returns.mean()}
 
@@ -275,7 +275,7 @@ class DreamerAgent:
 
             v_pred = self.critic.apply(critic_params, feats[:, :-1]).squeeze(-1)
             critic_loss = jnp.mean((v_pred - jax.lax.stop_gradient(returns)) ** 2)
-            return critic_loss, {"critic_loss": critic_loss}
+            return critic_loss, {"loss/value": critic_loss}
 
         critic_grads, critic_metrics = jax.grad(critic_loss_fn, has_aux=True)(critic_state.params)
         critic_state = critic_state.apply_gradients(grads=critic_grads)
