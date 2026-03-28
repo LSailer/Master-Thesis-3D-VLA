@@ -17,6 +17,7 @@ import time
 import numpy as np
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, REPO_ROOT)
 R2DREAMER_DIR = os.path.join(REPO_ROOT, "external", "r2dreamer")
 
 # Shared benchmark parameters
@@ -138,16 +139,23 @@ def benchmark_pytorch_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
     device_str = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"PyTorch device: {device_str}")
 
-    # Load and merge configs
-    base = OmegaConf.load(os.path.join(R2DREAMER_DIR, "configs", "model", "_base_.yaml"))
-    size = OmegaConf.load(os.path.join(R2DREAMER_DIR, "configs", "model", "size12M.yaml"))
-    cfg = OmegaConf.merge(base, size)
-    cfg.rep_loss = rep_loss
-    cfg.device = device_str
-    cfg.compile = False
-    # Required top-level fields not in model configs
-    if not hasattr(cfg, "device"):
-        cfg.device = device_str
+    # Load the full config via Hydra compose (resolves all interpolations)
+    from hydra import compose, initialize_config_dir
+    from hydra.core.global_hydra import GlobalHydra
+    GlobalHydra.instance().clear()
+    config_dir = os.path.join(R2DREAMER_DIR, "configs")
+    with initialize_config_dir(config_dir=config_dir, version_base=None):
+        cfg = compose(
+            config_name="configs",
+            overrides=[
+                "env=crafter",
+                "model=size12M",
+                f"model.rep_loss={rep_loss}",
+                f"device={device_str}",
+                "model.compile=False",
+            ],
+        )
+    cfg = cfg.model
 
     # Obs/act spaces (HWC for PyTorch r2dreamer)
     H, W, C = obs_shape[1], obs_shape[2], obs_shape[0]
@@ -171,10 +179,10 @@ def benchmark_pytorch_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
                 np.random.randint(0, num_actions, (batch_size, seq_len))
             ]
         ).to(dev)
-        reward = torch.zeros(batch_size, seq_len, dtype=torch.float32, device=dev)
-        is_first = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=dev)
-        is_last = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=dev)
-        is_terminal = torch.zeros(batch_size, seq_len, dtype=torch.bool, device=dev)
+        reward = torch.zeros(batch_size, seq_len, 1, dtype=torch.float32, device=dev)
+        is_first = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
+        is_last = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
+        is_terminal = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
 
         td = TensorDict(
             {
