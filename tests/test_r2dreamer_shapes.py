@@ -183,3 +183,48 @@ class TestR2RSSM:
         deter = jnp.zeros((B, cfg.deter_size))
         feat = rssm.get_feat(stoch, deter)
         assert feat.shape == (B, cfg.stoch_size + cfg.deter_size)
+
+
+from src.dreamerv3.r2dreamer_networks import R2Encoder, Projector, ReturnEMA
+
+class TestR2Encoder:
+    def test_output_shape(self, rng):
+        cfg = R2DreamerConfig()
+        enc = R2Encoder(depth=cfg.encoder_depth, kernel_size=cfg.encoder_kernel)
+        obs = jnp.zeros((2, *cfg.obs_shape))  # (2, 3, 64, 64)
+        params = enc.init(rng, obs)
+        out = enc.apply(params, obs)
+        assert out.shape[0] == 2
+        assert out.ndim == 2
+        # 16*4 * 4*4 = 1024
+        expected_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4
+        assert out.shape[1] == expected_dim
+
+class TestProjector:
+    def test_output_shape(self, rng):
+        cfg = R2DreamerConfig()
+        embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4
+        proj = Projector(embed_dim)
+        feat = jnp.zeros((2, cfg.feat_size))
+        params = proj.init(rng, feat)
+        out = proj.apply(params, feat)
+        assert out.shape == (2, embed_dim)
+
+    def test_no_bias(self, rng):
+        proj = Projector(128)
+        x = jnp.zeros((1, 256))
+        params = proj.init(rng, x)
+        # Should have kernel but no bias
+        assert "kernel" in params["params"]["proj"]
+        assert "bias" not in params["params"]["proj"]
+
+class TestReturnEMA:
+    def test_update_and_stats(self):
+        ema = ReturnEMA(alpha=0.5)
+        state = ema.init_state()
+        returns = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        state = ema.update(state, returns)
+        offset, scale = ema.get_stats(state)
+        assert scale >= 1.0
+        assert jnp.isfinite(offset)
+        assert jnp.isfinite(scale)

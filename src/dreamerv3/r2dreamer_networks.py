@@ -268,3 +268,62 @@ class R2RSSM(nn.Module):
         soft = jax.nn.softmax(logits, axis=-1)
         hard = jax.nn.one_hot(jnp.argmax(logits, axis=-1), self.stoch_discrete)
         return hard + soft - jax.lax.stop_gradient(soft)
+
+
+class R2Encoder(nn.Module):
+    """Convolutional encoder ported from R2-Dreamer.
+
+    Expects obs in CHW format (JAX codebase convention: B, C, H, W).
+    Applies Conv+MaxPool+RMSNorm+SiLU for each channel multiplier, then flattens.
+    """
+    depth: int = 16
+    kernel_size: int = 5
+    mults: tuple = (2, 3, 4, 4)
+
+    @nn.compact
+    def __call__(self, obs):
+        # obs: (B, C, H, W) float [0,1]
+        x = obs - 0.5
+        x = jnp.transpose(x, (0, 2, 3, 1))  # NCHW -> NHWC
+        for i, mult in enumerate(self.mults):
+            ch = self.depth * mult
+            x = nn.Conv(ch, (self.kernel_size, self.kernel_size),
+                        padding="SAME", name=f"conv{i}")(x)
+            x = nn.max_pool(x, (2, 2), strides=(2, 2))
+            x = RMSNorm(name=f"norm{i}")(x)
+            x = nn.silu(x)
+        return x.reshape(x.shape[0], -1)
+
+
+class Projector(nn.Module):
+    """Single linear projection without bias (maps feat_size -> embed_dim)."""
+    out_dim: int
+
+    @nn.compact
+    def __call__(self, x):
+        return nn.Dense(self.out_dim, use_bias=False, name="proj")(x)
+
+
+class ReturnEMA:
+    """Tracks 5th/95th percentile of returns with exponential moving average.
+
+    state: jnp.array([p05_ema, p95_ema]) initialised at zeros.
+    """
+
+    def __init__(self, alpha=0.01):
+        self.alpha = alpha
+
+    def init_state(self):
+        return jnp.zeros(2)
+
+    def update(self, state, returns):
+        quantiles = jnp.array([
+            jnp.percentile(returns, 5),
+            jnp.percentile(returns, 95),
+        ])
+        return self.alpha * quantiles + (1 - self.alpha) * state
+
+    def get_stats(self, state):
+        offset = state[0]
+        scale = jnp.maximum(state[1] - state[0], 1.0)
+        return offset, scale
