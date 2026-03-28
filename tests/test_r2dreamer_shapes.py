@@ -61,3 +61,36 @@ class TestBlockLinear:
         params = bl.init(rng, x)
         assert params["params"]["kernel"].shape == (64, 256, 8)
         assert params["params"]["bias"].shape == (512,)
+
+
+from src.dreamerv3.r2dreamer_networks import Deter
+
+class TestDeter:
+    def test_output_shape(self, rng):
+        cfg = R2DreamerConfig()
+        deter_mod = Deter(
+            deter_size=cfg.deter_size, stoch_size=cfg.stoch_size,
+            act_dim=cfg.num_actions, hidden=cfg.hidden_size,
+            blocks=cfg.blocks, dyn_layers=cfg.dyn_layers,
+        )
+        h = jnp.zeros((2, cfg.deter_size))
+        z = jnp.zeros((2, cfg.stoch_size))
+        a = jnp.zeros((2, cfg.num_actions))
+        params = deter_mod.init(rng, z, h, a)
+        h_new = deter_mod.apply(params, z, h, a)
+        assert h_new.shape == (2, cfg.deter_size)
+
+    def test_deterministic_with_same_input(self, rng):
+        cfg = R2DreamerConfig()
+        deter_mod = Deter(
+            deter_size=cfg.deter_size, stoch_size=cfg.stoch_size,
+            act_dim=cfg.num_actions, hidden=cfg.hidden_size,
+            blocks=cfg.blocks, dyn_layers=cfg.dyn_layers,
+        )
+        h = jnp.ones((1, cfg.deter_size)) * 0.1
+        z = jnp.ones((1, cfg.stoch_size)) * 0.1
+        a = jnp.zeros((1, cfg.num_actions))
+        params = deter_mod.init(rng, z, h, a)
+        h1 = deter_mod.apply(params, z, h, a)
+        h2 = deter_mod.apply(params, z, h, a)
+        assert jnp.allclose(h1, h2)
