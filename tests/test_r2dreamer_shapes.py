@@ -94,3 +94,92 @@ class TestDeter:
         h1 = deter_mod.apply(params, z, h, a)
         h2 = deter_mod.apply(params, z, h, a)
         assert jnp.allclose(h1, h2)
+
+
+from src.dreamerv3.r2dreamer_networks import R2RSSM
+
+class TestR2RSSM:
+    def test_posterior_step(self, rng):
+        cfg = R2DreamerConfig()
+        rssm = R2RSSM(
+            deter_size=cfg.deter_size, stoch_classes=cfg.stoch_classes,
+            stoch_discrete=cfg.stoch_discrete, num_actions=cfg.num_actions,
+            hidden=cfg.hidden_size, blocks=cfg.blocks,
+            dyn_layers=cfg.dyn_layers, obs_layers=cfg.obs_layers,
+            img_layers=cfg.img_layers,
+        )
+        B = 2
+        stoch = jnp.zeros((B, cfg.stoch_classes, cfg.stoch_discrete))
+        deter = jnp.zeros((B, cfg.deter_size))
+        action = jnp.zeros((B, cfg.num_actions))
+        embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4  # 16*4*4*4=1024
+        embed = jnp.zeros((B, embed_dim))
+
+        params = rssm.init(rng, stoch, deter, action, embed)
+        new_stoch, new_deter, post_logit = rssm.apply(
+            params, stoch, deter, action, embed)
+
+        assert new_deter.shape == (B, cfg.deter_size)
+        assert new_stoch.shape == (B, cfg.stoch_classes, cfg.stoch_discrete)
+        assert post_logit.shape == (B, cfg.stoch_classes, cfg.stoch_discrete)
+
+    def test_prior_step(self, rng):
+        cfg = R2DreamerConfig()
+        rssm = R2RSSM(
+            deter_size=cfg.deter_size, stoch_classes=cfg.stoch_classes,
+            stoch_discrete=cfg.stoch_discrete, num_actions=cfg.num_actions,
+            hidden=cfg.hidden_size, blocks=cfg.blocks,
+            dyn_layers=cfg.dyn_layers, obs_layers=cfg.obs_layers,
+            img_layers=cfg.img_layers,
+        )
+        B = 2
+        stoch = jnp.zeros((B, cfg.stoch_classes, cfg.stoch_discrete))
+        deter = jnp.zeros((B, cfg.deter_size))
+        action = jnp.zeros((B, cfg.num_actions))
+        embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4
+        embed = jnp.zeros((B, embed_dim))
+        params = rssm.init(rng, stoch, deter, action, embed)
+
+        new_stoch, new_deter = rssm.apply(
+            params, stoch, deter, action, method=rssm.img_step)
+        assert new_deter.shape == (B, cfg.deter_size)
+        assert new_stoch.shape == (B, cfg.stoch_classes, cfg.stoch_discrete)
+
+    def test_observe_rollout(self, rng):
+        cfg = R2DreamerConfig()
+        rssm = R2RSSM(
+            deter_size=cfg.deter_size, stoch_classes=cfg.stoch_classes,
+            stoch_discrete=cfg.stoch_discrete, num_actions=cfg.num_actions,
+            hidden=cfg.hidden_size, blocks=cfg.blocks,
+            dyn_layers=cfg.dyn_layers, obs_layers=cfg.obs_layers,
+            img_layers=cfg.img_layers,
+        )
+        B, T = 2, 10
+        embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4
+        embed = jnp.zeros((B, T, embed_dim))
+        actions = jnp.zeros((B, T, cfg.num_actions))
+        is_first = jnp.zeros((B, T))
+        stoch0 = jnp.zeros((B, cfg.stoch_classes, cfg.stoch_discrete))
+        deter0 = jnp.zeros((B, cfg.deter_size))
+
+        params = rssm.init(rng, stoch0, deter0, actions[:, 0], embed[:, 0])
+
+        stochs, deters, logits = rssm.apply(
+            params, embed, actions, (stoch0, deter0), is_first,
+            method=rssm.observe)
+        assert stochs.shape == (B, T, cfg.stoch_classes, cfg.stoch_discrete)
+        assert deters.shape == (B, T, cfg.deter_size)
+        assert logits.shape == (B, T, cfg.stoch_classes, cfg.stoch_discrete)
+
+    def test_get_feat(self):
+        cfg = R2DreamerConfig()
+        rssm = R2RSSM(
+            deter_size=cfg.deter_size, stoch_classes=cfg.stoch_classes,
+            stoch_discrete=cfg.stoch_discrete, num_actions=cfg.num_actions,
+            hidden=cfg.hidden_size, blocks=cfg.blocks,
+        )
+        B = 2
+        stoch = jnp.zeros((B, cfg.stoch_classes, cfg.stoch_discrete))
+        deter = jnp.zeros((B, cfg.deter_size))
+        feat = rssm.get_feat(stoch, deter)
+        assert feat.shape == (B, cfg.stoch_size + cfg.deter_size)

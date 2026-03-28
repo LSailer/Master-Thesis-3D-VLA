@@ -95,3 +95,176 @@ class Deter(nn.Module):
         update = jax.nn.sigmoid(gate_chunks[2].reshape(gates.shape[0], -1) - 1.0)
 
         return update * jnp.tanh(reset * cand) + (1.0 - update) * deter
+
+
+class R2RSSM(nn.Module):
+    """Recurrent State-Space Model with Block-GRU (R2-Dreamer).
+
+    stoch is always (B, stoch_classes, stoch_discrete) — never flattened
+    in the external interface. Internally, stoch is flattened to (B, S*K)
+    before feeding into Deter.
+    """
+    deter_size: int = 2048
+    stoch_classes: int = 32
+    stoch_discrete: int = 16
+    num_actions: int = 17
+    hidden: int = 256
+    blocks: int = 8
+    dyn_layers: int = 1
+    obs_layers: int = 1
+    img_layers: int = 2
+    unimix_ratio: float = 0.01
+
+    @property
+    def stoch_size(self):
+        return self.stoch_classes * self.stoch_discrete
+
+    @property
+    def feat_size(self):
+        return self.stoch_size + self.deter_size
+
+    def setup(self):
+        self.deter_net = Deter(
+            deter_size=self.deter_size,
+            stoch_size=self.stoch_classes * self.stoch_discrete,
+            act_dim=self.num_actions,
+            hidden=self.hidden,
+            blocks=self.blocks,
+            dyn_layers=self.dyn_layers,
+        )
+
+        # Posterior head (obs_net): obs_layers Dense+RMSNorm+SiLU then Dense→logits
+        self.obs_fcs = [nn.Dense(self.hidden, name=f"obs_fc{i}") for i in range(self.obs_layers)]
+        self.obs_norms = [RMSNorm(name=f"obs_norm{i}") for i in range(self.obs_layers)]
+        self.obs_out = nn.Dense(self.stoch_classes * self.stoch_discrete, name="obs_out")
+
+        # Prior head (img_net): img_layers Dense+RMSNorm+SiLU then Dense→logits
+        self.img_fcs = [nn.Dense(self.hidden, name=f"img_fc{i}") for i in range(self.img_layers)]
+        self.img_norms = [RMSNorm(name=f"img_norm{i}") for i in range(self.img_layers)]
+        self.img_out = nn.Dense(self.stoch_classes * self.stoch_discrete, name="img_out")
+
+    def __call__(self, stoch, deter, action, embed):
+        """Single posterior step: Deter transition then posterior head.
+
+        Args:
+            stoch: (B, stoch_classes, stoch_discrete)
+            deter: (B, deter_size)
+            action: (B, num_actions)
+            embed: (B, embed_dim) — encoder output
+
+        Returns:
+            new_stoch: (B, stoch_classes, stoch_discrete)
+            new_deter: (B, deter_size)
+            post_logit: (B, stoch_classes, stoch_discrete)
+        """
+        B = stoch.shape[0]
+        stoch_flat = stoch.reshape(B, -1)
+        deter = self.deter_net(stoch_flat, deter, action)
+
+        # Touch prior head so its params are created during init
+        self._prior(deter)
+
+        # Posterior: condition on deter + embed
+        x = jnp.concatenate([deter, embed], axis=-1)
+        for fc, norm in zip(self.obs_fcs, self.obs_norms):
+            x = nn.silu(norm(fc(x)))
+        logit = self.obs_out(x).reshape(B, self.stoch_classes, self.stoch_discrete)
+        stoch = self._sample(logit)
+        return stoch, deter, logit
+
+    def img_step(self, stoch, deter, action):
+        """Single prior step: Deter transition then prior head.
+
+        Args:
+            stoch: (B, stoch_classes, stoch_discrete)
+            deter: (B, deter_size)
+            action: (B, num_actions)
+
+        Returns:
+            new_stoch: (B, stoch_classes, stoch_discrete)
+            new_deter: (B, deter_size)
+        """
+        B = stoch.shape[0]
+        stoch_flat = stoch.reshape(B, -1)
+        deter = self.deter_net(stoch_flat, deter, action)
+        stoch, _ = self._prior(deter)
+        return stoch, deter
+
+    def _prior(self, deter):
+        """Compute prior logits and sample from deter only."""
+        B = deter.shape[0]
+        x = deter
+        for fc, norm in zip(self.img_fcs, self.img_norms):
+            x = nn.silu(norm(fc(x)))
+        logit = self.img_out(x).reshape(B, self.stoch_classes, self.stoch_discrete)
+        stoch = self._sample(logit)
+        return stoch, logit
+
+    def prior(self, deter):
+        """Public prior: returns (stoch, logit)."""
+        return self._prior(deter)
+
+    def observe(self, embed, actions, initial, is_first):
+        """Roll out posterior over T timesteps.
+
+        Args:
+            embed: (B, T, embed_dim)
+            actions: (B, T, num_actions)
+            initial: (stoch0, deter0) — initial states
+            is_first: (B, T) — 1.0 on episode boundaries
+
+        Returns:
+            stochs: (B, T, stoch_classes, stoch_discrete)
+            deters: (B, T, deter_size)
+            logits: (B, T, stoch_classes, stoch_discrete)
+        """
+        stoch, deter = initial
+        stochs, deters, logits = [], [], []
+        prev_action = jnp.zeros_like(actions[:, 0])
+
+        for t in range(embed.shape[1]):
+            # Reset mechanism: zero out state on episode boundaries
+            mask = 1.0 - is_first[:, t]
+            stoch = stoch * mask[:, None, None]
+            deter = deter * mask[:, None]
+            prev_action = prev_action * mask[:, None]
+
+            stoch, deter, logit = self(stoch, deter, prev_action, embed[:, t])
+            stochs.append(stoch)
+            deters.append(deter)
+            logits.append(logit)
+            prev_action = actions[:, t]
+
+        return jnp.stack(stochs, axis=1), jnp.stack(deters, axis=1), jnp.stack(logits, axis=1)
+
+    def get_feat(self, stoch, deter):
+        """Flatten stoch and concat with deter to form the feature vector.
+
+        Args:
+            stoch: (..., stoch_classes, stoch_discrete)
+            deter: (..., deter_size)
+
+        Returns:
+            feat: (..., stoch_size + deter_size)
+        """
+        flat = stoch.reshape(*stoch.shape[:-2], self.stoch_classes * self.stoch_discrete)
+        return jnp.concatenate([flat, deter], axis=-1)
+
+    def initial_state(self, batch_size):
+        """Return zero initial state."""
+        return (
+            jnp.zeros((batch_size, self.stoch_classes, self.stoch_discrete)),
+            jnp.zeros((batch_size, self.deter_size)),
+        )
+
+    def _sample(self, logits):
+        """Unimix + straight-through Gumbel-Softmax (hard=True)."""
+        if self.unimix_ratio > 0:
+            probs = jax.nn.softmax(logits, axis=-1)
+            uniform = jnp.ones_like(probs) / self.stoch_discrete
+            probs = (1 - self.unimix_ratio) * probs + self.unimix_ratio * uniform
+            logits = jnp.log(probs + 1e-8)
+        # Straight-through: hard one-hot forward, soft gradient backward
+        soft = jax.nn.softmax(logits, axis=-1)
+        hard = jax.nn.one_hot(jnp.argmax(logits, axis=-1), self.stoch_discrete)
+        return hard + soft - jax.lax.stop_gradient(soft)
