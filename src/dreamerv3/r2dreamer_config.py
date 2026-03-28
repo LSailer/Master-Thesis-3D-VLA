@@ -5,9 +5,9 @@ from typing import Tuple
 @dataclass
 class R2DreamerConfig:
     # --- Environment ---
-    obs_shape: Tuple[int, ...] = (64, 64, 3)
-    num_actions: int = 18
-    max_episode_steps: int = 27000
+    obs_shape: Tuple[int, ...] = (3, 64, 64)  # CHW format (matches JAX codebase)
+    num_actions: int = 17  # Crafter default
+    max_episode_steps: int = 1000
 
     # --- RSSM ---
     deter_size: int = 2048
@@ -26,10 +26,10 @@ class R2DreamerConfig:
 
     # --- MLP heads ---
     mlp_units: int = 256
-    reward_layers: int = 1
-    cont_layers: int = 1
-    actor_layers: int = 3
-    critic_layers: int = 3
+    mlp_layers_reward: int = 1
+    mlp_layers_cont: int = 1
+    mlp_layers_actor: int = 3
+    mlp_layers_critic: int = 3
     twohot_bins: int = 255
 
     # --- Projector (Barlow Twins) ---
