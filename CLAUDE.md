@@ -18,6 +18,7 @@ Master's thesis: **World Models + 3D Scene Understanding** — testing whether w
 - **Goal-driven**: Define testable success criteria before implementing. State what "done" looks like.
 - **Simplicity first**: Write the minimum viable code. No premature abstractions, no speculative error handling, no "just in case" features. Three similar lines are better than a clever helper nobody asked for.
 - **Surgical changes**: Only modify what's necessary. Don't clean up unrelated code, add unrequested features, or refactor "while you're in there."
+- **One question at a time**: Always ask one question at a time. Never dump multiple questions or recommendations at once. Wait for the answer before proceeding.
 
 ## Repo Structure
 
@@ -73,6 +74,4 @@ When modifying or creating notebooks, execute them in-place so outputs are saved
 ```bash
 uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
 ```
-
-
 

@@ -3,6 +3,14 @@
     "sequentialthinking": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sequentialthinking"]
+    },
+    "openspace": {
+      "command": "/home/ul/ul_student/ul_hfj15/OpenSpace/.venv/bin/openspace-mcp",
+      "toolTimeout": 600,
+      "env": {
+        "OPENSPACE_HOST_SKILL_DIRS": "/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/.claude/skills",
+        "OPENSPACE_WORKSPACE": "/home/ul/ul_student/ul_hfj15/OpenSpace"
+      }
     }
   }
 }
