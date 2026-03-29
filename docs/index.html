@@ -1100,6 +1100,91 @@
   </svg>
 </div>
 
+<!-- SLIDE: VGGT Variant Comparison -->
+<div class="slide" id="slide-vggt-comparison">
+  <h3>Encoder Selection</h3>
+  <h2>VGGT Variant Comparison</h2>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
+    <!-- Left: Table + Summary Bars -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border);">
+            <th style="padding: 6px 8px; text-align: left; color: var(--text-dim);">Variant</th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>100</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>500</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Scaling</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">VGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">SceneVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">FastVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">16.1 GB</td>
+            <td style="padding: 5px 8px; text-align: right;">54.7 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">StreamVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">25.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr>
+            <td style="padding: 5px 8px; font-weight: 600; color: var(--accent-green);">InfiniteVGGT</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">16.6 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">18.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace; color: var(--accent-green);">O(1)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div>
+        <img src="images/vggt_summary_bars.png" alt="VGGT latency and memory bars" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+        <div class="figure-caption">Latency &amp; peak memory at N &isin; {10, 50, 100}</div>
+      </div>
+    </div>
+
+    <!-- Right: Sequential benchmark -->
+    <div>
+      <img src="images/vggt_seq.png" alt="DreamerV3 integration benchmark" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+      <div class="figure-caption">DreamerV3 integration: 16 parallel envs, 20 RL steps (16 &rarr; 320 frames)</div>
+      <div class="highlight-box" style="margin-top: 14px; padding: 12px 16px;">
+        <strong style="color: var(--accent-green);">Result:</strong>
+        <span style="color: var(--text-dim);"> Only InfiniteVGGT guarantees bounded memory at arbitrary episode lengths while maintaining stable throughput (~15 fps).</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: Output Quality Comparison -->
+<div class="slide" id="slide-vggt-depth">
+  <h3>Encoder Selection</h3>
+  <h2>Output Quality — All Variants Equivalent</h2>
+
+  <div style="text-align: center;">
+    <img src="images/vggt_depth_comparision.png" alt="Depth maps across all VGGT variants" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border);">
+    <div class="figure-caption" style="margin-top: 12px;">Depth maps from all five variants on identical input frames — outputs are visually indistinguishable.</div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: var(--accent-green);">Selection:</strong>
+    <span style="color: var(--text-dim);"> InfiniteVGGT selected as 3D encoder — bounded memory, stable throughput, no quality loss.</span>
+  </div>
+</div>
+
 <!-- SLIDE 7: ObjectNav Task Definition -->
 <div class="slide" id="slide-8">
   <h3>Benchmark</h3>
