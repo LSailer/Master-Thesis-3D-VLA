@@ -22,11 +22,33 @@ Master's thesis: **World Models + 3D Scene Understanding** — testing whether w
 ## Repo Structure
 
 ```
-docs/           # GitHub Pages — slides + images
-  index.html    # Presentation slides
-  images/       # Figures referenced by slides
-src/            # Source code
-tests/          # Tests
+modules/                    # All code organized by domain
+  dreamerv3/                # DreamerV3 world model (JAX)
+    agent.py, networks.py, configs.py, optim.py, replay_buffer.py, train.py, eval.py
+    tests/                  # pytest: test_shapes.py, test_integration.py
+    notebooks/              # jax_vs_pytorch, official_comparison
+    scripts/                # run_ours_crafter.py, slurm/
+  r2dreamer/                # R2-Dreamer agent (extends DreamerV3)
+    agent.py, networks.py, config.py
+    tests/                  # test_agent.py, test_shapes.py, test_optim.py
+    scripts/                # run_jax_crafter.py, run_pytorch_*.py
+  envs/                     # Environment wrappers (Crafter, Habitat)
+    crafter.py, habitat.py, habitat_r2dreamer.py
+    tests/                  # test_habitat.py
+    notebooks/              # habitat_headless_test, habitat_objectnav_benchmark
+    scripts/                # run_habitat_timing.py, collect_*.py
+  vggt/                     # VGGT comparison & benchmarks
+    benchmark.py, plots.py, variants.py
+    tests/                  # test_comparison.py
+    notebooks/              # comparison, exploration
+  shared/                   # Cross-cutting utilities
+    wandb_utils.py
+external/                   # Third-party repos (dreamerv3-official, r2dreamer, VGGT variants)
+scripts/                    # Cross-cutting scripts (smoke tests, setup, SLURM)
+docs/                       # GitHub Pages — slides + images
+archiv/                     # Deprecated code (ALFRED, old notebooks)
+output/                     # Run results & benchmarks
+data/                       # Datasets (HM3D scenes, etc.)
 ```
 
 ## Research

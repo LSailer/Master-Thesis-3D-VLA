@@ -46,6 +46,12 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+testpaths = [
+    "modules/dreamerv3/tests",
+    "modules/r2dreamer/tests",
+    "modules/envs/tests",
+    "modules/vggt/tests",
+]
 
 [tool.uv]
 python-preference = "only-managed"
