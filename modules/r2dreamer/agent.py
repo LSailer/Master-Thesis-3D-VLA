@@ -408,9 +408,14 @@ class R2DreamerAgent:
             start_stoch, start_deter,
             horizon, imag_key,
         )
-        # imag_feats: (BT, H, feat_size), imag_actions: (BT, H, num_actions)
+        # imag_feats: (BT, H, feat_size) — detached
+        # imag_actions: (BT, H, num_actions) — clean one-hot, detached
 
-        # Reward and cont predictions on imagined features (frozen = stop_gradient)
+        # Detach everything from imagination (matches PyTorch @torch.no_grad)
+        imag_feats = jax.lax.stop_gradient(imag_feats)
+        imag_actions = jax.lax.stop_gradient(imag_actions)
+
+        # Reward and cont predictions on imagined features (frozen)
         imag_feat_flat = imag_feats.reshape(B * T * horizon, -1)
         imag_rew_logits = self.reward_mod.apply(
             jax.lax.stop_gradient(params["reward"]), imag_feat_flat
@@ -445,14 +450,14 @@ class R2DreamerAgent:
         ret_offset, ret_scale = self.return_ema.get_stats(ema_state)
         adv = (ret - imag_value[:, :-1]) / ret_scale
 
-        # Actor loss: REINFORCE + entropy bonus
-        # Compute actor logits on imagined features (with gradient through actor)
+        # Actor loss: re-evaluate unfrozen actor on detached imagined feats
+        # (matches PyTorch: self.actor(imag_feat) on detached features)
         actor_logits = self.actor_mod.apply(
-            params["actor"], imag_feats.reshape(B * T * horizon, -1)
+            params["actor"], imag_feat_flat
         ).reshape(B * T, horizon, cfg.num_actions)
 
         log_probs = jax.nn.log_softmax(actor_logits, axis=-1)  # (BT, H, A)
-        # log_prob of taken action: sum(one_hot * log_softmax)
+        # log_prob of taken action using clean one-hot (detached)
         logpi = jnp.sum(log_probs[:, :-1] * imag_actions[:, :-1], axis=-1, keepdims=True)
 
         # Entropy: -sum(p * log p)
@@ -466,7 +471,7 @@ class R2DreamerAgent:
 
         # Critic loss on imagined features
         cri_logits_imag = self.critic_mod.apply(
-            params["critic"], imag_feats.reshape(B * T * horizon, -1)
+            params["critic"], imag_feat_flat
         ).reshape(B * T, horizon, cfg.twohot_bins)
 
         tar_padded = jnp.concatenate(
@@ -604,14 +609,15 @@ def _kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
 
 def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
              start_stoch, start_deter, horizon, rng_key):
-    """Imagination rollout in latent space.
+    """Imagination rollout in latent space (no gradients).
 
-    All operations use stop_gradient on world model params — only the actor
-    gets gradients for the policy loss.
+    Matches PyTorch: imagination is fully detached (@torch.no_grad).
+    The policy loss is computed separately by re-evaluating the actor
+    on the detached imagined features.
 
     Args:
-        rssm_params: RSSM parameters (will be stop_gradient'd for img_step)
-        actor_params: Actor parameters (gradients flow through)
+        rssm_params: RSSM parameters (frozen)
+        actor_params: Actor parameters (frozen for imagination)
         rssm_mod: R2RSSM module
         actor_mod: MLP module for actor
         start_stoch: (N, C, K) starting stochastic state
@@ -620,11 +626,11 @@ def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
         rng_key: PRNG key
 
     Returns:
-        feats: (N, horizon, feat_size)
-        actions: (N, horizon, num_actions)
+        feats: (N, horizon, feat_size) — detached
+        actions: (N, horizon, num_actions) — clean one-hot, detached
     """
-    # Use frozen RSSM for imagination
     frozen_rssm_params = jax.lax.stop_gradient(rssm_params)
+    frozen_actor_params = jax.lax.stop_gradient(actor_params)
 
     stoch = start_stoch
     deter = start_deter
@@ -636,14 +642,13 @@ def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
             frozen_rssm_params, stoch, deter, method=rssm_mod.get_feat
         )
 
-        # Actor with gradient (for policy loss)
-        logits = actor_mod.apply(actor_params, feat)
+        # Frozen actor — no gradients during imagination
+        logits = actor_mod.apply(frozen_actor_params, feat)
         rng_key, k = jax.random.split(rng_key)
-        action_idx = jax.random.categorical(k, logits, axis=-1)
-        action = jax.nn.one_hot(action_idx, logits.shape[-1])
-        # Straight-through for gradient: action = one_hot + softmax - sg(softmax)
-        soft = jax.nn.softmax(logits, axis=-1)
-        action = action + soft - jax.lax.stop_gradient(soft)
+        action = jax.nn.one_hot(
+            jax.random.categorical(k, logits, axis=-1),
+            logits.shape[-1],
+        )
 
         feats.append(feat)
         actions.append(action)
