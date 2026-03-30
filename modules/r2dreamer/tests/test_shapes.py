@@ -115,9 +115,10 @@ class TestR2RSSM:
         embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4  # 16*4*4*4=1024
         embed = jnp.zeros((B, embed_dim))
 
-        params = rssm.init(rng, stoch, deter, action, embed)
+        k1, k2 = jax.random.split(rng)
+        params = rssm.init({"params": rng, "sample": k1}, stoch, deter, action, embed)
         new_stoch, new_deter, post_logit = rssm.apply(
-            params, stoch, deter, action, embed)
+            params, stoch, deter, action, embed, rngs={"sample": k2})
 
         assert new_deter.shape == (B, cfg.deter_size)
         assert new_stoch.shape == (B, cfg.stoch_classes, cfg.stoch_discrete)
@@ -138,10 +139,12 @@ class TestR2RSSM:
         action = jnp.zeros((B, cfg.num_actions))
         embed_dim = cfg.encoder_depth * cfg.encoder_mults[-1] * 4 * 4
         embed = jnp.zeros((B, embed_dim))
-        params = rssm.init(rng, stoch, deter, action, embed)
+        k1, k2 = jax.random.split(rng)
+        params = rssm.init({"params": rng, "sample": k1}, stoch, deter, action, embed)
 
         new_stoch, new_deter = rssm.apply(
-            params, stoch, deter, action, method=rssm.img_step)
+            params, stoch, deter, action, method=rssm.img_step,
+            rngs={"sample": k2})
         assert new_deter.shape == (B, cfg.deter_size)
         assert new_stoch.shape == (B, cfg.stoch_classes, cfg.stoch_discrete)
 
@@ -162,11 +165,12 @@ class TestR2RSSM:
         stoch0 = jnp.zeros((B, cfg.stoch_classes, cfg.stoch_discrete))
         deter0 = jnp.zeros((B, cfg.deter_size))
 
-        params = rssm.init(rng, stoch0, deter0, actions[:, 0], embed[:, 0])
+        k1, k2 = jax.random.split(rng)
+        params = rssm.init({"params": rng, "sample": k1}, stoch0, deter0, actions[:, 0], embed[:, 0])
 
         stochs, deters, logits = rssm.apply(
             params, embed, actions, (stoch0, deter0), is_first,
-            method=rssm.observe)
+            method=rssm.observe, rngs={"sample": k2})
         assert stochs.shape == (B, T, cfg.stoch_classes, cfg.stoch_discrete)
         assert deters.shape == (B, T, cfg.deter_size)
         assert logits.shape == (B, T, cfg.stoch_classes, cfg.stoch_discrete)

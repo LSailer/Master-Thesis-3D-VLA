@@ -86,7 +86,8 @@ class R2DreamerAgent:
         deter0 = jnp.zeros((1, config.deter_size))
         action0 = jnp.zeros((1, config.num_actions))
         embed0 = jnp.zeros((1, self.embed_size))
-        rssm_params = self.rssm_mod.init(k2, stoch0, deter0, action0, embed0)
+        rng_key, k_sample = jax.random.split(rng_key)
+        rssm_params = self.rssm_mod.init({"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0)
 
         # Projector: feat_size -> embed_size
         self.proj_mod = Projector(out_dim=self.embed_size)
@@ -208,8 +209,10 @@ class R2DreamerAgent:
     def _act_jit(self, params, obs, stoch, deter, prev_action, rng_key, training):
         """JIT-able acting logic.  Returns (action_int, new_stoch, new_deter)."""
         embed = self.encoder_mod.apply(params["encoder"], obs)
+        rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = self.rssm_mod.apply(
-            params["rssm"], stoch, deter, prev_action, embed
+            params["rssm"], stoch, deter, prev_action, embed,
+            rngs={"sample": k_sample},
         )
         feat = self.rssm_mod.apply(
             params["rssm"], new_stoch, new_deter, method=self.rssm_mod.get_feat
@@ -315,16 +318,20 @@ class R2DreamerAgent:
         stoch0, deter0 = self.rssm_mod.apply(
             params["rssm"], B, method=self.rssm_mod.initial_state
         )
+        rng_key, k_obs = jax.random.split(rng_key)
         post_stochs, post_deters, post_logits = self.rssm_mod.apply(
             params["rssm"], embed, batch["actions"], (stoch0, deter0),
             batch["is_first"], method=self.rssm_mod.observe,
+            rngs={"sample": k_obs},
         )
         # (B, T, stoch_classes, stoch_discrete)
 
         # Prior logits from posterior deters
+        rng_key, k_prior = jax.random.split(rng_key)
         def _prior_fn(deter_flat):
             _, logit = self.rssm_mod.apply(
-                params["rssm"], deter_flat, method=self.rssm_mod.prior
+                params["rssm"], deter_flat, method=self.rssm_mod.prior,
+                rngs={"sample": k_prior},
             )
             return logit
 
@@ -641,8 +648,10 @@ def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
         feats.append(feat)
         actions.append(action)
 
+        rng_key, k_img = jax.random.split(rng_key)
         stoch, deter = rssm_mod.apply(
-            frozen_rssm_params, stoch, deter, action, method=rssm_mod.img_step
+            frozen_rssm_params, stoch, deter, action, method=rssm_mod.img_step,
+            rngs={"sample": k_img},
         )
 
     return jnp.stack(feats, axis=1), jnp.stack(actions, axis=1), None

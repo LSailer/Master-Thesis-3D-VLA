@@ -258,15 +258,23 @@ class R2RSSM(nn.Module):
         )
 
     def _sample(self, logits):
-        """Unimix + straight-through Gumbel-Softmax (hard=True)."""
+        """Unimix + straight-through Gumbel-Softmax (hard=True).
+
+        Uses ``self.make_rng('sample')`` so that callers pass the RNG
+        collection via ``apply(..., rngs={'sample': key})``.
+        """
         if self.unimix_ratio > 0:
             probs = jax.nn.softmax(logits, axis=-1)
             uniform = jnp.ones_like(probs) / self.stoch_discrete
             probs = (1 - self.unimix_ratio) * probs + self.unimix_ratio * uniform
             logits = jnp.log(probs + 1e-8)
-        # Straight-through: hard one-hot forward, soft gradient backward
-        soft = jax.nn.softmax(logits, axis=-1)
-        hard = jax.nn.one_hot(jnp.argmax(logits, axis=-1), self.stoch_discrete)
+        # Gumbel-Softmax: stochastic forward, soft gradient backward
+        rng = self.make_rng("sample")
+        gumbel_noise = -jnp.log(-jnp.log(
+            jax.random.uniform(rng, logits.shape, minval=1e-20)
+        ) + 1e-20)
+        soft = jax.nn.softmax(logits + gumbel_noise, axis=-1)
+        hard = jax.nn.one_hot(jnp.argmax(logits + gumbel_noise, axis=-1), self.stoch_discrete)
         return hard + soft - jax.lax.stop_gradient(soft)
 
 
