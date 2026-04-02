@@ -34,6 +34,10 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 echo "Starting tmux session '$SESSION' with srun on $PARTITION ($TIME)..."
-tmux new-session -d -s "$SESSION" \
-    "srun --partition=$PARTITION -n1 --gres=gpu:1 --time=$TIME --pty bash"
+tmux new-session -d -s "$SESSION"
+tmux set-option -t "$SESSION" remain-on-exit on
+tmux send-keys -t "$SESSION" "srun --partition=$PARTITION -n1 --gres=gpu:1 --time=$TIME --pty bash" Enter
+echo "Session '$SESSION' started in background."
+echo "  Attach:  tmux attach -t $SESSION"
+echo "  Detach:  Ctrl+b d"
 tmux attach -t "$SESSION"
