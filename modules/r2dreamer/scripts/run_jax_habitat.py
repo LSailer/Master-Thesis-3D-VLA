@@ -113,7 +113,7 @@ def main():
         print(f"Prefilling {config.prefill_steps} steps...")
         obs = env.reset()
         for i in range(config.prefill_steps):
-            action = np.random.randint(1, config.num_actions)  # exclude STOP
+            action = np.random.randint(0, config.num_actions)
             next_obs = env.step(action)
             buffer.add(obs["image"], action, next_obs["reward"], next_obs["done"])
             obs = next_obs if not next_obs["done"] else env.reset()
