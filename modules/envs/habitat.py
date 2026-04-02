@@ -1,4 +1,9 @@
-"""Thin Habitat ObjectNav wrapper for DreamerV3."""
+"""Thin Habitat ObjectNav wrapper for DreamerV3.
+
+STOP is treated as a no-op (no movement, no termination) following DreamerNav.
+Episodes terminate on: (1) agent within goal_radius of target, or
+(2) max_episode_steps exceeded.
+"""
 
 from pathlib import Path
 
@@ -6,11 +11,14 @@ import numpy as np
 
 from modules.dreamerv3.configs import DreamerConfig
 
-# Discrete actions matching Habitat ObjectNav
+# Discrete actions: STOP is a no-op (no movement), kept for action-space parity
 ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
 
 SCENE_DIR = Path("data/scene_datasets/hm3d")
 DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
+
+# Goal reaching radius (meters) — episode terminates when agent is within this
+GOAL_RADIUS = 0.1
 
 
 class HabitatObjectNavEnv:
@@ -54,21 +62,41 @@ class HabitatObjectNavEnv:
 
         self._prev_dist = 0.0
         self._step_count = 0
+        self._last_obs = None
 
     def reset(self) -> dict:
         obs = self._env.reset()
         self._prev_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
         self._step_count = 0
         image = self._obs_to_image(obs)
+        self._last_obs = obs
         return {"image": image, "is_first": True, "reward": 0.0, "done": False}
 
     def step(self, action: int) -> dict:
+        # STOP (action 0) is a no-op: no movement, no termination
+        if action == 0:
+            self._step_count += 1
+            image = self._obs_to_image(self._last_obs)
+            done = self._step_count >= self._cfg.max_episode_steps
+            return {
+                "image": image,
+                "reward": 0.0,
+                "done": done,
+                "is_first": False,
+                "success": 0.0,
+                "spl": 0.0,
+            }
+
         obs = self._env.step(action=action)
         self._step_count += 1
+        self._last_obs = obs
         metrics = self._env.get_metrics()
 
         reward = self._compute_reward(metrics)
-        done = self._env.episode_over
+        dist = metrics.get("distance_to_goal", float("inf"))
+        success = 1.0 if dist < GOAL_RADIUS else 0.0
+        done = success > 0 or self._step_count >= self._cfg.max_episode_steps
+        spl = metrics.get("spl", 0.0) if success > 0 else 0.0
         image = self._obs_to_image(obs)
 
         return {
@@ -76,8 +104,8 @@ class HabitatObjectNavEnv:
             "reward": reward,
             "done": done,
             "is_first": False,
-            "success": metrics.get("success", 0.0),
-            "spl": metrics.get("spl", 0.0),
+            "success": success,
+            "spl": spl,
         }
 
     def _obs_to_image(self, obs) -> np.ndarray:
@@ -86,12 +114,12 @@ class HabitatObjectNavEnv:
 
     def _compute_reward(self, metrics: dict) -> float:
         if self._cfg.reward_type == "sparse":
-            return 10.0 * metrics.get("success", 0.0)
+            return 10.0 * (1.0 if metrics.get("distance_to_goal", float("inf")) < GOAL_RADIUS else 0.0)
 
         curr_dist = metrics.get("distance_to_goal", 0.0)
         reward = self._prev_dist - curr_dist  # geodesic delta
         self._prev_dist = curr_dist
-        if metrics.get("success", 0.0) > 0:
+        if curr_dist < GOAL_RADIUS:
             reward += 10.0
         return reward
 

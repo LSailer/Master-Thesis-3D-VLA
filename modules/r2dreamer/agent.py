@@ -438,7 +438,12 @@ class R2DreamerAgent:
         imag_slow_value = self.twohot.pred(imag_slow_logits).reshape(B * T, horizon, 1)
 
         disc = 1.0 - 1.0 / cfg.horizon
-        weight = jnp.cumprod(imag_cont * disc, axis=1)
+        # Shift weight so step 0 is always 1.0 (starting state is alive);
+        # continuation discounting applies from step 1 onward.
+        weight = jnp.concatenate([
+            jnp.ones_like(imag_cont[:, :1]),
+            jnp.cumprod(imag_cont[:, :-1] * disc, axis=1),
+        ], axis=1)
 
         last = jnp.zeros_like(imag_cont)
         term = 1.0 - imag_cont

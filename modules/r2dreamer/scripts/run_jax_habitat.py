@@ -3,6 +3,7 @@
 import argparse
 import csv
 import os
+import pickle
 import sys
 import time
 
@@ -34,6 +35,25 @@ def _convert_batch(batch: dict, num_actions: int) -> dict:
     }
 
 
+def _save_checkpoint(agent, step, output_dir):
+    """Save agent params, optimizer state, and slow critic to disk."""
+    ckpt_dir = os.path.join(output_dir, "checkpoints")
+    os.makedirs(ckpt_dir, exist_ok=True)
+    path = os.path.join(ckpt_dir, f"step_{step:09d}.pkl")
+    data = {
+        "step": step,
+        "params": jax.tree.map(np.array, agent.params),
+        "opt_state": jax.tree.map(
+            lambda x: np.array(x) if isinstance(x, jnp.ndarray) else x,
+            agent.opt_state,
+        ),
+        "slow_critic_params": jax.tree.map(np.array, agent.slow_critic_params),
+    }
+    with open(path, "wb") as f:
+        pickle.dump(data, f)
+    print(f"Checkpoint saved: {path}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=10_000_000)
@@ -41,6 +61,7 @@ def main():
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--log_every", type=int, default=250)
+    parser.add_argument("--checkpoint_every", type=int, default=50_000)
     parser.add_argument("--wandb_project", type=str, default="3d-vla-objectnav")
     parser.add_argument("--wandb_name", type=str, default=None)
     args = parser.parse_args()
@@ -55,6 +76,7 @@ def main():
         total_steps=args.steps,
         prefill_steps=args.prefill,
         buffer_capacity=1_000_000,
+        act_entropy=3e-2,
         seed=args.seed,
         log_every=args.log_every,
         logdir=args.output_dir,
@@ -91,7 +113,7 @@ def main():
         print(f"Prefilling {config.prefill_steps} steps...")
         obs = env.reset()
         for i in range(config.prefill_steps):
-            action = np.random.randint(0, config.num_actions)
+            action = np.random.randint(1, config.num_actions)  # exclude STOP
             next_obs = env.step(action)
             buffer.add(obs["image"], action, next_obs["reward"], next_obs["done"])
             obs = next_obs if not next_obs["done"] else env.reset()
@@ -177,6 +199,11 @@ def main():
                         f"fps={fps:.0f}"
                     )
 
+            # --- Checkpoint ---
+            if (step + 1) % args.checkpoint_every == 0:
+                _save_checkpoint(agent, step + 1, args.output_dir)
+
+    _save_checkpoint(agent, config.total_steps, args.output_dir)
     elapsed = time.time() - t0
     print(f"Done in {elapsed:.0f}s. Episodes: {episode_count}. Output: {csv_path}")
     wandb.finish()
