@@ -303,6 +303,22 @@ class R2Encoder(nn.Module):
         return x.reshape(x.shape[0], -1)
 
 
+class R2MLP(nn.Module):
+    """MLP with RMSNorm, matching PyTorch R2-Dreamer's MLP + MLPHead."""
+    hidden: int = 256
+    layers: int = 2
+    out_dim: int = 1
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        for i in range(self.layers):
+            x = nn.Dense(self.hidden, name=f"fc{i}")(x)
+            x = RMSNorm(name=f"norm{i}")(x)
+            x = nn.silu(x)
+        x = nn.Dense(self.out_dim, name="out")(x)
+        return x
+
+
 class Projector(nn.Module):
     """Single linear projection without bias (maps feat_size -> embed_dim)."""
     out_dim: int

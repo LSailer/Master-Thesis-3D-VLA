@@ -18,10 +18,11 @@ from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
     R2RSSM,
+    R2MLP,
     Projector,
     ReturnEMA,
 )
-from modules.dreamerv3.networks import MLP, TwoHotDist
+from modules.dreamerv3.networks import TwoHotDist
 from modules.dreamerv3.optim import laprop, agc
 
 
@@ -96,28 +97,28 @@ class R2DreamerAgent:
 
         # MLP heads
         rng_key, k_rew, k_con, k_act, k_cri = jax.random.split(rng_key, 5)
-        self.reward_mod = MLP(
+        self.reward_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_reward,
             out_dim=config.twohot_bins,
         )
         rew_params = self.reward_mod.init(k_rew, feat0)
 
-        self.cont_mod = MLP(
+        self.cont_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_cont,
             out_dim=1,
         )
         con_params = self.cont_mod.init(k_con, feat0)
 
-        self.actor_mod = MLP(
+        self.actor_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_actor,
             out_dim=config.num_actions,
         )
         act_params = self.actor_mod.init(k_act, feat0)
 
-        self.critic_mod = MLP(
+        self.critic_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_critic,
             out_dim=config.twohot_bins,
