@@ -220,20 +220,18 @@ class R2RSSM(nn.Module):
         """
         stoch, deter = initial
         stochs, deters, logits = [], [], []
-        prev_action = jnp.zeros_like(actions[:, 0])
 
         for t in range(embed.shape[1]):
             # Reset mechanism: zero out state on episode boundaries
             mask = 1.0 - is_first[:, t]
             stoch = stoch * mask[:, None, None]
             deter = deter * mask[:, None]
-            prev_action = prev_action * mask[:, None]
+            action = actions[:, t] * mask[:, None]
 
-            stoch, deter, logit = self(stoch, deter, prev_action, embed[:, t])
+            stoch, deter, logit = self(stoch, deter, action, embed[:, t])
             stochs.append(stoch)
             deters.append(deter)
             logits.append(logit)
-            prev_action = actions[:, t]
 
         return jnp.stack(stochs, axis=1), jnp.stack(deters, axis=1), jnp.stack(logits, axis=1)
 
@@ -300,6 +298,8 @@ class R2Encoder(nn.Module):
             x = nn.max_pool(x, (2, 2), strides=(2, 2))
             x = RMSNorm(name=f"norm{i}")(x)
             x = nn.silu(x)
+        # Transpose back to NCHW before flatten to match PyTorch's flatten order
+        x = jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW
         return x.reshape(x.shape[0], -1)
 
 

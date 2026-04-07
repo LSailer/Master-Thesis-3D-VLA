@@ -376,8 +376,9 @@ class R2DreamerAgent:
         x1 = self.proj_mod.apply(params["projector"], feat_flat)  # (BT, embed_size)
         x2 = jax.lax.stop_gradient(embed.reshape(B * T, -1))  # stop grad on encoder side
 
-        x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0) + 1e-8)
-        x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0) + 1e-8)
+        # Use ddof=1 to match PyTorch's torch.std() default (Bessel correction)
+        x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0, ddof=1) + 1e-8)
+        x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0, ddof=1) + 1e-8)
 
         c = (x1_norm.T @ x2_norm) / (B * T)  # (embed_size, embed_size)
         invariance_loss = jnp.sum((jnp.diag(c) - 1.0) ** 2)
