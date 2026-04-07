@@ -135,12 +135,13 @@ class R2DreamerAgent:
             "critic": cri_params,
         }
 
-        # ---- Optimizer: LaProp (constant lr, no warmup for v1) ----
+        # ---- Optimizer: LaProp with linear warmup ----
         self.tx = laprop(
             lr=config.lr,
             b1=config.beta1,
             b2=config.beta2,
             eps=config.eps,
+            warmup=config.warmup_steps,
         )
         self.opt_state = self.tx.init(self.params)
 
@@ -273,6 +274,9 @@ class R2DreamerAgent:
 
         (total_loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
 
+        # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
+        is_finite = jnp.isfinite(total_loss)
+
         # Adaptive gradient clipping
         grads = agc(grads, params, clip=self.cfg.agc_clip, pmin=self.cfg.agc_pmin)
 
@@ -289,13 +293,22 @@ class R2DreamerAgent:
         )
 
         # Return EMA update
-        metrics = aux["metrics"]
-        new_ema_state = ema_state  # default: don't update if no returns
-        # Update EMA from imagination returns stored in aux
         imag_returns = aux["imag_returns"]
         new_ema_state = self.return_ema.update(ema_state, imag_returns)
 
+        # If loss was NaN/inf, roll back to pre-update state
+        new_params = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_params, params)
+        new_opt_state = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_opt_state, opt_state)
+        new_slow = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_slow, slow_critic_params)
+        new_ema_state = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
+
+        metrics = aux["metrics"]
         metrics["total_loss"] = total_loss
+        metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_params, new_opt_state, new_slow, new_ema_state, metrics
 
     def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
@@ -438,12 +451,8 @@ class R2DreamerAgent:
         imag_slow_value = self.twohot.pred(imag_slow_logits).reshape(B * T, horizon, 1)
 
         disc = 1.0 - 1.0 / cfg.horizon
-        # Shift weight so step 0 is always 1.0 (starting state is alive);
-        # continuation discounting applies from step 1 onward.
-        weight = jnp.concatenate([
-            jnp.ones_like(imag_cont[:, :1]),
-            jnp.cumprod(imag_cont[:, :-1] * disc, axis=1),
-        ], axis=1)
+        # Match original: weight = cumprod(cont * disc) over all horizon steps
+        weight = jnp.cumprod(imag_cont * disc, axis=1)
 
         last = jnp.zeros_like(imag_cont)
         term = 1.0 - imag_cont

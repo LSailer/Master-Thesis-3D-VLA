@@ -14,7 +14,7 @@ class LaPropState(NamedTuple):
     exp_avg_lr2: jnp.ndarray
 
 
-def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15):
+def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
     def init_fn(params):
         return LaPropState(
             count=jnp.zeros([], jnp.int32),
@@ -27,16 +27,25 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15):
     def update_fn(updates, state, params=None):
         count = state.count + 1
 
+        # Linear warmup: scale effective LR from 0 to lr over `warmup` steps
+        # Matches PyTorch: LambdaLR(optimizer, lambda step: min(1, (step+1)/warmup))
+        warmup_factor = jnp.where(
+            warmup > 0,
+            jnp.minimum(1.0, count.astype(jnp.float32) / warmup),
+            1.0,
+        )
+        effective_lr = lr * warmup_factor
+
         # Second moment
         exp_avg_sq = jax.tree.map(
             lambda v, g: b2 * v + (1 - b2) * g ** 2, state.exp_avg_sq, updates)
 
         # LR tracking for bias correction
-        exp_avg_lr1 = state.exp_avg_lr1 * b1 + (1 - b1) * lr
+        exp_avg_lr1 = state.exp_avg_lr1 * b1 + (1 - b1) * effective_lr
         exp_avg_lr2 = state.exp_avg_lr2 * b2 + (1 - b2)
 
-        # step_size = lr / exp_avg_lr1
-        bias_correction1 = exp_avg_lr1 / (lr + 1e-30)
+        # step_size = effective_lr / exp_avg_lr1
+        bias_correction1 = exp_avg_lr1 / (effective_lr + 1e-30)
         step_size = 1.0 / jnp.maximum(bias_correction1, 1e-30)
 
         # Normalize gradient: g / (sqrt(v/bc2) + eps)
@@ -45,9 +54,9 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15):
             exp_avg_sq)
         normalized = jax.tree.map(lambda g, d: g / d, updates, denom)
 
-        # First moment of normalized gradient (scaled by lr)
+        # First moment of normalized gradient (scaled by effective_lr)
         exp_avg = jax.tree.map(
-            lambda m, ng: b1 * m + (1 - b1) * lr * ng,
+            lambda m, ng: b1 * m + (1 - b1) * effective_lr * ng,
             state.exp_avg, normalized)
 
         # Final update: -step_size * exp_avg
