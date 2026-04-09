@@ -17,8 +17,10 @@ ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
 SCENE_DIR = Path("data/scene_datasets/hm3d")
 DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 
-# Goal reaching radius (meters) — episode terminates when agent is within this
-GOAL_RADIUS = 0.1
+# Success radius (meters) — geodesic distance to nearest viewpoint.
+# 0.2m is the tightest threshold that gives 100% SR for the optimal agent
+# with 0.25m discrete steps (see goal_distance_analysis notebook).
+GOAL_RADIUS = 0.2
 
 
 class HabitatObjectNavEnv:
@@ -63,10 +65,16 @@ class HabitatObjectNavEnv:
         self._prev_dist = 0.0
         self._step_count = 0
         self._last_obs = None
+        self._start_geodesic = 0.0
+        self._path_length = 0.0
+        self._prev_position = None
 
     def reset(self) -> dict:
         obs = self._env.reset()
         self._prev_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
+        self._start_geodesic = self._prev_dist
+        self._prev_position = np.array(self._env.sim.get_agent_state().position)
+        self._path_length = 0.0
         self._step_count = 0
         image = self._obs_to_image(obs)
         self._last_obs = obs
@@ -92,11 +100,20 @@ class HabitatObjectNavEnv:
         self._last_obs = obs
         metrics = self._env.get_metrics()
 
-        reward = self._compute_reward(metrics)
+        current_position = np.array(self._env.sim.get_agent_state().position)
+        self._path_length += np.linalg.norm(current_position - self._prev_position)
+        self._prev_position = current_position
+
         dist = metrics.get("distance_to_goal", float("inf"))
+        reward = self._compute_reward(metrics, dist)
         success = 1.0 if dist < GOAL_RADIUS else 0.0
         done = success > 0 or self._step_count >= self._cfg.max_episode_steps
-        spl = metrics.get("spl", 0.0) if success > 0 else 0.0
+
+        spl = 0.0
+        if done and success > 0:
+            l = self._start_geodesic
+            spl = l / max(l, self._path_length) if l > 0 else 0.0
+
         image = self._obs_to_image(obs)
 
         return {
@@ -112,14 +129,13 @@ class HabitatObjectNavEnv:
         rgb = obs["rgb"][:, :, :3]  # (H, W, 3) uint8
         return np.transpose(rgb, (2, 0, 1))  # (3, H, W)
 
-    def _compute_reward(self, metrics: dict) -> float:
+    def _compute_reward(self, metrics: dict, dist: float) -> float:
         if self._cfg.reward_type == "sparse":
-            return 10.0 * (1.0 if metrics.get("distance_to_goal", float("inf")) < GOAL_RADIUS else 0.0)
+            return 10.0 * (1.0 if dist < GOAL_RADIUS else 0.0)
 
-        curr_dist = metrics.get("distance_to_goal", 0.0)
-        reward = self._prev_dist - curr_dist  # geodesic delta
-        self._prev_dist = curr_dist
-        if curr_dist < GOAL_RADIUS:
+        reward = self._prev_dist - dist  # geodesic delta
+        self._prev_dist = dist
+        if dist < GOAL_RADIUS:
             reward += 10.0
         return reward
 
