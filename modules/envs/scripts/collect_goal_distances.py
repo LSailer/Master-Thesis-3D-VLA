@@ -20,36 +20,11 @@ import habitat
 from habitat.config import read_write
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 
-from modules.envs.habitat import DATA_DIR, SCENE_DIR
+from modules.envs.habitat import (
+    DATA_DIR, SCENE_DIR, find_nearest_viewpoint, sample_navmesh,
+)
 
 OUTPUT_PATH = "output/goal_distance_analysis.pkl"
-
-
-def sample_navmesh(pathfinder, agent_y, resolution=0.05):
-    """Sample the navmesh at the agent's floor level to get a 2D occupancy grid.
-
-    Returns dict with 'grid' (bool array), 'x_min', 'x_max', 'z_min', 'z_max'.
-    """
-    bounds = pathfinder.get_bounds()
-    x_min, z_min = bounds[0][0], bounds[0][2]
-    x_max, z_max = bounds[1][0], bounds[1][2]
-
-    xs = np.arange(x_min, x_max, resolution)
-    zs = np.arange(z_min, z_max, resolution)
-    grid = np.zeros((len(zs), len(xs)), dtype=bool)
-
-    for zi, z in enumerate(zs):
-        for xi, x in enumerate(xs):
-            grid[zi, xi] = pathfinder.is_navigable(
-                np.array([x, agent_y, z]), max_y_delta=0.5
-            )
-
-    return {
-        "grid": grid,
-        "x_min": float(x_min), "x_max": float(x_max),
-        "z_min": float(z_min), "z_max": float(z_max),
-        "resolution": resolution,
-    }
 
 
 def dist_to_nearest_object(env, agent_pos, horizontal_only=False):
@@ -67,26 +42,6 @@ def dist_to_nearest_object(env, agent_pos, horizontal_only=False):
         if d < best:
             best = d
     return best
-
-
-def find_nearest_viewpoint(env):
-    """Find nearest viewpoint across all goal instances.
-
-    Returns (position, goal_index) of the nearest viewpoint.
-    """
-    agent_pos = env.sim.get_agent_state().position
-    best_dist = float("inf")
-    best_pos = None
-    best_goal_idx = 0
-    for gi, goal in enumerate(env.current_episode.goals):
-        if goal.view_points:
-            for vp in goal.view_points:
-                d = env.sim.geodesic_distance(agent_pos, vp.agent_state.position)
-                if d < best_dist:
-                    best_dist = d
-                    best_pos = vp.agent_state.position
-                    best_goal_idx = gi
-    return best_pos, best_goal_idx
 
 
 def find_nearest_object_centroid(env):
@@ -124,7 +79,7 @@ def run_episode(env, follower, max_steps=500, target_mode="viewpoint"):
     ]
 
     # Sample navmesh at agent's floor level for top-down visualization
-    navmesh = sample_navmesh(env.sim.pathfinder, agent_pos[1])
+    navmesh = sample_navmesh(env)
 
     ep_info = {
         "episode_id": env.current_episode.episode_id,

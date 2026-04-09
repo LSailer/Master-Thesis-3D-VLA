@@ -15,23 +15,6 @@ from modules.dreamerv3.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv, GOAL_RADIUS
 
 
-def find_nearest_viewpoint(env):
-    """Find nearest viewpoint across ALL goal instances."""
-    agent_pos = env._env.sim.get_agent_state().position
-    best_dist = float("inf")
-    best_pos = None
-    for goal in env._env.current_episode.goals:
-        if goal.view_points:
-            for vp in goal.view_points:
-                d = env._env.sim.geodesic_distance(
-                    agent_pos, vp.agent_state.position
-                )
-                if d < best_dist:
-                    best_dist = d
-                    best_pos = vp.agent_state.position
-    return best_pos
-
-
 def test_spl_with_shortest_path():
     config = DreamerConfig(
         obs_shape=(3, 64, 64),
@@ -51,7 +34,7 @@ def test_spl_with_shortest_path():
     for ep_idx in range(10):
         obs = env.reset()
         start_geodesic = env._start_geodesic
-        goal_pos = find_nearest_viewpoint(env)
+        goal_pos, _ = env.find_nearest_viewpoint()
         category = env._env.current_episode.object_category
         n_goals = len(env._env.current_episode.goals)
 

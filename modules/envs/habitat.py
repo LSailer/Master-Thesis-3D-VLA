@@ -23,6 +23,58 @@ DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 GOAL_RADIUS = 0.2
 
 
+def find_nearest_viewpoint(env):
+    """Find nearest viewpoint across all goal instances of a habitat.Env.
+
+    Returns (position, goal_index) or (None, 0) if no viewpoints exist.
+    """
+    agent_pos = env.sim.get_agent_state().position
+    best_dist = float("inf")
+    best_pos = None
+    best_idx = 0
+    for gi, goal in enumerate(env.current_episode.goals):
+        if goal.view_points:
+            for vp in goal.view_points:
+                d = env.sim.geodesic_distance(
+                    agent_pos, vp.agent_state.position
+                )
+                if d < best_dist:
+                    best_dist = d
+                    best_pos = vp.agent_state.position
+                    best_idx = gi
+    return best_pos, best_idx
+
+
+def sample_navmesh(env, resolution: float = 0.05) -> dict:
+    """Sample navigable area at current agent height for top-down visualization.
+
+    Works with a raw habitat.Env. Returns dict with 'grid' (bool array),
+    bounds, and resolution.
+    """
+    agent_y = env.sim.get_agent_state().position[1]
+    pathfinder = env.sim.pathfinder
+    bounds = pathfinder.get_bounds()
+    x_min, z_min = bounds[0][0], bounds[0][2]
+    x_max, z_max = bounds[1][0], bounds[1][2]
+
+    xs = np.arange(x_min, x_max, resolution)
+    zs = np.arange(z_min, z_max, resolution)
+    grid = np.zeros((len(zs), len(xs)), dtype=bool)
+
+    for zi, z in enumerate(zs):
+        for xi, x in enumerate(xs):
+            grid[zi, xi] = pathfinder.is_navigable(
+                np.array([x, agent_y, z]), max_y_delta=0.5
+            )
+
+    return {
+        "grid": grid,
+        "x_min": float(x_min), "x_max": float(x_max),
+        "z_min": float(z_min), "z_max": float(z_max),
+        "resolution": resolution,
+    }
+
+
 class HabitatObjectNavEnv:
     def __init__(self, config: DreamerConfig, max_geodesic: float | None = None):
         import habitat
@@ -124,6 +176,14 @@ class HabitatObjectNavEnv:
             "success": success,
             "spl": spl,
         }
+
+    def find_nearest_viewpoint(self):
+        """Find nearest viewpoint. Delegates to module-level function."""
+        return find_nearest_viewpoint(self._env)
+
+    def sample_navmesh(self, resolution: float = 0.05) -> dict:
+        """Sample navigable area. Delegates to module-level function."""
+        return sample_navmesh(self._env, resolution)
 
     def _obs_to_image(self, obs) -> np.ndarray:
         rgb = obs["rgb"][:, :, :3]  # (H, W, 3) uint8
