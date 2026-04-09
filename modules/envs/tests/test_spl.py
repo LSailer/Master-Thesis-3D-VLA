@@ -67,8 +67,8 @@ def test_spl_with_shortest_path():
                 break
             action = int(action)
             if action == 0:
-                # Follower says STOP — agent should already be within GOAL_RADIUS
-                # Try one MOVE_FORWARD to let wrapper detect success via obj_dist
+                # Follower says STOP — try MOVE_FORWARD to cross the 0.2m
+                # viewpoint threshold so the wrapper detects success
                 obs = env.step(1)
                 step_count += 1
                 done = obs["done"]

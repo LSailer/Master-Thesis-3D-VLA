@@ -19,10 +19,9 @@ import numpy as np
 import habitat
 from habitat.config import read_write
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
-from pathlib import Path
 
-DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
-SCENE_DIR = Path("data/scene_datasets/hm3d")
+from modules.envs.habitat import DATA_DIR, SCENE_DIR
+
 OUTPUT_PATH = "output/goal_distance_analysis.pkl"
 
 
@@ -53,22 +52,18 @@ def sample_navmesh(pathfinder, agent_y, resolution=0.05):
     }
 
 
-def dist_to_nearest_object(env, agent_pos):
-    """3D Euclidean distance to nearest goal object centroid."""
-    best = float("inf")
-    for goal in env.current_episode.goals:
-        d = np.linalg.norm(np.array(goal.position) - agent_pos)
-        if d < best:
-            best = d
-    return best
+def dist_to_nearest_object(env, agent_pos, horizontal_only=False):
+    """Euclidean distance to nearest goal object centroid.
 
-
-def dist_to_nearest_object_2d(env, agent_pos):
-    """Horizontal (XZ) Euclidean distance to nearest goal object centroid."""
+    If horizontal_only=True, uses only XZ components (ignores height).
+    """
     best = float("inf")
     for goal in env.current_episode.goals:
         gp = np.array(goal.position)
-        d = np.linalg.norm(gp[[0, 2]] - agent_pos[[0, 2]])
+        if horizontal_only:
+            d = np.linalg.norm(gp[[0, 2]] - agent_pos[[0, 2]])
+        else:
+            d = np.linalg.norm(gp - agent_pos)
         if d < best:
             best = d
     return best
@@ -166,7 +161,7 @@ def run_episode(env, follower, max_steps=500, target_mode="viewpoint"):
             "step": step_i,
             "dist_viewpoint": metrics.get("distance_to_goal", float("inf")),
             "dist_object_3d": dist_to_nearest_object(env, agent_pos),
-            "dist_object_2d": dist_to_nearest_object_2d(env, agent_pos),
+            "dist_object_2d": dist_to_nearest_object(env, agent_pos, horizontal_only=True),
             "path_length": path_length,
             "agent_pos": agent_pos.tolist(),
         })
@@ -175,7 +170,7 @@ def run_episode(env, follower, max_steps=500, target_mode="viewpoint"):
     final = steps[-1] if steps else {
         "dist_viewpoint": metrics.get("distance_to_goal", float("inf")),
         "dist_object_3d": dist_to_nearest_object(env, agent_pos),
-        "dist_object_2d": dist_to_nearest_object_2d(env, agent_pos),
+        "dist_object_2d": dist_to_nearest_object(env, agent_pos, horizontal_only=True),
         "path_length": 0.0,
     }
 
