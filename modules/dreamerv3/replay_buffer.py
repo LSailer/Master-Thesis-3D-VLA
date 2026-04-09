@@ -14,15 +14,18 @@ class ReplayBuffer:
         self.actions = np.zeros(cap, dtype=np.int32)
         self.rewards = np.zeros(cap, dtype=np.float32)
         self.dones = np.zeros(cap, dtype=np.bool_)
+        self.terminals = np.zeros(cap, dtype=np.bool_)
         self.capacity = cap
         self.idx = 0
         self.size = 0
 
-    def add(self, obs: np.ndarray, action: int, reward: float, done: bool):
+    def add(self, obs: np.ndarray, action: int, reward: float, done: bool,
+            terminal: bool = False):
         self.obs[self.idx] = obs
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
         self.dones[self.idx] = done
+        self.terminals[self.idx] = terminal
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
@@ -36,6 +39,7 @@ class ReplayBuffer:
         actions = self.actions[indices]  # (B, T)
         rewards = self.rewards[indices]  # (B, T)
         dones = self.dones[indices]  # (B, T)
+        terminals = self.terminals[indices]  # (B, T)
 
         # is_first: True at t=0 of each sequence and after any done
         is_first = np.zeros_like(dones)
@@ -47,5 +51,6 @@ class ReplayBuffer:
             "actions": jnp.array(actions, dtype=jnp.int32),
             "rewards": jnp.array(rewards, dtype=jnp.float32),
             "dones": jnp.array(dones, dtype=jnp.float32),
+            "terminals": jnp.array(terminals, dtype=jnp.float32),
             "is_first": jnp.array(is_first, dtype=jnp.float32),
         }
