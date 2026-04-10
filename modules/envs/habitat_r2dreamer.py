@@ -26,8 +26,11 @@ class HabitatR2DreamerEnv:
         obs = self._env.step(action)
         image = np.transpose(obs["image"], (1, 2, 0))
         done = obs["done"]
+        success = obs.get("success", 0.0) > 0
         return {"image": image, "reward": np.float32(obs["reward"]),
-                "is_first": False, "is_last": done, "is_terminal": done}
+                "is_first": False, "is_last": done, "is_terminal": success,
+                "success": obs.get("success", 0.0),
+                "spl": obs.get("spl", 0.0)}
 
     def close(self):
         self._env.close()

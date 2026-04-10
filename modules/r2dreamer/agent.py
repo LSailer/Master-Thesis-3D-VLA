@@ -18,10 +18,11 @@ from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
     R2RSSM,
+    R2MLP,
     Projector,
     ReturnEMA,
+    R2TwoHotDist,
 )
-from modules.dreamerv3.networks import MLP, TwoHotDist
 from modules.dreamerv3.optim import laprop, agc
 
 
@@ -68,7 +69,7 @@ class R2DreamerAgent:
 
     def __init__(self, config: R2DreamerConfig, rng_key: jnp.ndarray):
         self.cfg = config
-        self.twohot = TwoHotDist(num_bins=config.twohot_bins)
+        self.twohot = R2TwoHotDist(num_bins=config.twohot_bins)
 
         # ---- Instantiate Flax modules (for .apply) ----
         self.encoder_mod = _make_encoder(config)
@@ -94,33 +95,36 @@ class R2DreamerAgent:
         feat0 = jnp.zeros((1, config.feat_size))
         proj_params = self.proj_mod.init(k3, feat0)
 
-        # MLP heads
+        # MLP heads (outscale matches PyTorch: 0.0 for reward/critic, 0.01 for actor)
         rng_key, k_rew, k_con, k_act, k_cri = jax.random.split(rng_key, 5)
-        self.reward_mod = MLP(
+        self.reward_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_reward,
             out_dim=config.twohot_bins,
+            outscale=0.0,
         )
         rew_params = self.reward_mod.init(k_rew, feat0)
 
-        self.cont_mod = MLP(
+        self.cont_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_cont,
             out_dim=1,
         )
         con_params = self.cont_mod.init(k_con, feat0)
 
-        self.actor_mod = MLP(
+        self.actor_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_actor,
             out_dim=config.num_actions,
+            outscale=0.01,
         )
         act_params = self.actor_mod.init(k_act, feat0)
 
-        self.critic_mod = MLP(
+        self.critic_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_critic,
             out_dim=config.twohot_bins,
+            outscale=0.0,
         )
         cri_params = self.critic_mod.init(k_cri, feat0)
 
@@ -135,12 +139,13 @@ class R2DreamerAgent:
             "critic": cri_params,
         }
 
-        # ---- Optimizer: LaProp (constant lr, no warmup for v1) ----
+        # ---- Optimizer: LaProp with linear warmup ----
         self.tx = laprop(
             lr=config.lr,
             b1=config.beta1,
             b2=config.beta2,
             eps=config.eps,
+            warmup=config.warmup_steps,
         )
         self.opt_state = self.tx.init(self.params)
 
@@ -263,15 +268,26 @@ class R2DreamerAgent:
     def _train_step(self, params, opt_state, slow_critic_params, ema_state, batch, rng_key):
         """Pure-functional training step (JIT-able)."""
 
+        # Slow critic EMA: update BEFORE loss (matches PyTorch _update_slow_target)
+        tau = self.cfg.slow_target_fraction
+        updated_slow = jax.tree.map(
+            lambda s, p: tau * p + (1 - tau) * s,
+            slow_critic_params,
+            params["critic"],
+        )
+
         loss_fn = functools.partial(
             self._loss_fn,
-            slow_critic_params=slow_critic_params,
+            slow_critic_params=updated_slow,
             ema_state=ema_state,
             batch=batch,
             rng_key=rng_key,
         )
 
         (total_loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+
+        # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
+        is_finite = jnp.isfinite(total_loss)
 
         # Adaptive gradient clipping
         grads = agc(grads, params, clip=self.cfg.agc_clip, pmin=self.cfg.agc_pmin)
@@ -280,22 +296,23 @@ class R2DreamerAgent:
         updates, new_opt_state = self.tx.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
 
-        # Slow critic EMA update
-        tau = self.cfg.slow_target_fraction
-        new_slow = jax.tree.map(
-            lambda s, p: tau * p + (1 - tau) * s,
-            slow_critic_params,
-            new_params["critic"],
-        )
-
         # Return EMA update
-        metrics = aux["metrics"]
-        new_ema_state = ema_state  # default: don't update if no returns
-        # Update EMA from imagination returns stored in aux
         imag_returns = aux["imag_returns"]
         new_ema_state = self.return_ema.update(ema_state, imag_returns)
 
+        # If loss was NaN/inf, roll back to pre-update state
+        new_params = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_params, params)
+        new_opt_state = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_opt_state, opt_state)
+        new_slow = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), updated_slow, slow_critic_params)
+        new_ema_state = jax.tree.map(
+            lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
+
+        metrics = aux["metrics"]
         metrics["total_loss"] = total_loss
+        metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_params, new_opt_state, new_slow, new_ema_state, metrics
 
     def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
@@ -362,8 +379,9 @@ class R2DreamerAgent:
         x1 = self.proj_mod.apply(params["projector"], feat_flat)  # (BT, embed_size)
         x2 = jax.lax.stop_gradient(embed.reshape(B * T, -1))  # stop grad on encoder side
 
-        x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0) + 1e-8)
-        x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0) + 1e-8)
+        # Use ddof=1 to match PyTorch's torch.std() default (Bessel correction)
+        x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0, ddof=1) + 1e-8)
+        x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0, ddof=1) + 1e-8)
 
         c = (x1_norm.T @ x2_norm) / (B * T)  # (embed_size, embed_size)
         invariance_loss = jnp.sum((jnp.diag(c) - 1.0) ** 2)
@@ -438,12 +456,8 @@ class R2DreamerAgent:
         imag_slow_value = self.twohot.pred(imag_slow_logits).reshape(B * T, horizon, 1)
 
         disc = 1.0 - 1.0 / cfg.horizon
-        # Shift weight so step 0 is always 1.0 (starting state is alive);
-        # continuation discounting applies from step 1 onward.
-        weight = jnp.concatenate([
-            jnp.ones_like(imag_cont[:, :1]),
-            jnp.cumprod(imag_cont[:, :-1] * disc, axis=1),
-        ], axis=1)
+        # Match original: weight = cumprod(cont * disc) over all horizon steps
+        weight = jnp.cumprod(imag_cont * disc, axis=1)
 
         last = jnp.zeros_like(imag_cont)
         term = 1.0 - imag_cont
@@ -461,13 +475,17 @@ class R2DreamerAgent:
             params["actor"], imag_feat_flat
         ).reshape(B * T, horizon, cfg.num_actions)
 
-        log_probs = jax.nn.log_softmax(actor_logits, axis=-1)  # (BT, H, A)
+        # Apply unimix: mix softmax with uniform (matches PyTorch OneHotDist)
+        probs = jax.nn.softmax(actor_logits, axis=-1)
+        uniform = jnp.ones_like(probs) / cfg.num_actions
+        probs = (1.0 - cfg.unimix_ratio) * probs + cfg.unimix_ratio * uniform
+        log_probs = jnp.log(probs + 1e-8)  # (BT, H, A)
+
         # log_prob of taken action using clean one-hot (detached)
         logpi = jnp.sum(log_probs[:, :-1] * imag_actions[:, :-1], axis=-1, keepdims=True)
 
         # Entropy: -sum(p * log p)
-        probs = jax.nn.softmax(actor_logits[:, :-1], axis=-1)
-        entropy = -jnp.sum(probs * log_probs[:, :-1], axis=-1, keepdims=True)
+        entropy = -jnp.sum(probs[:, :-1] * log_probs[:, :-1], axis=-1, keepdims=True)
 
         losses["policy"] = jnp.mean(
             jax.lax.stop_gradient(weight[:, :-1])
@@ -509,13 +527,13 @@ class R2DreamerAgent:
             jax.lax.stop_gradient(params["critic"]),
             feat.reshape(B * T, -1),
         ).reshape(B, T, cfg.twohot_bins)
-        replay_value = self.twohot.pred(replay_val_logits)[..., None]  # (B, T, 1)
+        replay_value = self.twohot.pred(replay_val_logits)  # (B, T, 1)
 
         replay_slow_logits = self.critic_mod.apply(
             slow_critic_params,
             feat.reshape(B * T, -1),
         ).reshape(B, T, cfg.twohot_bins)
-        replay_slow_value = self.twohot.pred(replay_slow_logits)[..., None]
+        replay_slow_value = self.twohot.pred(replay_slow_logits)  # (B, T, 1)
 
         replay_ret = _lambda_return(
             replay_last[..., None], replay_term[..., None],

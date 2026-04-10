@@ -5,6 +5,89 @@ import jax.numpy as jnp
 import flax.linen as nn
 
 
+# ---------- TwoHot Distribution (R2-Dreamer real-space parameterization) ----------
+
+
+def _symexp(x):
+    return jnp.sign(x) * jnp.expm1(jnp.abs(x))
+
+
+def _make_bins(num_bins: int = 255):
+    """Build R2-Dreamer's symexp-spaced bins in real space.
+
+    Matches PyTorch: symexp(linspace(-20, 0, half)) mirrored.
+    """
+    if num_bins % 2 == 1:
+        half = jnp.linspace(-20.0, 0.0, (num_bins - 1) // 2 + 1)
+        half = _symexp(half)
+        bins = jnp.concatenate([half, -half[:-1][::-1]])
+    else:
+        half = jnp.linspace(-20.0, 0.0, num_bins // 2)
+        half = _symexp(half)
+        bins = jnp.concatenate([half, -half[::-1]])
+    return bins
+
+
+class R2TwoHotDist:
+    """TwoHot distribution matching R2-Dreamer's real-space parameterization.
+
+    Unlike DreamerV3's TwoHotDist (which operates in symlog space), this uses
+    bins = symexp(linspace(-20, 0, 128)) mirrored to 255 bins in real space.
+    No symlog/symexp transform is applied to targets or predictions.
+    """
+
+    def __init__(self, num_bins: int = 255):
+        self.num_bins = num_bins
+        self.bins = _make_bins(num_bins)
+
+    def encode(self, target: jnp.ndarray) -> jnp.ndarray:
+        """Two-hot encode a scalar target in real space. target: (...)."""
+        # Find below/above indices (matching PyTorch's logic)
+        below = jnp.sum((self.bins <= target[..., None]).astype(jnp.int32), axis=-1) - 1
+        above = self.num_bins - jnp.sum((self.bins > target[..., None]).astype(jnp.int32), axis=-1)
+        below = jnp.clip(below, 0, self.num_bins - 1)
+        above = jnp.clip(above, 0, self.num_bins - 1)
+        equal = below == above
+        dist_to_below = jnp.where(equal, 1.0, jnp.abs(self.bins[below] - target))
+        dist_to_above = jnp.where(equal, 1.0, jnp.abs(self.bins[above] - target))
+        total = dist_to_below + dist_to_above
+        weight_below = dist_to_above / total
+        weight_above = dist_to_below / total
+        return (weight_below[..., None] * jax.nn.one_hot(below, self.num_bins) +
+                weight_above[..., None] * jax.nn.one_hot(above, self.num_bins))
+
+    def loss(self, logits: jnp.ndarray, target: jnp.ndarray) -> jnp.ndarray:
+        """Cross-entropy loss. logits: (..., bins), target: (...) in real space."""
+        twohot = jax.lax.stop_gradient(self.encode(target))
+        log_probs = logits - jax.scipy.special.logsumexp(logits, axis=-1, keepdims=True)
+        return -(twohot * log_probs).sum(axis=-1)
+
+    def pred(self, logits: jnp.ndarray) -> jnp.ndarray:
+        """Expected value in real space (symmetric sum for numerical stability).
+
+        logits: (..., bins). Returns: (..., 1) to match PyTorch's mode() shape.
+        """
+        probs = jax.nn.softmax(logits, axis=-1)
+        n = self.num_bins
+        if n % 2 == 1:
+            m = (n - 1) // 2
+            p1 = probs[..., :m]
+            p2 = probs[..., m:m + 1]
+            p3 = probs[..., m + 1:]
+            b1 = self.bins[:m]
+            b2 = self.bins[m:m + 1]
+            b3 = self.bins[m + 1:]
+            wavg = (jnp.sum(p2 * b2, axis=-1, keepdims=True) +
+                    jnp.sum(p1[..., ::-1] * b1[::-1] + p3 * b3, axis=-1, keepdims=True))
+        else:
+            p1 = probs[..., :n // 2]
+            p2 = probs[..., n // 2:]
+            b1 = self.bins[:n // 2]
+            b2 = self.bins[n // 2:]
+            wavg = jnp.sum(p1[..., ::-1] * b1[::-1] + p2 * b2, axis=-1, keepdims=True)
+        return wavg  # (..., 1) — real space, no unsquash needed
+
+
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization."""
     eps: float = 1e-4
@@ -220,20 +303,18 @@ class R2RSSM(nn.Module):
         """
         stoch, deter = initial
         stochs, deters, logits = [], [], []
-        prev_action = jnp.zeros_like(actions[:, 0])
 
         for t in range(embed.shape[1]):
             # Reset mechanism: zero out state on episode boundaries
             mask = 1.0 - is_first[:, t]
             stoch = stoch * mask[:, None, None]
             deter = deter * mask[:, None]
-            prev_action = prev_action * mask[:, None]
+            action = actions[:, t] * mask[:, None]
 
-            stoch, deter, logit = self(stoch, deter, prev_action, embed[:, t])
+            stoch, deter, logit = self(stoch, deter, action, embed[:, t])
             stochs.append(stoch)
             deters.append(deter)
             logits.append(logit)
-            prev_action = actions[:, t]
 
         return jnp.stack(stochs, axis=1), jnp.stack(deters, axis=1), jnp.stack(logits, axis=1)
 
@@ -300,7 +381,34 @@ class R2Encoder(nn.Module):
             x = nn.max_pool(x, (2, 2), strides=(2, 2))
             x = RMSNorm(name=f"norm{i}")(x)
             x = nn.silu(x)
+        # Transpose back to NCHW before flatten to match PyTorch's flatten order
+        x = jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW
         return x.reshape(x.shape[0], -1)
+
+
+class R2MLP(nn.Module):
+    """MLP with RMSNorm, matching PyTorch R2-Dreamer's MLP + MLPHead."""
+    hidden: int = 256
+    layers: int = 2
+    out_dim: int = 1
+    outscale: float = 1.0
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        for i in range(self.layers):
+            x = nn.Dense(self.hidden, name=f"fc{i}")(x)
+            x = RMSNorm(name=f"norm{i}")(x)
+            x = nn.silu(x)
+        if self.outscale == 0.0:
+            out_init = nn.initializers.zeros
+        elif self.outscale != 1.0:
+            base_init = nn.initializers.lecun_normal()
+            def out_init(key, shape, dtype=jnp.float32):
+                return base_init(key, shape, dtype) * self.outscale
+        else:
+            out_init = nn.initializers.lecun_normal()
+        x = nn.Dense(self.out_dim, kernel_init=out_init, name="out")(x)
+        return x
 
 
 class Projector(nn.Module):
