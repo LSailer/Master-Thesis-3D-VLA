@@ -579,6 +579,15 @@ class R2DreamerAgent:
         for k, v in losses.items():
             metrics[f"loss/{k}"] = v
 
+        # Latent diagnostics
+        prior_probs = jax.nn.softmax(prior_logits_flat, axis=-1)
+        post_probs = jax.nn.softmax(post_logits_flat, axis=-1)
+        metrics["latent/prior_entropy"] = -jnp.mean(
+            jnp.sum(prior_probs * jnp.log(prior_probs + 1e-8), axis=-1))
+        metrics["latent/posterior_entropy"] = -jnp.mean(
+            jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1))
+        metrics["latent/kl_divergence"] = jnp.mean(dyn_loss)
+
         aux = {
             "metrics": metrics,
             "imag_returns": ret.reshape(-1),  # flat for percentile computation

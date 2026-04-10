@@ -76,7 +76,8 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 
 class HabitatObjectNavEnv:
-    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None):
+    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
+                 step_counts_path: str | None = None):
         import habitat
 
         self._cfg = config
@@ -113,6 +114,21 @@ class HabitatObjectNavEnv:
             self._env.current_episode = next(self._env.episode_iterator)
             print(f"Filtered: {before} → {len(self._env._dataset.episodes)} "
                   f"episodes (geodesic < {max_geodesic}m)")
+
+        if step_counts_path is not None:
+            import json
+            with open(step_counts_path) as f:
+                step_counts = json.load(f)
+            split_counts = step_counts.get(config.split, {})
+            before = len(self._env._dataset.episodes)
+            self._env._dataset.episodes = [
+                ep for ep in self._env._dataset.episodes
+                if split_counts.get(ep.episode_id, 0) < 200
+            ]
+            self._env._setup_episode_iterator()
+            self._env.current_episode = next(self._env.episode_iterator)
+            print(f"Filtered (step count): {before} → "
+                  f"{len(self._env._dataset.episodes)} episodes (steps < 200)")
 
         self._prev_dist = 0.0
         self._step_count = 0

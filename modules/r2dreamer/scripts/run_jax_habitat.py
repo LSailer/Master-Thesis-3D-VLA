@@ -92,6 +92,8 @@ def main():
                         help="Run greedy eval every N steps (0 to disable)")
     parser.add_argument("--eval_episodes", type=int, default=10,
                         help="Number of greedy eval episodes")
+    parser.add_argument("--step_counts_path", type=str, default=None,
+                        help="Path to episode_step_counts.json for filtering")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -125,7 +127,7 @@ def main():
         split="train",
         reward_type="geodesic_delta",
     )
-    env = HabitatObjectNavEnv(hab_config)
+    env = HabitatObjectNavEnv(hab_config, step_counts_path=args.step_counts_path)
 
     # --- Eval environment (held-out val split) ---
     eval_env = None
@@ -136,7 +138,8 @@ def main():
             split="val",
             reward_type="geodesic_delta",
         )
-        eval_env = HabitatObjectNavEnv(val_config)
+        eval_env = HabitatObjectNavEnv(val_config,
+                                       step_counts_path=args.step_counts_path)
 
     # --- Agent ---
     rng_key = jax.random.PRNGKey(config.seed)
@@ -165,6 +168,7 @@ def main():
         episode_reward = 0.0
         episode_steps = 0
         episode_count = 0
+        action_counts = np.zeros(config.num_actions, dtype=int)
         t0 = time.time()
         batch_steps = config.batch_size * config.seq_len
         train_credit = 0.0
@@ -178,6 +182,7 @@ def main():
             success = next_obs.get("success", 0.0) > 0
             buffer.add(obs["image"], action, next_obs["reward"], next_obs["done"],
                        terminal=success)
+            action_counts[action] += 1
             episode_reward += next_obs["reward"]
             episode_steps += 1
 
@@ -193,13 +198,17 @@ def main():
                 writer.writerow([step, "episode/steps", episode_steps])
                 f.flush()
 
-                # WandB
+                # WandB — episode metrics + action distribution
+                action_pcts = action_counts / max(episode_steps, 1)
+                action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
                 wandb.log({
                     "episode/reward": episode_reward,
                     "episode/success": success,
                     "episode/spl": spl,
                     "episode/steps": episode_steps,
                     "episode/count": episode_count,
+                    **{f"action/{action_names[i]}_pct": float(action_pcts[i])
+                       for i in range(config.num_actions)},
                 }, step=step)
 
                 print(
@@ -210,6 +219,7 @@ def main():
 
                 episode_reward = 0.0
                 episode_steps = 0
+                action_counts = np.zeros(config.num_actions, dtype=int)
                 obs = env.reset()
             else:
                 obs = next_obs
