@@ -57,3 +57,13 @@ This is the most important section for the thesis. Document:
 - ALWAYS execute notebooks so outputs are saved inline
 - ALWAYS frame findings in terms of the thesis research question
 - Write for a thesis audience — clear, precise, academic tone
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `error": false}]}, "uuid": "337eb03d-536f-4027-8ee0-b2c799da3e22", "timestamp": "2026-04-11T08:12:48.716Z", "toolUseResult": {"stdout": "NOT_INSTALLED"`
+- `error": false}]}, "uuid": "3f290b1e-d2f9-4951-b0c5-28e932c2d449", "timestamp": "2026-04-11T08:12:50.187Z", "toolUseResult": {"stdout": "/home/ul/ul_st`
+- `error": false}]}, "uuid": "1b830682-b475-433a-8753-b1af01452d48", "timestamp": "2026-04-11T08:12:55.587Z", "toolUseResult": {"stdout": "/home/ul/ul_st`
+- `error": false}]}, "uuid": "ef0b758f-c2e5-42dd-bb82-b67b4cdbb212", "timestamp": "2026-04-11T08:12:59.808Z", "toolUseResult": {"stdout": "Defaulting to `
+- `error": false}]}, "uuid": "f3ef0d5c-5337-40c7-8519-8ffca6ce3f17", "timestamp": "2026-04-11T08:13:25.309Z", "toolUseResult": {"stdout": "Collecting jso`

@@ -124,3 +124,19 @@ Total: <count> issues | AFK: <n> | HITL: <m>
 - Never create circular dependencies
 - If a task is GPU-dependent, note the partition in Technical Notes
 - Reference the parent PRD issue in every task body
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `errors, security issues, then simplifies for clarity. Use before /qa or standalone after any code change.\n- engineer: Implement features from a plan.`
+- `Error Files:**\n- `/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/output/r2dreamer-habitat-baseline/slurm-3903418.out` (4.5 KB)\n  - Cont`
+- `exit code 139`
+- `FAILED (exit code 139)\n127\tNodes: 1\n128\tCores per node: 8\n129\tCPU Utilized: 00:22:58\n130\tCPU Efficiency: 9.68% of 03:57:12 core-walltime\n131\`
+- `error": true, "tool_use_id": "toolu_01GHgZqoozASxDYgKPhRVfDR"}]}, "uuid": "5b0f15f6-8270-4cf3-95d3-3539f729d27c", "timestamp": "2026-04-11T06:19:45.31`
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `error prevention", "source": "all", "limit": 5}, "caller": {"type": "direct"}}], "stop_reason": "tool_use", "stop_sequence": null, "stop_details": nul`

@@ -51,3 +51,13 @@ Print a summary:
 - What was built and where the code lives
 - Paths to any output data or results in `output/`
 - Tell the user they can now invoke `/reporter` to create thesis deliverables
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `exit code 139`
+- `error": false}]}, "uuid": "d0dd8bc9-db50-4a7d-baea-2aef8ef67c7f", "timestamp": "2026-04-11T07:28:19.893Z", "toolUseResult": {"stdout": "NVIDIA H100", `
+- `error(\"--checkpoint is required unless --random is set\")\n87\t\n88\t    os.makedirs(os.path.dirname(args.output) or \".\", exist_ok=True)\n89\t\n90\`
+- `FAIL] Val data not created at $VAL_DATA\"\n45\t    exit 1\n46\tfi\n47\techo \"[PASS] Val data collected\"\n48\t\n49\t# -------------------------------`
+- `error=output/r2dreamer-habitat-baseline/slurm-%j.err\n11\t\n12\tmkdir -p output/r2dreamer-habitat-baseline\n13\t\n14\techo \"Job $SLURM_JOB_ID on $(ho`

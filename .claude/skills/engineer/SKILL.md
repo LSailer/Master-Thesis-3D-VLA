@@ -46,3 +46,19 @@ Use `/delegate-task` to upload any novel implementation pattern as a reusable sk
 ## When done
 
 Print a summary of what was implemented and where the code lives, so the user can invoke `/qa` next.
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `exit code 139`
+- `error": false}]}, "uuid": "4dc527e5-788d-426f-9c57-c16ea8cb90e9", "timestamp": "2026-04-11T07:03:35.606Z", "toolUseResult": {"stdout": "NVIDIA H100", `
+- `error(\"--checkpoint is required unless --random is set\")\n45\t\n46\t    os.makedirs(os.path.dirname(args.output) or \".\", exist_ok=True)\n47\t\n48\`
+- `error": false}]}, "uuid": "9fd4fadd-6a44-44d8-9cc0-39d7310dcd96", "timestamp": "2026-04-11T07:05:15.498Z", "toolUseResult": {"stdout": "collect_expert`
+- `Error:\n12\t    raise ImportError(\"habitat-sim required \u2014 install via uv sync\")\n13\t\n14\timport wandb\n15\t\n16\t\n17\tNUM_ACTIONS = 6  # STO`
+
+
+## Lessons learned (2026-04-11)
+
+Issues encountered during session:
+- `error logs, identifies the root cause, generates repair patches, and verifies the fix automatically\n- **AUTO-IMPROVE:** Monitors skill performance an`
