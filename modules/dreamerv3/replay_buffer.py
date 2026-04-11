@@ -1,7 +1,5 @@
 """Simple numpy ring buffer with sequence sampling."""
 
-from pathlib import Path
-
 import numpy as np
 import jax.numpy as jnp
 

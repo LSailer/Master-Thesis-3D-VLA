@@ -93,10 +93,7 @@ def append_lesson(skill_path: Path, errors: list[str], date: str):
     content = skill_path.read_text()
 
     # Don't duplicate — check if these errors are already recorded
-    for error in errors:
-        short = error[:80]
-        if short in content:
-            errors.remove(error)
+    errors = [e for e in errors if e[:80] not in content]
 
     if not errors:
         return False

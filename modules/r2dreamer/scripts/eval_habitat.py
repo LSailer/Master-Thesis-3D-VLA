@@ -42,8 +42,9 @@ def _render_topdown(env, trajectory, goal_positions, output_path):
     ax.plot(traj[-1, 0], traj[-1, 2], "rs", markersize=10, label="End")
 
     # Goal positions
-    for gp in goal_positions:
-        ax.plot(gp[0], gp[2], "m*", markersize=15, label="Goal")
+    for i, gp in enumerate(goal_positions):
+        ax.plot(gp[0], gp[2], "m*", markersize=15,
+                label="Goal" if i == 0 else None)
 
     ax.set_xlabel("x (m)")
     ax.set_ylabel("z (m)")
