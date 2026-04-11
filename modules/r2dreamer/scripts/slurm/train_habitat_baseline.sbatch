@@ -28,5 +28,5 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
     --wandb_name "r2dreamer-baseline-2.4M-${SLURM_JOB_ID}" \
-    --eval_every 50000 \
-    --eval_episodes 50
+    --val_data data/val_replay/val_200ep.npz \
+    --val_loss_every 10000

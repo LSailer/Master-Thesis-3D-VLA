@@ -18,7 +18,7 @@ from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.dreamerv3.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
-from modules.dreamerv3.replay_buffer import ReplayBuffer
+from modules.dreamerv3.replay_buffer import ReplayBuffer, ValReplayDataset
 
 
 def _convert_batch(batch: dict, num_actions: int) -> dict:
@@ -31,31 +31,6 @@ def _convert_batch(batch: dict, num_actions: int) -> dict:
         "is_first": batch["is_first"],
         "is_last": batch["dones"],
         "is_terminal": batch["terminals"],
-    }
-
-
-def greedy_eval(agent, env, rng_key, num_episodes=10, max_steps=500):
-    """Run greedy evaluation episodes on a held-out env."""
-    rewards, successes, spls, lengths = [], [], [], []
-    for _ in range(num_episodes):
-        obs = env.reset()
-        ep_reward, steps = 0.0, 0
-        rng_key, ep_key = jax.random.split(rng_key)
-        while not obs.get("done", False) and steps < max_steps:
-            ep_key, act_key = jax.random.split(ep_key)
-            action = agent.act(obs, act_key, training=False)
-            obs = env.step(action)
-            ep_reward += obs["reward"]
-            steps += 1
-        rewards.append(ep_reward)
-        successes.append(obs.get("success", 0.0))
-        spls.append(obs.get("spl", 0.0))
-        lengths.append(steps)
-    return {
-        "eval/reward": float(np.mean(rewards)),
-        "eval/success": float(np.mean(successes)),
-        "eval/spl": float(np.mean(spls)),
-        "eval/episode_length": float(np.mean(lengths)),
     }
 
 
@@ -88,10 +63,10 @@ def main():
     parser.add_argument("--checkpoint_every", type=int, default=50_000)
     parser.add_argument("--wandb_project", type=str, default="3d-vla-objectnav")
     parser.add_argument("--wandb_name", type=str, default=None)
-    parser.add_argument("--eval_every", type=int, default=50_000,
-                        help="Run greedy eval every N steps (0 to disable)")
-    parser.add_argument("--eval_episodes", type=int, default=10,
-                        help="Number of greedy eval episodes")
+    parser.add_argument("--val_data", type=str, default=None,
+                        help="Path to pre-collected val .npz for val loss")
+    parser.add_argument("--val_loss_every", type=int, default=10_000,
+                        help="Compute val loss every N steps")
     parser.add_argument("--step_counts_path", type=str, default=None,
                         help="Path to episode_step_counts.json for filtering")
     args = parser.parse_args()
@@ -129,17 +104,10 @@ def main():
     )
     env = HabitatObjectNavEnv(hab_config, step_counts_path=args.step_counts_path)
 
-    # --- Eval environment (held-out val split) ---
-    eval_env = None
-    if args.eval_every > 0:
-        val_config = DreamerConfig(
-            obs_shape=(3, 64, 64),
-            max_episode_steps=500,
-            split="val",
-            reward_type="geodesic_delta",
-        )
-        eval_env = HabitatObjectNavEnv(val_config,
-                                       step_counts_path=args.step_counts_path)
+    # --- Val dataset for val loss ---
+    val_dataset = None
+    if args.val_data:
+        val_dataset = ValReplayDataset(args.val_data)
 
     # --- Agent ---
     rng_key = jax.random.PRNGKey(config.seed)
@@ -252,23 +220,24 @@ def main():
                         f"fps={fps:.0f}"
                     )
 
-            # --- Eval ---
-            if (eval_env is not None and (step + 1) % args.eval_every == 0):
-                rng_key, eval_key = jax.random.split(rng_key)
-                eval_metrics = greedy_eval(
-                    agent, eval_env, eval_key,
-                    num_episodes=args.eval_episodes,
-                    max_steps=hab_config.max_episode_steps,
-                )
-                for k, v in eval_metrics.items():
+            # --- Val loss ---
+            if (val_dataset is not None
+                    and (step + 1) % args.val_loss_every == 0):
+                rng_key, val_key = jax.random.split(rng_key)
+                val_batch = val_dataset.sample(
+                    config.batch_size, config.seq_len)
+                val_batch = _convert_batch(val_batch, config.num_actions)
+                val_metrics = agent.eval_loss(val_batch, val_key)
+                val_logged = {f"val/{k}": v for k, v in val_metrics.items()}
+                for k, v in val_logged.items():
                     writer.writerow([step, k, v])
                 f.flush()
-                wandb.log(eval_metrics, step=step)
+                wandb.log(val_logged, step=step)
                 print(
-                    f"[step {step:>8d}] EVAL: "
-                    f"SR={eval_metrics['eval/success']:.2f} "
-                    f"SPL={eval_metrics['eval/spl']:.2f} "
-                    f"reward={eval_metrics['eval/reward']:.2f}"
+                    f"[step {step:>8d}] VAL: "
+                    f"total={val_logged['val/total_loss']:.3f} "
+                    f"dyn={val_logged['val/loss/dyn']:.3f} "
+                    f"rew={val_logged['val/loss/rew']:.3f}"
                 )
 
             # --- Checkpoint ---
@@ -279,8 +248,6 @@ def main():
     elapsed = time.time() - t0
     print(f"Done in {elapsed:.0f}s. Episodes: {episode_count}. Output: {csv_path}")
     wandb.finish()
-    if eval_env is not None:
-        eval_env.close()
     env.close()
 
 

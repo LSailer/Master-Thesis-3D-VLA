@@ -77,8 +77,9 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 class HabitatObjectNavEnv:
     def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
-                 step_counts_path: str | None = None):
+                 step_counts_path: str | None = None, semantic: bool = False):
         import habitat
+        from omegaconf import OmegaConf
 
         self._cfg = config
         H, W = config.obs_shape[1], config.obs_shape[2]
@@ -100,6 +101,10 @@ class HabitatObjectNavEnv:
             agent_cfg.sim_sensors.rgb_sensor.height = H
             agent_cfg.sim_sensors.rgb_sensor.width = W
             hab_cfg.habitat.environment.max_episode_steps = config.max_episode_steps
+            # load_semantic_mesh is a habitat-sim attr not in the OmegaConf schema
+            OmegaConf.set_struct(hab_cfg.habitat.simulator, False)
+            hab_cfg.habitat.simulator.load_semantic_mesh = semantic
+            OmegaConf.set_struct(hab_cfg.habitat.simulator, True)
 
         self._env = habitat.Env(config=hab_cfg)
 

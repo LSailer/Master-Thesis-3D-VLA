@@ -165,6 +165,7 @@ class R2DreamerAgent:
 
         # ---- JIT-compiled functions ----
         self._jit_train_step = jax.jit(self._train_step)
+        self._jit_eval_loss = jax.jit(self._eval_loss_fn)
         self._jit_act = jax.jit(self._act_jit)
 
     # ------------------------------------------------------------------
@@ -314,6 +315,30 @@ class R2DreamerAgent:
         metrics["total_loss"] = total_loss
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_params, new_opt_state, new_slow, new_ema_state, metrics
+
+    def eval_loss(self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray) -> Dict[str, float]:
+        """Compute loss on a batch without updating parameters.
+
+        Same metrics as train_step but no gradient computation or optimizer step.
+        Useful for validation loss on held-out data.
+        """
+        metrics = self._jit_eval_loss(
+            self.params, self.slow_critic_params, self.ema_state, batch, rng_key,
+        )
+        return {k: float(v) for k, v in metrics.items()}
+
+    def _eval_loss_fn(self, params, slow_critic_params, ema_state, batch, rng_key):
+        """Pure-functional eval loss (JIT-able). Forward pass only."""
+        total_loss, aux = self._loss_fn(
+            params,
+            slow_critic_params=slow_critic_params,
+            ema_state=ema_state,
+            batch=batch,
+            rng_key=rng_key,
+        )
+        metrics = aux["metrics"]
+        metrics["total_loss"] = total_loss
+        return metrics
 
     def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
         """Compute all losses in one function for jax.grad.
