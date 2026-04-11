@@ -69,6 +69,12 @@ def main():
                         help="Compute val loss every N steps")
     parser.add_argument("--step_counts_path", type=str, default=None,
                         help="Path to episode_step_counts.json for filtering")
+    parser.add_argument("--curriculum_path", type=str, default=None,
+                        help="Path to curriculum JSON config")
+    parser.add_argument("--curriculum_mode", type=str, default="train",
+                        help="Curriculum split: train or eval")
+    parser.add_argument("--wandb_tags", type=str, default=None,
+                        help="Comma-separated WandB tags (appended to defaults)")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -88,11 +94,14 @@ def main():
     )
 
     # --- WandB ---
+    tags = ["r2dreamer", "habitat", "baseline"]
+    if args.wandb_tags:
+        tags.extend(t.strip() for t in args.wandb_tags.split(","))
     wandb.init(
         project=args.wandb_project,
         name=args.wandb_name,
         config=vars(config) if hasattr(config, "__dict__") else {},
-        tags=["r2dreamer", "habitat", "baseline", "10M", "v2-fixes"],
+        tags=tags,
     )
 
     # --- Environment ---
@@ -102,7 +111,12 @@ def main():
         split="train",
         reward_type="geodesic_delta",
     )
-    env = HabitatObjectNavEnv(hab_config, step_counts_path=args.step_counts_path)
+    env = HabitatObjectNavEnv(
+        hab_config,
+        step_counts_path=args.step_counts_path,
+        curriculum_path=args.curriculum_path,
+        curriculum_mode=args.curriculum_mode,
+    )
 
     # --- Val dataset for val loss ---
     val_dataset = None
