@@ -19,6 +19,7 @@ from modules.r2dreamer.config import R2DreamerConfig
 from modules.dreamerv3.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
 from modules.dreamerv3.replay_buffer import ReplayBuffer, ValReplayDataset
+from modules.shared.wandb_utils import EpisodeTracker
 
 
 def _convert_batch(batch: dict, num_actions: int) -> dict:
@@ -155,6 +156,7 @@ def main():
         batch_steps = config.batch_size * config.seq_len
         train_credit = 0.0
         metrics = {}
+        tracker = EpisodeTracker(window=100)
 
         for step in range(config.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -173,22 +175,35 @@ def main():
                 success = next_obs.get("success", 0.0)
                 spl = next_obs.get("spl", 0.0)
 
+                # Capture metadata BEFORE reset clears current episode
+                category = getattr(env._env.current_episode, "object_category", "unknown")
+                scene_raw = getattr(env._env.current_episode, "scene_id", "")
+
+                tracked = tracker.record(
+                    reward=episode_reward,
+                    success=success,
+                    spl=spl,
+                    category=category,
+                    scene_id=scene_raw,
+                )
+
                 # CSV
                 writer.writerow([step, "episode/reward", episode_reward])
                 writer.writerow([step, "episode/success", success])
                 writer.writerow([step, "episode/spl", spl])
                 writer.writerow([step, "episode/steps", episode_steps])
+                writer.writerow([step, "episode/goal", category])
+                writer.writerow([step, "episode/scene", tracked["episode/scene"]])
+                writer.writerow([step, "metrics/sr", tracked["metrics/sr"]])
+                writer.writerow([step, "metrics/spl", tracked["metrics/spl"]])
                 f.flush()
 
-                # WandB — episode metrics + action distribution
+                # WandB — episode metrics + rolling averages + per-category + actions
                 action_pcts = action_counts / max(episode_steps, 1)
                 action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
                 wandb.log({
-                    "episode/reward": episode_reward,
-                    "episode/success": success,
-                    "episode/spl": spl,
+                    **tracked,
                     "episode/steps": episode_steps,
-                    "episode/count": episode_count,
                     **{f"action/{action_names[i]}_pct": float(action_pcts[i])
                        for i in range(config.num_actions)},
                 }, step=step)
@@ -196,7 +211,8 @@ def main():
                 print(
                     f"[step {step:>8d}] episode {episode_count}: "
                     f"reward={episode_reward:.2f} success={success:.0f} "
-                    f"spl={spl:.3f} steps={episode_steps}"
+                    f"spl={spl:.3f} steps={episode_steps} "
+                    f"SR={tracked['metrics/sr']:.3f} goal={category}"
                 )
 
                 episode_reward = 0.0
