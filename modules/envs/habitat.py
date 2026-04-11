@@ -77,13 +77,19 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 class HabitatObjectNavEnv:
     def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
-                 step_counts_path: str | None = None, semantic: bool = False):
+                 step_counts_path: str | None = None, semantic: bool = False,
+                 curriculum_path: str | None = None,
+                 curriculum_mode: str = "train"):
         import habitat
         from omegaconf import OmegaConf
 
         self._cfg = config
         H, W = config.obs_shape[1], config.obs_shape[2]
         split = config.split
+
+        # Curriculum episodes always come from the train split
+        if curriculum_path is not None:
+            split = "train"
 
         hab_cfg = habitat.get_config(
             "benchmark/nav/objectnav/objectnav_hm3d.yaml"
@@ -108,32 +114,52 @@ class HabitatObjectNavEnv:
 
         self._env = habitat.Env(config=hab_cfg)
 
-        if max_geodesic is not None:
-            before = len(self._env._dataset.episodes)
-            self._env._dataset.episodes = [
-                ep for ep in self._env._dataset.episodes
-                if ep.info is not None
-                and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
-            ]
-            self._env._setup_episode_iterator()
-            self._env.current_episode = next(self._env.episode_iterator)
-            print(f"Filtered: {before} → {len(self._env._dataset.episodes)} "
-                  f"episodes (geodesic < {max_geodesic}m)")
-
-        if step_counts_path is not None:
+        if curriculum_path is not None:
             import json
-            with open(step_counts_path) as f:
-                step_counts = json.load(f)
-            split_counts = step_counts.get(config.split, {})
+            with open(curriculum_path) as f:
+                curriculum = json.load(f)
+
+            # Keys are [episode_id, object_category, scene_name] triples
+            key_set = {(k[0], k[1], k[2])
+                       for k in curriculum[f"{curriculum_mode}_episode_keys"]}
             before = len(self._env._dataset.episodes)
             self._env._dataset.episodes = [
                 ep for ep in self._env._dataset.episodes
-                if split_counts.get(ep.episode_id, 0) < 200
+                if (ep.episode_id, ep.object_category,
+                    ep.scene_id.split("/")[-1].replace(".basis.glb", ""))
+                in key_set
             ]
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
-            print(f"Filtered (step count): {before} → "
-                  f"{len(self._env._dataset.episodes)} episodes (steps < 200)")
+            print(f"Curriculum [{curriculum['name']}] {curriculum_mode}: "
+                  f"{before} → {len(self._env._dataset.episodes)} episodes")
+        else:
+            if max_geodesic is not None:
+                before = len(self._env._dataset.episodes)
+                self._env._dataset.episodes = [
+                    ep for ep in self._env._dataset.episodes
+                    if ep.info is not None
+                    and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
+                ]
+                self._env._setup_episode_iterator()
+                self._env.current_episode = next(self._env.episode_iterator)
+                print(f"Filtered: {before} → {len(self._env._dataset.episodes)} "
+                      f"episodes (geodesic < {max_geodesic}m)")
+
+            if step_counts_path is not None:
+                import json
+                with open(step_counts_path) as f:
+                    step_counts = json.load(f)
+                split_counts = step_counts.get(config.split, {})
+                before = len(self._env._dataset.episodes)
+                self._env._dataset.episodes = [
+                    ep for ep in self._env._dataset.episodes
+                    if split_counts.get(ep.episode_id, 0) < 200
+                ]
+                self._env._setup_episode_iterator()
+                self._env.current_episode = next(self._env.episode_iterator)
+                print(f"Filtered (step count): {before} → "
+                      f"{len(self._env._dataset.episodes)} episodes (steps < 200)")
 
         self._prev_dist = 0.0
         self._step_count = 0
