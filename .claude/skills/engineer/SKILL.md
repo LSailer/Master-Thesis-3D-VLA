@@ -17,8 +17,11 @@ Implement the plan provided below. You are the engineer — turn the plan into w
 
 - Work through the plan methodically, one component at a time
 - Write clean, minimal code that satisfies the plan's requirements
+- **Test each component incrementally** — run a quick smoke check after each deliverable, don't batch all code then test at the end
 - Commit after each logical unit of work with clear commit messages
 - Follow the plan — if something seems wrong, stop and ask rather than improvising
+- When setting config values on third-party libraries (OmegaConf, Hydra, Habitat), verify the key exists first with a quick Python snippet
+- At API boundaries (Habitat, gym, etc.), don't assume types — use defensive patterns for values that could be arrays or lists
 
 ## Before starting
 

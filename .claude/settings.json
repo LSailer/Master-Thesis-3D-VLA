@@ -10,5 +10,17 @@
       "WebSearch",
       "WebFetch"
     ]
+  },
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/improve_skills.py"
+          }
+        ]
+      }
+    ]
   }
 }
