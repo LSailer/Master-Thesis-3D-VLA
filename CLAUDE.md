@@ -61,17 +61,35 @@ data/                       # Datasets (HM3D scenes, etc.)
 - Experiment: compare DreamerV3 w/ UNITE 3D features vs 2D-only on HM3D ObjectNav
 - Related: WMNav (IROS'25) — VLM + world model for ObjectNav; DreamerNav — DreamerV3 for indoor nav
 
+## Wiki
+
+LLM-maintained knowledge base in `docs/wiki/`. Claude reads it for context and writes to it via `/reporter` and `/wiki`.
+
+```
+docs/wiki/
+  index.md              — catalog of all pages (read this first)
+  log.md                — append-only activity log
+  _templates/           — page templates (experiment, generic)
+  experiments/          — experiment findings (written by /reporter)
+  methods/              — architecture decisions, design rationale
+  meetings/             — supervisor meeting notes
+  research/             — paper summaries, related work
+```
+
+Rules: always update `index.md` and append to `log.md` when creating/modifying wiki pages. Never modify raw data in `output/`.
+
+## Pipeline
+
+```
+Feature track:  /plan → /engineer → /review → /reporter → human chat review
+Fix track:      /triage-issue → /engineer → /review
+Wiki:           /wiki ingest | query | lint (anytime)
+```
+
 ## GitHub Pages
 
 Slides: `https://<username>.github.io/Master-Thesis-3D-VLA/`
 
-Current `docs/index.html` (13 slides, Feb 25 2026 supervisor meeting): thesis pivot proposal — UNITE overview, VGGT foundation, research gap, 3 possible approaches (VLA token injection, PointVLA-style, VGGT+semantic DPT fusion), Habitat ObjectNav & ALFRED benchmarks, VLA baseline, open questions, 6-month timeline.
-
-## Notebooks
-
-When modifying or creating notebooks, execute them in-place so outputs are saved:
-
-```bash
-uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
-```
+- `docs/index.html` — thesis overview (13 slides, Feb 2026 supervisor meeting)
+- `docs/<experiment>.html` — per-experiment HTML slide decks (created by /reporter, replaced on update)
 

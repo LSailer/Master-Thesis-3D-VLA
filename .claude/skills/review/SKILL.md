@@ -46,4 +46,4 @@ Print a summary:
 - Issues found and fixed (Pass 1)
 - Simplifications applied (Pass 2)
 - Test results
-- Ready for `/qa` or not
+- Ready for `/reporter` (if experiment results exist) or done

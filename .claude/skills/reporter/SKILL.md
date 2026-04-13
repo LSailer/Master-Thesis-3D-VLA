@@ -1,69 +1,106 @@
 ---
 name: reporter
-description: After QA approval, create thesis-quality plots, documentation, and learning summaries from the implementation. Use after /qa approves.
+description: After review approval, create wiki experiment page, plot scripts, and HTML slides from results. Then prompt user for chat-based review. Use after /review completes and experiments have run.
 ---
 
-Create thesis deliverables from the approved implementation. You are the reporter — turn results into publishable analysis.
+Create thesis deliverables from experiment results. You are the reporter — turn results into analysis and presentation.
 
 ## When invoked
 
-1. Check if you're on a GPU node: run `nvidia-smi`. If it succeeds, run notebook execution directly. If it fails, prefix with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`
-2. Review what was built (from the conversation or QA summary)
+1. Check if you're on a GPU node: run `nvidia-smi`. If it succeeds, run commands directly. If it fails, prefix GPU commands with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`
+2. Review what was built (from the conversation or review summary)
 3. Locate results in `output/` and code in `modules/`
-4. Create deliverables in three categories
+4. Read `docs/wiki/index.md` for context on related experiments
+5. Create deliverables in three categories
 
-## 1. Plots & Figures
+## 1. Plot Scripts
 
-Create a Jupyter notebook in the relevant `modules/*/notebooks/` directory:
+Create or update plot scripts in `modules/*/scripts/`:
 
 - Training curves, loss plots, reward trajectories
-- Comparison plots (e.g., 3D vs 2D features, DreamerV3 baselines)
-- Architecture diagrams if relevant
+- Comparison plots (e.g., 3D vs 2D features, baselines)
 - Thesis-quality formatting: axis labels, titles, legends, readable fonts
 - Save publication-ready figures to `output/figures/`
+- Use matplotlib/seaborn for plots, pandas for tables
 
-Execute the notebook in-place:
-```bash
-uv run jupyter nbconvert --to notebook --execute <notebook>.ipynb --inplace
+Run the scripts to generate the figures.
+
+## 2. Wiki Experiment Page
+
+Create a page in `docs/wiki/experiments/` using the experiment template:
+
+```markdown
+# <Experiment Name>
+
+**Status**: completed
+**Date**: YYYY-MM-DD
+**Tags**: #relevant #tags
+**Wandb**: <run URL if available>
+**SLURM Job ID**: <job id if available>
+**Slides**: [<experiment>.html](../../<experiment>.html)
+
+## Setup
+
+What was tested and why. Hypothesis in one sentence.
+
+## Changes
+
+What changed compared to the previous run.
+
+## Results
+
+Key metrics, embedded plots via ![](../../output/figures/...).
+
+## Findings
+
+What we learned. What surprised us. What this means for the research question:
+> Do world models benefit from 3D semantic scene representations over 2D?
+
+## Next
+
+What to try next based on these results.
 ```
 
-## 2. Documentation
+After writing the page:
+- Update `docs/wiki/index.md` — add entry under Experiments
+- Append to `docs/wiki/log.md`:
+  ```
+  ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /reporter
+  <Brief description>. Created experiments/<name>.md. Updated index.
+  ```
+- Add cross-references to related wiki pages
 
-Write a concise summary in the notebook:
-- **What** was implemented (component, module, feature)
-- **Why** (which research question or hypothesis this addresses)
-- **How** (key design decisions, architecture choices from the plan)
-- **Results** (metrics, comparisons, key numbers)
+## 3. HTML Slides
 
-## 3. Learnings
+Create or **replace** an HTML slide deck in `docs/` for the experiment:
 
-This is the most important section for the thesis. Document:
-- **What worked** — approaches, design choices that succeeded and why
-- **What didn't work** — failed attempts, dead ends, and what they revealed
-- **Surprises** — unexpected behaviors, results that challenge assumptions
-- **Implications** — what this means for the core research question (do world models benefit from 3D semantic scene representations over 2D?)
-- **Next steps** — what should be investigated next based on these results
+- Match the existing dark-themed style from `docs/index.html`
+- 3-8 slides: title, setup/hypothesis, key results (with plots), findings, next steps
+- Embed plots from `output/figures/` directly
+- Publication-quality: clear labels, readable fonts, professional layout
+
+## After creating deliverables
+
+Prompt the user for **chat-based review**:
+
+> "Here are the results. The wiki page is at `docs/wiki/experiments/<name>.md` and slides at `docs/<name>.html`. What questions do you have about the results?"
+
+Answer questions from wiki knowledge and output data. If a question can't be resolved, offer to create a GitHub issue:
+
+```bash
+gh issue create --label question --title "<question>" --body "..."
+```
 
 ## Conventions
 
-- Scripts compute & save to `output/`, notebooks only visualize and explain
-- One experiment or comparison per notebook
+- Scripts compute & save to `output/`, wiki pages and slides only reference saved outputs
+- One experiment per wiki page
 - Always compare against baselines when available
-- Use matplotlib/seaborn for plots, pandas for tables
+- Frame all findings in terms of the thesis research question
 
 ## Rules
 
 - NEVER recompute results — only visualize and analyze what's in `output/`
-- ALWAYS execute notebooks so outputs are saved inline
-- ALWAYS frame findings in terms of the thesis research question
+- ALWAYS update wiki index.md and log.md when creating experiment pages
+- ALWAYS replace (not append) HTML slides for an experiment — git preserves history
 - Write for a thesis audience — clear, precise, academic tone
-
-
-## Lessons learned (2026-04-11)
-
-Issues encountered during session:
-- `error": false}]}, "uuid": "337eb03d-536f-4027-8ee0-b2c799da3e22", "timestamp": "2026-04-11T08:12:48.716Z", "toolUseResult": {"stdout": "NOT_INSTALLED"`
-- `error": false}]}, "uuid": "3f290b1e-d2f9-4951-b0c5-28e932c2d449", "timestamp": "2026-04-11T08:12:50.187Z", "toolUseResult": {"stdout": "/home/ul/ul_st`
-- `error": false}]}, "uuid": "1b830682-b475-433a-8753-b1af01452d48", "timestamp": "2026-04-11T08:12:55.587Z", "toolUseResult": {"stdout": "/home/ul/ul_st`
-- `error": false}]}, "uuid": "ef0b758f-c2e5-42dd-bb82-b67b4cdbb212", "timestamp": "2026-04-11T08:12:59.808Z", "toolUseResult": {"stdout": "Defaulting to `
-- `error": false}]}, "uuid": "f3ef0d5c-5337-40c7-8519-8ffca6ce3f17", "timestamp": "2026-04-11T08:13:25.309Z", "toolUseResult": {"stdout": "Collecting jso`
