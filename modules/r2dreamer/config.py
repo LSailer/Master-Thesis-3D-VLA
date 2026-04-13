@@ -70,6 +70,10 @@ class R2DreamerConfig:
     unimix_ratio: float = 0.01
     slow_target_fraction: float = 0.02
 
+    # --- Reward ---
+    step_penalty: float = -0.01  # per-step cost (encourages shorter paths)
+    success_bonus: float = 10.0  # reward for reaching goal
+
     # --- Replay ---
     buffer_capacity: int = 500_000
     prefill_steps: int = 5000

@@ -1,0 +1,187 @@
+"""Random-action baseline for Habitat ObjectNav.
+
+Runs uniform-random actions on curriculum eval episodes and saves
+per-episode CSV + aggregate JSON for comparison against trained agents.
+"""
+
+import argparse
+import csv
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+
+import numpy as np
+
+from modules.dreamerv3.configs import DreamerConfig
+from modules.envs.habitat import ACTIONS, HabitatObjectNavEnv
+
+
+def run_random_baseline(
+    curriculum_path: str,
+    output_dir: str,
+    max_episode_steps: int = 500,
+    seed: int = 42,
+) -> dict:
+    """Run random agent on all eval episodes from a curriculum.
+
+    Returns aggregate metrics dict.
+    """
+    rng = np.random.default_rng(seed)
+    num_actions = len(ACTIONS)
+
+    config = DreamerConfig(
+        obs_shape=(3, 64, 64),
+        max_episode_steps=max_episode_steps,
+        reward_type="geodesic_delta",
+    )
+    env = HabitatObjectNavEnv(
+        config,
+        curriculum_path=curriculum_path,
+        curriculum_mode="eval",
+    )
+
+    num_episodes = len(env._env._dataset.episodes)
+    print(f"Running random baseline on {num_episodes} eval episodes")
+
+    os.makedirs(output_dir, exist_ok=True)
+    csv_path = os.path.join(output_dir, "episodes.csv")
+
+    all_results = []
+    t_start = time.time()
+
+    with open(csv_path, "w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow([
+            "episode", "scene", "category", "steps", "reward",
+            "success", "spl", "stop_pct", "forward_pct", "left_pct", "right_pct",
+        ])
+
+        for ep_idx in range(num_episodes):
+            obs = env.reset()
+            episode = env._env.current_episode
+            scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
+            category = episode.object_category
+
+            action_counts = {a: 0 for a in range(num_actions)}
+            total_reward = 0.0
+            steps = 0
+
+            for _ in range(max_episode_steps):
+                action = int(rng.integers(0, num_actions))
+                obs = env.step(action)
+                action_counts[action] += 1
+                total_reward += obs["reward"]
+                steps += 1
+                if obs["done"]:
+                    break
+
+            success = float(obs.get("success", 0.0))
+            spl = float(obs.get("spl", 0.0))
+
+            pcts = {name: action_counts[idx] / steps * 100
+                    for idx, name in ACTIONS.items()}
+
+            writer.writerow([
+                ep_idx, scene, category, steps, f"{total_reward:.4f}",
+                f"{success:.0f}", f"{spl:.4f}",
+                f"{pcts['STOP']:.1f}", f"{pcts['MOVE_FORWARD']:.1f}",
+                f"{pcts['TURN_LEFT']:.1f}", f"{pcts['TURN_RIGHT']:.1f}",
+            ])
+
+            all_results.append({
+                "steps": steps,
+                "reward": total_reward,
+                "success": success,
+                "spl": spl,
+                "action_counts": action_counts,
+            })
+
+            if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
+                elapsed = time.time() - t_start
+                sr_so_far = np.mean([r["success"] for r in all_results]) * 100
+                print(f"  [{ep_idx+1}/{num_episodes}] SR={sr_so_far:.1f}%  "
+                      f"elapsed={elapsed:.0f}s")
+
+    env.close()
+
+    # Aggregate metrics
+    successes = [r["success"] for r in all_results]
+    spls = [r["spl"] for r in all_results]
+    rewards = [r["reward"] for r in all_results]
+    steps_list = [r["steps"] for r in all_results]
+    total_actions = sum(
+        sum(r["action_counts"].values()) for r in all_results
+    )
+    agg_action_counts = {name: 0 for name in ACTIONS.values()}
+    for r in all_results:
+        for idx, name in ACTIONS.items():
+            agg_action_counts[name] += r["action_counts"][idx]
+
+    summary = {
+        "episodes": len(all_results),
+        "sr": float(np.mean(successes)),
+        "spl": float(np.mean(spls)),
+        "mean_reward": float(np.mean(rewards)),
+        "std_reward": float(np.std(rewards)),
+        "mean_steps": float(np.mean(steps_list)),
+        "std_steps": float(np.std(steps_list)),
+        "action_distribution": {
+            name: count / total_actions * 100
+            for name, count in agg_action_counts.items()
+        },
+        "seed": seed,
+        "max_episode_steps": max_episode_steps,
+        "curriculum_path": curriculum_path,
+    }
+
+    json_path = os.path.join(output_dir, "summary.json")
+    with open(json_path, "w") as f:
+        json.dump(summary, f, indent=2)
+
+    elapsed = time.time() - t_start
+    print(f"\n--- Summary ({summary['episodes']} episodes, {elapsed:.0f}s) ---")
+    print(f"Success Rate: {summary['sr']*100:.2f}%")
+    print(f"SPL:          {summary['spl']:.4f}")
+    print(f"Mean Reward:  {summary['mean_reward']:.2f} ± {summary['std_reward']:.2f}")
+    print(f"Mean Steps:   {summary['mean_steps']:.0f} ± {summary['std_steps']:.0f}")
+    print(f"Actions:      {summary['action_distribution']}")
+    print(f"\nSaved: {csv_path}")
+    print(f"Saved: {json_path}")
+
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Random-action baseline for Habitat ObjectNav"
+    )
+    parser.add_argument(
+        "--curriculum_path", type=str, required=True,
+        help="Path to curriculum JSON (e.g. data/curriculum/level1_1house_1goal.json)",
+    )
+    parser.add_argument(
+        "--output_dir", type=str, required=True,
+        help="Directory to save episodes.csv and summary.json",
+    )
+    parser.add_argument(
+        "--max_episode_steps", type=int, default=500,
+        help="Max steps per episode (default: 500)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed (default: 42)",
+    )
+    args = parser.parse_args()
+    run_random_baseline(
+        curriculum_path=args.curriculum_path,
+        output_dir=args.output_dir,
+        max_episode_steps=args.max_episode_steps,
+        seed=args.seed,
+    )
+
+
+if __name__ == "__main__":
+    main()
