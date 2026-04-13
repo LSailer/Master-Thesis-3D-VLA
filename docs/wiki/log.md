@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-13] ingest | Random Baseline L1 | source: /reporter
+Random agent on L1 curriculum (834 eval episodes, 1 house, chair only). 3.84% SR, 0.023 SPL, -4.40 mean reward. Created experiments/random-baseline-l1.md. Updated index. Generated 4 plot figures.
+
 ## [2026-04-13] ingest | Baseline 2.4M All Scenes | source: /reporter
 Analyzed r2dreamer-baseline-2.4M-3907457 (wandb qwdqowxq). 4871 episodes, 2.36% SR (random-level), no learning. Created experiments/baseline-2.4m-all-scenes.md. Updated index. Generated 3 plot figures.
 

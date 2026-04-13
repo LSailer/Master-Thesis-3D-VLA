@@ -2,6 +2,7 @@
 
 ## Experiments
 
+- [Random Baseline — L1 Curriculum](experiments/random-baseline-l1.md) — Uniform-random agent on L1 (1 house, chair), 3.84% SR, performance floor
 - [Baseline 2.4M — All Scenes](experiments/baseline-2.4m-all-scenes.md) — No goal conditioning, 145 scenes, 2.36% SR (random-level), no learning
 
 ## Methods
