@@ -1,17 +1,15 @@
 """Generate 4 curriculum config JSON files for HM3D ObjectNav training.
 
-Loads episodes from scene .json.gz files, filters by object category,
-splits 90/10 into train/eval (seed 42), and writes config JSONs.
+Loads episodes via Habitat's dataset API (which assigns globally-unique
+episode IDs), filters by scene + object category, splits 90/10 into
+train/eval (seed 42), and writes config JSONs.
 """
 
 import argparse
-import gzip
 import json
 from pathlib import Path
 
 import numpy as np
-
-DATASET_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2/train/content")
 
 ALL_CATEGORIES = ["bed", "chair", "plant", "sofa", "toilet", "tv_monitor"]
 
@@ -60,27 +58,41 @@ TRAIN_RATIO = 0.9
 EVAL_SAMPLE_SIZE = 50
 
 
-def load_episodes(scene: str) -> list[dict]:
-    """Load all episodes from a scene's .json.gz file."""
-    path = DATASET_DIR / f"{scene}.json.gz"
-    with gzip.open(path, "rt") as f:
-        data = json.load(f)
-    return data["episodes"]
+def load_habitat_dataset():
+    """Load all episodes via Habitat's API (globally-unique IDs)."""
+    import habitat
+
+    hab_cfg = habitat.get_config(
+        "benchmark/nav/objectnav/objectnav_hm3d.yaml"
+    )
+    from omegaconf import OmegaConf
+    with habitat.config.read_write(hab_cfg):
+        hab_cfg.habitat.dataset.split = "train"
+        hab_cfg.habitat.dataset.data_path = (
+            "data/datasets/objectnav/hm3d/objectnav_hm3d_v2/{split}/{split}.json.gz"
+        )
+    dataset = habitat.make_dataset(
+        id_dataset=hab_cfg.habitat.dataset.type,
+        config=hab_cfg.habitat.dataset,
+    )
+    print(f"Loaded {len(dataset.episodes)} episodes via Habitat API")
+    return dataset.episodes
 
 
-def generate_level(level: dict, output_dir: Path) -> None:
+def generate_level(level: dict, all_episodes: list, output_dir: Path) -> None:
     """Generate a single curriculum level config file."""
     name = level["name"]
-    scenes = level["scenes"]
+    scenes_list = level["scenes"]
+    scenes = set(scenes_list)
     categories = set(level["categories"])
 
     # Composite keys: [episode_id, object_category, scene_name]
-    # IDs repeat across both categories and scenes
+    # Episode IDs are Habitat's globally-unique IDs
     episode_keys = []
-    for scene in scenes:
-        for ep in load_episodes(scene):
-            if ep["object_category"] in categories:
-                episode_keys.append([ep["episode_id"], ep["object_category"], scene])
+    for ep in all_episodes:
+        scene_name = ep.scene_id.split("/")[-1].replace(".basis.glb", "")
+        if scene_name in scenes and ep.object_category in categories:
+            episode_keys.append([ep.episode_id, ep.object_category, scene_name])
 
     # Shuffle and split
     rng = np.random.RandomState(SEED)
@@ -94,7 +106,7 @@ def generate_level(level: dict, output_dir: Path) -> None:
     config = {
         "name": name,
         "description": level["description"],
-        "scenes": scenes,
+        "scenes": scenes_list,
         "categories": level["categories"],
         "seed": SEED,
         "train_ratio": TRAIN_RATIO,
@@ -105,7 +117,7 @@ def generate_level(level: dict, output_dir: Path) -> None:
             "total_episodes": len(episode_keys),
             "train_episodes": len(train_keys),
             "eval_episodes": len(eval_keys),
-            "scenes_count": len(scenes),
+            "scenes_count": len(scenes_list),
             "categories_count": len(level["categories"]),
         },
     }
@@ -133,9 +145,12 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Generating curriculum configs...\n")
+    print("Loading Habitat dataset...")
+    all_episodes = load_habitat_dataset()
+
+    print("\nGenerating curriculum configs...\n")
     for level in LEVELS:
-        generate_level(level, args.output_dir)
+        generate_level(level, all_episodes, args.output_dir)
         print()
     print("Done.")
 

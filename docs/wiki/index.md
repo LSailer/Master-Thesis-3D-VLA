@@ -2,7 +2,7 @@
 
 ## Experiments
 
-*No experiment pages yet.*
+- [Baseline 2.4M — All Scenes](experiments/baseline-2.4m-all-scenes.md) — No goal conditioning, 145 scenes, 2.36% SR (random-level), no learning
 
 ## Methods
 
