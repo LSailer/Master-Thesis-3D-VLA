@@ -387,18 +387,22 @@
 <!-- Slide 6: Why No Learning -->
 <div class="slide">
   <h2>Why the Model Doesn't Learn</h2>
-  <div class="card-grid" style="grid-template-columns: 1fr;">
+  <div class="card-grid grid-2">
     <div class="card">
-      <h4 style="color: var(--accent-red);">1. No Goal Conditioning</h4>
-      <p>The agent sees only RGB — no information about which of the 6 object categories to find. Geodesic-delta reward is noise: moving toward a <em>chair</em> in one episode is wrong for a <em>toilet</em> in the next.</p>
+      <h4 style="color: var(--accent-red);">1. Extreme Data Sparsity per Scene</h4>
+      <p>4,871 episodes across 145 houses = <strong>~33 episodes per house</strong>. The world model barely sees each environment before moving on. L1 curriculum provides 7,499 episodes in 1 house — <strong>227x more data per scene</strong>.</p>
     </div>
     <div class="card">
-      <h4 style="color: var(--accent-red);">2. Scene Diversity Overwhelms World Model</h4>
-      <p>145 visually distinct houses. The RSSM's KL divergence <em>increases</em> throughout training — it cannot converge on dynamics. Without a working world model, imagination-based planning produces garbage.</p>
+      <h4 style="color: var(--accent-red);">2. No Goal Conditioning</h4>
+      <p>The agent sees only RGB — no information about which of the 6 object categories to find. Geodesic-delta reward is noise: moving toward a <em>chair</em> is wrong for a <em>toilet</em>.</p>
     </div>
     <div class="card">
-      <h4 style="color: var(--accent-amber);">3. Sparse Reward Signal</h4>
-      <p>Per-step geodesic deltas are ~0.001. The 10.0 success bonus happens 2.4% of the time by chance. The reward predictor learns "predict ~0" and stops improving (loss: 5.4 &rarr; 0.04).</p>
+      <h4 style="color: var(--accent-red);">3. Scene Diversity Overwhelms World Model</h4>
+      <p>145 visually distinct houses. The RSSM's KL divergence <em>increases</em> throughout training — it cannot converge on dynamics. Without a working world model, imagination-based planning fails.</p>
+    </div>
+    <div class="card">
+      <h4 style="color: var(--accent-amber);">4. Sparse Reward Signal</h4>
+      <p>Per-step geodesic deltas are ~0.001. The 10.0 success bonus happens 2.4% of the time by chance. The reward predictor learns "predict ~0" and stops (loss: 5.4 &rarr; 0.04).</p>
     </div>
   </div>
   <p style="color: var(--text-dim); font-size: 0.9rem; margin-top: 16px;">

@@ -47,13 +47,15 @@ Nearly uniform: forward 27.6%, left 24.2%, right 27.2%, stop 21.0% — effective
 
 ## Findings
 
-**The model does not learn.** Three compounding factors explain why:
+**The model does not learn.** Four compounding factors explain why:
 
-1. **No goal conditioning**: The agent has no information about which object to navigate to. With 6 goal categories across 145 houses, the geodesic-delta reward is effectively noise from the agent's perspective — moving toward a chair in one episode is the wrong direction for a toilet in the next.
+1. **Extreme data sparsity per scene**: 4,871 episodes spread across 145 houses = ~33 episodes per house. The world model barely sees each environment before moving on. By contrast, L1 curriculum provides 7,499 episodes in a single house — 227x more data per scene.
 
-2. **Scene diversity overwhelms the world model**: The KL divergence *increases* throughout training. The RSSM cannot model the dynamics of 145 visually distinct environments simultaneously at this model scale. The world model never converges, so imagination-based policy optimization has no useful signal.
+2. **No goal conditioning**: The agent has no information about which object to navigate to. With 6 goal categories across 145 houses, the geodesic-delta reward is effectively noise from the agent's perspective — moving toward a chair in one episode is the wrong direction for a toilet in the next.
 
-3. **Sparse useful reward signal**: The 10.0 success bonus occurs 2.36% of the time (by chance), while per-step geodesic deltas are tiny (~0.001). The reward predictor learns to predict "approximately zero" and stops there.
+3. **Scene diversity overwhelms the world model**: The KL divergence *increases* throughout training. The RSSM cannot model the dynamics of 145 visually distinct environments simultaneously at this model scale. The world model never converges, so imagination-based policy optimization has no useful signal.
+
+4. **Sparse useful reward signal**: The 10.0 success bonus occurs 2.36% of the time (by chance), while per-step geodesic deltas are tiny (~0.001). The reward predictor learns to predict "approximately zero" and stops there.
 
 The 2.36% success rate is consistent with random exploration occasionally stumbling onto nearby goals. The slight decrease in later quartiles (2.6% → 1.7%) may indicate the policy learning counterproductive movement patterns.
 
