@@ -1,26 +1,56 @@
-"""Simple numpy ring buffer with sequence sampling."""
+"""Unified numpy ring buffer with sequence sampling."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 
 import numpy as np
 import jax.numpy as jnp
 
-from .configs import DreamerConfig
+
+@dataclass(frozen=True)
+class BufferConfig:
+    """Configuration for ReplayBuffer.
+
+    Args:
+        capacity: Maximum number of transitions to store.
+        obs_shape: Shape of a single observation, e.g. (3, 64, 64) or (4116,).
+        obs_dtype: Storage dtype — "uint8" for images, "float32" for features.
+        normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on sample.
+    """
+    capacity: int
+    obs_shape: tuple[int, ...]
+    obs_dtype: str = "uint8"
+    normalize_obs: bool = True
 
 
 class ReplayBuffer:
-    def __init__(self, config: DreamerConfig):
-        cap = config.buffer_capacity
-        H, W = config.obs_shape[1], config.obs_shape[2]
-        self.obs = np.zeros((cap, 3, H, W), dtype=np.uint8)
+    """Ring buffer that stores transitions and samples fixed-length sequences.
+
+    Replaces the old separate ReplayBuffer (uint8) and VGGTReplayBuffer (float32).
+    """
+
+    def __init__(self, config: BufferConfig | object) -> None:
+        # Backward compat: accept a DreamerConfig or R2DreamerConfig
+        if not isinstance(config, BufferConfig):
+            config = BufferConfig(
+                capacity=config.buffer_capacity,
+                obs_shape=config.obs_shape,
+            )
+        cap = config.capacity
+        np_dtype = np.uint8 if config.obs_dtype == "uint8" else np.float32
+        self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)
         self.actions = np.zeros(cap, dtype=np.int32)
         self.rewards = np.zeros(cap, dtype=np.float32)
         self.dones = np.zeros(cap, dtype=np.bool_)
         self.terminals = np.zeros(cap, dtype=np.bool_)
+        self._normalize = config.normalize_obs and config.obs_dtype == "uint8"
         self.capacity = cap
         self.idx = 0
         self.size = 0
 
     def add(self, obs: np.ndarray, action: int, reward: float, done: bool,
-            terminal: bool = False):
+            terminal: bool = False) -> None:
         self.obs[self.idx] = obs
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
@@ -29,66 +59,13 @@ class ReplayBuffer:
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def sample(self, batch_size: int, seq_len: int) -> dict:
+    def sample(self, batch_size: int, seq_len: int) -> dict[str, jnp.ndarray]:
         max_start = self.size - seq_len
         assert max_start > 0, "Not enough data in buffer"
         starts = np.random.randint(0, max_start, size=batch_size)
         indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
 
-        obs = self.obs[indices]  # (B, T, C, H, W)
-        actions = self.actions[indices]  # (B, T)
-        rewards = self.rewards[indices]  # (B, T)
-        dones = self.dones[indices]  # (B, T)
-        terminals = self.terminals[indices]  # (B, T)
-
-        # is_first: True at t=0 of each sequence and after any done
-        is_first = np.zeros_like(dones)
-        is_first[:, 0] = True
-        is_first[:, 1:] = dones[:, :-1]
-
-        return {
-            "obs": jnp.array(obs, dtype=jnp.float32) / 255.0,
-            "actions": jnp.array(actions, dtype=jnp.int32),
-            "rewards": jnp.array(rewards, dtype=jnp.float32),
-            "dones": jnp.array(dones, dtype=jnp.float32),
-            "terminals": jnp.array(terminals, dtype=jnp.float32),
-            "is_first": jnp.array(is_first, dtype=jnp.float32),
-        }
-
-
-class VGGTReplayBuffer:
-    """Replay buffer for VGGT features (flat float32 vectors)."""
-
-    def __init__(self, capacity: int, feature_dim: int = 4116):
-        self.obs = np.zeros((capacity, feature_dim), dtype=np.float32)
-        self.actions = np.zeros(capacity, dtype=np.int32)
-        self.rewards = np.zeros(capacity, dtype=np.float32)
-        self.dones = np.zeros(capacity, dtype=np.bool_)
-        self.terminals = np.zeros(capacity, dtype=np.bool_)
-        self.capacity = capacity
-        self.idx = 0
-        self.size = 0
-
-    def add(self, features: np.ndarray, action: int, reward: float,
-            done: bool, terminal: bool = False):
-        self.obs[self.idx] = features
-        self.actions[self.idx] = action
-        self.rewards[self.idx] = reward
-        self.dones[self.idx] = done
-        self.terminals[self.idx] = terminal
-        self.idx = (self.idx + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
-
-    def sample(self, batch_size: int, seq_len: int) -> dict:
-        if self.idx < self.size:  # buffer has wrapped
-            max_start = self.idx - seq_len
-        else:
-            max_start = self.size - seq_len
-        assert max_start > 0, "Not enough contiguous data in buffer"
-        starts = np.random.randint(0, max_start, size=batch_size)
-        indices = starts[:, None] + np.arange(seq_len)[None, :]
-
-        obs = self.obs[indices]  # (B, T, feature_dim)
+        obs = self.obs[indices]
         actions = self.actions[indices]
         rewards = self.rewards[indices]
         dones = self.dones[indices]
@@ -98,8 +75,12 @@ class VGGTReplayBuffer:
         is_first[:, 0] = True
         is_first[:, 1:] = dones[:, :-1]
 
+        obs_jnp = jnp.array(obs, dtype=jnp.float32)
+        if self._normalize:
+            obs_jnp = obs_jnp / 255.0
+
         return {
-            "obs": jnp.array(obs, dtype=jnp.float32),  # no /255 normalization
+            "obs": obs_jnp,
             "actions": jnp.array(actions, dtype=jnp.int32),
             "rewards": jnp.array(rewards, dtype=jnp.float32),
             "dones": jnp.array(dones, dtype=jnp.float32),
@@ -173,3 +154,13 @@ class ValReplayDataset:
             "terminals": jnp.array(terminals, dtype=jnp.float32),
             "is_first": jnp.array(is_first, dtype=jnp.float32),
         }
+
+
+def VGGTReplayBuffer(capacity: int, feature_dim: int = 4116) -> ReplayBuffer:
+    """Backward-compat factory. Use ReplayBuffer(BufferConfig(...)) directly."""
+    return ReplayBuffer(BufferConfig(
+        capacity=capacity,
+        obs_shape=(feature_dim,),
+        obs_dtype="float32",
+        normalize_obs=False,
+    ))
