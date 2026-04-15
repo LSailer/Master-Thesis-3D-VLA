@@ -60,9 +60,20 @@ class ReplayBuffer:
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int, seq_len: int) -> dict[str, jnp.ndarray]:
-        max_start = self.size - seq_len
-        assert max_start > 0, "Not enough data in buffer"
-        starts = np.random.randint(0, max_start, size=batch_size)
+        if self.size < self.capacity:
+            # Buffer hasn't wrapped — data in [0, size) is contiguous
+            n_valid = self.size - seq_len + 1
+            assert n_valid > 0, "Not enough data in buffer"
+            starts = np.random.randint(0, n_valid, size=batch_size)
+        else:
+            # Buffer has wrapped — avoid sequences crossing the write head.
+            # Safe regions: [0, idx-seq_len] (new) and [idx, cap-seq_len] (old)
+            n_new = max(0, self.idx - seq_len + 1)
+            n_old = max(0, self.capacity - seq_len - self.idx + 1)
+            n_valid = n_new + n_old
+            assert n_valid > 0, "Not enough contiguous data in buffer"
+            raw = np.random.randint(0, n_valid, size=batch_size)
+            starts = np.where(raw < n_new, raw, raw - n_new + self.idx)
         indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
 
         obs = self.obs[indices]

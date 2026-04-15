@@ -113,3 +113,76 @@ class TestReplayBufferFloat32:
         batch = buf.sample(1, 8)
         # terminals should be stored and returned
         assert batch["terminals"].dtype == jnp.float32
+
+
+class TestWriteHeadSafety:
+    """Verify sampled sequences never cross the write-head boundary."""
+
+    def test_no_temporal_discontinuity_after_wrap(self):
+        """After wrapping, reward sequences must be temporally contiguous.
+
+        We write rewards 0,1,2,...,cap+extra with capacity=20, seq_len=5.
+        After wrapping, positions [0..idx) have the newest rewards,
+        positions [idx..cap) have older rewards. A valid sequence must
+        have monotonically increasing rewards (no backward jump).
+        """
+        cap, seq_len = 20, 5
+        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+
+        # Write 30 items into a capacity-20 buffer (wraps at 20)
+        for i in range(30):
+            buf.add(np.array([float(i), 0.0], dtype=np.float32),
+                    action=0, reward=float(i), done=False)
+
+        assert buf.size == cap
+        assert buf.idx == 10  # 30 % 20
+
+        # Sample many batches — every sequence's rewards must be monotonic
+        np.random.seed(42)
+        for _ in range(200):
+            batch = buf.sample(batch_size=8, seq_len=seq_len)
+            rewards = np.array(batch["rewards"])  # (8, 5)
+            for b in range(8):
+                seq = rewards[b]
+                diffs = np.diff(seq)
+                assert np.all(diffs >= 0), (
+                    f"Non-monotonic reward sequence {seq.tolist()} — "
+                    f"likely crossed the write head"
+                )
+
+    def test_sample_works_when_idx_near_zero(self):
+        """Edge case: buffer just wrapped, idx=1."""
+        cap, seq_len = 20, 5
+        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+
+        # Write exactly cap+1 items so idx=1
+        for i in range(cap + 1):
+            buf.add(np.array([float(i), 0.0], dtype=np.float32),
+                    action=0, reward=float(i), done=False)
+
+        assert buf.idx == 1
+        assert buf.size == cap
+        # Should still be able to sample without error
+        batch = buf.sample(batch_size=4, seq_len=seq_len)
+        assert batch["obs"].shape == (4, seq_len, 2)
+
+    def test_sample_works_when_idx_near_end(self):
+        """Edge case: idx is close to capacity, small new region."""
+        cap, seq_len = 20, 5
+        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+
+        # Write cap+2 items so idx=2
+        for i in range(cap + cap - 2):
+            buf.add(np.array([float(i), 0.0], dtype=np.float32),
+                    action=0, reward=float(i), done=False)
+
+        assert buf.idx == 18
+        assert buf.size == cap
+        batch = buf.sample(batch_size=4, seq_len=seq_len)
+        assert batch["obs"].shape == (4, seq_len, 2)
