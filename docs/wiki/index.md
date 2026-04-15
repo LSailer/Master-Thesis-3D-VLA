@@ -2,6 +2,7 @@
 
 ## Experiments
 
+- [L1 Baseline — 2.4M Steps](experiments/l1-baseline-2.4m.md) — R2-Dreamer on L1 (1 house, chair), 67% SR, world model learns but overfits
 - [Random Baseline — L1 Curriculum](experiments/random-baseline-l1.md) — Uniform-random agent on L1 (1 house, chair), 3.84% SR, performance floor
 - [Baseline 2.4M — All Scenes](experiments/baseline-2.4m-all-scenes.md) — No goal conditioning, 145 scenes, 2.36% SR (random-level), no learning
 
