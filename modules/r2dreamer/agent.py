@@ -17,6 +17,7 @@ import flax.linen as nn
 from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
+    VGGTEncoder,
     R2RSSM,
     R2MLP,
     Projector,
@@ -46,7 +47,9 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
     )
 
 
-def _make_encoder(cfg: R2DreamerConfig) -> R2Encoder:
+def _make_encoder(cfg: R2DreamerConfig):
+    if cfg.encoder_type == "vggt":
+        return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -176,7 +179,8 @@ class R2DreamerAgent:
         """Select an action for a single environment step.
 
         Args:
-            obs_dict: {"image": uint8 array (C,H,W), "is_first": bool}
+            obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN, or
+                      {"features": float32 (D,), "is_first": bool} for VGGT.
             rng_key: PRNG key
             training: if False, use argmax (greedy)
 
@@ -184,8 +188,11 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         # Preprocess observation
-        image = obs_dict["image"].astype(np.float32) / 255.0
-        obs = jnp.array(image[None])  # (1, C, H, W)
+        if self.cfg.encoder_type == "vggt":
+            obs = jnp.array(obs_dict["features"][None])  # (1, D)
+        else:
+            image = obs_dict["image"].astype(np.float32) / 255.0
+            obs = jnp.array(image[None])  # (1, C, H, W)
 
         is_first = bool(obs_dict["is_first"])
         if is_first:
@@ -354,7 +361,8 @@ class R2DreamerAgent:
         # ----------------------------------------------------------
         # 1. World model: encode observations, posterior rollout, KL
         # ----------------------------------------------------------
-        embed = self.encoder_mod.apply(params["encoder"], batch["obs"].reshape(B * T, *cfg.obs_shape))
+        obs_flat = batch["obs"].reshape(B * T, *cfg.obs_shape)
+        embed = self.encoder_mod.apply(params["encoder"], obs_flat)
         embed = embed.reshape(B, T, -1)  # (B, T, embed_size)
 
         stoch0, deter0 = self.rssm_mod.apply(

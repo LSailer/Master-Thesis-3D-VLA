@@ -56,6 +56,58 @@ class ReplayBuffer:
         }
 
 
+class VGGTReplayBuffer:
+    """Replay buffer for VGGT features (flat float32 vectors)."""
+
+    def __init__(self, capacity: int, feature_dim: int = 4116):
+        self.obs = np.zeros((capacity, feature_dim), dtype=np.float32)
+        self.actions = np.zeros(capacity, dtype=np.int32)
+        self.rewards = np.zeros(capacity, dtype=np.float32)
+        self.dones = np.zeros(capacity, dtype=np.bool_)
+        self.terminals = np.zeros(capacity, dtype=np.bool_)
+        self.capacity = capacity
+        self.idx = 0
+        self.size = 0
+
+    def add(self, features: np.ndarray, action: int, reward: float,
+            done: bool, terminal: bool = False):
+        self.obs[self.idx] = features
+        self.actions[self.idx] = action
+        self.rewards[self.idx] = reward
+        self.dones[self.idx] = done
+        self.terminals[self.idx] = terminal
+        self.idx = (self.idx + 1) % self.capacity
+        self.size = min(self.size + 1, self.capacity)
+
+    def sample(self, batch_size: int, seq_len: int) -> dict:
+        if self.idx < self.size:  # buffer has wrapped
+            max_start = self.idx - seq_len
+        else:
+            max_start = self.size - seq_len
+        assert max_start > 0, "Not enough contiguous data in buffer"
+        starts = np.random.randint(0, max_start, size=batch_size)
+        indices = starts[:, None] + np.arange(seq_len)[None, :]
+
+        obs = self.obs[indices]  # (B, T, feature_dim)
+        actions = self.actions[indices]
+        rewards = self.rewards[indices]
+        dones = self.dones[indices]
+        terminals = self.terminals[indices]
+
+        is_first = np.zeros_like(dones)
+        is_first[:, 0] = True
+        is_first[:, 1:] = dones[:, :-1]
+
+        return {
+            "obs": jnp.array(obs, dtype=jnp.float32),  # no /255 normalization
+            "actions": jnp.array(actions, dtype=jnp.int32),
+            "rewards": jnp.array(rewards, dtype=jnp.float32),
+            "dones": jnp.array(dones, dtype=jnp.float32),
+            "terminals": jnp.array(terminals, dtype=jnp.float32),
+            "is_first": jnp.array(is_first, dtype=jnp.float32),
+        }
+
+
 class ValReplayDataset:
     """Static replay dataset loaded from a pre-collected .npz file.
 

@@ -20,9 +20,12 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
+    encoder_type: str = "cnn"  # "cnn" or "vggt"
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)
+    vggt_feature_dim: int = 4116  # 37*37*3 + 9 (world_points + camera_pose)
+    vggt_embed_dim: int = 1024
 
     # --- MLP heads ---
     mlp_units: int = 256

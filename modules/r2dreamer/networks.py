@@ -411,6 +411,20 @@ class R2MLP(nn.Module):
         return x
 
 
+class VGGTEncoder(nn.Module):
+    """Linear projection encoder for VGGT features.
+
+    Takes flattened world_points (37*37*3=4107) + camera_pose (9) = 4116 dim
+    and projects to embed_dim via a single Dense layer.
+    """
+    embed_dim: int = 1024
+
+    @nn.compact
+    def __call__(self, obs):
+        # obs: (B, 4116) float32 — already flat
+        return nn.Dense(self.embed_dim, name="proj")(obs)
+
+
 class Projector(nn.Module):
     """Single linear projection without bias (maps feat_size -> embed_dim)."""
     out_dim: int
