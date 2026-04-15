@@ -13,7 +13,7 @@ echo "  Remote: ${REMOTE}:${REMOTE_PATH}"
 echo "  Local:  ${LOCAL_PATH}"
 echo
 
-rsync -avz --progress "${REMOTE}:${REMOTE_PATH}" "${LOCAL_PATH}"
+rsync -avz --progress --exclude='checkpoint*' --exclude='*.ckpt' --exclude='*.pkl' "${REMOTE}:${REMOTE_PATH}" "${LOCAL_PATH}"
 
 echo
 echo "Done. Files in ${LOCAL_PATH}:"
