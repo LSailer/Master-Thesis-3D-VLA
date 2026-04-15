@@ -10,11 +10,16 @@ import numpy as np
 from .configs import DreamerConfig
 from .agent import DreamerAgent
 from .replay_buffer import ReplayBuffer
+from modules.shared.wandb_utils import EpisodeTracker
 
 
 def greedy_eval(agent, env, rng_key, num_episodes=10, max_steps=500):
     """Run greedy evaluation episodes, return mean metrics."""
+    from collections import defaultdict
+
     rewards, successes, spls, lengths = [], [], [], []
+    cat_successes = defaultdict(list)
+    cat_spls = defaultdict(list)
     for _ in range(num_episodes):
         obs = env.reset()
         ep_reward, steps = 0.0, 0
@@ -24,16 +29,27 @@ def greedy_eval(agent, env, rng_key, num_episodes=10, max_steps=500):
             obs = env.step(action)
             ep_reward += obs["reward"]
             steps += 1
+        category = getattr(env._env.current_episode, "object_category", "unknown")
+        success = obs.get("success", 0.0)
+        spl = obs.get("spl", 0.0)
         rewards.append(ep_reward)
-        successes.append(obs.get("success", 0.0))
-        spls.append(obs.get("spl", 0.0))
+        successes.append(success)
+        spls.append(spl)
         lengths.append(steps)
-    return {
+        cat_successes[category].append(success)
+        cat_spls[category].append(spl)
+
+    metrics = {
         "eval/reward": np.mean(rewards),
         "eval/success": np.mean(successes),
         "eval/spl": np.mean(spls),
         "eval/episode_length": np.mean(lengths),
     }
+    for cat, vals in cat_successes.items():
+        metrics[f"eval/goal/{cat}/sr"] = np.mean(vals)
+    for cat, vals in cat_spls.items():
+        metrics[f"eval/goal/{cat}/spl"] = np.mean(vals)
+    return metrics
 
 
 def main():
@@ -119,6 +135,7 @@ def main():
     batch_steps = config.batch_size * config.seq_len
     train_credit = 0.0
     metrics = {}
+    tracker = EpisodeTracker(window=100)
 
     for step in range(start_step, config.total_steps):
         rng_key, act_key = jax.random.split(rng_key)
@@ -131,17 +148,26 @@ def main():
 
         if next_obs["done"]:
             episode_count += 1
-            log_data = {
-                "episode_reward": episode_reward,
-                "episode_count": episode_count,
-                "success": next_obs.get("success", 0.0),
-                "spl": next_obs.get("spl", 0.0),
-            }
+            success = next_obs.get("success", 0.0)
+            spl = next_obs.get("spl", 0.0)
+
+            # Capture metadata BEFORE reset clears current episode
+            category = getattr(env._env.current_episode, "object_category", "unknown")
+            scene_id = getattr(env._env.current_episode, "scene_id", "")
+
+            log_data = tracker.record(
+                reward=episode_reward,
+                success=success,
+                spl=spl,
+                category=category,
+                scene_id=scene_id,
+            )
             if use_wandb:
                 wandb.log(log_data, step=step)
             if step % config.log_every == 0:
                 print(f"[step {step}] ep={episode_count} reward={episode_reward:.2f} "
-                      f"success={next_obs.get('success', 0):.1f}")
+                      f"success={success:.1f} SR={log_data['metrics/sr']:.3f} "
+                      f"goal={category}")
             episode_reward = 0.0
             obs = env.reset()
         else:

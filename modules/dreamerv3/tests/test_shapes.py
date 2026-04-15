@@ -103,7 +103,7 @@ class TestCritic:
         feat = jnp.zeros((2, cfg.stoch_size + cfg.hidden_size))
         params = critic.init(rng, feat)
         value = critic.apply(params, feat)
-        assert value.shape == (2, 1)
+        assert value.shape == (2, 255)  # twohot distribution logits
 
 
 class TestMLP:

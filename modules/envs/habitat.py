@@ -76,12 +76,24 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 
 class HabitatObjectNavEnv:
-    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None):
+    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
+                 step_counts_path: str | None = None, semantic: bool = False,
+                 curriculum_path: str | None = None,
+                 curriculum_mode: str = "train"):
         import habitat
+        from omegaconf import OmegaConf
 
         self._cfg = config
         H, W = config.obs_shape[1], config.obs_shape[2]
         split = config.split
+
+        # Curriculum episodes always come from the train split
+        curriculum = None
+        if curriculum_path is not None:
+            import json
+            split = "train"
+            with open(curriculum_path) as f:
+                curriculum = json.load(f)
 
         hab_cfg = habitat.get_config(
             "benchmark/nav/objectnav/objectnav_hm3d.yaml"
@@ -92,6 +104,9 @@ class HabitatObjectNavEnv:
                 DATA_DIR / "{split}" / "{split}.json.gz"
             )
             hab_cfg.habitat.dataset.scenes_dir = "data/scene_datasets"
+            # Pre-filter: only load scene files listed in curriculum
+            if curriculum is not None:
+                hab_cfg.habitat.dataset.content_scenes = curriculum["scenes"]
             scene_cfg = next(SCENE_DIR.rglob("*scene_dataset_config.json"), None)
             if scene_cfg:
                 hab_cfg.habitat.simulator.scene_dataset = str(scene_cfg)
@@ -99,20 +114,69 @@ class HabitatObjectNavEnv:
             agent_cfg.sim_sensors.rgb_sensor.height = H
             agent_cfg.sim_sensors.rgb_sensor.width = W
             hab_cfg.habitat.environment.max_episode_steps = config.max_episode_steps
+            # load_semantic_mesh is a habitat-sim attr not in the OmegaConf schema
+            OmegaConf.set_struct(hab_cfg.habitat.simulator, False)
+            hab_cfg.habitat.simulator.load_semantic_mesh = semantic
+            OmegaConf.set_struct(hab_cfg.habitat.simulator, True)
 
         self._env = habitat.Env(config=hab_cfg)
 
-        if max_geodesic is not None:
+        if curriculum is not None:
+
+            # Keys are [episode_id, object_category, scene_name] triples
+            key_set = {(k[0], k[1], k[2])
+                       for k in curriculum[f"{curriculum_mode}_episode_keys"]}
             before = len(self._env._dataset.episodes)
             self._env._dataset.episodes = [
                 ep for ep in self._env._dataset.episodes
-                if ep.info is not None
-                and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
+                if (ep.episode_id, ep.object_category,
+                    ep.scene_id.split("/")[-1].replace(".basis.glb", ""))
+                in key_set
             ]
+            after = len(self._env._dataset.episodes)
+            assert after > 0, (
+                f"Curriculum filter matched 0 episodes for mode='{curriculum_mode}'. "
+                f"Check that curriculum JSON keys match the dataset split."
+            )
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
-            print(f"Filtered: {before} → {len(self._env._dataset.episodes)} "
-                  f"episodes (geodesic < {max_geodesic}m)")
+            print(f"Curriculum [{curriculum['name']}] {curriculum_mode}: "
+                  f"{before} → {after} episodes")
+        else:
+            if max_geodesic is not None:
+                before = len(self._env._dataset.episodes)
+                self._env._dataset.episodes = [
+                    ep for ep in self._env._dataset.episodes
+                    if ep.info is not None
+                    and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
+                ]
+                after = len(self._env._dataset.episodes)
+                assert after > 0, (
+                    f"max_geodesic={max_geodesic} filtered out all episodes."
+                )
+                self._env._setup_episode_iterator()
+                self._env.current_episode = next(self._env.episode_iterator)
+                print(f"Filtered: {before} → {after} "
+                      f"episodes (geodesic < {max_geodesic}m)")
+
+            if step_counts_path is not None:
+                import json
+                with open(step_counts_path) as f:
+                    step_counts = json.load(f)
+                split_counts = step_counts.get(config.split, {})
+                before = len(self._env._dataset.episodes)
+                self._env._dataset.episodes = [
+                    ep for ep in self._env._dataset.episodes
+                    if split_counts.get(ep.episode_id, 0) < 200
+                ]
+                after = len(self._env._dataset.episodes)
+                assert after > 0, (
+                    "step_counts filter removed all episodes — check split key in JSON."
+                )
+                self._env._setup_episode_iterator()
+                self._env.current_episode = next(self._env.episode_iterator)
+                print(f"Filtered (step count): {before} → "
+                      f"{after} episodes (steps < 200)")
 
         self._prev_dist = 0.0
         self._step_count = 0
@@ -140,7 +204,7 @@ class HabitatObjectNavEnv:
             done = self._step_count >= self._cfg.max_episode_steps
             return {
                 "image": image,
-                "reward": 0.0,
+                "reward": self._cfg.step_penalty,
                 "done": done,
                 "is_first": False,
                 "success": 0.0,
@@ -191,13 +255,14 @@ class HabitatObjectNavEnv:
 
     def _compute_reward(self, dist: float) -> float:
         if self._cfg.reward_type == "sparse":
-            return 10.0 * (1.0 if dist < GOAL_RADIUS else 0.0)
+            bonus = self._cfg.success_bonus if dist < GOAL_RADIUS else 0.0
+            return bonus + self._cfg.step_penalty
 
         reward = self._prev_dist - dist  # geodesic delta
         self._prev_dist = dist
         if dist < GOAL_RADIUS:
-            reward += 10.0
-        return reward
+            reward += self._cfg.success_bonus
+        return reward + self._cfg.step_penalty
 
     def close(self):
         self._env.close()

@@ -10,6 +10,8 @@ class DreamerConfig:
     num_actions: int = 4  # STOP, FORWARD, LEFT, RIGHT
     max_episode_steps: int = 500
     reward_type: str = "geodesic_delta"  # or "sparse"
+    step_penalty: float = -0.01  # per-step cost (encourages shorter paths)
+    success_bonus: float = 10.0  # reward for reaching goal
     split: str = "train"  # dataset split: train, val, val_mini
 
     # RSSM
