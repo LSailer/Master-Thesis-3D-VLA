@@ -61,6 +61,10 @@ def main():
     parser.add_argument("--curriculum_mode", type=str, default="train")
     parser.add_argument("--wandb_tags", type=str, default=None)
     parser.add_argument("--render_resolution", type=int, default=518)
+    parser.add_argument("--val_data", type=str, default=None,
+                        help="Path to pre-collected val .npz for val loss")
+    parser.add_argument("--val_loss_every", type=int, default=10_000,
+                        help="Compute val loss every N steps")
     args = parser.parse_args()
 
     # --- Config (VGGT encoder) ---
@@ -119,6 +123,8 @@ def main():
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
             wandb_tags=tags,
+            val_data=args.val_data,
+            val_loss_every=args.val_loss_every,
         ),
         obs_adapter=VGGTObsAdapter(extractor),
         episode_metrics_fn=hab["episode_metrics_fn"],

@@ -255,7 +255,7 @@ class Trainer:
             self._prefill(rng_key, writer, f)
             rng_key = self._train_loop(rng_key, writer, f)
 
-        save_checkpoint(self.agent, acfg.total_steps, tcfg.output_dir)
+        save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
 
         if self._wandb is not None:
             self._wandb.finish()
@@ -299,7 +299,7 @@ class Trainer:
     def _train_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
 
-        print(f"Training for {acfg.total_steps} steps...")
+        print(f"Training for {tcfg.total_steps} steps...")
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
@@ -309,12 +309,12 @@ class Trainer:
         episode_steps = 0
         episode_count = 0
         action_counts = np.zeros(acfg.num_actions, dtype=int)
-        t0 = time.time()
+        self._t0 = time.time()
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
 
-        for step in range(acfg.total_steps):
+        for step in range(tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(agent_obs, act_key)
             next_obs = self.env.step(action)
@@ -411,13 +411,15 @@ class Trainer:
         if self._wandb is not None:
             self._wandb.log(metrics, step=step)
 
-        elapsed = time.time()  # absolute — we don't store t0 as attr to keep it simple
+        elapsed = time.time() - self._t0
+        fps = (step + 1) / elapsed if elapsed > 0 else 0
         print(
-            f"[step {step:>8d}/{self.acfg.total_steps}] "
+            f"[step {step:>8d}/{self.tcfg.total_steps}] "
             f"total={metrics.get('total_loss', 0):.3f} "
             f"dyn={metrics.get('loss/dyn', 0):.3f} "
             f"rew={metrics.get('loss/rew', 0):.3f} "
-            f"policy={metrics.get('loss/policy', 0):.3f}"
+            f"policy={metrics.get('loss/policy', 0):.3f} "
+            f"fps={fps:.0f}"
         )
 
     def _log_val_loss(
