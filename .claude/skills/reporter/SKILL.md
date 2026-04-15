@@ -1,6 +1,6 @@
 ---
 name: reporter
-description: After review approval, create wiki experiment page, plot scripts, and HTML slides from results. Then prompt user for chat-based review. Use after /review completes and experiments have run.
+description: After experiments run, update the wiki experiment page with results, create plot scripts, and HTML slides. Use after /engineer completes and experiments have results.
 ---
 
 Create thesis deliverables from experiment results. You are the reporter — turn results into analysis and presentation.
@@ -27,25 +27,12 @@ Run the scripts to generate the figures.
 
 ## 2. Wiki Experiment Page
 
-Create a page in `docs/wiki/experiments/` using the experiment template:
+The `/engineer` has already created the wiki page at `docs/wiki/experiments/<name>.md` with Setup, Changes, and Configuration sections. The reporter **updates the existing page** — do not create a new one.
+
+Add the following sections to the existing page:
 
 ```markdown
-# <Experiment Name>
-
-**Status**: completed
-**Date**: YYYY-MM-DD
-**Tags**: #relevant #tags
-**Wandb**: <run URL if available>
-**SLURM Job ID**: <job id if available>
 **Slides**: [<experiment>.html](../../<experiment>.html)
-
-## Setup
-
-What was tested and why. Hypothesis in one sentence.
-
-## Changes
-
-What changed compared to the previous run.
 
 ## Results
 
@@ -61,12 +48,15 @@ What we learned. What surprised us. What this means for the research question:
 What to try next based on these results.
 ```
 
-After writing the page:
-- Update `docs/wiki/index.md` — add entry under Experiments
+Also update the page metadata:
+- Change `**Status**: implemented` → `**Status**: completed`
+- Add `**Slides**` link
+
+After updating the page:
 - Append to `docs/wiki/log.md`:
   ```
   ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /reporter
-  <Brief description>. Created experiments/<name>.md. Updated index.
+  <Brief description>. Updated experiments/<name>.md with results. 
   ```
 - Add cross-references to related wiki pages
 

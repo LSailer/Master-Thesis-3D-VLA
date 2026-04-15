@@ -12,28 +12,80 @@ Implement the plan provided below. You are the engineer — turn the plan into w
 3. Read `docs/wiki/` for context on related experiments and architecture decisions
 4. Review existing code in the relevant `modules/` directories for patterns and conventions
 5. Check dependencies in `pyproject.toml` — install missing ones with `uv add` if needed
-6. Implement step by step, following the plan's structure
+6. Implement phase by phase, following the lifecycle below
 
-## TDD for infrastructure code
+## What gets TDD vs. direct implementation
 
-When implementing **env wrappers, network modules, replay buffers, or preprocessing pipelines**: write the shape/contract test first, then implement until it passes. One test at a time, vertical slices.
+**TDD (RED→GREEN tracer bullets):** env wrappers, network modules, replay buffers, preprocessing pipelines — anything with shape contracts or well-defined interfaces.
+
+**Direct implementation:** training loops, configs, experiment scripts, SLURM jobs — their correctness is defined by experimental results, not test assertions.
+
+## TDD workflow (infrastructure code)
+
+Derive test cases from the plan's acceptance criteria. Then vertical slices — one test, one implementation, repeat.
 
 ```
-RED:   Write test for expected behavior → test fails
+RED:   Write test for one behavior → test fails
 GREEN: Write minimal code to pass → test passes
+       Repeat for next behavior
 ```
 
-For **training loops, configs, experiment scripts, and SLURM jobs**: implement directly without TDD. Their correctness is defined by experimental results, not test assertions.
+### Rules
 
-## Implementation
+- **Test behavior, not implementation.** Tests exercise public interfaces. A test should survive an internal refactor without changing.
+- **One test at a time.** Don't write all tests first (horizontal slicing). Each test responds to what you learned from the previous cycle.
+- **Minimal code per cycle.** Only enough to pass the current test. Don't anticipate future tests.
+- **No speculative features.** If the plan doesn't ask for it, don't build it.
 
-- Work through the plan methodically, one phase at a time
-- Write clean, minimal code that satisfies the plan's requirements
-- **Test each component incrementally** — run a quick smoke check after each deliverable, don't batch all code then test at the end
-- Commit after each logical unit of work with clear commit messages
+### Design principles
+
+- **Deep modules**: small interface, deep implementation. Fewer methods, simpler params, complex logic hidden inside.
+- **Mock only at system boundaries**: Habitat/gym APIs, external services, time/randomness. Never mock your own modules.
+- **Pure functions**: compute and return values rather than mutating state. Natural fit for JAX's functional style.
+- **Minimal surface area**: fewer methods and parameters means fewer test cases and less coupling.
+
+## Phase lifecycle
+
+For each phase in the plan:
+
+### 1. Implement
+
+- TDD for infrastructure code, direct implementation for training/configs
+- Test each component incrementally — smoke check after each deliverable
 - Follow the plan — if something seems wrong, stop and ask rather than improvising
 - When setting config values on third-party libraries (OmegaConf, Hydra, Habitat), verify the key exists first with a quick Python snippet
 - At API boundaries (Habitat, gym, etc.), don't assume types — use defensive patterns for values that could be arrays or lists
+
+### 2. Refactor
+
+After all tests pass (GREEN), look for:
+
+- **Duplication** → extract function/class
+- **Long methods** → break into private helpers (keep tests on public interface)
+- **Shallow modules** → combine or deepen
+- **Feature envy** → move logic to where data lives
+- **Existing code** the new code reveals as problematic
+
+**Never refactor while RED.** Get to GREEN first. Run tests after each refactor step.
+
+### 3. Commit
+
+Commit the phase with a clear message:
+```
+feat(<module>): <what this phase delivers>
+```
+Stage only the files changed in this phase. One commit per phase.
+
+### 4. Review
+
+Invoke `/review` to check for bugs, logic errors, security issues, and convention violations. If review finds blockers:
+- Fix them
+- Amend the phase commit (`git commit --amend`)
+- The goal is one clean commit per phase
+
+### 5. Next phase
+
+Only move to the next phase after review passes.
 
 ## Environment
 
@@ -49,4 +101,36 @@ For **training loops, configs, experiment scripts, and SLURM jobs**: implement d
 
 ## When done
 
-Print a summary of what was implemented and where the code lives, so the user can invoke `/review` next.
+Create a wiki experiment page at `docs/wiki/experiments/<name>.md` with the sections the engineer owns:
+
+```markdown
+# <Experiment Name>
+
+**Status**: implemented
+**Date**: YYYY-MM-DD
+**Tags**: #relevant #tags
+**Wandb**: <run URL if available>
+**SLURM Job ID**: <job id if available>
+
+## Setup
+
+What was tested and why. Hypothesis in one sentence.
+
+## Changes
+
+What changed compared to the previous run.
+
+## Configuration
+
+Key config values, hyperparameters, environment settings.
+```
+
+After writing the page:
+- Update `docs/wiki/index.md` — add entry under Experiments
+- Append to `docs/wiki/log.md`:
+  ```
+  ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /engineer
+  <Brief description>. Created experiments/<name>.md. Updated index.
+  ```
+
+Print a summary of what was implemented and where the code lives.

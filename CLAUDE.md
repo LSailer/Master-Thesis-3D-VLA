@@ -70,7 +70,7 @@ docs/wiki/
   index.md              — catalog of all pages (read this first)
   log.md                — append-only activity log
   _templates/           — page templates (experiment, generic)
-  experiments/          — experiment findings (written by /reporter)
+  experiments/          — experiment pages (created by /engineer, results added by /reporter)
   methods/              — architecture decisions, design rationale
   meetings/             — supervisor meeting notes
   research/             — paper summaries, related work
@@ -81,7 +81,7 @@ Rules: always update `index.md` and append to `log.md` when creating/modifying w
 ## Pipeline
 
 ```
-Feature track:  /plan → /engineer → /review → /reporter → human chat review
+Feature track:  /plan → /engineer (per phase: implement → refactor → commit → /review) → /reporter
 Fix track:      /triage-issue → /engineer → /review
 Wiki:           /wiki ingest | query | lint (anytime)
 ```

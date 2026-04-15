@@ -1,11 +1,11 @@
 ---
 name: review
-description: Review and simplify code after /engineer completes. Finds bugs, logic errors, security issues, then simplifies for clarity. Use before /qa or standalone after any code change.
+description: Review code for bugs, logic errors, security issues, and convention violations. Use after each engineer phase or standalone after any code change.
 ---
 
-Review the recent code changes in two passes: first find issues, then simplify.
+Review the recent code changes. You are the reviewer — find problems, not style nits.
 
-## Pass 1 — Review (find problems)
+## When invoked
 
 Examine the changed files (use `git diff` to identify them) for:
 
@@ -23,19 +23,7 @@ For each issue found, report:
 
 Fix all **blockers** immediately. Present **warnings** and **nits** to the user for decision.
 
-## Pass 2 — Simplify (clean code)
-
-After issues are resolved, review the same changed files for:
-
-- **Dead code** — unused imports, unreachable branches, commented-out code
-- **Duplication** — repeated logic that should be extracted
-- **Complexity** — overly nested conditions, functions doing too much
-- **Naming** — unclear variable/function names
-- **Unnecessary abstractions** — helpers or wrappers that add indirection without value
-
-Apply simplifications directly. Keep changes minimal — only simplify what was recently changed, not surrounding code.
-
-## After both passes
+## After review
 
 Run tests to confirm nothing broke:
 ```bash
@@ -43,7 +31,6 @@ uv run pytest
 ```
 
 Print a summary:
-- Issues found and fixed (Pass 1)
-- Simplifications applied (Pass 2)
+- Issues found and fixed
 - Test results
-- Ready for `/reporter` (if experiment results exist) or done
+- Ready for next phase (if called from `/engineer`) or done
