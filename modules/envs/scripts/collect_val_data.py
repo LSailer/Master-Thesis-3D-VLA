@@ -57,7 +57,9 @@ def main():
         if (ep + 1) % 10 == 0:
             print(f"[{ep + 1}/{args.episodes}] steps={ep_steps}")
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     np.savez_compressed(
         args.output,
         obs=np.array(all_obs, dtype=np.uint8),
