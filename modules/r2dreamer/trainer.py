@@ -237,7 +237,10 @@ class Trainer:
         self._val_dataset = None
         if trainer_config.val_data is not None:
             from modules.dreamerv3.replay_buffer import ValReplayDataset
-            self._val_dataset = ValReplayDataset(trainer_config.val_data)
+            self._val_dataset = ValReplayDataset(
+                trainer_config.val_data,
+                normalize=self.obs_adapter.normalize_on_sample,
+            )
 
     def run(self) -> None:
         """Execute full training run: prefill + train loop + final checkpoint."""

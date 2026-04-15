@@ -1,10 +1,12 @@
 """Tests for the unified ReplayBuffer with BufferConfig."""
 
+import tempfile
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from modules.dreamerv3.replay_buffer import ReplayBuffer, BufferConfig
+from modules.dreamerv3.replay_buffer import ReplayBuffer, BufferConfig, ValReplayDataset
 
 
 class TestBufferConfig:
@@ -186,3 +188,35 @@ class TestWriteHeadSafety:
         assert buf.size == cap
         batch = buf.sample(batch_size=4, seq_len=seq_len)
         assert batch["obs"].shape == (4, seq_len, 2)
+
+
+class TestValReplayDataset:
+    """Test ValReplayDataset normalization behavior."""
+
+    @pytest.fixture
+    def val_npz(self, tmp_path):
+        """Create a minimal .npz file with 2 episodes of 10 steps each."""
+        N = 20
+        obs = np.full((N, 3, 4, 4), 200, dtype=np.uint8)
+        actions = np.zeros(N, dtype=np.int32)
+        rewards = np.ones(N, dtype=np.float32)
+        dones = np.zeros(N, dtype=bool)
+        dones[9] = True   # episode 1 ends at step 9
+        dones[19] = True  # episode 2 ends at step 19
+        terminals = np.zeros(N, dtype=bool)
+        path = str(tmp_path / "val.npz")
+        np.savez(path, obs=obs, actions=actions, rewards=rewards,
+                 dones=dones, terminals=terminals)
+        return path
+
+    def test_default_normalizes(self, val_npz):
+        ds = ValReplayDataset(val_npz)
+        batch = ds.sample(batch_size=2, seq_len=5)
+        # uint8 value 200 / 255 ≈ 0.784
+        assert jnp.allclose(batch["obs"], 200.0 / 255.0, atol=1e-5)
+
+    def test_normalize_false_skips_division(self, val_npz):
+        ds = ValReplayDataset(val_npz, normalize=False)
+        batch = ds.sample(batch_size=2, seq_len=5)
+        # Should keep raw value 200.0 (as float32, no /255)
+        assert jnp.allclose(batch["obs"], 200.0, atol=1e-5)

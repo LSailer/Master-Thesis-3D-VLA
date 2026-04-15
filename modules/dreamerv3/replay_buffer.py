@@ -107,9 +107,10 @@ class ValReplayDataset:
     validation loss without a live environment.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, normalize: bool = True):
+        self._normalize = normalize
         data = np.load(path)
-        self.obs = data["obs"]          # (N, C, H, W) uint8
+        self.obs = data["obs"]          # (N, ...) uint8 or float32
         self.actions = data["actions"]  # (N,) int32
         self.rewards = data["rewards"]  # (N,) float32
         self.dones = data["dones"]      # (N,) bool
@@ -157,8 +158,12 @@ class ValReplayDataset:
         is_first[:, 0] = True
         is_first[:, 1:] = dones[:, :-1]
 
+        obs_jnp = jnp.array(obs, dtype=jnp.float32)
+        if self._normalize:
+            obs_jnp = obs_jnp / 255.0
+
         return {
-            "obs": jnp.array(obs, dtype=jnp.float32) / 255.0,
+            "obs": obs_jnp,
             "actions": jnp.array(actions, dtype=jnp.int32),
             "rewards": jnp.array(rewards, dtype=jnp.float32),
             "dones": jnp.array(dones, dtype=jnp.float32),
