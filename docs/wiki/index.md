@@ -10,6 +10,7 @@
 
 - [Claude Code Workflow](methods/workflow.md) — Full pipeline, skill inventory, TDD rules, wiki conventions
 - [World Model Training Loop](methods/world-model-training-loop.md) — How 64-step windows, 15-step imagination, and full episodes fit together
+- [Training Orchestration](methods/training-orchestration.md) — Unified buffer, Trainer module, ObsAdapter pattern (RFC #68)
 
 ## Meetings
 

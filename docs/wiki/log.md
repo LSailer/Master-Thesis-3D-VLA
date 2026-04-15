@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-15] ingest | Training Orchestration | source: /engineer
+Implemented RFC #68: unified ReplayBuffer+VGGTReplayBuffer with BufferConfig, created Trainer module (convert_batch, checkpoint with ema_state fix, ObsAdapter, habitat_defaults). Rewrote 3 training scripts (-62% lines). Created methods/training-orchestration.md. Updated index.
+
 ## [2026-04-15] ingest | World Model Training Loop | source: /plan interview
 Explained how 64-step replay windows, 15-step imagination horizon, and full-length acting episodes fit together. Created methods/world-model-training-loop.md. Updated index.
 
