@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-15] ingest | World Model Training Loop | source: /plan interview
+Explained how 64-step replay windows, 15-step imagination horizon, and full-length acting episodes fit together. Created methods/world-model-training-loop.md. Updated index.
+
 ## [2026-04-15] ingest | L1 Baseline 2.4M | source: /reporter
 R2-Dreamer on L1 curriculum (wandb krokhgwi, SLURM 3923812). 67% SR, 0.49 SPL — 17x above random. World model learns but overfits (val dyn 17→42). Created experiments/l1-baseline-2.4m.md. Updated index. Generated 5 plot figures.
 

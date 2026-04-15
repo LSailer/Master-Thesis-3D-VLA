@@ -179,6 +179,14 @@ def main():
                 category = getattr(env._env.current_episode, "object_category", "unknown")
                 scene_raw = getattr(env._env.current_episode, "scene_id", "")
 
+                # SPL diagnostics: path efficiency metrics
+                path_length = env._path_length
+                shortest_path = env._start_geodesic
+                path_ratio = (
+                    path_length / shortest_path
+                    if shortest_path > 0 else 0.0
+                )
+
                 tracked = tracker.record(
                     reward=episode_reward,
                     success=success,
@@ -196,6 +204,9 @@ def main():
                 writer.writerow([step, "episode/scene", tracked["episode/scene"]])
                 writer.writerow([step, "metrics/sr", tracked["metrics/sr"]])
                 writer.writerow([step, "metrics/spl", tracked["metrics/spl"]])
+                writer.writerow([step, "episode/path_length", path_length])
+                writer.writerow([step, "episode/shortest_path", shortest_path])
+                writer.writerow([step, "episode/path_ratio", path_ratio])
                 f.flush()
 
                 # WandB — episode metrics + rolling averages + per-category + actions
@@ -204,6 +215,10 @@ def main():
                 wandb.log({
                     **tracked,
                     "episode/steps": episode_steps,
+                    "episode/path_length": path_length,
+                    "episode/shortest_path": shortest_path,
+                    "episode/path_ratio": path_ratio,
+                    "episode_reset": 1,
                     **{f"action/{action_names[i]}_pct": float(action_pcts[i])
                        for i in range(config.num_actions)},
                 }, step=step)
@@ -212,6 +227,7 @@ def main():
                     f"[step {step:>8d}] episode {episode_count}: "
                     f"reward={episode_reward:.2f} success={success:.0f} "
                     f"spl={spl:.3f} steps={episode_steps} "
+                    f"path_ratio={path_ratio:.1f} "
                     f"SR={tracked['metrics/sr']:.3f} goal={category}"
                 )
 
