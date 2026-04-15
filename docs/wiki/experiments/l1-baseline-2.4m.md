@@ -52,7 +52,14 @@ The validation dynamics loss (KL divergence) rises from 17 to 42 throughout trai
 
 ### 3. Why is loss/policy negative?
 
-This is **expected and correct**. In DreamerV3/R2-Dreamer, the policy loss is defined as the negative of imagined returns: `loss = -E[returns]`. A more negative value means the policy expects higher returns in imagination — i.e., the policy is improving. The value of -0.03 is small because returns are normalized by the return normalizer (percentile-based), which compresses the scale. The important signal is that it stays consistently below zero, meaning the policy is extracting positive value from the world model.
+This matches the original R2-Dreamer authors' code exactly. The policy loss formula is `-(logpi * advantage + entropy_coeff * entropy)`. The negative sign converts return maximization into a minimization objective for gradient descent. When the agent assigns high probability to high-advantage actions, `logpi * adv` is negative (log-probs are always negative), so `-(negative)` becomes positive — but the entropy term and normalization can push the total below zero.
+
+**Key details:**
+- The original R2-Dreamer (PyTorch) uses the same formula at `dreamer.py:470`
+- Both use a single optimizer for all parameters — the negative policy loss does reduce the logged `total_loss`
+- However, `.detach()` / `stop_gradient` on `weight`, `advantage`, and `imag_feat` ensures gradients only reach the **actor parameters**, not the world model
+- The impact on `total_loss` is cosmetic: -0.03 out of 10.5 total (0.34%) — functionally harmless
+- The official DreamerV3 (separate optimizers) avoids this confusion, but R2-Dreamer intentionally uses a single-optimizer architecture
 
 ### 4. Why does train dyn loss (KL divergence) increase?
 
