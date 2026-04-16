@@ -1,6 +1,7 @@
 # L1 Rerun — Buffer Fix + Step Penalty, 2.4M Steps
 
-**Status**: analysis-in-progress
+**Status**: completed
+**Slides**: [curriculum-scaling.html](../../curriculum-scaling.html)
 **Date**: 2026-04-16
 **Tags**: #baseline #r2dreamer #habitat #l1 #curriculum #buffer-fix #rerun
 **Wandb**: [r2d-L1-buffix-3957651](https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/y5a0upzd)

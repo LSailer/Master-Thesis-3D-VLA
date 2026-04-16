@@ -1,6 +1,7 @@
 # L2 — 1 House, 6 Goals, 2.4M Steps
 
-**Status**: analysis-in-progress
+**Status**: completed
+**Slides**: [curriculum-scaling.html](../../curriculum-scaling.html)
 **Date**: 2026-04-16
 **Tags**: #r2dreamer #habitat #l2 #curriculum #multi-goal #buffer-fix
 **Wandb**: [r2d-L2-buffix-3957713](https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/flky9ybh)

@@ -1,6 +1,7 @@
 # L3 — 10 Houses, Chair Only, 2.4M Steps
 
-**Status**: analysis-in-progress
+**Status**: completed
+**Slides**: [curriculum-scaling.html](../../curriculum-scaling.html)
 **Date**: 2026-04-16
 **Tags**: #r2dreamer #habitat #l3 #curriculum #generalization #buffer-fix
 **Wandb**: [r2d-L3-buffix-3957714](https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/rsopsua1)
