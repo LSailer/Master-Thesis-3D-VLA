@@ -2,7 +2,10 @@
 
 ## Experiments
 
-- [L1 Baseline — 2.4M Steps](experiments/l1-baseline-2.4m.md) — R2-Dreamer on L1 (1 house, chair), 67% SR, world model learns but overfits
+- [L1 Rerun — Buffer Fix + Step Penalty](experiments/l1-rerun-buffix.md) — L1 with buffer fix, 75% SR (+8pp over original), step penalty improves SPL
+- [L2 — 1 House, 6 Goals](experiments/l2-1house-6goals.md) — 6 goal categories, 36% avg SR, goal difficulty hierarchy driven by navigation complexity
+- [L3 — 10 Houses, Chair Only](experiments/l3-10houses-chair.md) — 10-house generalization, 32% SR, still 8x above random
+- [L1 Baseline — 2.4M Steps](experiments/l1-baseline-2.4m.md) — Original L1 (1 house, chair), 67% SR, world model learns but overfits
 - [Random Baseline — L1 Curriculum](experiments/random-baseline-l1.md) — Uniform-random agent on L1 (1 house, chair), 3.84% SR, performance floor
 - [Baseline 2.4M — All Scenes](experiments/baseline-2.4m-all-scenes.md) — No goal conditioning, 145 scenes, 2.36% SR (random-level), no learning
 

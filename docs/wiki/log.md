@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-16] ingest | L1 Rerun, L2, L3 Experiments | source: /reporter (paused)
+Three curriculum experiments completed (SLURM 3957651, 3957713, 3957714). L1 rerun: 75% SR (buffer fix +8pp). L2: 36% avg SR with goal hierarchy (plant 66% > tv_monitor 3%) — Geo/Euc ratio is strongest predictor. L3: 32% SR across 10 houses. Created experiments/l1-rerun-buffix.md, l2-1house-6goals.md, l3-10houses-chair.md. Reporter paused pending semantic floor plan rendering on cluster (issue #71). Updated index.
+
 ## [2026-04-15] ingest | Training Orchestration | source: /engineer
 Implemented RFC #68: unified ReplayBuffer+VGGTReplayBuffer with BufferConfig, created Trainer module (convert_batch, checkpoint with ema_state fix, ObsAdapter, habitat_defaults). Rewrote 3 training scripts (-62% lines). Created methods/training-orchestration.md. Updated index.
 
