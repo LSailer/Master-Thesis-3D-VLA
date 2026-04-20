@@ -30,11 +30,15 @@ class VGGTFeatureExtractor:
     Then call :meth:`extract` once per step with the current 518x518 RGB frame.
     """
 
-    def __init__(self, device: str = "cuda"):
+    def __init__(self, device: str = "cuda", compile: bool = False):
         """Load frozen InfiniteVGGT model.
 
         Args:
             device: Torch device string (default ``"cuda"``).
+            compile: If True, wrap aggregator / camera_head / point_head with
+                ``torch.compile``. Aggregator and camera_head use ``dynamic=True``
+                (their KV-cache grows each frame). point_head is static.
+                First few calls are slow (tracing); steady-state may be faster.
         """
         self.device = torch.device(device)
 
@@ -43,6 +47,12 @@ class VGGTFeatureExtractor:
         self.model = self.model.to(self.device).eval()
         for p in self.model.parameters():
             p.requires_grad = False
+
+        if compile:
+            print("Compiling VGGT sub-modules with torch.compile...")
+            self.model.aggregator = torch.compile(self.model.aggregator, dynamic=True)
+            self.model.camera_head = torch.compile(self.model.camera_head, dynamic=True)
+            self.model.point_head = torch.compile(self.model.point_head)
 
         # Aggregator depth drives the per-layer KV-cache list length.
         self._agg_depth: int = self.model.aggregator.depth

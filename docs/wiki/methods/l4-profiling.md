@@ -114,6 +114,35 @@ Rationale: the hypothesis motivating #72 was that the PyTorch↔JAX boundary cro
 
 Suggested next step: comment on #72 with this finding and rename it to *"VGGT forward acceleration (torch.compile, frame-skip, or distillation)"*. Start with `torch.compile` — one-line change, quickest to falsify. If it yields ≥20%, ship it. If not, move to frame-skip.
 
+## Update 2026-04-20 — `torch.compile` spike
+
+Tested the 1-day `torch.compile` lever recommended above. Applied via `VGGTFeatureExtractor(compile=True)` — wraps `model.aggregator` + `model.camera_head` with `dynamic=True` (KV cache grows each frame), and `model.point_head` statically. Same 2000/2000 L1-VGGT configuration. JSON: `output/profiling/vggt_vs_cnn_20260420_120455.json`.
+
+| Metric | Uncompiled | Compiled | Δ |
+|---|--:|--:|--:|
+| `vggt_forward` mean | 161.6 | 170.9 | +9.3 *(compile warmup in first N calls)* |
+| `vggt_forward` **p50** | **168.3** | **149.8** | **−18.5 ms (−11%)** |
+| `vggt_forward` p95 | 170.8 | 151.8 | −19.0 ms (−11%) |
+| `vggt_wrapper` p50 | 0.15 | 0.42 | +0.27 ms *(deferred-work artifact, irrelevant)* |
+| `wm_inference` p50 | 1.44 | 1.17 | −0.27 ms (noise) |
+| `wm_training` p50 | 35.76 | 34.09 | −1.67 ms (noise) |
+| KV-cache audit | 9=9 ✓ | 9=9 ✓ | unchanged |
+
+Per-step total (p50): **190.7 ms → 171.0 ms ≈ −10.3%** → projects ~1 M → 1.1 M steps in 48 h.
+
+### Interpretation
+
+- Real 11% speedup on the bottleneck, with the forward also becoming more consistent frame-to-frame (p95 essentially equals p50 after compile).
+- Mean vs p50 gap is expected: dynamo recompiles on new KV-cache shape buckets during warmup; steady-state matters.
+- Modest but cheap. Consistent with the mechanism argument: at this model size, both PyTorch and JAX call the same cuBLAS / FlashAttention kernels; framework-level speedup tops out around 10–30%.
+- PyTorch also printed a warning: `Consider setting torch.set_float32_matmul_precision('high')`. Not explored — possible further gain.
+
+### Action
+
+`compile` is shipped as an opt-in flag on `VGGTFeatureExtractor` (default `False` to keep dev runs warm-free). Enable in production L4 sbatch via `--compile`. Use as a stacking multiplier with upcoming frame-skip / FastVGGT work, which attacks *how often* the forward runs, orthogonal to how fast a single forward is.
+
+Updated recommendation for #72 repurpose order: **compile ✅ → frame-skip (next) → FastVGGT → distillation**.
+
 ## Caveats
 
 - `wm_training` mean vs p50 differ by 5× for both encoders — that's JIT-compile on the first call (visible as XLA `slow_operation_alarm` lines in stderr). Always use p50 / p95, not mean, for steady-state interpretation. Mean values in the JSON are informative for understanding the warmup tax but not representative of sustained throughput.

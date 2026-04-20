@@ -118,6 +118,7 @@ def _flatten_vggt(out: dict) -> np.ndarray:
 
 def _build_vggt(
     seed: int, curriculum_path: str | None, render_resolution: int,
+    compile: bool = False,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
     """Construct env (518 res), agent (VGGT encoder), buffer (float32 features),
     obs_adapter with on_episode_reset hook wired to extractor.reset, and the
@@ -145,8 +146,8 @@ def _build_vggt(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    print("Loading InfiniteVGGT model...")
-    extractor = VGGTFeatureExtractor(device="cuda")
+    print(f"Loading InfiniteVGGT model (compile={compile})...")
+    extractor = VGGTFeatureExtractor(device="cuda", compile=compile)
     print("InfiniteVGGT loaded.")
 
     # ObsAdapter wired so Trainer-style reset hook fires extractor.reset.
@@ -175,6 +176,7 @@ def run_loop(
     seed: int = 0,
     curriculum_path: str | None = None,
     render_resolution: int = 518,
+    compile: bool = False,
 ) -> RunResult:
     if encoder == "cnn":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_cnn(
@@ -182,7 +184,7 @@ def run_loop(
         )
     elif encoder == "vggt":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_vggt(
-            seed, curriculum_path, render_resolution,
+            seed, curriculum_path, render_resolution, compile=compile,
         )
     else:
         raise ValueError(f"Unknown encoder: {encoder!r}")
@@ -422,6 +424,10 @@ def main() -> None:
         "--render_resolution", type=int, default=518,
         help="Habitat render resolution (VGGT only; ignored for CNN).",
     )
+    parser.add_argument(
+        "--compile", action="store_true",
+        help="Apply torch.compile to VGGT sub-modules (VGGT only).",
+    )
     args = parser.parse_args()
 
     result = run_loop(
@@ -431,6 +437,7 @@ def main() -> None:
         seed=args.seed,
         curriculum_path=args.curriculum_path,
         render_resolution=args.render_resolution,
+        compile=args.compile,
     )
 
     json_path = save_json({args.encoder: result}, Path(args.output_dir))

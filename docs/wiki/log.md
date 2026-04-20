@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-20] update | torch.compile spike on VGGT | source: /plan Slice 3 follow-up (PRD #74)
+`VGGTFeatureExtractor(compile=True)` wraps aggregator/camera_head with dynamic=True, point_head static. Measured 11% p50 reduction on vggt_forward (168.3 → 149.8 ms), p95 also 11%, more consistent frame-to-frame. Per-step p50: 190.7 → 171.0 ms. Shipped as opt-in flag + `--compile` CLI. Wiki section appended to methods/l4-profiling.md. JSON: output/profiling/vggt_vs_cnn_20260420_120455.json.
+
 ## [2026-04-20] ingest | L4 Pipeline Profiling (VGGT vs CNN) | source: /plan Slice 3 (PRD #74)
 Full 2000/2000 diagnostic on H100. VGGT forward = 168.3 ms p50 — 90% of the VGGT-vs-CNN slowdown. PyTorch↔JAX boundary (vggt_wrapper + jax_upload) = 0.44 ms — disproves the original #72 motivation. KV-cache reset contract verified (9 resets, 9 boundaries). Recommendation: repurpose #72 away from JAX port toward torch.compile / frame-skip / distillation. Created methods/l4-profiling.md. JSON: output/profiling/vggt_vs_cnn_20260420_{102405,103840}.json.
 
