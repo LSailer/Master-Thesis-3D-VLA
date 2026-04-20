@@ -1,5 +1,8 @@
 # Wiki Log
 
+## [2026-04-20] ingest | L4 Pipeline Profiling (VGGT vs CNN) | source: /plan Slice 3 (PRD #74)
+Full 2000/2000 diagnostic on H100. VGGT forward = 168.3 ms p50 — 90% of the VGGT-vs-CNN slowdown. PyTorch↔JAX boundary (vggt_wrapper + jax_upload) = 0.44 ms — disproves the original #72 motivation. KV-cache reset contract verified (9 resets, 9 boundaries). Recommendation: repurpose #72 away from JAX port toward torch.compile / frame-skip / distillation. Created methods/l4-profiling.md. JSON: output/profiling/vggt_vs_cnn_20260420_{102405,103840}.json.
+
 ## [2026-04-16] ingest | Curriculum Scaling (L1-rerun, L2, L3) | source: /reporter
 Updated experiments/l1-rerun-buffix.md, experiments/l2-1house-6goals.md, experiments/l3-10houses-chair.md with completed status. Semantic floor plan data collected for fK2vEV32Lag (L2 scene). Plot scripts and combined slide deck created.
 

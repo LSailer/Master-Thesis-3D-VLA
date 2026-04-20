@@ -70,16 +70,33 @@ class VGGTFeatureExtractor:
         self._frame_idx: int = 0
         torch.cuda.empty_cache()
 
-    def extract(self, rgb: np.ndarray) -> dict[str, np.ndarray]:
+    def extract(
+        self,
+        rgb: np.ndarray,
+        phase_times: dict[str, list[float]] | None = None,
+    ) -> dict[str, np.ndarray]:
         """Single-frame streaming inference.
 
         Args:
             rgb: ``(3, 518, 518)`` uint8 array in CHW format (e.g. from Habitat).
+            phase_times: Optional profiling hook. When provided, records per-call
+                CUDA-Event durations (ms) under keys ``"vggt_forward"`` (input prep
+                + model forward) and ``"vggt_wrapper"`` (pool + permute + .cpu()
+                transfer). When ``None`` (default, production path) no events are
+                created and no extra work is done.
 
         Returns:
             ``{"world_points": (37, 37, 3) float32,
               "camera_pose": (9,) float32}``
         """
+        profiling = phase_times is not None
+        if profiling:
+            fwd_start = torch.cuda.Event(enable_timing=True)
+            fwd_end = torch.cuda.Event(enable_timing=True)
+            wrap_start = torch.cuda.Event(enable_timing=True)
+            wrap_end = torch.cuda.Event(enable_timing=True)
+            fwd_start.record()
+
         # --- prepare input tensor -------------------------------------------
         # uint8 CHW → float32 [0, 1], add batch dim → (1, 3, 518, 518)
         img = torch.from_numpy(rgb).to(dtype=torch.float32, device=self.device) / 255.0
@@ -117,6 +134,10 @@ class VGGTFeatureExtractor:
                 )
                 pts3d = pts3d[:, 0]  # (B, H, W, 3)  — remove sequence dim
 
+        if profiling:
+            fwd_end.record()
+            wrap_start.record()
+
         # --- downsample to patch grid ----------------------------------------
         # pts3d is (1, H, W, 3) with H=W=518.  Pool to 37×37.
         # adaptive_avg_pool2d works on (N, C, H, W) so permute channels.
@@ -127,6 +148,12 @@ class VGGTFeatureExtractor:
         # --- to numpy --------------------------------------------------------
         world_points_np = world_points.cpu().float().numpy()
         camera_pose_np = camera_pose.squeeze(0).cpu().float().numpy()
+
+        if profiling:
+            wrap_end.record()
+            torch.cuda.synchronize()
+            phase_times["vggt_forward"].append(fwd_start.elapsed_time(fwd_end))
+            phase_times["vggt_wrapper"].append(wrap_start.elapsed_time(wrap_end))
 
         # --- bookkeeping -----------------------------------------------------
         self._frame_idx += 1
