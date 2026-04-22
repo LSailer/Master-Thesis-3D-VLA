@@ -413,3 +413,78 @@ class TestLevel2DinoV2Backbone:
         assert max_abs <= ATOL_FULL_BACKBONE_FP32, (
             f"full-backbone parity: max_abs={max_abs:.3e} > {ATOL_FULL_BACKBONE_FP32:.0e}"
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 2 -- aggregator no-cache parity (Step 3)
+# --------------------------------------------------------------------------- #
+
+
+ATOL_AGGREGATOR_NO_CACHE_FP32 = 1e-3
+
+
+class TestLevel2AggregatorNoCache:
+    """Step 3 parity gate: full aggregator forward without KV-cache.
+
+    Uses S=2 so the global attention's causal frame mask is actually exercised
+    (S=1 would leave it a no-op).
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_aggregator(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.models.aggregator import Aggregator as PtAggregator
+
+        pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024).eval()
+        # Force naive attention in every block (DINOv2 patch_embed + frame + global).
+        for blk in pt_agg.patch_embed.blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.frame_blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.global_blocks:
+            blk.attn.fused_attn = False
+
+        prefix = "aggregator."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = pt_agg.load_state_dict(pt_sd, strict=False)
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return pt_agg
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["aggregator"]})
+
+    @pytest.fixture(scope="class")
+    def sample_frames(self):
+        # B=1, S=2 frames, 518x518, values in [0, 1] like the aggregator expects.
+        rng = np.random.RandomState(7)
+        return rng.uniform(0.0, 1.0, size=(1, 2, 3, 518, 518)).astype(np.float32)
+
+    def test_aggregator_last_level_matches_pytorch(
+        self, pt_aggregator, jx_params, sample_frames
+    ):
+        import torch
+        from modules.vggt.jax.aggregator import Aggregator
+
+        with torch.no_grad():
+            pt_out_list, pt_patch_start = pt_aggregator(torch.from_numpy(sample_frames))
+        pt_last = pt_out_list[-1].numpy()  # (B, S, P, 2*C)
+
+        jx_out_list, jx_patch_start = Aggregator().apply(
+            jx_params, jnp.asarray(sample_frames)
+        )
+        assert jx_patch_start == pt_patch_start == 5
+        jx_last = np.asarray(jx_out_list[-1])
+
+        assert jx_last.shape == pt_last.shape, (jx_last.shape, pt_last.shape)
+        max_abs = np.max(np.abs(jx_last - pt_last))
+        assert max_abs <= ATOL_AGGREGATOR_NO_CACHE_FP32, (
+            f"aggregator no-cache parity: max_abs={max_abs:.3e} "
+            f"> {ATOL_AGGREGATOR_NO_CACHE_FP32:.0e}"
+        )
