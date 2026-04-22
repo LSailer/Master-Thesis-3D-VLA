@@ -304,3 +304,112 @@ class TestLevel2SharedBlockParity:
         assert max_abs <= ATOL_SINGLE_BLOCK_FP32, (
             f"single-block parity: max_abs={max_abs:.3e} > {ATOL_SINGLE_BLOCK_FP32:.0e}"
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 2 -- DINOv2 backbone parity (Step 2)
+# --------------------------------------------------------------------------- #
+
+
+ATOL_PATCH_EMBED_FP32 = 1e-5
+ATOL_FULL_BACKBONE_FP32 = 1e-3  # 24 blocks of accumulated fp32 matmul drift
+
+
+class TestLevel2DinoV2Backbone:
+    """Step 2 parity gate: DINOv2 ViT-L/14-reg backbone at 518x518."""
+
+    @pytest.fixture(scope="class")
+    def pt_backbone(self, state_dict, pytorch_ivggt_module):
+        """PyTorch DINOv2 ViT-L loaded with checkpoint weights under the same
+        config the Aggregator builds (num_register_tokens=4, init_values=1.0,
+        interpolate_antialias=True, interpolate_offset=0.0, block_chunks=0)."""
+        import torch
+        from streamvggt.layers.vision_transformer import vit_large
+
+        model = vit_large(
+            patch_size=14,
+            img_size=518,
+            num_register_tokens=4,
+            interpolate_antialias=True,
+            interpolate_offset=0.0,
+            block_chunks=0,
+            init_values=1.0,
+        ).eval()
+        # Force naive attention path for clean parity (matches JAX manual attention).
+        for blk in model.blocks:
+            blk.attn.fused_attn = False
+
+        prefix = "aggregator.patch_embed."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = model.load_state_dict(pt_sd, strict=False)
+        # mask_token is loaded; prepare_tokens_with_masks skips it when masks is None.
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return model
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        """JAX param tree for the DinoV2Backbone sub-module."""
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["aggregator"]["patch_embed"]})
+
+    @pytest.fixture(scope="class")
+    def sample_image(self):
+        """Random normalized NCHW image matching the aggregator's pipeline output."""
+        rng = np.random.RandomState(4242)
+        # Values in roughly the range of a normalized image.
+        return rng.randn(1, 3, 518, 518).astype(np.float32)
+
+    def test_patch_embed_conv_matches_pytorch(
+        self, pt_backbone, jx_params, sample_image
+    ):
+        """Inner 14x14 Conv patch embed only (before cls/pos/register)."""
+        import torch
+
+        with torch.no_grad():
+            # PyTorch reference: `model.patch_embed(images)` returns flattened
+            # (B, num_patches, embed_dim). We match that output shape.
+            pt_out = pt_backbone.patch_embed(torch.from_numpy(sample_image)).numpy()
+
+        from modules.vggt.jax.backbone import PatchEmbed
+
+        pe_params = {"params": jx_params["params"]["patch_embed"]}
+        # NCHW -> NHWC for Flax Conv
+        x_nhwc = jnp.asarray(np.transpose(sample_image, (0, 2, 3, 1)))
+        jx_conv = PatchEmbed(embed_dim=1024, patch_size=14).apply(pe_params, x_nhwc)
+        # Flatten spatial dims to match PyTorch's (B, num_patches, embed_dim)
+        jx_out = np.asarray(jx_conv).reshape(1, -1, 1024)
+
+        assert jx_out.shape == pt_out.shape, (jx_out.shape, pt_out.shape)
+        max_abs = np.max(np.abs(jx_out - pt_out))
+        assert max_abs <= ATOL_PATCH_EMBED_FP32, (
+            f"patch-embed parity: max_abs={max_abs:.3e} > {ATOL_PATCH_EMBED_FP32:.0e}"
+        )
+
+    def test_full_backbone_matches_pytorch(
+        self, pt_backbone, jx_params, sample_image
+    ):
+        """Full DINOv2 backbone (24 blocks + final norm), patch-tokens slice."""
+        import torch
+
+        with torch.no_grad():
+            pt_dict = pt_backbone(torch.from_numpy(sample_image), is_training=True)
+        pt_patch_tokens = pt_dict["x_norm_patchtokens"].numpy()  # (B, num_patches, 1024)
+
+        from modules.vggt.jax.backbone import DinoV2Backbone
+
+        jx_out = DinoV2Backbone().apply(jx_params, jnp.asarray(sample_image))
+        jx_out_np = np.asarray(jx_out)
+
+        assert jx_out_np.shape == pt_patch_tokens.shape, (
+            jx_out_np.shape,
+            pt_patch_tokens.shape,
+        )
+        max_abs = np.max(np.abs(jx_out_np - pt_patch_tokens))
+        assert max_abs <= ATOL_FULL_BACKBONE_FP32, (
+            f"full-backbone parity: max_abs={max_abs:.3e} > {ATOL_FULL_BACKBONE_FP32:.0e}"
+        )
