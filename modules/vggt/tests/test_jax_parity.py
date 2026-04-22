@@ -488,3 +488,71 @@ class TestLevel2AggregatorNoCache:
             f"aggregator no-cache parity: max_abs={max_abs:.3e} "
             f"> {ATOL_AGGREGATOR_NO_CACHE_FP32:.0e}"
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 2 -- camera head parity (Step 4)
+# --------------------------------------------------------------------------- #
+
+
+ATOL_CAMERA_HEAD_FP32 = 1e-3
+
+
+class TestLevel2CameraHead:
+    """Step 4 parity gate: iterative AdaLN camera head on synthetic tokens.
+
+    Random ``aggregated_tokens_list`` suffices because the head is a pure
+    function of its input; we skip the 3-minute aggregator forward here.
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_camera_head(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.heads.camera_head import CameraHead as PtCameraHead
+
+        head = PtCameraHead(dim_in=2048).eval()
+        for blk in head.trunk:
+            blk.attn.fused_attn = False
+        prefix = "camera_head."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = head.load_state_dict(pt_sd, strict=False)
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return head
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["camera_head"]})
+
+    @pytest.fixture(scope="class")
+    def aggregated_tokens(self):
+        # (B=1, S=2, P=1374, dim_in=2048) — realistic scale.
+        rng = np.random.RandomState(17)
+        last = rng.randn(1, 2, 1374, 2048).astype(np.float32) * 0.1
+        # head only uses the last list element; pass a singleton list.
+        return last
+
+    def test_camera_head_last_iter_matches_pytorch(
+        self, pt_camera_head, jx_params, aggregated_tokens
+    ):
+        import torch
+        from modules.vggt.jax.heads.camera_head import CameraHead
+
+        pt_tokens = torch.from_numpy(aggregated_tokens)
+        with torch.no_grad():
+            pt_list = pt_camera_head([pt_tokens])
+        pt_last = pt_list[-1].numpy()  # (B, S, 9)
+
+        jx_list = CameraHead().apply(jx_params, [jnp.asarray(aggregated_tokens)])
+        jx_last = np.asarray(jx_list[-1])
+
+        assert jx_last.shape == pt_last.shape, (jx_last.shape, pt_last.shape)
+        max_abs = np.max(np.abs(jx_last - pt_last))
+        assert max_abs <= ATOL_CAMERA_HEAD_FP32, (
+            f"camera-head parity: max_abs={max_abs:.3e} > {ATOL_CAMERA_HEAD_FP32:.0e}"
+        )
