@@ -100,17 +100,30 @@ class Block(nn.Module):
         rope_tables: tuple[jnp.ndarray, jnp.ndarray] | None = None,
         positions: jnp.ndarray | None = None,
         attn_mask: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
+        past_kv: tuple[jnp.ndarray, jnp.ndarray] | None = None,
+        use_cache: bool = False,
+    ) -> jnp.ndarray | tuple[jnp.ndarray, tuple[jnp.ndarray, jnp.ndarray]]:
         # Attention residual
         h = nn.LayerNorm(epsilon=self.norm_eps, name="norm1")(x)
-        h = Attention(
+        attn_out = Attention(
             dim=self.dim,
             num_heads=self.num_heads,
             qk_norm=self.qk_norm,
             qkv_bias=self.qkv_bias,
             proj_bias=self.proj_bias,
             name="attn",
-        )(h, rope_tables=rope_tables, positions=positions, attn_mask=attn_mask)
+        )(
+            h,
+            rope_tables=rope_tables,
+            positions=positions,
+            attn_mask=attn_mask,
+            past_kv=past_kv,
+            use_cache=use_cache,
+        )
+        if use_cache:
+            h, new_kv = attn_out
+        else:
+            h = attn_out
         if self.init_values:
             h = LayerScale(self.dim, init_values=self.init_values, name="ls1")(h)
         x = x + h
@@ -127,4 +140,6 @@ class Block(nn.Module):
             h = LayerScale(self.dim, init_values=self.init_values, name="ls2")(h)
         x = x + h
 
+        if use_cache:
+            return x, new_kv
         return x

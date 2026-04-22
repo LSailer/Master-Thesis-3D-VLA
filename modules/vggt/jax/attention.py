@@ -1,11 +1,12 @@
-"""Attention with optional QK-norm and RoPE — no-cache forward path.
+"""Attention with optional QK-norm, 2D RoPE, and KV-cache (Step 6a).
 
-Matches ``streamvggt.layers.attention.Attention`` in the no-cache branch:
+Matches ``streamvggt.layers.attention.Attention``:
 QKV-packed Linear, optional per-head LayerNorm on Q and K, optional 2D RoPE
 on Q and K, manual softmax in fp32, output projection.
 
-The KV-cache path (eviction, anchor tokens, dynamic budgets) lands in
-Step 6a+; for now ``use_cache=True`` raises NotImplementedError.
+The 6a cache path concatenates ``past_kv`` (already RoPE-applied from the
+previous call) with the current frame's new K/V. No eviction — the cache
+grows each frame. Eviction / anchor-token bookkeeping lands in Step 6b.
 """
 
 from __future__ import annotations
@@ -54,22 +55,26 @@ class Attention(nn.Module):
         rope_tables: tuple[jnp.ndarray, jnp.ndarray] | None = None,
         positions: jnp.ndarray | None = None,
         attn_mask: jnp.ndarray | None = None,
+        past_kv: tuple[jnp.ndarray, jnp.ndarray] | None = None,
         use_cache: bool = False,
-    ) -> jnp.ndarray:
+    ) -> jnp.ndarray | tuple[jnp.ndarray, tuple[jnp.ndarray, jnp.ndarray]]:
         """Forward pass.
 
         Args:
-            x: (B, N, dim) input tokens.
+            x: (B, N, dim) input tokens (the *new* frame's tokens when caching).
             rope_tables: Optional (cos, sin) pair for 2D RoPE.
             positions: (B, N, 2) integer positions; required iff rope_tables given.
-            attn_mask: Optional additive attention mask broadcastable to (B, H, N, N).
-            use_cache: Must be False here; cache path lands in Step 6a.
+                In cache mode, these are the positions of the new frame only;
+                past_kv already has RoPE applied from prior calls.
+            attn_mask: Optional additive attention mask broadcastable to
+                (B, H, N, K) where K = past_len + N.
+            past_kv: Optional (past_k, past_v), both shape (B, H, past_len, Dh),
+                returned by the previous call. Prepended to the new K/V.
+            use_cache: If True, return (output, (full_k, full_v)).
 
         Returns:
-            (B, N, dim) attended tokens.
+            (B, N, dim) attended tokens, optionally plus the updated cache tuple.
         """
-        if use_cache:
-            raise NotImplementedError("KV-cache path lands in Step 6a of the plan.")
         if (rope_tables is None) != (positions is None):
             raise ValueError("rope_tables and positions must be given together.")
 
@@ -96,6 +101,12 @@ class Attention(nn.Module):
             q = apply_rope_2d(q, positions, cos_table, sin_table)
             k = apply_rope_2d(k, positions, cos_table, sin_table)
 
+        # Prepend cached past K/V (already RoPE-applied) to the new K/V.
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = jnp.concatenate([past_k, k], axis=2)
+            v = jnp.concatenate([past_v, v], axis=2)
+
         # Manual attention with explicit fp32 softmax so bf16 inputs behave
         # like PyTorch's F.scaled_dot_product_attention (which internally
         # computes softmax in fp32).
@@ -111,4 +122,6 @@ class Attention(nn.Module):
 
         out = jnp.transpose(out, (0, 2, 1, 3)).reshape(B, N, self.dim)
         out = nn.Dense(self.dim, use_bias=self.proj_bias, name="proj")(out)
+        if use_cache:
+            return out, (k, v)
         return out

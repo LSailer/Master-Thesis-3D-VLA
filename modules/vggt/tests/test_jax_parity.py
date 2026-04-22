@@ -655,3 +655,243 @@ class TestLevel2PointHead:
         assert max_abs_conf <= ATOL_POINT_HEAD_FP32, (
             f"point-head conf: max_abs={max_abs_conf:.3e} > {ATOL_POINT_HEAD_FP32:.0e}"
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 3 -- streaming cache parity (Step 6a: eviction disabled)
+# --------------------------------------------------------------------------- #
+
+
+# Cache-mode parity bound. The cache path rearranges the order of arithmetic
+# (each frame's global attention now uses a rectangular Q x [past_K | new_K]
+# matmul instead of the block-diagonal-causal S*P x S*P version) so rounding
+# patterns differ slightly. 1e-3 fp32 matches the aggregator-no-cache bound.
+ATOL_AGGREGATOR_CACHE_FP32 = 1e-3
+ATOL_CAMERA_CACHE_FP32 = 1e-3
+
+# Frames used across Level-3 tests. Keep small so PyTorch fp32 / no-fused
+# attention completes quickly; Step 6c will add 500-frame sequences once
+# eviction is wired up to keep memory bounded.
+_L3_NUM_FRAMES = 3
+
+
+class TestLevel3AggregatorCache:
+    """Step 6a gate: aggregator streaming with eviction disabled.
+
+    Two independent checks:
+
+    1. **JAX self-consistency** — running the cache path frame-by-frame should
+       reproduce the no-cache path applied to all frames at once. This catches
+       bugs in cache threading without involving PyTorch.
+    2. **JAX vs PyTorch cache** — mirrors the production streaming path. Uses
+       ``total_budget`` large enough that the reference's eviction never fires.
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_aggregator(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.models.aggregator import Aggregator as PtAggregator
+
+        pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024).eval()
+        for blk in pt_agg.patch_embed.blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.frame_blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.global_blocks:
+            blk.attn.fused_attn = False
+
+        prefix = "aggregator."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = pt_agg.load_state_dict(pt_sd, strict=False)
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return pt_agg
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["aggregator"]})
+
+    @pytest.fixture(scope="class")
+    def frames(self):
+        # N frames of (3, 518, 518) each; returned as numpy (N, 3, 518, 518).
+        rng = np.random.RandomState(11)
+        return rng.uniform(
+            0.0, 1.0, size=(_L3_NUM_FRAMES, 3, 518, 518)
+        ).astype(np.float32)
+
+    # --------------------------------------------------------------------- #
+    #  (1) JAX cache vs JAX no-cache
+    # --------------------------------------------------------------------- #
+    def test_jax_cache_matches_jax_nocache(self, jx_params, frames):
+        from modules.vggt.jax.aggregator import Aggregator
+
+        # No-cache: process all frames at once with shape (1, N, 3, 518, 518).
+        all_frames = frames[None]  # (1, N, 3, H, W)
+        nc_out_list, _ = Aggregator().apply(jx_params, jnp.asarray(all_frames))
+        nc_last = np.asarray(nc_out_list[-1])  # (1, N, P, 2C)
+
+        # Cache: loop frame-by-frame with S=1 each.
+        past_kvs = None
+        cached_last_per_frame = []
+        for i in range(frames.shape[0]):
+            one = jnp.asarray(frames[i : i + 1][None])  # (1, 1, 3, H, W)
+            out_list, _, past_kvs = Aggregator().apply(
+                jx_params, one, use_cache=True, past_kvs=past_kvs, past_frame_idx=i
+            )
+            cached_last_per_frame.append(np.asarray(out_list[-1]))
+        cached_last = np.concatenate(cached_last_per_frame, axis=1)  # (1, N, P, 2C)
+
+        assert cached_last.shape == nc_last.shape
+        max_abs = np.max(np.abs(cached_last - nc_last))
+        assert max_abs <= ATOL_AGGREGATOR_CACHE_FP32, (
+            f"JAX cache vs JAX no-cache: max_abs={max_abs:.3e} "
+            f"> {ATOL_AGGREGATOR_CACHE_FP32:.0e}"
+        )
+
+    # --------------------------------------------------------------------- #
+    #  (2) JAX cache vs PyTorch cache
+    # --------------------------------------------------------------------- #
+    def test_jax_cache_matches_pytorch_cache(
+        self, pt_aggregator, jx_params, frames
+    ):
+        import torch
+        from modules.vggt.jax.aggregator import Aggregator
+
+        # total_budget is distributed across the 24 global blocks via softmax
+        # of 1-last_scores. With last_scores initialised to 0, the proportions
+        # are ~uniform, so per-block budget ~= total_budget / depth. We need
+        # per-block budget >= N*P to keep eviction from firing in 6a. Add 2x
+        # slack to absorb softmax rounding.
+        P = 5 + (518 // 14) ** 2  # 5 specials + 1369 patch tokens = 1374
+        N = frames.shape[0]
+        depth = pt_aggregator.depth
+        total_budget = N * P * depth * 2
+
+        # ---- PyTorch: loop with use_cache=True ----
+        pt_past_kvs = [None] * pt_aggregator.depth
+        pt_last_per_frame = []
+        with torch.no_grad():
+            for i in range(N):
+                one = torch.from_numpy(frames[i : i + 1][None])  # (1, 1, 3, H, W)
+                out_list, _, pt_past_kvs = pt_aggregator(
+                    one,
+                    past_key_values=pt_past_kvs,
+                    use_cache=True,
+                    past_frame_idx=i,
+                    total_budget=total_budget,
+                )
+                pt_last_per_frame.append(out_list[-1].cpu().numpy())
+        pt_last = np.concatenate(pt_last_per_frame, axis=1)
+
+        # ---- JAX: loop with use_cache=True ----
+        jx_past_kvs = None
+        jx_last_per_frame = []
+        for i in range(N):
+            one = jnp.asarray(frames[i : i + 1][None])
+            out_list, _, jx_past_kvs = Aggregator().apply(
+                jx_params,
+                one,
+                use_cache=True,
+                past_kvs=jx_past_kvs,
+                past_frame_idx=i,
+            )
+            jx_last_per_frame.append(np.asarray(out_list[-1]))
+        jx_last = np.concatenate(jx_last_per_frame, axis=1)
+
+        assert jx_last.shape == pt_last.shape, (jx_last.shape, pt_last.shape)
+        max_abs = np.max(np.abs(jx_last - pt_last))
+        assert max_abs <= ATOL_AGGREGATOR_CACHE_FP32, (
+            f"JAX cache vs PyTorch cache: max_abs={max_abs:.3e} "
+            f"> {ATOL_AGGREGATOR_CACHE_FP32:.0e}"
+        )
+
+
+class TestLevel3CameraHeadCache:
+    """Step 6a gate: camera head streaming cache.
+
+    Works on the aggregator's output tokens, so we can feed it random tensors
+    (like TestLevel2CameraHead) instead of running the full aggregator.
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_camera_head(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.heads.camera_head import CameraHead as PtCamera
+
+        head = PtCamera(dim_in=2048).eval()
+        for blk in head.trunk:
+            blk.attn.fused_attn = False
+        prefix = "camera_head."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = head.load_state_dict(pt_sd, strict=False)
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return head
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["camera_head"]})
+
+    @pytest.fixture(scope="class")
+    def agg_tokens_per_frame(self):
+        # 24 aggregator levels, N frames each with S=1. Only ``[-1]`` is used.
+        rng = np.random.RandomState(29)
+        B, P, C = 1, 1374, 2048
+        frames = []
+        for _ in range(_L3_NUM_FRAMES):
+            frames.append(
+                [
+                    rng.randn(B, 1, P, C).astype(np.float32) * 0.1
+                    for _ in range(24)
+                ]
+            )
+        return frames
+
+    def test_camera_head_cache_matches_pytorch(
+        self, pt_camera_head, jx_params, agg_tokens_per_frame
+    ):
+        import torch
+        from modules.vggt.jax.heads.camera_head import CameraHead
+
+        # ---- PyTorch cache loop ----
+        pt_cache = [None] * pt_camera_head.trunk_depth
+        pt_poses = []
+        with torch.no_grad():
+            for frame_tokens in agg_tokens_per_frame:
+                pt_input = [torch.from_numpy(x) for x in frame_tokens]
+                pose_list, pt_cache = pt_camera_head(
+                    pt_input, past_key_values_camera=pt_cache, use_cache=True
+                )
+                pt_poses.append(pose_list[-1].cpu().numpy())
+        pt_poses = np.concatenate(pt_poses, axis=1)  # (B, N, 9)
+
+        # ---- JAX cache loop ----
+        jx_cache = None
+        jx_poses = []
+        for frame_tokens in agg_tokens_per_frame:
+            jx_input = [jnp.asarray(x) for x in frame_tokens]
+            pose_list, jx_cache = CameraHead().apply(
+                jx_params,
+                jx_input,
+                use_cache=True,
+                past_kvs_camera=jx_cache,
+            )
+            jx_poses.append(np.asarray(pose_list[-1]))
+        jx_poses = np.concatenate(jx_poses, axis=1)
+
+        assert jx_poses.shape == pt_poses.shape
+        max_abs = np.max(np.abs(jx_poses - pt_poses))
+        assert max_abs <= ATOL_CAMERA_CACHE_FP32, (
+            f"camera-head cache: max_abs={max_abs:.3e} "
+            f"> {ATOL_CAMERA_CACHE_FP32:.0e}"
+        )

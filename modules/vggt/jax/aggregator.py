@@ -1,19 +1,24 @@
 """Aggregator — alternating frame/global attention over S frames.
 
-Mirrors ``streamvggt.models.aggregator.Aggregator`` for the **no-cache** path
-(``use_cache=False`` in the reference). The cache/eviction/dynamic-budget
-branches land in Step 6a+.
+Mirrors ``streamvggt.models.aggregator.Aggregator``:
 
-Forward pipeline:
+* **No-cache path** (``use_cache=False``): Processes all S frames at once,
+  global attention uses an S*P-length causal mask so frame i only sees
+  frames 0..i.
+* **Streaming cache path** (``use_cache=True``, Step 6a): Processes S=1
+  new frame per call. Global blocks receive the prior frames' K/V via
+  ``past_kvs[i]`` and return an updated ``(k, v)`` tuple. The causal mask
+  disappears — the current frame's Q attending to the concatenated (past_k,
+  new_k) preserves causal structure automatically. Eviction is NOT
+  implemented in 6a: caches grow each frame.
+
+Forward pipeline (no-cache):
     images (B, S, 3, H, W) in [0, 1]
       -> ResNet normalise
       -> (B*S, 3, H, W) patch conv via DinoV2Backbone
       -> prepend camera_token + register_token per frame (slice-expand-flatten)
       -> 24 alternating (frame, global) block pairs
       -> output_list: [(B, S, P, 2*C)] * depth  +  patch_start_idx = 5
-
-Each global block in the no-cache path uses a per-block causal mask over
-``S * P`` tokens (frame i attends only to frames 0..i).
 """
 
 from __future__ import annotations
@@ -107,15 +112,31 @@ class Aggregator(nn.Module):
     aa_order: tuple[str, ...] = ("frame", "global")
 
     @nn.compact
-    def __call__(self, images: jnp.ndarray) -> tuple[list[jnp.ndarray], int]:
+    def __call__(
+        self,
+        images: jnp.ndarray,
+        *,
+        use_cache: bool = False,
+        past_kvs: list | None = None,
+        past_frame_idx: int = 0,
+    ):
         """Forward pass.
 
         Args:
-            images: (B, S, 3, H, W) float in [0, 1].
+            images: (B, S, 3, H, W) float in [0, 1]. In cache mode, S must be 1.
+            use_cache: If True, take the streaming path: thread ``past_kvs``
+                through the global blocks, skip the causal mask (causality is
+                implicit in the past/new K split), and return the updated cache.
+            past_kvs: List of length ``depth``; each entry is either None (first
+                frame) or ``(past_k, past_v)`` from the prior call. Required
+                when ``use_cache=True``.
+            past_frame_idx: Zero-based index of the current frame in the full
+                stream. Used to pick the first-frame vs other-frames camera/
+                register token slot.
 
         Returns:
-            (output_list, patch_start_idx) where output_list has ``depth``
-            tensors of shape (B, S, P, 2*embed_dim) and patch_start_idx = 5.
+            No-cache:  (output_list, patch_start_idx).
+            Cache:     (output_list, patch_start_idx, new_past_kvs).
         """
         B, S, C_in, H, W = images.shape
         if C_in != 3:
@@ -123,6 +144,14 @@ class Aggregator(nn.Module):
         if H != self.img_size or W != self.img_size:
             raise NotImplementedError(
                 f"Aggregator is fixed at {self.img_size}x{self.img_size}; got {H}x{W}."
+            )
+        if use_cache and S != 1:
+            raise ValueError(f"use_cache expects S=1 per call, got S={S}")
+        if use_cache and past_kvs is None:
+            past_kvs = [None] * self.depth
+        if use_cache and len(past_kvs) != self.depth:
+            raise ValueError(
+                f"past_kvs length {len(past_kvs)} != depth {self.depth}"
             )
 
         # ResNet normalisation on [0, 1] images.
@@ -145,7 +174,6 @@ class Aggregator(nn.Module):
             name="patch_embed",
         )(x)
         # (B*S, P_patch, embed_dim) where P_patch = (H/patch_size)^2
-        P_patch = patch_tokens.shape[1]
 
         # Camera + register tokens (aggregator-level).
         camera_token_full = self.param(
@@ -158,10 +186,26 @@ class Aggregator(nn.Module):
             lambda _k, shape: jnp.zeros(shape, dtype=jnp.float32),
             (1, 2, self.num_register_tokens, self.embed_dim),
         )
-        camera = _slice_expand_and_flatten(camera_token_full.astype(patch_tokens.dtype), B, S)
-        register = _slice_expand_and_flatten(
-            register_token_full.astype(patch_tokens.dtype), B, S
-        )
+        if use_cache:
+            # Slot 0 = first-frame query token; slot 1 = all subsequent frames.
+            slot = 0 if past_frame_idx == 0 else 1
+            n_reg = self.num_register_tokens
+            camera = jnp.broadcast_to(
+                camera_token_full[0, slot : slot + 1].astype(patch_tokens.dtype),
+                (B, 1, self.embed_dim),
+            )
+            register = jnp.broadcast_to(
+                register_token_full[0, slot : slot + 1].reshape(1, n_reg, self.embed_dim)
+                .astype(patch_tokens.dtype),
+                (B, n_reg, self.embed_dim),
+            )
+        else:
+            camera = _slice_expand_and_flatten(
+                camera_token_full.astype(patch_tokens.dtype), B, S
+            )
+            register = _slice_expand_and_flatten(
+                register_token_full.astype(patch_tokens.dtype), B, S
+            )
         tokens = jnp.concatenate([camera, register, patch_tokens], axis=1)
         P = tokens.shape[1]
         patch_start_idx = 1 + self.num_register_tokens  # 5
@@ -178,24 +222,35 @@ class Aggregator(nn.Module):
         )
         rope_tables = (cos_t, sin_t)
 
-        # Precompute per-block causal mask for global attention (S*P length).
-        global_mask = _make_causal_global_mask(S, P, dtype=jnp.float32)
+        # Per-block causal mask for the no-cache global attention. In cache
+        # mode the rectangular Q-vs-[past_K | new_K] attention is naturally
+        # causal, so we pass attn_mask=None.
+        global_mask = None if use_cache else _make_causal_global_mask(
+            S, P, dtype=jnp.float32
+        )
 
         # Pre-reshape helpers
         def _to_frame(t):  # (B, S, P, C) -> (B*S, P, C)
             return t.reshape(B * S, P, self.embed_dim)
 
         def _to_global(t_flat):  # (B*S, P, C) -> (B, S*P, C)
-            return t_flat.reshape(B, S, P, self.embed_dim).reshape(B, S * P, self.embed_dim)
+            return t_flat.reshape(B, S, P, self.embed_dim).reshape(
+                B, S * P, self.embed_dim
+            )
 
         positions_b_sp = positions_bs_p.reshape(B, S, P, 2).reshape(B, S * P, 2)
 
         output_list: list[jnp.ndarray] = []
+        new_past_kvs: list = [] if use_cache else []
         # In the reference, aa_block_size defaults to 1 so each outer step
         # runs exactly one frame-block then one global-block. depth == aa_block_num.
         for b in range(self.depth):
-            # ---- Frame attention: (B*S, P, C) ----
-            tokens_frame = _to_frame(tokens) if tokens.shape == (B, S * P, self.embed_dim) else tokens
+            # ---- Frame attention: (B*S, P, C) — no cache for frame blocks ----
+            tokens_frame = (
+                _to_frame(tokens)
+                if tokens.shape == (B, S * P, self.embed_dim)
+                else tokens
+            )
             tokens_frame = Block(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
@@ -207,9 +262,9 @@ class Aggregator(nn.Module):
             )(tokens_frame, rope_tables=rope_tables, positions=positions_bs_p)
             frame_inter = tokens_frame.reshape(B, S, P, self.embed_dim)
 
-            # ---- Global attention: (B, S*P, C) ----
+            # ---- Global attention: (B, S*P, C) — cached when streaming ----
             tokens_global = _to_global(tokens_frame)
-            tokens_global = Block(
+            global_block = Block(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
                 mlp_ratio=self.mlp_ratio,
@@ -217,12 +272,24 @@ class Aggregator(nn.Module):
                 init_values=self.init_values,
                 norm_eps=self.norm_eps,
                 name=f"global_blocks_{b}",
-            )(
-                tokens_global,
-                rope_tables=rope_tables,
-                positions=positions_b_sp,
-                attn_mask=global_mask,
             )
+            if use_cache:
+                tokens_global, new_kv = global_block(
+                    tokens_global,
+                    rope_tables=rope_tables,
+                    positions=positions_b_sp,
+                    attn_mask=None,
+                    past_kv=past_kvs[b],
+                    use_cache=True,
+                )
+                new_past_kvs.append(new_kv)
+            else:
+                tokens_global = global_block(
+                    tokens_global,
+                    rope_tables=rope_tables,
+                    positions=positions_b_sp,
+                    attn_mask=global_mask,
+                )
             global_inter = tokens_global.reshape(B, S, P, self.embed_dim)
 
             # Carry for next iteration (flat-frame layout).
@@ -231,4 +298,6 @@ class Aggregator(nn.Module):
             # Each level emits concat([frame, global], axis=-1) -> (B, S, P, 2C).
             output_list.append(jnp.concatenate([frame_inter, global_inter], axis=-1))
 
+        if use_cache:
+            return output_list, patch_start_idx, new_past_kvs
         return output_list, patch_start_idx

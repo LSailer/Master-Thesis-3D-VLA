@@ -118,18 +118,51 @@ class CameraHead(nn.Module):
     def __call__(
         self,
         aggregated_tokens_list: list[jnp.ndarray],
-    ) -> list[jnp.ndarray]:
+        *,
+        use_cache: bool = False,
+        past_kvs_camera: list | None = None,
+    ):
+        """Forward pass.
+
+        Args:
+            aggregated_tokens_list: Output of the aggregator — list of
+                (B, S, P, C) tensors. Only the last element is used.
+            use_cache: Streaming mode (S must be 1). Each trunk block's cache
+                grows by ``num_iterations`` entries per frame.
+            past_kvs_camera: List of length ``trunk_depth`` with per-block
+                (k, v) tuples or None. Provided on every frame after the first.
+
+        Returns:
+            Without cache: ``pred_pose_enc_list`` (length = num_iterations).
+            With cache:    ``(pred_pose_enc_list, new_past_kvs_camera)``.
+        """
         tokens = aggregated_tokens_list[-1]
         B, S, P, C = tokens.shape
         if C != self.dim_in:
             raise ValueError(f"aggregator token dim {C} != dim_in {self.dim_in}")
+        if use_cache and S != 1:
+            raise ValueError(f"camera-head use_cache expects S=1, got S={S}")
 
         pose_tokens = self.token_norm(tokens[:, :, 0])  # (B, S, C)
 
-        # Causal mask over S pose-token frames.
-        s_range = jnp.arange(S)
-        future = s_range[:, None] < s_range[None, :]
-        attn_mask = future.astype(jnp.float32) * jnp.finfo(jnp.float32).min
+        # Causal mask over S pose-token frames (no-cache only — under cache,
+        # the rectangular Q vs [past_k | new_k] attention is naturally causal).
+        if use_cache:
+            attn_mask = None
+        else:
+            s_range = jnp.arange(S)
+            future = s_range[:, None] < s_range[None, :]
+            attn_mask = future.astype(jnp.float32) * jnp.finfo(jnp.float32).min
+
+        if use_cache:
+            if past_kvs_camera is None:
+                past_kvs_camera = [None] * self.trunk_depth
+            if len(past_kvs_camera) != self.trunk_depth:
+                raise ValueError(
+                    f"past_kvs_camera length {len(past_kvs_camera)} "
+                    f"!= trunk_depth {self.trunk_depth}"
+                )
+            new_past_kvs_camera: list = list(past_kvs_camera)
 
         pred_pose_enc: jnp.ndarray | None = None
         pred_pose_enc_list: list[jnp.ndarray] = []
@@ -153,12 +186,23 @@ class CameraHead(nn.Module):
             )
 
             for k in range(self.trunk_depth):
-                pose_tokens_mod = self.trunk_blocks[k](
-                    pose_tokens_mod, attn_mask=attn_mask
-                )
+                if use_cache:
+                    pose_tokens_mod, new_kv = self.trunk_blocks[k](
+                        pose_tokens_mod,
+                        attn_mask=None,
+                        past_kv=new_past_kvs_camera[k],
+                        use_cache=True,
+                    )
+                    new_past_kvs_camera[k] = new_kv
+                else:
+                    pose_tokens_mod = self.trunk_blocks[k](
+                        pose_tokens_mod, attn_mask=attn_mask
+                    )
 
             delta = self.pose_branch(self.trunk_norm(pose_tokens_mod))
             pred_pose_enc = delta if pred_pose_enc is None else pred_pose_enc + delta
             pred_pose_enc_list.append(_activate_pose(pred_pose_enc))
 
+        if use_cache:
+            return pred_pose_enc_list, new_past_kvs_camera
         return pred_pose_enc_list
