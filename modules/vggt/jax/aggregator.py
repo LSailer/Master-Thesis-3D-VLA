@@ -82,6 +82,28 @@ def _make_causal_global_mask(S: int, P: int, dtype=jnp.float32) -> jnp.ndarray:
     return future.astype(dtype) * jnp.finfo(dtype).min
 
 
+def _calculate_dynamic_budgets(
+    last_scores: jnp.ndarray, total_budget: int
+) -> jnp.ndarray:
+    """Port of ``aggregator._calculate_dynamic_budgets``.
+
+    Blocks that evicted high-similarity tokens last frame (high
+    ``last_scores``) have low "diversity" and receive a smaller share of
+    the global budget. The per-block budget is ``softmax(2*(1-score)) *
+    total_budget`` truncated to int.
+
+    When ``last_scores`` is all zeros (initial state / no eviction yet),
+    softmax of a constant vector is uniform, giving every block an equal
+    slice of the budget — which recovers the Step 6b uniform allocation.
+    """
+    total_budget = max(int(total_budget), 0)
+    diversity = 1.0 - last_scores
+    scaled = diversity / 0.5
+    proportions = jax.nn.softmax(scaled, axis=0)
+    budgets = proportions * total_budget
+    return budgets.astype(jnp.int32)
+
+
 class Aggregator(nn.Module):
     """Alternating frame/global attention tower (no-cache path).
 
@@ -120,6 +142,7 @@ class Aggregator(nn.Module):
         past_kvs: list | None = None,
         past_frame_idx: int = 0,
         total_budget: int | None = None,
+        last_scores: jnp.ndarray | None = None,
     ):
         """Forward pass.
 
@@ -135,13 +158,17 @@ class Aggregator(nn.Module):
                 stream. Used to pick the first-frame vs other-frames camera/
                 register token slot.
             total_budget: Optional global cache size shared across all global
-                blocks. In Step 6b (uniform allocation), each block receives
-                ``total_budget // depth`` slots. None disables eviction —
-                cache grows unboundedly.
+                blocks. Per-block budget is ``softmax(2*(1-last_scores)) *
+                total_budget`` (Step 6c dynamic allocation). When
+                ``last_scores`` is zeros, this reduces to the uniform
+                allocation of Step 6b. ``None`` disables eviction entirely.
+            last_scores: Optional (depth,) fp32 array of cosine-similarity
+                means from the prior call's eviction. Zeros on first frame.
 
         Returns:
-            No-cache:  (output_list, patch_start_idx).
-            Cache:     (output_list, patch_start_idx, new_past_kvs).
+            No-cache:  ``(output_list, patch_start_idx)``.
+            Cache:     ``(output_list, patch_start_idx, new_past_kvs,
+                          new_last_scores)``.
         """
         B, S, C_in, H, W = images.shape
         if C_in != 3:
@@ -158,6 +185,15 @@ class Aggregator(nn.Module):
             raise ValueError(
                 f"past_kvs length {len(past_kvs)} != depth {self.depth}"
             )
+        if use_cache and last_scores is None:
+            last_scores = jnp.zeros((self.depth,), dtype=jnp.float32)
+        # Per-block budgets — uniform on the first-eviction step (zeros
+        # in, uniform softmax out), dynamic after last_scores updates.
+        current_budgets = (
+            _calculate_dynamic_budgets(last_scores, total_budget)
+            if use_cache and total_budget is not None
+            else None
+        )
 
         # ResNet normalisation on [0, 1] images.
         mean = jnp.asarray(_RESNET_MEAN, dtype=images.dtype).reshape(1, 1, 3, 1, 1)
@@ -247,6 +283,8 @@ class Aggregator(nn.Module):
 
         output_list: list[jnp.ndarray] = []
         new_past_kvs: list = [] if use_cache else []
+        new_scores: list = []  # per-block scores used to update last_scores
+        any_evicted = False
         # In the reference, aa_block_size defaults to 1 so each outer step
         # runs exactly one frame-block then one global-block. depth == aa_block_num.
         for b in range(self.depth):
@@ -279,12 +317,10 @@ class Aggregator(nn.Module):
                 name=f"global_blocks_{b}",
             )
             if use_cache:
-                if total_budget is not None:
-                    # Uniform per-block budget in Step 6b (dynamic allocation
-                    # lands in 6c). Anchors = the first frame's P tokens; they
-                    # are never evicted.
-                    per_block_budget = total_budget // self.depth
-                    tokens_global, new_kv, _ = global_block(
+                if current_budgets is not None:
+                    # Anchors = the first frame's P tokens; never evicted.
+                    per_block_budget = int(current_budgets[b])
+                    tokens_global, new_kv, scores = global_block(
                         tokens_global,
                         rope_tables=rope_tables,
                         positions=positions_b_sp,
@@ -294,6 +330,11 @@ class Aggregator(nn.Module):
                         cache_budget=per_block_budget,
                         num_anchor_tokens=P,
                     )
+                    if scores is not None:
+                        new_scores.append(scores)
+                        any_evicted = True
+                    else:
+                        new_scores.append(last_scores[b])
                 else:
                     tokens_global, new_kv = global_block(
                         tokens_global,
@@ -320,5 +361,13 @@ class Aggregator(nn.Module):
             output_list.append(jnp.concatenate([frame_inter, global_inter], axis=-1))
 
         if use_cache:
-            return output_list, patch_start_idx, new_past_kvs
+            # Reference updates self.last_scores only when something was
+            # evicted this frame; otherwise the previous state carries.
+            if any_evicted:
+                new_last_scores = jnp.stack(
+                    [jnp.asarray(s, dtype=jnp.float32) for s in new_scores]
+                )
+            else:
+                new_last_scores = last_scores
+            return output_list, patch_start_idx, new_past_kvs, new_last_scores
         return output_list, patch_start_idx

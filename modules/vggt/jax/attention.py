@@ -183,11 +183,13 @@ class Attention(nn.Module):
             v = jnp.concatenate([past_v, v], axis=2)
 
         # Optional eviction: prune the cache back to cache_budget tokens.
-        # ``scores`` is None when no eviction fired; otherwise a scalar
+        # ``evict_score`` is None when no eviction fired; otherwise a scalar
         # cosine-similarity mean consumed by the dynamic-budget allocator.
-        scores: jnp.ndarray | None = None
+        # Named distinctly from the attention-score variable below — they are
+        # different quantities and shadowing caused a real bug.
+        evict_score: jnp.ndarray | None = None
         if use_cache and cache_budget is not None and k.shape[2] > cache_budget:
-            k, v, scores = _evict_kv(k, v, cache_budget, num_anchor_tokens)
+            k, v, evict_score = _evict_kv(k, v, cache_budget, num_anchor_tokens)
 
         # Manual attention with explicit fp32 softmax so bf16 inputs behave
         # like PyTorch's F.scaled_dot_product_attention (which internally
@@ -196,16 +198,16 @@ class Attention(nn.Module):
         scale = jnp.asarray(1.0 / jnp.sqrt(head_dim), dtype=self.softmax_dtype)
         q_hi = q.astype(self.softmax_dtype) * scale
         k_hi = k.astype(self.softmax_dtype)
-        scores = jnp.einsum("bhqd,bhkd->bhqk", q_hi, k_hi)
+        attn_scores = jnp.einsum("bhqd,bhkd->bhqk", q_hi, k_hi)
         if attn_mask is not None:
-            scores = scores + attn_mask.astype(self.softmax_dtype)
-        probs = jax.nn.softmax(scores, axis=-1).astype(orig_dtype)
+            attn_scores = attn_scores + attn_mask.astype(self.softmax_dtype)
+        probs = jax.nn.softmax(attn_scores, axis=-1).astype(orig_dtype)
         out = jnp.einsum("bhqk,bhkd->bhqd", probs, v)  # (B, H, N, Dh)
 
         out = jnp.transpose(out, (0, 2, 1, 3)).reshape(B, N, self.dim)
         out = nn.Dense(self.dim, use_bias=self.proj_bias, name="proj")(out)
         if use_cache:
             if cache_budget is not None:
-                return out, (k, v), scores
+                return out, (k, v), evict_score
             return out, (k, v)
         return out

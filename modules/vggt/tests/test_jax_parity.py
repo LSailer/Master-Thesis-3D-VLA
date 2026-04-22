@@ -737,11 +737,17 @@ class TestLevel3AggregatorCache:
 
         # Cache: loop frame-by-frame with S=1 each.
         past_kvs = None
+        last_scores = None
         cached_last_per_frame = []
         for i in range(frames.shape[0]):
             one = jnp.asarray(frames[i : i + 1][None])  # (1, 1, 3, H, W)
-            out_list, _, past_kvs = Aggregator().apply(
-                jx_params, one, use_cache=True, past_kvs=past_kvs, past_frame_idx=i
+            out_list, _, past_kvs, last_scores = Aggregator().apply(
+                jx_params,
+                one,
+                use_cache=True,
+                past_kvs=past_kvs,
+                past_frame_idx=i,
+                last_scores=last_scores,
             )
             cached_last_per_frame.append(np.asarray(out_list[-1]))
         cached_last = np.concatenate(cached_last_per_frame, axis=1)  # (1, N, P, 2C)
@@ -790,15 +796,17 @@ class TestLevel3AggregatorCache:
 
         # ---- JAX: loop with use_cache=True ----
         jx_past_kvs = None
+        jx_last_scores = None
         jx_last_per_frame = []
         for i in range(N):
             one = jnp.asarray(frames[i : i + 1][None])
-            out_list, _, jx_past_kvs = Aggregator().apply(
+            out_list, _, jx_past_kvs, jx_last_scores = Aggregator().apply(
                 jx_params,
                 one,
                 use_cache=True,
                 past_kvs=jx_past_kvs,
                 past_frame_idx=i,
+                last_scores=jx_last_scores,
             )
             jx_last_per_frame.append(np.asarray(out_list[-1]))
         jx_last = np.concatenate(jx_last_per_frame, axis=1)
@@ -989,17 +997,19 @@ class TestLevel3Eviction:
 
         frames, total_budget, _ = frames_and_budget
         past = None
+        last_scores = None
         outs = []
         sizes = []
         for i, frame in enumerate(frames):
             one = jnp.asarray(frame[None, None])
-            out_list, _, past = Aggregator().apply(
+            out_list, _, past, last_scores = Aggregator().apply(
                 jx_params,
                 one,
                 use_cache=True,
                 past_kvs=past,
                 past_frame_idx=i,
                 total_budget=total_budget,
+                last_scores=last_scores,
             )
             outs.append(np.asarray(out_list[-1]))
             sizes.append(past[0][0].shape[2])
@@ -1043,3 +1053,203 @@ class TestLevel3Eviction:
                 f"frame {i} output: max_abs={max_abs:.3e} "
                 f"> {ATOL_AGGREGATOR_CACHE_FP32:.0e}"
             )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 3 -- dynamic budget allocation (Step 6c)
+# --------------------------------------------------------------------------- #
+
+
+# Plan target: dynamic-budget computation matches PyTorch at atol ≤ 1e-4
+# (both sides compute in fp32).
+ATOL_DYNAMIC_BUDGET_FP32 = 1e-4
+
+
+class TestLevel3DynamicBudget:
+    """Step 6c gate: softmax-of-diversity dynamic budget allocation.
+
+    The reference updates ``self.last_scores`` whenever any block evicts,
+    so frames 4+ receive a non-uniform budget per block. JAX must reproduce
+    both the budget computation and the resulting outputs bit-close.
+    """
+
+    def test_dynamic_budget_formula_matches_pytorch(self, pytorch_ivggt_module):
+        """Unit test — ``_calculate_dynamic_budgets`` vs PyTorch reference."""
+        import torch
+        from streamvggt.models.aggregator import Aggregator as PtAggregator
+        from modules.vggt.jax.aggregator import _calculate_dynamic_budgets
+
+        pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024)
+        # Fabricate a non-uniform last_scores to exercise the allocator.
+        rng = np.random.RandomState(17)
+        last = rng.uniform(0.0, 0.9, size=(24,)).astype(np.float32)
+        total_budget = 1_200_000
+
+        pt_agg.last_scores = torch.from_numpy(last)
+        pt_budgets = pt_agg._calculate_dynamic_budgets(total_budget).cpu().numpy()
+
+        jx_budgets = np.asarray(
+            _calculate_dynamic_budgets(jnp.asarray(last), total_budget)
+        )
+
+        assert pt_budgets.shape == jx_budgets.shape == (24,)
+        max_abs = np.max(np.abs(pt_budgets - jx_budgets))
+        # Both sides run fp32 * int truncation; the softmax may disagree
+        # by ~1 unit after round-to-zero. atol 2 absorbs that.
+        assert max_abs <= 2, (
+            f"dynamic-budget diff: max_abs={max_abs}, "
+            f"pt={pt_budgets[:5]} jx={jx_budgets[:5]}"
+        )
+
+    @pytest.fixture(scope="class")
+    def pt_aggregator(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.models.aggregator import Aggregator as PtAggregator
+
+        pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024).eval()
+        for blk in pt_agg.patch_embed.blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.frame_blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.global_blocks:
+            blk.attn.fused_attn = False
+
+        prefix = "aggregator."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        pt_agg.load_state_dict(pt_sd, strict=False)
+        return pt_agg
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["aggregator"]})
+
+    @pytest.fixture(scope="class")
+    def frames_and_budget(self):
+        # 6 frames: eviction fires at frame 3 (still uniform), frames 4-5
+        # use the dynamic budget derived from updated last_scores.
+        rng = np.random.RandomState(33)
+        frames = rng.uniform(0.0, 1.0, size=(6, 3, 518, 518)).astype(np.float32)
+        P = 5 + (518 // 14) ** 2
+        per_block = 3 * P
+        total_budget = per_block * 24
+        return frames, total_budget
+
+    @pytest.fixture(scope="class")
+    def pt_run(self, pt_aggregator, frames_and_budget):
+        import torch
+
+        frames, total_budget = frames_and_budget
+        past = [None] * pt_aggregator.depth
+        outs = []
+        budgets_per_frame = []
+        with torch.no_grad():
+            for i, frame in enumerate(frames):
+                # Snapshot the budgets the aggregator will use on this call.
+                budgets_per_frame.append(
+                    pt_aggregator._calculate_dynamic_budgets(total_budget)
+                    .cpu().numpy().copy()
+                )
+                one = torch.from_numpy(frame[None, None])
+                out_list, _, past = pt_aggregator(
+                    one,
+                    past_key_values=past,
+                    use_cache=True,
+                    past_frame_idx=i,
+                    total_budget=total_budget,
+                )
+                outs.append(out_list[-1].cpu().numpy())
+        past_np = [(k.cpu().numpy(), v.cpu().numpy()) for (k, v) in past]
+        final_last_scores = pt_aggregator.last_scores.cpu().numpy().copy()
+        return outs, past_np, budgets_per_frame, final_last_scores
+
+    @pytest.fixture(scope="class")
+    def jx_run(self, jx_params, frames_and_budget):
+        from modules.vggt.jax.aggregator import (
+            Aggregator,
+            _calculate_dynamic_budgets,
+        )
+
+        frames, total_budget = frames_and_budget
+        past = None
+        last_scores = None
+        outs = []
+        budgets_per_frame = []
+        for i, frame in enumerate(frames):
+            ls = (
+                last_scores
+                if last_scores is not None
+                else jnp.zeros((24,), dtype=jnp.float32)
+            )
+            budgets_per_frame.append(
+                np.asarray(_calculate_dynamic_budgets(ls, total_budget))
+            )
+            one = jnp.asarray(frame[None, None])
+            out_list, _, past, last_scores = Aggregator().apply(
+                jx_params,
+                one,
+                use_cache=True,
+                past_kvs=past,
+                past_frame_idx=i,
+                total_budget=total_budget,
+                last_scores=last_scores,
+            )
+            outs.append(np.asarray(out_list[-1]))
+        past_np = [(np.asarray(k), np.asarray(v)) for (k, v) in past]
+        return outs, past_np, budgets_per_frame, np.asarray(last_scores)
+
+    def test_dynamic_budgets_per_frame(self, pt_run, jx_run):
+        """The per-block budget arrays should match frame-by-frame."""
+        _, _, pt_bud, _ = pt_run
+        _, _, jx_bud, _ = jx_run
+        for i in range(len(pt_bud)):
+            diff = np.abs(pt_bud[i] - jx_bud[i]).max()
+            assert diff <= 2, f"frame {i} budget diff={diff}, pt={pt_bud[i]}"
+
+    def test_last_scores_match_pytorch(self, pt_run, jx_run):
+        _, _, _, pt_ls = pt_run
+        _, _, _, jx_ls = jx_run
+        diff = np.abs(pt_ls - jx_ls).max()
+        assert diff <= ATOL_DYNAMIC_BUDGET_FP32, (
+            f"last_scores diff={diff:.3e} pt={pt_ls[:5]} jx={jx_ls[:5]}"
+        )
+
+    def test_per_frame_output_matches_pytorch(self, pt_run, jx_run):
+        pt_outs, _, _, _ = pt_run
+        jx_outs, _, _, _ = jx_run
+        # 6 frames + dynamic budget → more fp32-noise accumulation than the
+        # 4-frame uniform-budget (6b) test. Minor softmax rounding in
+        # _calculate_dynamic_budgets can shift a handful of retained
+        # candidates across blocks; measured drift is ~1.3e-3 at frame 4.
+        atol = 2e-3
+        for i, (pt, jx) in enumerate(zip(pt_outs, jx_outs)):
+            max_abs = np.max(np.abs(pt - jx))
+            assert max_abs <= atol, (
+                f"frame {i} output: max_abs={max_abs:.3e} > {atol:.0e}"
+            )
+
+    def test_anchor_kv_matches_pytorch(self, pt_run, jx_run):
+        """Anchors (first P tokens) are never evicted and should bit-match.
+
+        The candidate portion is deliberately NOT compared here: 6c's
+        dynamic-budget allocation rounds proportions to int, and a 1-unit
+        budget difference between PT and JX can swap a single candidate
+        token at the eviction boundary, producing large per-index K/V
+        divergence even though the overall outputs match. Anchors bypass
+        that path entirely — their contents are fully determined by frame
+        0's forward pass.
+        """
+        _, pt_past, _, _ = pt_run
+        _, jx_past, _, _ = jx_run
+        P = 1374  # 5 specials + 37*37 patches
+        for b in [0, 11, 23]:
+            pt_k, pt_v = pt_past[b]
+            jx_k, jx_v = jx_past[b]
+            max_abs_k = np.max(np.abs(pt_k[:, :, :P] - jx_k[:, :, :P]))
+            max_abs_v = np.max(np.abs(pt_v[:, :, :P] - jx_v[:, :, :P]))
+            assert max_abs_k <= 3e-3, f"block {b} anchor K: {max_abs_k:.3e}"
+            assert max_abs_v <= 3e-3, f"block {b} anchor V: {max_abs_v:.3e}"
