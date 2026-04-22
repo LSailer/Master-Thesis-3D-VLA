@@ -119,6 +119,7 @@ class Aggregator(nn.Module):
         use_cache: bool = False,
         past_kvs: list | None = None,
         past_frame_idx: int = 0,
+        total_budget: int | None = None,
     ):
         """Forward pass.
 
@@ -133,6 +134,10 @@ class Aggregator(nn.Module):
             past_frame_idx: Zero-based index of the current frame in the full
                 stream. Used to pick the first-frame vs other-frames camera/
                 register token slot.
+            total_budget: Optional global cache size shared across all global
+                blocks. In Step 6b (uniform allocation), each block receives
+                ``total_budget // depth`` slots. None disables eviction —
+                cache grows unboundedly.
 
         Returns:
             No-cache:  (output_list, patch_start_idx).
@@ -274,14 +279,30 @@ class Aggregator(nn.Module):
                 name=f"global_blocks_{b}",
             )
             if use_cache:
-                tokens_global, new_kv = global_block(
-                    tokens_global,
-                    rope_tables=rope_tables,
-                    positions=positions_b_sp,
-                    attn_mask=None,
-                    past_kv=past_kvs[b],
-                    use_cache=True,
-                )
+                if total_budget is not None:
+                    # Uniform per-block budget in Step 6b (dynamic allocation
+                    # lands in 6c). Anchors = the first frame's P tokens; they
+                    # are never evicted.
+                    per_block_budget = total_budget // self.depth
+                    tokens_global, new_kv, _ = global_block(
+                        tokens_global,
+                        rope_tables=rope_tables,
+                        positions=positions_b_sp,
+                        attn_mask=None,
+                        past_kv=past_kvs[b],
+                        use_cache=True,
+                        cache_budget=per_block_budget,
+                        num_anchor_tokens=P,
+                    )
+                else:
+                    tokens_global, new_kv = global_block(
+                        tokens_global,
+                        rope_tables=rope_tables,
+                        positions=positions_b_sp,
+                        attn_mask=None,
+                        past_kv=past_kvs[b],
+                        use_cache=True,
+                    )
                 new_past_kvs.append(new_kv)
             else:
                 tokens_global = global_block(

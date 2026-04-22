@@ -102,7 +102,9 @@ class Block(nn.Module):
         attn_mask: jnp.ndarray | None = None,
         past_kv: tuple[jnp.ndarray, jnp.ndarray] | None = None,
         use_cache: bool = False,
-    ) -> jnp.ndarray | tuple[jnp.ndarray, tuple[jnp.ndarray, jnp.ndarray]]:
+        cache_budget: int | None = None,
+        num_anchor_tokens: int = 0,
+    ):
         # Attention residual
         h = nn.LayerNorm(epsilon=self.norm_eps, name="norm1")(x)
         attn_out = Attention(
@@ -119,9 +121,15 @@ class Block(nn.Module):
             attn_mask=attn_mask,
             past_kv=past_kv,
             use_cache=use_cache,
+            cache_budget=cache_budget,
+            num_anchor_tokens=num_anchor_tokens,
         )
+        scores = None
         if use_cache:
-            h, new_kv = attn_out
+            if cache_budget is not None:
+                h, new_kv, scores = attn_out
+            else:
+                h, new_kv = attn_out
         else:
             h = attn_out
         if self.init_values:
@@ -141,5 +149,7 @@ class Block(nn.Module):
         x = x + h
 
         if use_cache:
+            if cache_budget is not None:
+                return x, new_kv, scores
             return x, new_kv
         return x

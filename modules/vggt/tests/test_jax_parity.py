@@ -895,3 +895,151 @@ class TestLevel3CameraHeadCache:
             f"camera-head cache: max_abs={max_abs:.3e} "
             f"> {ATOL_CAMERA_CACHE_FP32:.0e}"
         )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 3 -- eviction parity (Step 6b: static uniform budget)
+# --------------------------------------------------------------------------- #
+
+
+class TestLevel3Eviction:
+    """Step 6b gate: small-budget uniform eviction.
+
+    Runs exactly 4 frames so eviction fires **once** on the last frame:
+      * frames 0, 1, 2: pre-evict cache <= 3*P, no eviction fires.
+      * frame 3: pre-evict cache = 4*P > 3*P, eviction prunes to 3*P.
+
+    Stopping at 4 frames is deliberate: the reference updates its
+    ``self.last_scores`` buffer after eviction, after which subsequent
+    frames compute a NON-uniform per-block budget via softmax. That
+    dynamic-budget path lands in Step 6c. For 6b we verify that the
+    uniform branch (last_scores still zero on frame 3) matches PyTorch
+    exactly.
+
+    The first *P* tokens (frame 0) are anchors — never evicted. The
+    candidate scoring + top_k(-scores) path must match between PyTorch and
+    JAX for the cache contents to agree on which tokens were retained.
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_aggregator(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.models.aggregator import Aggregator as PtAggregator
+
+        pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024).eval()
+        for blk in pt_agg.patch_embed.blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.frame_blocks:
+            blk.attn.fused_attn = False
+        for blk in pt_agg.global_blocks:
+            blk.attn.fused_attn = False
+
+        prefix = "aggregator."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        pt_agg.load_state_dict(pt_sd, strict=False)
+        return pt_agg
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["aggregator"]})
+
+    @pytest.fixture(scope="class")
+    def frames_and_budget(self):
+        # 4 frames; eviction fires exactly once, on the last frame.
+        rng = np.random.RandomState(91)
+        frames = rng.uniform(0.0, 1.0, size=(4, 3, 518, 518)).astype(np.float32)
+        P = 5 + (518 // 14) ** 2  # 1374
+        depth = 24
+        per_block = 3 * P
+        total_budget = per_block * depth
+        return frames, total_budget, per_block
+
+    @pytest.fixture(scope="class")
+    def pt_run(self, pt_aggregator, frames_and_budget):
+        import torch
+
+        frames, total_budget, _ = frames_and_budget
+        past = [None] * pt_aggregator.depth
+        outs = []
+        sizes = []
+        with torch.no_grad():
+            for i, frame in enumerate(frames):
+                one = torch.from_numpy(frame[None, None])
+                out_list, _, past = pt_aggregator(
+                    one,
+                    past_key_values=past,
+                    use_cache=True,
+                    past_frame_idx=i,
+                    total_budget=total_budget,
+                )
+                outs.append(out_list[-1].cpu().numpy())
+                sizes.append(past[0][0].shape[2])
+        # Convert past to numpy to release PyTorch tensors.
+        past_np = [(k.cpu().numpy(), v.cpu().numpy()) for (k, v) in past]
+        return outs, sizes, past_np
+
+    @pytest.fixture(scope="class")
+    def jx_run(self, jx_params, frames_and_budget):
+        from modules.vggt.jax.aggregator import Aggregator
+
+        frames, total_budget, _ = frames_and_budget
+        past = None
+        outs = []
+        sizes = []
+        for i, frame in enumerate(frames):
+            one = jnp.asarray(frame[None, None])
+            out_list, _, past = Aggregator().apply(
+                jx_params,
+                one,
+                use_cache=True,
+                past_kvs=past,
+                past_frame_idx=i,
+                total_budget=total_budget,
+            )
+            outs.append(np.asarray(out_list[-1]))
+            sizes.append(past[0][0].shape[2])
+        past_np = [(np.asarray(k), np.asarray(v)) for (k, v) in past]
+        return outs, sizes, past_np
+
+    def test_eviction_fires_at_same_frame(self, pt_run, jx_run):
+        """Both implementations should evict starting at frame 3."""
+        _, pt_sizes, _ = pt_run
+        _, jx_sizes, _ = jx_run
+        assert pt_sizes == jx_sizes, (
+            f"cache sizes diverge: PT={pt_sizes} JX={jx_sizes}"
+        )
+        P = 1374
+        expected = [P, 2 * P, 3 * P, 3 * P]
+        assert pt_sizes == expected, f"unexpected sizes: {pt_sizes}"
+
+    def test_retained_kv_matches_pytorch(self, pt_run, jx_run):
+        """After eviction, retained (K, V) must match bit-close — which is
+        equivalent to ``same indices retained`` under the scoring rule."""
+        _, _, pt_past = pt_run
+        _, _, jx_past = jx_run
+
+        for b in [0, 11, 23]:
+            pt_k, pt_v = pt_past[b]
+            jx_k, jx_v = jx_past[b]
+            assert pt_k.shape == jx_k.shape, (b, pt_k.shape, jx_k.shape)
+            max_abs_k = np.max(np.abs(pt_k - jx_k))
+            max_abs_v = np.max(np.abs(pt_v - jx_v))
+            # 3e-3 absorbs accumulated fp32-noise-through-24-blocks rounding.
+            assert max_abs_k <= 3e-3, f"block {b} K mismatch: {max_abs_k:.3e}"
+            assert max_abs_v <= 3e-3, f"block {b} V mismatch: {max_abs_v:.3e}"
+
+    def test_per_frame_output_matches_pytorch(self, pt_run, jx_run):
+        """Final aggregator outputs per frame within the cache tolerance."""
+        pt_outs, _, _ = pt_run
+        jx_outs, _, _ = jx_run
+        for i, (pt, jx) in enumerate(zip(pt_outs, jx_outs)):
+            max_abs = np.max(np.abs(pt - jx))
+            assert max_abs <= ATOL_AGGREGATOR_CACHE_FP32, (
+                f"frame {i} output: max_abs={max_abs:.3e} "
+                f"> {ATOL_AGGREGATOR_CACHE_FP32:.0e}"
+            )
