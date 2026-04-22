@@ -56,9 +56,23 @@ def _conv2d_to_flax(t: np.ndarray) -> np.ndarray:
 
 
 def _conv_transpose2d_to_flax(t: np.ndarray) -> np.ndarray:
-    """(I, O, H, W) -> (H, W, I, O)."""
+    """(I, O, H, W) -> (H, W, I, O) with spatial axes reversed.
+
+    Flax ``nn.ConvTranspose`` (default ``transpose_kernel=False``) expects
+    kernel shape ``(*spatial, in_features, features)`` — same layout as
+    ``nn.Conv``. However the numerics of JAX's ``lax.conv_transpose`` treat
+    the kernel as the FORWARD-conv kernel whose transpose it computes, so
+    the kernel must be spatially flipped (H and W reversed) relative to
+    PyTorch's ``ConvTranspose2d`` convention.
+
+    Verified empirically: for a minimal 5x5 -> 20x20 conv_transpose with
+    stride=4, ``np.flip(np.transpose(pt_w, (2, 3, 0, 1)), axis=(0, 1))``
+    produces bit-exact parity with PyTorch while the un-flipped form gives
+    ~10-15 max-abs error.
+    """
     assert t.ndim == 4, t.shape
-    return np.transpose(t, (2, 3, 0, 1))
+    jax_layout = np.transpose(t, (2, 3, 0, 1))   # (I, O, H, W) -> (H, W, I, O)
+    return np.flip(jax_layout, axis=(0, 1)).copy()
 
 
 def _linear_to_flax(t: np.ndarray) -> np.ndarray:

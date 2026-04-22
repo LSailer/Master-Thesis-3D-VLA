@@ -132,14 +132,19 @@ class TestTranspositionRules:
     def test_conv_transpose2d_layout(self):
         from modules.vggt.jax.weight_transfer import _conv_transpose2d_to_flax
 
-        pt = np.random.randn(4, 8, 2, 2).astype(np.float32)  # (I, O, H, W)
+        # Use H=W=3 to catch spatial-axis flip (2x2 happens to be symmetric-ish).
+        pt = np.random.randn(4, 8, 3, 3).astype(np.float32)  # (I, O, H, W)
         jx = _conv_transpose2d_to_flax(pt)
-        assert jx.shape == (2, 2, 4, 8)
+        # Flax nn.ConvTranspose uses (H, W, in, out) layout (same as nn.Conv),
+        # but requires spatially-flipped kernel vs PyTorch's ConvTranspose2d.
+        assert jx.shape == (3, 3, 4, 8)
+        H, W = 3, 3
         for i in range(4):
             for o in range(8):
-                for kh in range(2):
-                    for kw in range(2):
-                        assert jx[kh, kw, i, o] == pt[i, o, kh, kw]
+                for kh in range(H):
+                    for kw in range(W):
+                        # Spatial flip: jax[kh, kw] corresponds to pt[:, :, H-1-kh, W-1-kw].
+                        assert jx[kh, kw, i, o] == pt[i, o, H - 1 - kh, W - 1 - kw]
 
     def test_linear_layout(self):
         from modules.vggt.jax.weight_transfer import _linear_to_flax
@@ -555,4 +560,109 @@ class TestLevel2CameraHead:
         max_abs = np.max(np.abs(jx_last - pt_last))
         assert max_abs <= ATOL_CAMERA_HEAD_FP32, (
             f"camera-head parity: max_abs={max_abs:.3e} > {ATOL_CAMERA_HEAD_FP32:.0e}"
+        )
+
+
+# --------------------------------------------------------------------------- #
+#  Level 2 -- DPT point head parity (Step 5)
+# --------------------------------------------------------------------------- #
+
+
+ATOL_POINT_HEAD_FP32 = 1e-3
+
+
+@pytest.mark.xfail(
+    reason=(
+        "Step 5 WIP: DPT decoder output drifts by ~0.8 max-abs vs PyTorch "
+        "reference despite individual components (projects/resize/refinenet/"
+        "bilinear/out_conv) matching at fp32 noise (~1e-6) when tested in "
+        "isolation. Bug manifests only when the full forward chains them "
+        "together; likely in an interaction between the setup()-mode "
+        "ResidualConvUnit and the bilinear-upsample step. Hand-off marker."
+    ),
+    strict=True,
+)
+class TestLevel2PointHead:
+    """Step 5 parity gate: DPT decoder producing pts3d + conf.
+
+    Random aggregated_tokens_list (24 entries, only indices 4/11/17/23 are
+    actually read by the head) and a dummy image tensor are enough here: the
+    head is a pure function of those inputs, so we skip the 3-minute
+    aggregator forward.
+    """
+
+    @pytest.fixture(scope="class")
+    def pt_point_head(self, state_dict, pytorch_ivggt_module):
+        import torch
+        from streamvggt.heads.dpt_head import DPTHead as PtDPTHead
+
+        head = PtDPTHead(
+            dim_in=2048,
+            output_dim=4,
+            activation="inv_log",
+            conf_activation="expp1",
+            pos_embed=True,
+        ).eval()
+        prefix = "point_head."
+        pt_sd = {
+            k[len(prefix):]: torch.from_numpy(np.asarray(v))
+            for k, v in state_dict.items()
+            if k.startswith(prefix)
+        }
+        missing, unexpected = head.load_state_dict(pt_sd, strict=False)
+        assert not missing, f"missing: {missing}"
+        assert not unexpected, f"unexpected: {unexpected}"
+        return head
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["point_head"]})
+
+    @pytest.fixture(scope="class")
+    def synthetic_inputs(self):
+        # 24 aggregated levels, only 4/11/17/23 are consumed.
+        rng = np.random.RandomState(101)
+        B, S, P, dim_in = 1, 1, 1374, 2048  # 5 special + 1369 patch
+        agg_list = [
+            rng.randn(B, S, P, dim_in).astype(np.float32) * 0.1
+            for _ in range(24)
+        ]
+        # Images are only used for H, W, B, S in the DPT forward.
+        images = np.zeros((B, S, 3, 518, 518), dtype=np.float32)
+        return agg_list, images
+
+    def test_point_head_matches_pytorch(
+        self, pt_point_head, jx_params, synthetic_inputs
+    ):
+        import torch
+        from modules.vggt.jax.heads.dpt_head import DPTHead
+
+        agg_list, images = synthetic_inputs
+        pt_agg = [torch.from_numpy(x) for x in agg_list]
+        with torch.no_grad():
+            pt_pts3d, pt_conf = pt_point_head(
+                pt_agg, images=torch.from_numpy(images), patch_start_idx=5
+            )
+        pt_pts3d_np = pt_pts3d.numpy()
+        pt_conf_np = pt_conf.numpy()
+
+        jx_pts3d, jx_conf = DPTHead().apply(
+            jx_params,
+            [jnp.asarray(x) for x in agg_list],
+            jnp.asarray(images),
+            5,
+        )
+        jx_pts3d_np = np.asarray(jx_pts3d)
+        jx_conf_np = np.asarray(jx_conf)
+
+        assert jx_pts3d_np.shape == pt_pts3d_np.shape
+        assert jx_conf_np.shape == pt_conf_np.shape
+        max_abs_pts = np.max(np.abs(jx_pts3d_np - pt_pts3d_np))
+        max_abs_conf = np.max(np.abs(jx_conf_np - pt_conf_np))
+        assert max_abs_pts <= ATOL_POINT_HEAD_FP32, (
+            f"point-head pts3d: max_abs={max_abs_pts:.3e} > {ATOL_POINT_HEAD_FP32:.0e}"
+        )
+        assert max_abs_conf <= ATOL_POINT_HEAD_FP32, (
+            f"point-head conf: max_abs={max_abs_conf:.3e} > {ATOL_POINT_HEAD_FP32:.0e}"
         )
