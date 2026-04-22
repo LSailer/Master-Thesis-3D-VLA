@@ -571,17 +571,6 @@ class TestLevel2CameraHead:
 ATOL_POINT_HEAD_FP32 = 1e-3
 
 
-@pytest.mark.xfail(
-    reason=(
-        "Step 5 WIP: DPT decoder output drifts by ~0.8 max-abs vs PyTorch "
-        "reference despite individual components (projects/resize/refinenet/"
-        "bilinear/out_conv) matching at fp32 noise (~1e-6) when tested in "
-        "isolation. Bug manifests only when the full forward chains them "
-        "together; likely in an interaction between the setup()-mode "
-        "ResidualConvUnit and the bilinear-upsample step. Hand-off marker."
-    ),
-    strict=True,
-)
 class TestLevel2PointHead:
     """Step 5 parity gate: DPT decoder producing pts3d + conf.
 
