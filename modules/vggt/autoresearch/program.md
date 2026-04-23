@@ -107,7 +107,7 @@ LOOP FOREVER. Each iteration is exactly 8 steps:
    ```
    uv run pytest modules/vggt/tests/test_jax_parity.py::TestLevel1WeightTransfer modules/vggt/tests/test_jax_parity.py::TestLevel2SharedBlockParity -q
    ```
-   If fail: `git reset --hard HEAD`, append a `crash_parity` row, return to step 1.
+   If fail: `git restore modules/vggt/jax/`, append a `crash_parity` row, return to step 1.
 4. **Bench.**
    ```
    uv run python -m modules.vggt.autoresearch.bench_fast > run.log 2>&1
@@ -116,15 +116,15 @@ LOOP FOREVER. Each iteration is exactly 8 steps:
    ```
    grep "^speedup:\|^jax_median_ms:\|^peak_mem_mb:" run.log
    ```
-   If the grep is empty, the run crashed. Run `tail -n 50 run.log`, attempt ONE fix, re-run. If still broken: `git reset --hard HEAD`, append a `crash_bench` row, return to step 1.
+   If the grep is empty, the run crashed. Run `tail -n 50 run.log`, attempt ONE fix, re-run. If still broken: `git restore modules/vggt/jax/`, append a `crash_bench` row, return to step 1.
 6. **Compare vs best.** Find the best `speedup` value (column 4) across all `keep` rows in `results.tsv` so far.
-   - If `new_speedup <= best_speedup * 1.02`: `git reset --hard HEAD`, append a `discard` row, return to step 1.
+   - If `new_speedup <= best_speedup * 1.02`: `git restore modules/vggt/jax/`, append a `discard` row, return to step 1.
    - Else continue.
 7. **Full parity gate.**
    ```
    uv run pytest modules/vggt/tests/ -q
    ```
-   If fail: `git reset --hard HEAD`, append a `crash_full` row, return to step 1.
+   If fail: `git restore modules/vggt/jax/`, append a `crash_full` row, return to step 1.
 8. **Commit + log.** `git commit -am "<concise description>"`. Append a `keep` row to `results.tsv`. Return to step 1.
 
 The idea is that you are a completely autonomous researcher trying things out. If they work, keep. If they don't, discard. You are advancing the branch so that you can iterate.
@@ -165,7 +165,19 @@ Verify that the n=10 and n=100 medians have not regressed more than 20% vs the b
 
 ## Timeout
 
-Each experiment should take a few minutes total. If a run exceeds 10 minutes, kill it and treat it as a failure (discard and revert).
+Each experiment should take a few minutes total. The outer SLURM wrapper enforces a **hard 15-minute cap per iteration via `timeout(1)`** — if your iteration exceeds 900 seconds, the outer process will kill your invocation and advance. Within an iteration, if a single pytest / bench call has been running for more than 8 minutes, kill it yourself, treat it as a failure (discard and revert via `git restore modules/vggt/jax/`), and move on.
+
+## JIT compilation — expect a one-time cost
+
+First-time `jax.jit` compilation of the full aggregator at `matmul_precision=highest` on an H100 can take **5-15 minutes** (XLA tracing, HLO optimization, kernel selection). This cost is real but amortized across subsequent invocations. Two rules to keep jit experiments inside the 15-min iteration cap:
+
+- **AOT-compile inside the extractor's `__init__` or a one-time warmup, NOT inside the timed bench.** Idiom:
+  ```python
+  self._fn = jax.jit(self._forward)
+  # Warmup call with a dummy input so compilation happens before anything timed
+  _ = self._fn(dummy_input).block_until_ready()
+  ```
+- **The fast parity gate also triggers compilation** (once, on the first test that hits a new shape). Its ~45s budget assumes eager. When you enable jit, the first fast-gate run may take 5-10 min — this is expected and doesn't count as a "slow experiment."
 
 ## Crashes
 

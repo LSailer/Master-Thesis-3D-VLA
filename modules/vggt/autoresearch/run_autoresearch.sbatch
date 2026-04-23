@@ -43,15 +43,21 @@ TIME_LIMIT_SECONDS="${TIME_LIMIT_SECONDS:-100000}"
 ITER=0
 PROMPT="Read modules/vggt/autoresearch/program.md and execute ONE iteration of the experiment loop. Commit or reset based on results. Return when the iteration is complete."
 
+ITER_TIMEOUT_SECONDS="${ITER_TIMEOUT_SECONDS:-900}"   # 15 min hard cap per iteration
 while [ $SECONDS -lt $TIME_LIMIT_SECONDS ]; do
     ITER=$((ITER+1))
+    ITER_LOG="output/autoresearch/iter-${SLURM_JOB_ID}-${ITER}.log"
     echo ""
-    echo "=== Iteration $ITER at $(date) (elapsed: ${SECONDS}s) ==="
-    if claude -p --dangerously-skip-permissions "$PROMPT"; then
+    echo "=== Iteration $ITER at $(date) (elapsed: ${SECONDS}s, log: $ITER_LOG) ==="
+    if timeout "$ITER_TIMEOUT_SECONDS" claude -p --dangerously-skip-permissions "$PROMPT" > "$ITER_LOG" 2>&1; then
         echo "Iteration $ITER returned 0"
     else
         RC=$?
-        echo "Iteration $ITER returned non-zero ($RC) - continuing"
+        if [ "$RC" -eq 124 ]; then
+            echo "Iteration $ITER TIMEOUT after ${ITER_TIMEOUT_SECONDS}s - continuing (see $ITER_LOG)"
+        else
+            echo "Iteration $ITER returned non-zero ($RC) - continuing (see $ITER_LOG)"
+        fi
     fi
 done
 
