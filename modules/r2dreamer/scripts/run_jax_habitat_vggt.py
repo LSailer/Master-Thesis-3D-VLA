@@ -65,7 +65,14 @@ def main():
                         help="Path to pre-collected val .npz for val loss")
     parser.add_argument("--val_loss_every", type=int, default=10_000,
                         help="Compute val loss every N steps")
+    parser.add_argument("--resume_from", type=str, default=None,
+                        help="Path to a checkpoint .pkl to restore agent state from")
+    parser.add_argument("--wandb_id", type=str, default=None,
+                        help="W&B run-id to reattach to (resume='must')")
     args = parser.parse_args()
+
+    if args.resume_from is not None and not os.path.exists(args.resume_from):
+        sys.exit(f"--resume_from path does not exist: {args.resume_from}")
 
     # --- Config (VGGT encoder) ---
     config = R2DreamerConfig(
@@ -123,8 +130,10 @@ def main():
             wandb_project=args.wandb_project,
             wandb_name=args.wandb_name,
             wandb_tags=tags,
+            wandb_id=args.wandb_id,
             val_data=args.val_data,
             val_loss_every=args.val_loss_every,
+            resume_from=args.resume_from,
         ),
         obs_adapter=VGGTObsAdapter(extractor),
         episode_metrics_fn=hab["episode_metrics_fn"],
