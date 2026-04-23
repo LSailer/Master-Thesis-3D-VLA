@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=vggt-autoresearch-smoke
-#SBATCH --partition=gpu_h100
+#SBATCH --partition=dev_gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
