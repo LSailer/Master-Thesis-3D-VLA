@@ -37,7 +37,9 @@ case "$CUR_BRANCH" in
 esac
 
 # Outer loop: call claude -p until time runs out.
-TIME_LIMIT_SECONDS=100000   # 27.7h, leaves 2.3h headroom on 30h allocation
+# TIME_LIMIT_SECONDS can be overridden via --export=ALL,TIME_LIMIT_SECONDS=... at submit time
+# (e.g. 1500 for a 25-min shake-out on dev_gpu_h100). Default 100000 = 27.7h on a 30h allocation.
+TIME_LIMIT_SECONDS="${TIME_LIMIT_SECONDS:-100000}"
 ITER=0
 PROMPT="Read modules/vggt/autoresearch/program.md and execute ONE iteration of the experiment loop. Commit or reset based on results. Return when the iteration is complete."
 
