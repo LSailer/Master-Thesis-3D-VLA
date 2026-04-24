@@ -10,7 +10,31 @@ import pytest
 
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.r2dreamer.agent import R2DreamerAgent
-from modules.r2dreamer.trainer import convert_batch, save_checkpoint, load_checkpoint
+from modules.r2dreamer.trainer import (
+    Trainer,
+    TrainerConfig,
+    convert_batch,
+    load_checkpoint,
+    save_checkpoint,
+)
+
+
+class _DummyEnv:
+    """Minimal env stub — Trainer.__init__ does not call any of these methods."""
+
+    def reset(self) -> dict:
+        return {"image": np.zeros((3, 64, 64), dtype=np.uint8), "is_first": True}
+
+    def step(self, action: int) -> dict:
+        return {
+            "image": np.zeros((3, 64, 64), dtype=np.uint8),
+            "reward": 0.0,
+            "done": False,
+            "success": 0.0,
+        }
+
+    def close(self) -> None:
+        pass
 
 
 class TestConvertBatch:
@@ -102,4 +126,75 @@ class TestCheckpoint:
             jax.tree.map(
                 lambda a, b: np.testing.assert_allclose(a, b, atol=1e-6),
                 agent.slow_critic_params, data["slow_critic_params"],
+            )
+
+
+class TestResume:
+    """Trainer with resume_from restores agent state and offsets the step counter."""
+
+    @pytest.fixture
+    def cfg(self):
+        return R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+
+    @pytest.fixture
+    def saved_agent(self, cfg, tmp_path):
+        """Build an agent, save its checkpoint, return (agent, ckpt_path, step)."""
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        step = 12345
+        ckpt_path = save_checkpoint(agent, step=step, output_dir=str(tmp_path))
+        return agent, ckpt_path, step
+
+    def test_resume_restores_params_and_step(self, cfg, saved_agent, tmp_path):
+        original, ckpt_path, step = saved_agent
+
+        # Build a fresh agent with a different init seed so its weights differ.
+        fresh = R2DreamerAgent(cfg, jax.random.PRNGKey(99))
+        before = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
+        target = [np.asarray(x) for x in jax.tree.leaves(original.params)]
+        assert not all(np.allclose(a, b) for a, b in zip(before, target))
+
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=step + 1,
+            wandb_project=None,
+            resume_from=ckpt_path,
+        )
+        trainer = Trainer(
+            agent=fresh, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
+        )
+
+        assert trainer._resume_step == step
+        after_params = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
+        for a, b in zip(after_params, target):
+            np.testing.assert_allclose(a, b, atol=1e-6)
+        for a, b in zip(jax.tree.leaves(fresh.slow_critic_params),
+                        jax.tree.leaves(original.slow_critic_params)):
+            np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-6)
+        np.testing.assert_allclose(
+            np.asarray(fresh.ema_state), np.asarray(original.ema_state), atol=1e-6,
+        )
+
+    def test_no_resume_keeps_step_zero(self, cfg, tmp_path):
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+        )
+        trainer = Trainer(
+            agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
+        )
+        assert trainer._resume_step == 0
+
+    def test_missing_resume_path_raises(self, cfg, tmp_path):
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+            resume_from=str(tmp_path / "nope.pkl"),
+        )
+        with pytest.raises(FileNotFoundError):
+            Trainer(
+                agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
             )

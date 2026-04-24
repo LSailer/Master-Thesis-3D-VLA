@@ -123,10 +123,17 @@ class TrainerConfig:
     wandb_project: str | None = "3d-vla-objectnav"
     wandb_name: str | None = None
     wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
+    # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
+    wandb_id: str | None = None
 
     # Validation (None = disabled)
     val_data: str | None = None
     val_loss_every: int = 10_000
+
+    # Resume from checkpoint (.pkl produced by save_checkpoint). When set,
+    # restores agent.{params, opt_state, slow_critic_params, ema_state} and
+    # offsets the train loop to start at the checkpoint's step.
+    resume_from: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -221,17 +228,42 @@ class Trainer:
             normalize_obs=self.obs_adapter.normalize_on_sample,
         ))
 
+        # Resume from checkpoint (overwrite freshly-initialised agent state).
+        self._resume_step = 0
+        if trainer_config.resume_from is not None:
+            if not os.path.exists(trainer_config.resume_from):
+                raise FileNotFoundError(
+                    f"resume_from points at non-existent path: {trainer_config.resume_from}"
+                )
+            state = load_checkpoint(trainer_config.resume_from)
+            self.agent.params = jax.tree.map(jnp.asarray, state["params"])
+            self.agent.opt_state = jax.tree.map(jnp.asarray, state["opt_state"])
+            self.agent.slow_critic_params = jax.tree.map(
+                jnp.asarray, state["slow_critic_params"]
+            )
+            self.agent.ema_state = jax.tree.map(jnp.asarray, state["ema_state"])
+            self._resume_step = int(state["step"])
+            print(
+                f"Resumed agent state from {trainer_config.resume_from} "
+                f"at step {self._resume_step}"
+            )
+
         # Optional WandB
         self._wandb = None
         if trainer_config.wandb_project is not None:
             import wandb
             self._wandb = wandb
-            wandb.init(
+            init_kwargs: dict[str, Any] = dict(
                 project=trainer_config.wandb_project,
                 name=trainer_config.wandb_name,
                 config=vars(agent_config) if hasattr(agent_config, "__dict__") else {},
                 tags=trainer_config.wandb_tags,
             )
+            if trainer_config.wandb_id is not None:
+                # resume="must" fails loudly if the run-id does not exist,
+                # which is what we want — silent re-creation orphans runs.
+                init_kwargs.update(id=trainer_config.wandb_id, resume="must")
+            wandb.init(**init_kwargs)
 
         # Optional val dataset
         self._val_dataset = None
@@ -251,11 +283,21 @@ class Trainer:
 
         rng_key = jax.random.PRNGKey(tcfg.seed)
 
-        with open(csv_path, "w", newline="") as f:
+        # Append to existing CSV when resuming so the prior rows survive.
+        is_resume = self._resume_step > 0
+        csv_mode = "a" if is_resume else "w"
+        with open(csv_path, csv_mode, newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(["step", "metric", "value"])
+            if not is_resume:
+                writer.writerow(["step", "metric", "value"])
 
-            self._prefill(rng_key, writer, f)
+            if is_resume:
+                # Skip random prefill — the trained policy collects on-policy
+                # transitions in _train_loop until buffer >= batch_steps.
+                # env.reset() / extractor.reset() fire at _train_loop entry.
+                print(f"Resume mode: skipping prefill, jumping to step {self._resume_step}")
+            else:
+                self._prefill(rng_key, writer, f)
             rng_key = self._train_loop(rng_key, writer, f)
 
         save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
@@ -302,7 +344,8 @@ class Trainer:
     def _train_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
 
-        print(f"Training for {tcfg.total_steps} steps...")
+        start_step = self._resume_step
+        print(f"Training from step {start_step} to {tcfg.total_steps}...")
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
@@ -317,7 +360,7 @@ class Trainer:
         train_credit = 0.0
         metrics: dict[str, Any] = {}
 
-        for step in range(tcfg.total_steps):
+        for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(agent_obs, act_key)
             next_obs = self.env.step(action)
@@ -415,7 +458,8 @@ class Trainer:
             self._wandb.log(metrics, step=step)
 
         elapsed = time.time() - self._t0
-        fps = (step + 1) / elapsed if elapsed > 0 else 0
+        steps_this_run = step + 1 - self._resume_step
+        fps = steps_this_run / elapsed if elapsed > 0 else 0
         print(
             f"[step {step:>8d}/{self.tcfg.total_steps}] "
             f"total={metrics.get('total_loss', 0):.3f} "

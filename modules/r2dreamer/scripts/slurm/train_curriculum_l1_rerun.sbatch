@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=r2d-L1-rerun-spl
+#SBATCH --job-name=r2d-L1-rerun-buffix
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
@@ -20,9 +20,10 @@ if [ ! -f data/curriculum/level1_1house_1goal.json ]; then
     uv run python modules/envs/scripts/generate_curriculum.py
 fi
 
-# Level 1 re-run: same config as L1 but with enhanced SPL logging
-# 1 house (fK2vEV32Lag), chair only, 7499 train episodes
-# 2.4M steps, single scene = focused learning
+# Level 1 re-run with buffer bug fixes:
+# - write-head crossing fix (no corrupted sequences after buffer wraps)
+# - ema_state checkpoint fix (return normalization preserved on resume)
+# Same config as original L1 baseline (2.4M steps, 1 house, chair only)
 uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --steps 2400000 \
     --prefill 5000 \
@@ -31,8 +32,8 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --seed "${SLURM_JOB_ID}" \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
-    --wandb_name "r2d-L1-rerun-spl-${SLURM_JOB_ID}" \
-    --wandb_tags "curriculum,level1,1house,chair-only,spl-analysis,rerun" \
+    --wandb_name "r2d-L1-buffix-${SLURM_JOB_ID}" \
+    --wandb_tags "curriculum,level1,1house,chair-only,buffer-fix,rerun" \
     --curriculum_path data/curriculum/level1_1house_1goal.json \
     --curriculum_mode train \
     --val_data data/val_replay/val_200ep.npz \
