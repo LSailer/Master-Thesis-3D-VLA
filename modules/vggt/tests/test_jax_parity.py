@@ -1253,3 +1253,141 @@ class TestLevel3DynamicBudget:
             max_abs_v = np.max(np.abs(pt_v[:, :, :P] - jx_v[:, :, :P]))
             assert max_abs_k <= 3e-3, f"block {b} anchor K: {max_abs_k:.3e}"
             assert max_abs_v <= 3e-3, f"block {b} anchor V: {max_abs_v:.3e}"
+
+
+# --------------------------------------------------------------------------- #
+#  Level 3: padded-vs-legacy KV-cache parity
+# --------------------------------------------------------------------------- #
+
+# The JAXVGGTFeatureExtractor uses a fixed-size padded 3-tuple cache
+# (k_pad, v_pad, valid_len) so the aggregator can be jitted once and reused.
+# The existing Level-3 tests above all use past_kvs=None and therefore only
+# exercise the legacy 2-tuple growing path. These tests lock the padded path
+# to the legacy path's numerics so layout/reshape/mask regressions surface
+# at a small block-level unit instead of only the 4-min integration test.
+ATOL_PADDED_VS_LEGACY_FP32 = 1e-5
+
+
+class TestLevel3PaddedCacheParity:
+    """Padded 3-tuple cache must match legacy 2-tuple cache bit-for-bit.
+
+    Both paths implement the same math — attention over [past tokens | new
+    tokens]. The padded path pre-allocates a fixed buffer and masks invalid
+    slots; the legacy path grows a list by concat. With no eviction, the
+    two must produce identical output and identical stored K/V (at the
+    valid prefix).
+    """
+
+    @pytest.fixture(scope="class")
+    def block_setup(self):
+        from modules.vggt.jax.block import Block
+
+        dim = 64
+        num_heads = 4
+        head_dim = dim // num_heads
+        N = 8
+        block = Block(
+            dim=dim, num_heads=num_heads, mlp_ratio=2.0,
+            qk_norm=False, init_values=None,
+        )
+        rng_key = jax.random.PRNGKey(0)
+        x_init = jnp.zeros((1, N, dim), dtype=jnp.float32)
+        params = block.init(rng_key, x_init, use_cache=False)
+        return dict(block=block, params=params, dim=dim, num_heads=num_heads,
+                    head_dim=head_dim, N=N)
+
+    def _empty_padded(self, B, H, MAX, Dh, dtype=jnp.float32):
+        return (
+            jnp.zeros((B, H, MAX, Dh), dtype=dtype),
+            jnp.zeros((B, H, MAX, Dh), dtype=dtype),
+            jnp.asarray(0, dtype=jnp.int32),
+        )
+
+    def test_single_frame_padded_matches_legacy(self, block_setup):
+        """Frame 0, no prior cache — padded and legacy must give identical output.
+
+        This is the exact case that caught the (0,2,1,3) transpose bug in
+        _padded_cache_forward's output reshape.
+        """
+        block = block_setup["block"]
+        params = block_setup["params"]
+        N, H, Dh = block_setup["N"], block_setup["num_heads"], block_setup["head_dim"]
+        MAX = 64
+        cache_budget = 48
+
+        x = jax.random.normal(jax.random.PRNGKey(42), (1, N, block_setup["dim"]),
+                               dtype=jnp.float32)
+
+        out_legacy, kv_legacy, _ = block.apply(
+            params, x, past_kv=None, use_cache=True,
+            cache_budget=cache_budget, num_anchor_tokens=0,
+        )
+        out_padded, kv_padded, _ = block.apply(
+            params, x, past_kv=self._empty_padded(1, H, MAX, Dh),
+            use_cache=True, cache_budget=cache_budget, num_anchor_tokens=0,
+        )
+
+        max_abs = np.max(np.abs(np.asarray(out_legacy) - np.asarray(out_padded)))
+        assert max_abs <= ATOL_PADDED_VS_LEGACY_FP32, (
+            f"single-frame output drift: {max_abs:.3e} > {ATOL_PADDED_VS_LEGACY_FP32:.0e}"
+        )
+        # Stored K/V must also match at the valid prefix.
+        k_leg, v_leg = kv_legacy
+        k_pad, v_pad, vl = kv_padded
+        vl_int = int(np.asarray(vl))
+        assert vl_int == N, (vl_int, N)
+        np.testing.assert_allclose(np.asarray(k_leg), np.asarray(k_pad[:, :, :N]),
+                                    atol=ATOL_PADDED_VS_LEGACY_FP32)
+        np.testing.assert_allclose(np.asarray(v_leg), np.asarray(v_pad[:, :, :N]),
+                                    atol=ATOL_PADDED_VS_LEGACY_FP32)
+
+    def test_streaming_rollout_padded_matches_legacy(self, block_setup):
+        """5-frame rollout, no eviction — padded must match legacy at every frame.
+
+        Catches incremental-write bugs (off-by-one in valid_len, wrong
+        dynamic_update_slice offset, stale mask) that single-frame misses.
+        """
+        block = block_setup["block"]
+        params = block_setup["params"]
+        N, H, Dh = block_setup["N"], block_setup["num_heads"], block_setup["head_dim"]
+        n_frames = 5
+        # Budget > total tokens so eviction never fires (this test is about
+        # the write + masked-read path, not eviction).
+        cache_budget = n_frames * N + 4
+        MAX = cache_budget + N  # room for one more append before any evict
+
+        rng = jax.random.PRNGKey(7)
+        xs = [jax.random.normal(k, (1, N, block_setup["dim"]), dtype=jnp.float32)
+              for k in jax.random.split(rng, n_frames)]
+
+        legacy_past = None
+        padded_past = self._empty_padded(1, H, MAX, Dh)
+        for i, x in enumerate(xs):
+            out_l, legacy_past, _ = block.apply(
+                params, x, past_kv=legacy_past, use_cache=True,
+                cache_budget=cache_budget, num_anchor_tokens=0,
+            )
+            out_p, padded_past, _ = block.apply(
+                params, x, past_kv=padded_past, use_cache=True,
+                cache_budget=cache_budget, num_anchor_tokens=0,
+            )
+            max_abs = np.max(np.abs(np.asarray(out_l) - np.asarray(out_p)))
+            assert max_abs <= ATOL_PADDED_VS_LEGACY_FP32, (
+                f"frame {i} output drift: {max_abs:.3e} > {ATOL_PADDED_VS_LEGACY_FP32:.0e}"
+            )
+            # Valid prefix of the padded K/V must equal the legacy K/V.
+            k_leg, v_leg = legacy_past
+            k_pad, v_pad, vl = padded_past
+            vl_int = int(np.asarray(vl))
+            expected_vl = (i + 1) * N
+            assert vl_int == expected_vl, (i, vl_int, expected_vl)
+            np.testing.assert_allclose(
+                np.asarray(k_leg), np.asarray(k_pad[:, :, :expected_vl]),
+                atol=ATOL_PADDED_VS_LEGACY_FP32,
+                err_msg=f"frame {i} K prefix mismatch",
+            )
+            np.testing.assert_allclose(
+                np.asarray(v_leg), np.asarray(v_pad[:, :, :expected_vl]),
+                atol=ATOL_PADDED_VS_LEGACY_FP32,
+                err_msg=f"frame {i} V prefix mismatch",
+            )

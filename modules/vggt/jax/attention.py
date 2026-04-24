@@ -318,8 +318,10 @@ class Attention(nn.Module):
                 scale=scale, is_causal=False,
                 mask=mask_xla, implementation='xla',
             )
-        out = jnp.transpose(out_tnhd, (0, 2, 1, 3)).astype(q.dtype)
-        out = out.reshape(B, N, self.dim)
+        # out_tnhd is already (B, N, H, Dh) from jax.nn.dot_product_attention;
+        # the legacy path's transpose is for its (B, H, N, Dh) einsum output —
+        # reapplying it here mixes heads across sequence positions.
+        out = out_tnhd.astype(q.dtype).reshape(B, N, self.dim)
         out = nn.Dense(self.dim, use_bias=self.proj_bias, name="proj")(out)
 
         new_kv = (k_pad, v_pad, new_valid_len)
