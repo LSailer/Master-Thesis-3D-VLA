@@ -47,7 +47,7 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = [
-    "modules/dreamerv3/tests",
+    "modules/shared/tests",
     "modules/r2dreamer/tests",
     "modules/envs/tests",
     "modules/vggt/tests",

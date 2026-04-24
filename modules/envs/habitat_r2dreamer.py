@@ -5,7 +5,7 @@ import numpy as np
 class HabitatR2DreamerEnv:
     def __init__(self, obs_size=64, split="train", max_episode_steps=500,
                  max_geodesic=None, reward_type="geodesic_delta"):
-        from modules.dreamerv3.configs import DreamerConfig
+        from modules.shared.configs import DreamerConfig
         from modules.envs.habitat import HabitatObjectNavEnv
         config = DreamerConfig(
             obs_shape=(3, obs_size, obs_size),

@@ -13,7 +13,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
 
 

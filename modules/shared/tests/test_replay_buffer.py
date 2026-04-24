@@ -6,7 +6,7 @@ import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from modules.dreamerv3.replay_buffer import ReplayBuffer, BufferConfig, ValReplayDataset
+from modules.shared.replay_buffer import ReplayBuffer, BufferConfig, ValReplayDataset
 
 
 class TestBufferConfig:

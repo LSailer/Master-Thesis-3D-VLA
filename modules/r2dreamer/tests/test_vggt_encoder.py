@@ -7,7 +7,7 @@ import pytest
 
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.r2dreamer.networks import VGGTEncoder
-from modules.dreamerv3.replay_buffer import VGGTReplayBuffer
+from modules.shared.replay_buffer import VGGTReplayBuffer
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9

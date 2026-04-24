@@ -24,7 +24,7 @@ from .networks import (
     ReturnEMA,
     R2TwoHotDist,
 )
-from modules.dreamerv3.optim import laprop, agc
+from modules.shared.optim import laprop, agc
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import optax
 import pytest
 
-from modules.dreamerv3.optim import laprop, agc
+from modules.shared.optim import laprop, agc
 
 
 class TestLaProp:

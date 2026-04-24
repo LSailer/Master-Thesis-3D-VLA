@@ -25,8 +25,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.dreamerv3.configs import DreamerConfig
-from modules.dreamerv3.replay_buffer import BufferConfig, ReplayBuffer
+from modules.shared.configs import DreamerConfig
+from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 from modules.envs.habitat import HabitatObjectNavEnv
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig

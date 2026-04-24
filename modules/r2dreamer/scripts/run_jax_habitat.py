@@ -11,7 +11,7 @@ import jax
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
 
 

@@ -14,7 +14,7 @@ from modules.r2dreamer.config import R2DreamerConfig
 from modules.r2dreamer.trainer import (
     Trainer, TrainerConfig, ObsAdapter, habitat_defaults,
 )
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
 from modules.vggt.feature_extractor import VGGTFeatureExtractor
 

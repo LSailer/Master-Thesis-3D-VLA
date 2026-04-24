@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 import numpy as np
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv, GOAL_RADIUS
 
 

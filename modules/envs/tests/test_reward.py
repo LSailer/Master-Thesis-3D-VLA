@@ -5,7 +5,7 @@ with only the fields _compute_reward() depends on.
 """
 
 import pytest
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
 
 

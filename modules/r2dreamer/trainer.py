@@ -18,7 +18,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.dreamerv3.replay_buffer import BufferConfig, ReplayBuffer
+from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +268,7 @@ class Trainer:
         # Optional val dataset
         self._val_dataset = None
         if trainer_config.val_data is not None:
-            from modules.dreamerv3.replay_buffer import ValReplayDataset
+            from modules.shared.replay_buffer import ValReplayDataset
             self._val_dataset = ValReplayDataset(
                 trainer_config.val_data,
                 normalize=self.obs_adapter.normalize_on_sample,

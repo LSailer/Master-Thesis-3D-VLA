@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from modules.dreamerv3.configs import DreamerConfig
+from modules.shared.configs import DreamerConfig
 
 # Discrete actions: STOP is a no-op (no movement), kept for action-space parity
 ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
