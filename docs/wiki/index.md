@@ -15,6 +15,7 @@
 - [World Model Training Loop](methods/world-model-training-loop.md) — How 64-step windows, 15-step imagination, and full episodes fit together
 - [Training Orchestration](methods/training-orchestration.md) — Unified buffer, Trainer module, ObsAdapter pattern (RFC #68)
 - [L4 Pipeline Profiling](methods/l4-profiling.md) — VGGT vs CNN per-phase timing on H100; vggt_forward = 168ms p50 dominates; PyTorch↔JAX boundary is 0.4ms (not the bottleneck)
+- [VGGT JAX Streaming](methods/vggt-jax-streaming.md) — Padded 3-tuple KV-cache + jit pattern; closes JAX vs PT gap from 24× to 1.9×; #80 (aggregator) + #81 (camera_head)
 
 ## Meetings
 
