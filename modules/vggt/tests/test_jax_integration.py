@@ -97,6 +97,22 @@ class TestJAXFeatureExtractorContract:
         out2 = extractor.extract(_make_frame(seed=11))
         assert not np.allclose(out2["camera_pose"], 0.0, atol=1e-6)
 
+    def test_camera_cache_overflow_raises(self):
+        """Extracting past max_camera_frames must raise, not silently corrupt.
+
+        Configures a fresh extractor with ``max_camera_frames=3`` (so
+        ``_CAM_MAX = 3 × num_iterations = 12``).  Three calls succeed;
+        the fourth must raise ``RuntimeError``.
+        """
+        from modules.vggt.jax import JAXVGGTFeatureExtractor
+
+        ext = JAXVGGTFeatureExtractor(device="cuda", max_camera_frames=3)
+        ext.reset()
+        for i in range(3):
+            ext.extract(_make_frame(seed=500 + i))
+        with pytest.raises(RuntimeError, match="Camera-head padded cache overflow"):
+            ext.extract(_make_frame(seed=599))
+
 
 @both
 class TestJAXvsPyTorchExtractor:

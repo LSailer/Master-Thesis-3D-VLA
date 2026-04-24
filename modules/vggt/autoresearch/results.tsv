@@ -1,0 +1,4 @@
+commit	jax_ms	pt_ms	speedup	parity_maxabs	peak_mem_gb	status	description
+36ed897	4698.51	72.19	0.015	n/a	0.0	baseline	eager fp32 baseline (Step 8 HEAD)
+3e70454	5075.30	72.19	0.014	n/a	0.0	discard	jax.nn.dot_product_attention (no JIT; eager dispatch dominates)
+2021315	137.64	72.19	0.524	1.141e-02	0.0	promote	jit camera_head + padded KV-cache (closes #81)

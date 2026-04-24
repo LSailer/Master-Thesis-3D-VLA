@@ -72,6 +72,7 @@ class JAXVGGTFeatureExtractor:
         compile: bool = False,
         total_budget: int = _DEFAULT_TOTAL_BUDGET,
         dtype: Any = jnp.bfloat16,
+        max_camera_frames: int = 1024,
     ):
         if device in ("cuda", "gpu"):
             self._device = jax.devices("gpu")[0]
@@ -110,6 +111,15 @@ class JAXVGGTFeatureExtractor:
         # Heads / head-dim from aggregator defaults.
         self._num_heads = self._aggregator.num_heads
         self._head_dim = self._aggregator.embed_dim // self._num_heads
+
+        # Camera-head padded cache dims.  The camera head has its own
+        # num_heads/dim_in (16 × 2048) and no eviction: each frame appends
+        # num_iterations tokens to every trunk block's cache.  _CAM_MAX
+        # therefore bounds the worst-case episode length.
+        self._cam_num_heads = self._camera_head.num_heads
+        self._cam_head_dim = self._camera_head.dim_in // self._cam_num_heads
+        self._cam_num_iters = self._camera_head.num_iterations
+        self._CAM_MAX = max_camera_frames * self._cam_num_iters
 
         # Point head JIT (unchanged from previous version).
         def _point_head_fn(params, out_list, images, psi):
@@ -151,6 +161,19 @@ class JAXVGGTFeatureExtractor:
             _agg_fn, static_argnums=(3, 4, 6, 7)
         )
 
+        # JIT-wrap camera-head apply.  Past KVs are padded 3-tuples with
+        # fixed MAX → graph is shape-stable across frames, no static args
+        # required (a single compile covers frame 0 and frame N alike).
+        def _cam_fn(params, out_list, past_kvs_camera):
+            return self._camera_head.apply(
+                params,
+                out_list,
+                use_cache=True,
+                past_kvs_camera=past_kvs_camera,
+            )
+
+        self._camera_head_apply = jax.jit(_cam_fn)
+
         self.reset()
 
         # AOT warmup: compile for frame 0 (past_kvs=None → padded init with
@@ -170,6 +193,20 @@ class JAXVGGTFeatureExtractor:
         )
         v_pad = jnp.zeros(
             (B, self._num_heads, self._MAX, self._head_dim),
+            dtype=self._dtype,
+        )
+        valid_len = jnp.asarray(0, dtype=jnp.int32)
+        return (k_pad, v_pad, valid_len)
+
+    def _new_padded_camera_entry(self) -> tuple:
+        """Allocate a zero-padded camera-head (k, v, valid_len=0) entry."""
+        B = 1
+        k_pad = jnp.zeros(
+            (B, self._cam_num_heads, self._CAM_MAX, self._cam_head_dim),
+            dtype=self._dtype,
+        )
+        v_pad = jnp.zeros(
+            (B, self._cam_num_heads, self._CAM_MAX, self._cam_head_dim),
             dtype=self._dtype,
         )
         valid_len = jnp.asarray(0, dtype=jnp.int32)
@@ -211,6 +248,16 @@ class JAXVGGTFeatureExtractor:
             last1, True, bud0,
         )
         out1[0][-1].block_until_ready()
+
+        # Camera-head warmup: single graph covers all frames since the padded
+        # cache keeps shapes stable regardless of valid_len.
+        past_cam0 = [
+            self._new_padded_camera_entry() for _ in range(self._cam_depth)
+        ]
+        pose_list_w, _ = self._camera_head_apply(
+            self._cam_params, out0[0], past_cam0
+        )
+        pose_list_w[-1].block_until_ready()
 
     # ------------------------------------------------------------------
     # Public cache view (_past_kvs property).
@@ -309,11 +356,24 @@ class JAXVGGTFeatureExtractor:
             )
         )
 
-        pose_list, self._past_kvs_camera = self._camera_head.apply(
+        if self._past_kvs_camera is None:
+            self._past_kvs_camera = [
+                self._new_padded_camera_entry() for _ in range(self._cam_depth)
+            ]
+        # Guard against silent cache overflow: dynamic_update_slice_in_dim
+        # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
+        # produces undefined cuDNN behavior.  Fail loud here instead.
+        max_frames = self._CAM_MAX // self._cam_num_iters
+        if self._frame_idx >= max_frames:
+            raise RuntimeError(
+                f"Camera-head padded cache overflow: cannot extract frame "
+                f"{self._frame_idx + 1}, max_camera_frames={max_frames}. "
+                f"Raise max_camera_frames at construction or call reset()."
+            )
+        pose_list, self._past_kvs_camera = self._camera_head_apply(
             self._cam_params,
             out_list,
-            use_cache=True,
-            past_kvs_camera=self._past_kvs_camera,
+            self._past_kvs_camera,
         )
         pose_enc = pose_list[-1]
         camera_pose = pose_enc[:, 0, :]

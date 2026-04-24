@@ -94,12 +94,17 @@ def _profile_one_frame(ext: JAXVGGTFeatureExtractor, rgb: np.ndarray) -> dict[st
     t["aggregator"] = (time.perf_counter() - t0) * 1000.0
 
     # 3. Camera head (iterative refiner + its own cache).
+    # Routes through the extractor's jitted wrapper with padded 3-tuple
+    # cache so we measure the real streaming-path cost.
     t0 = time.perf_counter()
-    pose_list, ext._past_kvs_camera = ext._camera_head.apply(
+    if ext._past_kvs_camera is None:
+        ext._past_kvs_camera = [
+            ext._new_padded_camera_entry() for _ in range(ext._cam_depth)
+        ]
+    pose_list, ext._past_kvs_camera = ext._camera_head_apply(
         ext._cam_params,
         out_list,
-        use_cache=True,
-        past_kvs_camera=ext._past_kvs_camera,
+        ext._past_kvs_camera,
     )
     pose_enc = pose_list[-1]
     camera_pose = pose_enc[:, 0, :]

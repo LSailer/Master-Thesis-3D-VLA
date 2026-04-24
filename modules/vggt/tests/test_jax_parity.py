@@ -1391,3 +1391,100 @@ class TestLevel3PaddedCacheParity:
                 atol=ATOL_PADDED_VS_LEGACY_FP32,
                 err_msg=f"frame {i} V prefix mismatch",
             )
+
+
+class TestLevel3CameraHeadPaddedParity:
+    """Padded 3-tuple cache on camera_head must match legacy 2-tuple bit-for-bit.
+
+    Locks the new jitted camera-head path: the CameraHead module routes padded
+    past_kvs_camera entries through Attention._padded_cache_forward instead of
+    the legacy concat path. No eviction here (cache_budget=None), so with
+    identical seed inputs the two paths should produce identical pose outputs
+    and identical stored K/V prefixes at every frame.
+    """
+
+    @pytest.fixture(scope="class")
+    def jx_params(self, state_dict):
+        tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+        return jax.tree.map(jnp.asarray, {"params": tree["camera_head"]})
+
+    @pytest.fixture(scope="class")
+    def agg_tokens_per_frame(self):
+        rng = np.random.RandomState(31)
+        B, P, C = 1, 1374, 2048
+        frames = []
+        for _ in range(_L3_NUM_FRAMES):
+            frames.append(
+                [
+                    rng.randn(B, 1, P, C).astype(np.float32) * 0.1
+                    for _ in range(24)
+                ]
+            )
+        return frames
+
+    def _empty_padded(self, B, H, MAX, Dh, dtype=jnp.float32):
+        return (
+            jnp.zeros((B, H, MAX, Dh), dtype=dtype),
+            jnp.zeros((B, H, MAX, Dh), dtype=dtype),
+            jnp.asarray(0, dtype=jnp.int32),
+        )
+
+    def test_streaming_rollout_padded_matches_legacy(
+        self, jx_params, agg_tokens_per_frame
+    ):
+        from modules.vggt.jax.heads.camera_head import CameraHead
+
+        head = CameraHead()
+        # Camera head: num_heads=16, dim_in=2048 -> head_dim=128, trunk_depth=4,
+        # num_iterations=4. Cache grows by num_iterations per frame per block.
+        H, Dh = head.num_heads, head.dim_in // head.num_heads
+        n_iters = head.num_iterations
+        # MAX with headroom for _L3_NUM_FRAMES frames.
+        MAX = _L3_NUM_FRAMES * n_iters + n_iters
+
+        legacy_past = None
+        padded_past = [
+            self._empty_padded(1, H, MAX, Dh) for _ in range(head.trunk_depth)
+        ]
+
+        for i, frame_tokens in enumerate(agg_tokens_per_frame):
+            jx_input = [jnp.asarray(x) for x in frame_tokens]
+
+            pose_legacy, legacy_past = head.apply(
+                jx_params, jx_input,
+                use_cache=True, past_kvs_camera=legacy_past,
+            )
+            pose_padded, padded_past = head.apply(
+                jx_params, jx_input,
+                use_cache=True, past_kvs_camera=padded_past,
+            )
+
+            # Pose output parity (last-iter prediction).
+            max_abs = np.max(
+                np.abs(np.asarray(pose_legacy[-1]) - np.asarray(pose_padded[-1]))
+            )
+            assert max_abs <= ATOL_PADDED_VS_LEGACY_FP32, (
+                f"frame {i} pose drift: {max_abs:.3e} "
+                f"> {ATOL_PADDED_VS_LEGACY_FP32:.0e}"
+            )
+
+            # K/V valid-prefix parity for every trunk block.
+            expected_vl = (i + 1) * n_iters
+            for k in range(head.trunk_depth):
+                k_leg, v_leg = legacy_past[k]
+                k_pad, v_pad, vl = padded_past[k]
+                assert int(np.asarray(vl)) == expected_vl, (
+                    i, k, int(np.asarray(vl)), expected_vl
+                )
+                np.testing.assert_allclose(
+                    np.asarray(k_leg),
+                    np.asarray(k_pad[:, :, :expected_vl]),
+                    atol=ATOL_PADDED_VS_LEGACY_FP32,
+                    err_msg=f"frame {i} block {k} K prefix mismatch",
+                )
+                np.testing.assert_allclose(
+                    np.asarray(v_leg),
+                    np.asarray(v_pad[:, :, :expected_vl]),
+                    atol=ATOL_PADDED_VS_LEGACY_FP32,
+                    err_msg=f"frame {i} block {k} V prefix mismatch",
+                )
