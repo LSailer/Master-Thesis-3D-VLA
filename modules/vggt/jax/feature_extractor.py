@@ -121,11 +121,14 @@ class JAXVGGTFeatureExtractor:
         # ``current_budgets_static`` (argnum 7) are Python-static.
         # Positional signature: (params, images, past_kvs, past_frame_idx,
         # total_budget, last_scores, use_cache, current_budgets_static).
+        # is_first_frame (argnum 3) is a bool — only two distinct static values
+        # → two compiles total. Previously used frame_idx (int), which caused
+        # a recompile every frame.
         def _agg_fn(
             params,
             images,
             past_kvs,
-            past_frame_idx,
+            is_first_frame,
             total_budget,
             last_scores,
             use_cache,
@@ -136,13 +139,13 @@ class JAXVGGTFeatureExtractor:
                 images,
                 use_cache=use_cache,
                 past_kvs=past_kvs,
-                past_frame_idx=past_frame_idx,
+                past_frame_idx=0 if is_first_frame else 1,
                 total_budget=total_budget,
                 last_scores=last_scores,
                 current_budgets_static=current_budgets_static,
             )
 
-        # static_argnums: past_frame_idx (3), total_budget (4), use_cache (6),
+        # static_argnums: is_first_frame (3), total_budget (4), use_cache (6),
         # current_budgets_static (7).
         self._aggregator_apply = jax.jit(
             _agg_fn, static_argnums=(3, 4, 6, 7)
@@ -195,16 +198,16 @@ class JAXVGGTFeatureExtractor:
         last0 = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
         bud0 = self._compute_static_budgets(np.zeros(self._agg_depth, dtype=np.float32))
         out0 = self._aggregator_apply(
-            self._agg_params, dummy, past0, 0, self._total_budget,
+            self._agg_params, dummy, past0, True, self._total_budget,
             last0, True, bud0,
         )
         out0[0][-1].block_until_ready()
 
-        # Frame 1: reuse returned cache to compile the "past_frame_idx != 0" graph.
+        # Frame 1: reuse returned cache to compile the "is_first_frame=False" graph.
         _, _, past1, last1 = out0
         # Keep same budget (same last_scores pre-eviction) so shapes match.
         out1 = self._aggregator_apply(
-            self._agg_params, dummy, past1, 1, self._total_budget,
+            self._agg_params, dummy, past1, False, self._total_budget,
             last1, True, bud0,
         )
         out1[0][-1].block_until_ready()
@@ -298,7 +301,7 @@ class JAXVGGTFeatureExtractor:
                 self._agg_params,
                 images,
                 self._past_kvs_padded,
-                self._frame_idx,
+                self._frame_idx == 0,  # is_first_frame — bool, only 2 compiles total
                 self._total_budget,
                 self._last_scores,
                 True,  # use_cache

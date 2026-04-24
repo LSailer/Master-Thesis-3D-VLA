@@ -302,15 +302,22 @@ class Attention(nn.Module):
         # Shape: (B,) int32 per-sample valid length.
         B_dim = q_tnhd.shape[0]
         kv_len = jnp.broadcast_to(new_valid_len.reshape(1), (B_dim,)).astype(jnp.int32)
-        out_tnhd = jax.nn.dot_product_attention(
-            q_tnhd,
-            k_tnhd,
-            v_tnhd,
-            scale=scale,
-            is_causal=False,
-            key_value_seq_lengths=kv_len,
-            implementation='cudnn',
-        )
+        # cuDNN flash supports only fp16/bf16/fp8. Fall back to XLA for fp32.
+        if q_tnhd.dtype in (jnp.bfloat16, jnp.float16):
+            out_tnhd = jax.nn.dot_product_attention(
+                q_tnhd, k_tnhd, v_tnhd,
+                scale=scale, is_causal=False,
+                key_value_seq_lengths=kv_len,
+                implementation='cudnn',
+            )
+        else:
+            pos = jnp.arange(MAX, dtype=jnp.int32)
+            mask_xla = (pos < new_valid_len).reshape(1, 1, 1, MAX)
+            out_tnhd = jax.nn.dot_product_attention(
+                q_tnhd, k_tnhd, v_tnhd,
+                scale=scale, is_causal=False,
+                mask=mask_xla, implementation='xla',
+            )
         out = jnp.transpose(out_tnhd, (0, 2, 1, 3)).astype(q.dtype)
         out = out.reshape(B, N, self.dim)
         out = nn.Dense(self.dim, use_bias=self.proj_bias, name="proj")(out)

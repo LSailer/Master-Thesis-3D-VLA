@@ -110,9 +110,13 @@ class TestJAXvsPyTorchExtractor:
 
     @pytest.fixture(scope="class")
     def jax_ext(self):
+        import jax.numpy as jnp
+
         from modules.vggt.jax import JAXVGGTFeatureExtractor
 
-        return JAXVGGTFeatureExtractor(device="cuda")
+        # Force fp32 to line up with the fp32-pinned PyTorch fixture below;
+        # default bf16 would exceed ROLLOUT_ATOL against fp32 PyTorch.
+        return JAXVGGTFeatureExtractor(device="cuda", dtype=jnp.float32)
 
     @pytest.fixture(scope="class")
     def pt_ext(self):
