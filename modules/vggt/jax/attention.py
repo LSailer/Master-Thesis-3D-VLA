@@ -297,10 +297,11 @@ class Attention(nn.Module):
         head_dim_f = float(q.shape[-1])
         scale = 1.0 / head_dim_f ** 0.5
 
-        # Use key_value_seq_lengths to tell the XLA/cuDNN kernel how many
-        # K/V slots are valid — avoids materialising a (B,H,N,MAX) bias.
-        # Shape: (B,) int32 broadcast-safe for the batch dimension.
-        kv_len = jnp.broadcast_to(new_valid_len.reshape(1), (q.shape[0],)).astype(jnp.int32)
+        # cuDNN flash attention with key_value_seq_lengths: tells cuDNN how
+        # many K/V slots are valid without materialising a (B,H,N,MAX) bias.
+        # Shape: (B,) int32 per-sample valid length.
+        B_dim = q_tnhd.shape[0]
+        kv_len = jnp.broadcast_to(new_valid_len.reshape(1), (B_dim,)).astype(jnp.int32)
         out_tnhd = jax.nn.dot_product_attention(
             q_tnhd,
             k_tnhd,
@@ -308,6 +309,7 @@ class Attention(nn.Module):
             scale=scale,
             is_causal=False,
             key_value_seq_lengths=kv_len,
+            implementation='cudnn',
         )
         out = jnp.transpose(out_tnhd, (0, 2, 1, 3)).astype(q.dtype)
         out = out.reshape(B, N, self.dim)
