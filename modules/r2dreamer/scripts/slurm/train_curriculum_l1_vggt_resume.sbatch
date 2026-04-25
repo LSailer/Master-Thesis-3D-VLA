@@ -41,6 +41,4 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt.py \
     --wandb_tags "curriculum,level1,1house,chair-only,vggt,3d-encoder,resume-from-900k" \
     --wandb_id 87u0l6dy \
     --resume_from "${RESUME_CKPT}" \
-    --curriculum_path data/curriculum/level1_1house_1goal.json \
-    --curriculum_mode train \
     --render_resolution 518

@@ -22,7 +22,7 @@ fi
 
 # Level 3: 10 houses, chair only
 # 2.4M steps, multi-scene generalization
-uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
+uv run python modules/r2dreamer/scripts/run_jax_habitat_l3.py \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \
@@ -31,8 +31,5 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
     --wandb_name "r2d-L3-buffix-${SLURM_JOB_ID}" \
-    --wandb_tags "curriculum,level3,10houses,chair-only,buffer-fix,rerun" \
-    --curriculum_path data/curriculum/level3_10houses_1goal.json \
-    --curriculum_mode train \
     --val_data data/val_replay/val_200ep.npz \
     --val_loss_every 10000

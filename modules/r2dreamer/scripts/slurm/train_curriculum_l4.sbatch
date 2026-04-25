@@ -22,7 +22,7 @@ fi
 
 # Level 4: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories
 # 2.4M steps, full curriculum — combines multi-scene (L3) + multi-goal (L2) generalization
-uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
+uv run python modules/r2dreamer/scripts/run_jax_habitat_l4.py \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \
@@ -31,8 +31,5 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
     --wandb_name "r2d-L4-buffix-${SLURM_JOB_ID}" \
-    --wandb_tags "curriculum,level4,10houses,6goals,buffer-fix,rerun" \
-    --curriculum_path data/curriculum/level4_10houses_6goals.json \
-    --curriculum_mode train \
     --val_data data/val_replay/val_200ep.npz \
     --val_loss_every 10000

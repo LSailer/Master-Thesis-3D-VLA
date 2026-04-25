@@ -31,8 +31,5 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
     --wandb_name "r2d-L1-1house-chair-${SLURM_JOB_ID}" \
-    --wandb_tags "curriculum,level1,1house,chair-only,no-goal" \
-    --curriculum_path data/curriculum/level1_1house_1goal.json \
-    --curriculum_mode train \
     --val_data data/val_replay/val_200ep.npz \
     --val_loss_every 10000

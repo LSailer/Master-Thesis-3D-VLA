@@ -48,8 +48,6 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt.py \
     --wandb_name "r2d-L1-vggt-resume-smoke-${SLURM_JOB_ID}" \
     --wandb_tags "smoke,resume-test" \
     --resume_from "${RESUME_CKPT}" \
-    --curriculum_path data/curriculum/level1_1house_1goal.json \
-    --curriculum_mode train \
     --render_resolution 518
 
 echo "Smoke complete. Inspect ${SMOKE_DIR}/metrics.csv and ${SMOKE_DIR}/checkpoints/"
