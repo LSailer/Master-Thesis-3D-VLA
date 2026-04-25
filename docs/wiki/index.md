@@ -18,6 +18,7 @@
 - [VGGT JAX Streaming](methods/vggt-jax-streaming.md) — Padded 3-tuple KV-cache + jit pattern; closes JAX vs PT gap from 24× to 1.9×; #80 (aggregator) + #81 (camera_head)
 - [Launcher Refactor](methods/launcher-refactor.md) — Encoder ABC + per-level shims + L1-L4 test pyramid; 3-phase migration absorbing #85 + #52, archiving dormant PyTorch scripts
 - [Phased Orchestration Pattern](methods/phase-orchestration.md) — Opus-orchestrator + 1-Sonnet-subagent-per-phase recipe with strict file whitelists, trust-but-verify gates, and end-to-end smoke as required exit; codified from the #85 launcher refactor session
+- [VGGT → R2Dreamer Call Chain](methods/vggt-r2dreamer-callchain.md) — End-to-end data flow for one env step when `encoder_type="vggt"`; 5 high-leverage breakpoints for debugging
 
 ## Meetings
 

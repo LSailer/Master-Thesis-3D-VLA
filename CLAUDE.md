@@ -1,95 +1,29 @@
 # CLAUDE.md
 
-## Project Overview
+## Project
 
-Master's thesis: **World Models + 3D Scene Understanding** — testing whether world models (e.g. DreamerV3) perform better with 3D semantic features (UNITE) vs 2D-only for object navigation in HM3D (Habitat).
+**World Models + 3D Scene Understanding** — Master's thesis testing whether DreamerV3 performs better with 3D (VGGT/UNITE) vs 2D features on HM3D ObjectNav. Pivoted Mar 2026 away from VLA + UNITE injection.
 
-**Focus pivot (Mar 2026 meeting):** shifted from VLA + UNITE injection to world model performance with 3D vs 2D scene understanding.
+**Supervisors:**
+- Prof. Dr. Daniel Braun (Erstprüfer) — Head of Neuroinformatics, Uni Ulm
+- Prof. Dr. Timo Ropinski (Zweitprüfer) — Head of Visual Computing Group, Uni Ulm
+- Fabian (PhD Betreuer) — direct day-to-day supervisor (Mattermost / email)
 
-## Supervisors
+## Knowledge base
 
-- **Prof. Dr. Daniel Braun** (Erstprüfer): Head of Neuroinformatics, Uni Ulm; primary supervisor
-- **Prof. Dr. Timo Ropinski** (Zweitprüfer): Head of Visual Computing Group, Uni Ulm; expertise in Computer Vision
-- **Fabian** (PhD Betreuer): PhD student, direct day-to-day supervisor; contact via Mattermost or email
+Project knowledge lives in `docs/wiki/`. Start at [`docs/wiki/index.md`](docs/wiki/index.md):
 
-## Coding Principles
+- `experiments/` — training-run results
+- `methods/` — architecture, recipes (e.g. [phase-orchestration](docs/wiki/methods/phase-orchestration.md), [launcher-refactor](docs/wiki/methods/launcher-refactor.md), [vggt-r2dreamer-callchain](docs/wiki/methods/vggt-r2dreamer-callchain.md))
+- `meetings/` — supervisor notes
+- `research/` — paper summaries
 
-- **Clarify before coding**: When requirements are ambiguous, present interpretations and ask — don't guess silently.
-- **Goal-driven**: Define testable success criteria before implementing. State what "done" looks like.
-- **Simplicity first**: Write the minimum viable code. No premature abstractions, no speculative error handling, no "just in case" features. Three similar lines are better than a clever helper nobody asked for.
-- **Surgical changes**: Only modify what's necessary. Don't clean up unrelated code, add unrequested features, or refactor "while you're in there."
-- **One question at a time**: Always ask one question at a time. Never dump multiple questions or recommendations at once. Wait for the answer before proceeding.
+When creating or modifying wiki pages, also update `docs/wiki/index.md` and append to `docs/wiki/log.md`. Never modify raw data in `output/`.
 
-## Repo Structure
+## Coding principles
 
-```
-modules/                    # All code organized by domain
-  dreamerv3/                # DreamerV3 world model (JAX)
-    agent.py, networks.py, configs.py, optim.py, replay_buffer.py, train.py, eval.py
-    tests/                  # pytest: test_shapes.py, test_integration.py
-    notebooks/              # jax_vs_pytorch, official_comparison
-    scripts/                # run_ours_crafter.py, slurm/
-  r2dreamer/                # R2-Dreamer agent (extends DreamerV3)
-    agent.py, networks.py, config.py
-    tests/                  # test_agent.py, test_shapes.py, test_optim.py
-    scripts/                # run_jax_crafter.py, run_pytorch_*.py
-  envs/                     # Environment wrappers (Crafter, Habitat)
-    crafter.py, habitat.py, habitat_r2dreamer.py
-    tests/                  # test_habitat.py
-    notebooks/              # habitat_headless_test, habitat_objectnav_benchmark
-    scripts/                # run_habitat_timing.py, collect_*.py
-  vggt/                     # VGGT comparison & benchmarks
-    benchmark.py, plots.py, variants.py
-    tests/                  # test_comparison.py
-    notebooks/              # comparison, exploration
-  shared/                   # Cross-cutting utilities
-    wandb_utils.py
-external/                   # Third-party repos (dreamerv3-official, r2dreamer, VGGT variants)
-scripts/                    # Cross-cutting scripts (smoke tests, setup, SLURM)
-docs/                       # GitHub Pages — slides + images
-archiv/                     # Deprecated code (ALFRED, old notebooks)
-output/                     # Run results & benchmarks
-data/                       # Datasets (HM3D scenes, etc.)
-```
-
-## Research
-
-**Core question:** Do world models benefit from 3D semantic scene representations over 2D?
-
-- UNITE (Koch et al. 2025): dense 3D semantic features (CLIP + instance + articulation)
-- Baseline: DreamerV3 world model with standard 2D observations
-- Experiment: compare DreamerV3 w/ UNITE 3D features vs 2D-only on HM3D ObjectNav
-- Related: WMNav (IROS'25) — VLM + world model for ObjectNav; DreamerNav — DreamerV3 for indoor nav
-
-## Wiki
-
-LLM-maintained knowledge base in `docs/wiki/`. Claude reads it for context and writes to it via `/reporter` and `/wiki`.
-
-```
-docs/wiki/
-  index.md              — catalog of all pages (read this first)
-  log.md                — append-only activity log
-  _templates/           — page templates (experiment, generic)
-  experiments/          — experiment pages (created by /engineer, results added by /reporter)
-  methods/              — architecture decisions, design rationale
-  meetings/             — supervisor meeting notes
-  research/             — paper summaries, related work
-```
-
-Rules: always update `index.md` and append to `log.md` when creating/modifying wiki pages. Never modify raw data in `output/`.
-
-## Pipeline
-
-```
-Feature track:  /plan → /engineer (per phase: implement → refactor → commit → /review) → /reporter
-Fix track:      /triage-issue → /engineer → /review
-Wiki:           /wiki ingest | query | lint (anytime)
-```
-
-## GitHub Pages
-
-Slides: `https://<username>.github.io/Master-Thesis-3D-VLA/`
-
-- `docs/index.html` — thesis overview (13 slides, Feb 2026 supervisor meeting)
-- `docs/<experiment>.html` — per-experiment HTML slide decks (created by /reporter, replaced on update)
-
+- **Clarify before coding** — present interpretations, ask, don't guess silently.
+- **Goal-driven** — define testable success criteria before implementing.
+- **Simplicity first** — minimum viable code. Three similar lines beat a clever helper.
+- **Surgical changes** — only modify what's necessary, no "while you're in there" cleanups.
+- **One question at a time** — wait for answer before next.
