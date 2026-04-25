@@ -50,3 +50,6 @@ Migrated from docs/notes/2026-03-03-meeting.md. Created meetings/2026-03-03-brau
 
 ## [2026-04-13] ingest | Claude Code Workflow | source: manual
 Created methods/workflow.md documenting full pipeline, skill inventory, TDD rules, wiki conventions. Updated index.
+
+## [2026-04-25] ingest | Cross-Correlation Matrix concept | source: brainstorm session on wandb run 87u0l6dy
+Created methods/cross-correlation-matrix.md. Short concept page: what `c[i,j]` is, why diagonal target = 1 and off-diagonal target = 0, and that it's used as a distillation regularizer here (RSSM↔VGGT) rather than as a contrastive loss between augmented views. Updated index.
