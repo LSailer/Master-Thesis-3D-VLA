@@ -49,8 +49,12 @@ pythonpath = ["."]
 testpaths = [
     "modules/shared/tests",
     "modules/r2dreamer/tests",
+    "modules/r2dreamer/launch/tests",
     "modules/envs/tests",
     "modules/vggt/tests",
+]
+markers = [
+    "gpu: tests that require GPU (real VGGT model loading)",
 ]
 
 [tool.uv]

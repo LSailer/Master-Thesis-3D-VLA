@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
+from modules.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 
 
 # ---------------------------------------------------------------------------
@@ -82,27 +83,6 @@ def load_checkpoint(path: str) -> dict[str, Any]:
     """Load checkpoint dict from disk. Returns raw dict — caller restores."""
     with open(path, "rb") as f:
         return pickle.load(f)
-
-
-# ---------------------------------------------------------------------------
-# ObsAdapter
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ObsAdapter:
-    """Bridges env observations to agent/buffer, called once per step.
-
-    Default: extracts obs["image"] for buffer (uint8), passes obs dict
-    through to agent unchanged.
-    """
-    buffer_dtype: str = "uint8"
-    buffer_shape: tuple[int, ...] = (3, 64, 64)
-    normalize_on_sample: bool = True
-    on_episode_reset: Callable[[], None] | None = None
-
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
-        """Returns (buffer_obs, agent_obs_dict)."""
-        return obs_dict["image"], obs_dict
 
 
 # ---------------------------------------------------------------------------

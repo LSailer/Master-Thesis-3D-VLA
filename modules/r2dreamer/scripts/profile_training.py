@@ -30,7 +30,8 @@ from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 from modules.envs.habitat import HabitatObjectNavEnv
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.trainer import ObsAdapter, convert_batch
+from modules.r2dreamer.adapters import ObsAdapter
+from modules.r2dreamer.trainer import convert_batch
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches run_jax_habitat_vggt.py
 
