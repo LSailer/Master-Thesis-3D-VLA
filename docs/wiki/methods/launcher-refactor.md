@@ -125,7 +125,12 @@ encoder_registry: dict[str, type[Encoder]] = {
 ## Per-level shim convention
 
 ```python
-# modules/r2dreamer/scripts/run_jax_habitat_vggt_l2.py — 7 lines
+# modules/r2dreamer/scripts/run_jax_habitat_vggt_l2.py — 11 lines
+"""L2 VGGT shim — habitat, vggt, L2."""
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+
 from modules.r2dreamer.launch.train import train
 
 if __name__ == "__main__":
@@ -136,6 +141,8 @@ if __name__ == "__main__":
         wandb_tags=["curriculum", "level2", "vggt"],
     )
 ```
+
+The `sys.path.insert(...)` boilerplate is required because invoking `python script.py` directly only puts `script.py`'s directory on `sys.path`, not the repo root — `from modules.r2dreamer.launch.train import train` would fail otherwise. Pytest hides this issue (it configures `sys.path` via `[tool.pytest.ini_options]`), so unit tests pass even when shims are broken; only end-to-end smoke (`python script.py --steps 1000`) catches it.
 
 CLI flags `--steps`, `--prefill`, `--output_dir`, `--wandb_name`, `--wandb_tags` remain available as overrides. Sbatch files become minimal:
 

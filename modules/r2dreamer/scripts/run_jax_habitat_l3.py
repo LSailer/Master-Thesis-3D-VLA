@@ -1,4 +1,8 @@
 """L3 CNN shim — habitat, cnn, L3 (10 houses, chair only)."""
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+
 from modules.r2dreamer.launch.train import train
 
 if __name__ == "__main__":
