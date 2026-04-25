@@ -193,6 +193,8 @@ class R2DreamerAgent:
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
             obs = jnp.array(image[None])  # (1, C, H, W)
+        # === BP #3 (debug walkthrough — uncomment to re-enable) ===
+        # print(f"[BP#3] obs: shape={obs.shape} dtype={obs.dtype} is_first={obs_dict['is_first']}", flush=True)
 
         is_first = bool(obs_dict["is_first"])
         if is_first:
@@ -227,6 +229,13 @@ class R2DreamerAgent:
             params["rssm"], stoch, deter, prev_action, embed,
             rngs={"sample": k_sample},
         )
+        # === BP #5 (inside JIT — debug walkthrough — uncomment to re-enable) ===
+        # jax.debug.print(
+        #     "[BP#5] embed: mean={em} std={es} | new_stoch: shape={ss} mean={sm} std={ss2} | new_deter: shape={ds} mean={dm} std={ds2}",
+        #     em=embed.mean(), es=embed.std(),
+        #     ss=new_stoch.shape, sm=new_stoch.mean(), ss2=new_stoch.std(),
+        #     ds=new_deter.shape, dm=new_deter.mean(), ds2=new_deter.std(),
+        # )
         feat = self.rssm_mod.apply(
             params["rssm"], new_stoch, new_deter, method=self.rssm_mod.get_feat
         )

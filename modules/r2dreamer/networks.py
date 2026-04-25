@@ -422,7 +422,14 @@ class VGGTEncoder(nn.Module):
     @nn.compact
     def __call__(self, obs):
         # obs: (B, 4116) float32 — already flat
-        return nn.Dense(self.embed_dim, name="proj")(obs)
+        out = nn.Dense(self.embed_dim, name="proj")(obs)
+        # === BP #4 (inside JIT — debug walkthrough — uncomment to re-enable) ===
+        # import jax as _jax_dbg
+        # _jax_dbg.debug.print(
+        #     "[BP#4] encoder out: shape={s} mean={m} std={st} min={mn} max={mx}",
+        #     s=out.shape, m=out.mean(), st=out.std(), mn=out.min(), mx=out.max(),
+        # )
+        return out
 
 
 class Projector(nn.Module):
