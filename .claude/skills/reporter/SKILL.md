@@ -45,6 +45,22 @@ The page already exists from `/engineer`. Update in place — do not create a ne
 - [ ] Append Results, Findings, Next sections per the template in [TEMPLATES.md](TEMPLATES.md)
 - [ ] Update frontmatter `**Status**: implemented` → `**Status**: completed`
 - [ ] Add `**Slides**` link pointing to `docs/<name>.html`
+- [ ] Ensure the page has YAML frontmatter at the very top (above the H1) with the new layout contract from `docs/wiki/recaps/2026-04-26-output-restructure.md` (decisions #7 and #10):
+  ```yaml
+  ---
+  run_path: output/runs/<family>/_blessed/<alias>
+  slurm_id: <id>
+  wandb_id: <id>
+  status: blessed
+  ---
+  ```
+  `<family>` is the run-family directory under `output/runs/` (e.g. `r2dreamer-curriculum-l2-vggt`); `<alias>` is the human slug (typically the `<name>` argument). If the page already has frontmatter, preserve other fields and add the new ones.
+- [ ] Create the `_blessed/<alias>` symlink in the runs dir pointing at the actual job-id-suffixed run dir, so wiki refs survive reruns:
+  ```bash
+  mkdir -p output/runs/<family>/_blessed
+  ln -snf ../<slug>-<jobid> output/runs/<family>/_blessed/<alias>
+  ```
+  Use a relative target (`../<slug>-<jobid>`) so the symlink survives directory moves. If the alias already exists pointing somewhere else, ask the user before re-pointing.
 - [ ] Append a one-liner to `docs/wiki/log.md`:
   ```
   ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /reporter

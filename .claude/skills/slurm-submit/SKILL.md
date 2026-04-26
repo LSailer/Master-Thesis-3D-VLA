@@ -28,6 +28,7 @@ This skill is a thin wrapper around `scripts/pipeline/launch.sh`. The bash scrip
 
 - [ ] Run `bash scripts/pipeline/launch.sh <name>` from the repo root
 - [ ] Capture the three SLURM job IDs from launch.sh's stdout
+- [ ] Confirm `launch.sh` exports/propagates `WANDB_RUN_ID` (and forwards `SLURM_JOB_ID`, which SLURM sets automatically) into the train job's environment via `--export=ALL,WANDB_RUN_ID=$WANDB_RUN_ID,...` or an equivalent `sbatch --export` clause. The trainer's `MANIFEST.json` emission reads both env vars at run start; if either is missing, the manifest will record `unknown` and lose provenance. If `launch.sh` does not currently propagate `WANDB_RUN_ID`, fail with: "launch.sh missing WANDB_RUN_ID propagation — fix before submitting (see docs/wiki/recaps/2026-04-26-output-restructure.md decisions #9, #10)."
 
 ### Report
 
@@ -42,3 +43,4 @@ This skill is a thin wrapper around `scripts/pipeline/launch.sh`. The bash scrip
 - This skill is **not for ad-hoc sbatch jobs** — for one-off `sbatch foo.sbatch` calls, just run them directly.
 - This skill **does not write the .args file** — that's `/engineer-team` Phase 3. If args don't exist, the user is in the wrong place in the workflow.
 - This skill **does not run on a compute node** — it's an orchestrator step, intended to run on a login node where you have outbound network and `gh` CLI for the eventual PR.
+- The submitted train job **must inherit `WANDB_RUN_ID`** from the calling shell so the trainer's auto-emitted `MANIFEST.json` (per recap 2026-04-26-output-restructure decisions #9 and #10) records a real wandb id, not `unknown`. SLURM auto-injects `SLURM_JOB_ID` into the job; `WANDB_RUN_ID` must be explicitly forwarded via `sbatch --export`. `launch.sh` is the source of truth for the actual export clause — this skill only verifies it is present.
