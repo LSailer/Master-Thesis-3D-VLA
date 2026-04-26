@@ -11,7 +11,8 @@ import csv
 import os
 import pickle
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
+from pathlib import Path
 from typing import Any, Callable, Protocol
 
 import jax
@@ -20,6 +21,7 @@ import numpy as np
 
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 from modules.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
+from modules.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
 # ---------------------------------------------------------------------------
@@ -261,30 +263,41 @@ class Trainer:
         os.makedirs(tcfg.output_dir, exist_ok=True)
         csv_path = os.path.join(tcfg.output_dir, "metrics.csv")
 
+        # MANIFEST.json — emit on start, finalize in finally with run status.
+        cfg_snapshot = asdict(acfg) if is_dataclass(acfg) else dict(vars(acfg))
+        write_manifest_start(Path(tcfg.output_dir), cfg_snapshot)
+        status = "failed"
+
         rng_key = jax.random.PRNGKey(tcfg.seed)
 
-        # Append to existing CSV when resuming so the prior rows survive.
-        is_resume = self._resume_step > 0
-        csv_mode = "a" if is_resume else "w"
-        with open(csv_path, csv_mode, newline="") as f:
-            writer = csv.writer(f)
-            if not is_resume:
-                writer.writerow(["step", "metric", "value"])
+        try:
+            # Append to existing CSV when resuming so the prior rows survive.
+            is_resume = self._resume_step > 0
+            csv_mode = "a" if is_resume else "w"
+            with open(csv_path, csv_mode, newline="") as f:
+                writer = csv.writer(f)
+                if not is_resume:
+                    writer.writerow(["step", "metric", "value"])
 
-            if is_resume:
-                # Skip random prefill — the trained policy collects on-policy
-                # transitions in _train_loop until buffer >= batch_steps.
-                # env.reset() / extractor.reset() fire at _train_loop entry.
-                print(f"Resume mode: skipping prefill, jumping to step {self._resume_step}")
-            else:
-                self._prefill(rng_key, writer, f)
-            rng_key = self._train_loop(rng_key, writer, f)
+                if is_resume:
+                    # Skip random prefill — the trained policy collects on-policy
+                    # transitions in _train_loop until buffer >= batch_steps.
+                    # env.reset() / extractor.reset() fire at _train_loop entry.
+                    print(f"Resume mode: skipping prefill, jumping to step {self._resume_step}")
+                else:
+                    self._prefill(rng_key, writer, f)
+                rng_key = self._train_loop(rng_key, writer, f)
 
-        save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
-
-        if self._wandb is not None:
-            self._wandb.finish()
-        self.env.close()
+            save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
+            status = "completed"
+        except KeyboardInterrupt:
+            status = "interrupted"
+            raise
+        finally:
+            write_manifest_end(Path(tcfg.output_dir), status)
+            if self._wandb is not None:
+                self._wandb.finish()
+            self.env.close()
 
     # ------------------------------------------------------------------
     # Prefill
