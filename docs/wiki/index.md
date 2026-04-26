@@ -28,3 +28,7 @@
 ## Research
 
 *No research pages yet.*
+
+## Recaps
+
+- [2026-04-26 Output Restructure](recaps/2026-04-26-output-restructure.md) — 13 decisions locked: 3-bucket layout, slug-jobid naming, MANIFEST.json contract, Big-Bang migration
