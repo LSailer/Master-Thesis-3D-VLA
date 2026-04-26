@@ -1,6 +1,6 @@
 ---
 name: engineer-team
-description: Phase 2 of the auto-pipeline. Reads a /grill-me recap, orchestrates Sonnet sub-agents to implement the work in packages, runs an integration smoke test, and submits the SLURM verify+report chain via scripts/pipeline/launch.sh. Use after a /grill-me session that produced a recap with eval criteria.
+description: Phase 2 of the auto-pipeline. Reads a /grill-me recap, orchestrates Sonnet sub-agents to implement the work in packages, runs an integration smoke test, and submits the SLURM verify+report chain via /slurm-submit. Use after a /grill-me session that produced a recap with eval criteria.
 ---
 
 # Engineer Team
@@ -66,7 +66,7 @@ After each sub-agent completes:
 
 ### Phase 5 — Submit (Gate 3 = user said "go")
 
-- [ ] `bash scripts/pipeline/launch.sh <name>`
+- [ ] Invoke `/slurm-submit <name>` (skill call — wraps `scripts/pipeline/launch.sh`)
 - [ ] Print branch name, three SLURM job IDs (train, verify, report), recap path
 - [ ] Remind user: "On failure, verify creates a gh issue and report is skipped (afterok dependency)."
 

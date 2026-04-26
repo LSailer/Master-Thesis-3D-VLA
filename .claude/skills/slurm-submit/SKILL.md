@@ -1,86 +1,44 @@
+---
+name: slurm-submit
+description: Submit the auto-pipeline SLURM job chain (train → verify → report, chained via --dependency=afterok) for an experiment whose .args file lives at scripts/pipeline/<name>.args. Use when the user types /slurm-submit <name>, when /engineer-team finishes Phase 5, or when the user wants to launch a pipeline run for an experiment that already has an .args file. For one-off sbatch jobs unrelated to the pipeline, use raw sbatch commands instead.
+---
+
 # SLURM Submit
 
-Helper for triggering ralph and GPU jobs from local Mac via GitHub Actions + BWUniCluster self-hosted runner.
+## Quick start
 
-## Trigger
+> **User:** `/slurm-submit cnn-l2-baseline`
+> **You:** "Reading scripts/pipeline/cnn-l2-baseline.args. Branch is pipeline/cnn-l2-baseline. Submitting chain via launch.sh:
+>  - train → JOB 5012891 (gpu_h100, 36:00:00)
+>  - verify → JOB 5012892 (afterok:5012891, claude-p Sonnet)
+>  - report → JOB 5012893 (afterok:5012892, claude-p Sonnet)
+> Monitor with `squeue -u $USER`. PR will open when verify passes; gh issue if it fails."
 
-User says `/slurm-submit` with optional parameters.
+This skill is a thin wrapper around `scripts/pipeline/launch.sh`. The bash script is the source of truth for submission logic; this skill exists so `/engineer-team` and the user can invoke the chain through the skill mechanism rather than memorising the path.
 
-## Inputs
+## Workflow
 
-- `workflow`: workflow file to trigger (default: `ralph.yml`)
-- `max_tasks`: max tasks for ralph (default: 5)
-- `time_limit`: time limit in minutes (default: 120)
+### Validate
 
-## Process
+- [ ] Confirm `scripts/pipeline/<name>.args` exists — if not, fail with: "No args file at scripts/pipeline/<name>.args. /engineer-team writes this in Phase 3."
+- [ ] Confirm current branch is `pipeline/<name>` (or `pipeline/<name>-vN`). If not, warn: "Branch is `<branch>`. The chain will tag this branch in commits. Continue anyway? (Y/N)"
+- [ ] Confirm `scripts/pipeline/launch.sh` exists and is executable — if not, fail: "Pipeline scaffolding missing. Re-run /engineer-team."
 
-### 1. Trigger workflow
+### Submit
 
-```bash
-gh workflow run <workflow> \
-  --field max_tasks=<max_tasks> \
-  --field time_limit=<time_limit>
-```
+- [ ] Run `bash scripts/pipeline/launch.sh <name>` from the repo root
+- [ ] Capture the three SLURM job IDs from launch.sh's stdout
 
-### 2. Get run ID
+### Report
 
-Wait a few seconds for the run to register, then:
+- [ ] Print: branch name, three job IDs (train / verify / report) with their `afterok` dependency, monitoring command, and where the deliverables will appear:
+  - On success → PR opened by report job + HTML at `output/reports/<name>.html`
+  - On failure (verify exit non-zero) → GitHub issue created by verify; report job is skipped (afterok-blocked)
+- [ ] Exit. The user can disconnect; the chain runs autonomously.
 
-```bash
-gh run list --workflow=<workflow> --limit=1 --json databaseId -q '.[0].databaseId'
-```
+## Hard rules
 
-### 3. Monitor
-
-```bash
-gh run watch <run_id>
-```
-
-Or for non-blocking check:
-
-```bash
-gh run view <run_id> --json status,conclusion -q '{status: .status, conclusion: .conclusion}'
-```
-
-### 4. View logs on failure
-
-```bash
-gh run view <run_id> --log-failed
-```
-
-## Partition Reference
-
-| Partition | Use Case | Max Time | Max Nodes | GPUs |
-|-----------|----------|----------|-----------|------|
-| `dev_gpu_h100` | Testing, validation, TDD GPU tests | 30 min | 1 | 1-4 H100 |
-| `gpu_h100` | Standard GPU jobs | 48h | 1 | 1-4 H100 |
-| `gpu_h100_il` | Production training (interactive-like) | 24h | 1 | 1-4 H100 |
-
-## Common Patterns
-
-### Run ralph (default)
-```
-/slurm-submit
-```
-
-### Run with custom limits
-```
-/slurm-submit --max_tasks 3 --time_limit 60
-```
-
-### Check status of last run
-```bash
-gh run list --workflow=ralph.yml --limit=1
-```
-
-### Cancel a running workflow
-```bash
-gh run cancel <run_id>
-```
-
-## Rules
-
-- This skill does NOT run SLURM commands directly — it triggers GitHub Actions workflows that run on BWUniCluster
-- Individual GPU tests within TDD use `srun` directly (handled by the TDD skill)
-- For long training jobs, create a dedicated workflow rather than using ralph
-- Always check workflow status after triggering — don't fire and forget
+- This skill **submits direct sbatch with --dependency=afterok**. It does NOT trigger GitHub Actions workflows.
+- This skill is **not for ad-hoc sbatch jobs** — for one-off `sbatch foo.sbatch` calls, just run them directly.
+- This skill **does not write the .args file** — that's `/engineer-team` Phase 3. If args don't exist, the user is in the wrong place in the workflow.
+- This skill **does not run on a compute node** — it's an orchestrator step, intended to run on a login node where you have outbound network and `gh` CLI for the eventual PR.
