@@ -2,7 +2,7 @@
 
 For each episode, runs the ShortestPathFollower and records both
 viewpoint-based and object-centric distances at every step.
-Saves results to output/goal_distance_analysis.pkl for notebook analysis.
+Saves results to output/methods/scenes/goal_distance_analysis.pkl for notebook analysis.
 
 Usage:
     srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 --mem=32G \
@@ -24,7 +24,7 @@ from modules.envs.habitat import (
     DATA_DIR, SCENE_DIR, find_nearest_viewpoint, sample_navmesh,
 )
 
-OUTPUT_PATH = "output/goal_distance_analysis.pkl"
+OUTPUT_PATH = "output/methods/scenes/goal_distance_analysis.pkl"
 
 
 def dist_to_nearest_object(env, agent_pos, horizontal_only=False):

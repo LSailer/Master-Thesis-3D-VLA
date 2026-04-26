@@ -1,6 +1,6 @@
 """Generate publication-quality plots for the random baseline experiment.
 
-Reads output/baselines/random-l1/ and saves figures to output/figures/.
+Reads output/runs/baselines/random-l1/ and saves figures to output/methods/comparisons/figures/.
 """
 
 import json
@@ -35,8 +35,8 @@ RED = "#f87171"
 AMBER = "#fbbf24"
 CYAN = "#22d3ee"
 
-INPUT_DIR = "output/baselines/random-l1"
-OUTPUT_DIR = "output/figures"
+INPUT_DIR = "output/runs/baselines/random-l1"
+OUTPUT_DIR = "output/methods/comparisons/figures"
 
 
 def plot_action_distribution(summary: dict, out_path: str):

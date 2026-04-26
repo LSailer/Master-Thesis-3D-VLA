@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 OUTPUT = "docs/curriculum-scaling.html"
-FIG_DIR = "output/figures"
+FIG_DIR = "output/methods/comparisons/figures"
 
 
 def b64(filename):

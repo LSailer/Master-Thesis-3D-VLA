@@ -1,7 +1,7 @@
 """Habitat timing benchmark: measure training step throughput for 3 model variants.
 
 Uses SYNTHETIC data to isolate model training speed from environment speed.
-Outputs JSON to output/comparison/habitat_timing.json.
+Outputs JSON to output/methods/comparisons/habitat_timing.json.
 
 Variants:
   r2dreamer_jax      -- JAX R2DreamerAgent (always runs)
