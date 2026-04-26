@@ -1,6 +1,6 @@
 """Dump PyTorch vs JAX VGGT extractor outputs on 10 fixed L1 frames.
 
-Produces three files under output/vggt/parity/:
+Produces three files under output/methods/parity/vggt/:
   input_frames_l1.npz  — cached (10, 3, 518, 518) uint8 RGB
   pt_outputs.npz       — per-frame PT extractor outputs, stacked
   jax_outputs.npz      — per-frame JAX extractor outputs, stacked
@@ -39,7 +39,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 import numpy as np
 
-CACHE_DIR = _REPO_ROOT / "output" / "vggt" / "parity"
+CACHE_DIR = _REPO_ROOT / "output" / "methods" / "parity" / "vggt"
 CACHE_INPUT = CACHE_DIR / "input_frames_l1.npz"
 PT_DUMP = CACHE_DIR / "pt_outputs.npz"
 JAX_DUMP = CACHE_DIR / "jax_outputs.npz"

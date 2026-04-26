@@ -86,7 +86,7 @@ class R2DreamerConfig:
     log_every: int = 250
     save_every: int = 50_000
     seed: int = 0
-    logdir: str = "output/r2dreamer"
+    logdir: str = "output/runs/r2dreamer"
 
     @property
     def stoch_size(self) -> int:

@@ -92,7 +92,7 @@ def load_checkpoint(path: str) -> dict[str, Any]:
 @dataclass
 class TrainerConfig:
     """Controls the training loop (separate from R2DreamerConfig model arch)."""
-    output_dir: str = "output/r2dreamer"
+    output_dir: str = "output/runs/r2dreamer"
     total_steps: int = 10_000_000
     prefill_steps: int = 5000
     log_every: int = 250
