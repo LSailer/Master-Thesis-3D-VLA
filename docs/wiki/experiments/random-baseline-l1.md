@@ -1,3 +1,10 @@
+---
+run_path: output/runs/baselines/_blessed/random-baseline-l1
+slurm_id: 3924640
+wandb_id: unknown
+status: blessed
+---
+
 # Random Baseline — L1 Curriculum
 
 **Status**: completed

@@ -1,3 +1,10 @@
+---
+run_path: output/runs/r2dreamer-curriculum-l2/_blessed/l2-1house-6goals
+slurm_id: 3957713
+wandb_id: flky9ybh
+status: blessed
+---
+
 # L2 — 1 House, 6 Goals, 2.4M Steps
 
 **Status**: completed

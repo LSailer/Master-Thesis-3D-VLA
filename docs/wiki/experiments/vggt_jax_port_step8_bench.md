@@ -1,3 +1,10 @@
+---
+run_path: output/methods/comparisons/jax-vs-pytorch
+slurm_id: unknown
+wandb_id: unknown
+status: blessed
+---
+
 # VGGT JAX port — Step 8 initial benchmark
 
 `modules/vggt/jax/benchmark_streaming.py`, 10-frame episode on H100, synthetic uint8 frames.

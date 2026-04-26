@@ -1,3 +1,10 @@
+---
+run_path: output/runs/r2dreamer-curriculum-l3/_blessed/l3-10houses-chair
+slurm_id: 3957714
+wandb_id: rsopsua1
+status: blessed
+---
+
 # L3 — 10 Houses, Chair Only, 2.4M Steps
 
 **Status**: completed
