@@ -3,120 +3,71 @@ name: engineer-team
 description: Phase 2 of the auto-pipeline. Reads a /grill-me recap, orchestrates Sonnet sub-agents to implement the work in packages, runs an integration smoke test, and submits the SLURM verify+report chain via scripts/pipeline/launch.sh. Use after a /grill-me session that produced a recap with eval criteria.
 ---
 
-You are the orchestrator for an experiment-pipeline build. You receive a `/grill-me` recap (path to a `docs/wiki/recaps/<date>-<topic>.md` file) and turn it into committed code on a dedicated branch, with a SLURM job chain queued to run the experiment unattended.
+# Engineer Team
 
-You are running as Opus. Sub-agent work is dispatched to Sonnet via the `Task` tool.
+## Quick start
 
-## When invoked
+> **User:** `/engineer-team docs/wiki/recaps/2026-04-26-auto-pipeline.md`
+> **You:** "Recap read. Proposing 3 packages: (P1) /grill-me + /engineer-team SKILL.md updates, (P2) scripts/pipeline/ bash glue, (P3) verify+report prompt templates. Run P2 and P3 in parallel after P1, since they depend on naming decisions in P1. Confirm split?"
 
-The user provides a recap path (or names a recent grill topic — find it under `docs/wiki/recaps/`).
+You are Opus. Sub-agents are Sonnet via the `Task` tool. Three hard gates: package split, smoke pass, long-run go.
 
-1. **Read the recap.** Internalize design decisions, eval-pass entries, deliverables.
-2. **Check GPU availability:** run `nvidia-smi`. If unavailable, prefix smoke-test commands with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`.
-3. **Read `docs/wiki/`** for related methods/experiments — do not re-derive what is already documented.
-4. **Skim `pyproject.toml` and `modules/`** for existing patterns and missing dependencies.
+## Workflow
 
-## Branch setup
+### Setup
 
-First action: derive a slug `<name>` from the recap title and create the branch:
+- [ ] Read the recap path provided (or find it under `docs/wiki/recaps/`)
+- [ ] Check GPU: `nvidia-smi` — if missing, prefix smoke commands with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`
+- [ ] Read related `docs/wiki/methods/` and `docs/wiki/experiments/` for context
+- [ ] Skim `pyproject.toml` and `modules/` for existing patterns and missing dependencies
+- [ ] Derive slug `<name>` from recap title; `git checkout -b pipeline/<name>` (next free `-vN` suffix if branch exists)
 
-```bash
-git checkout -b pipeline/<name>
-```
+### Phase 1 — Package proposal (Gate 1)
 
-If the branch already exists, check out the next available suffix (`pipeline/<name>-v2`, `-v3`). All commits in this session land here. PR will target `main`.
+- [ ] Decompose recap deliverables into 2–5 logical packages (one per module touched; tests separate only if they would dwarf the code)
+- [ ] Identify dependencies between packages and group parallel-able ones
+- [ ] Present split to user
+- [ ] **Wait for user confirmation before dispatching**
 
-## Package proposal — gate 1
+### Phase 2 — Sub-agent dispatch
 
-Decompose the deliverables from the recap into 2–5 logical packages. Typical splits:
-- one package per module touched
-- separate packages for tests vs. production code only when one would dwarf the other
-- one package for SLURM config / `.args` file generation
+For each confirmed package, invoke `Task` with `subagent_type=general-purpose` (or `feature-dev:code-architect` for design-heavy work). Run independent packages in parallel (multiple `Task` calls in one message); sequential ones one at a time.
 
-Present the proposed split to the user and **wait for confirmation** before dispatching sub-agents. This is the first hard gate.
+Sub-agent prompt MUST include:
 
-## Sub-agent dispatch
+- [ ] Package scope: files allowed, files explicitly NOT allowed
+- [ ] Relevant excerpts from the recap (extract — never pass the full recap)
+- [ ] The eval criteria from Phase B that this package supports
+- [ ] **"Test only your block. Do not run end-to-end smoke. Commit with a clear message."**
+- [ ] **"If unclear, stop and report — do not improvise."**
 
-For each confirmed package, invoke the `Task` tool with `subagent_type=general-purpose` (or `feature-dev:code-architect` for design-heavy packages). The sub-agent prompt MUST include:
+After each sub-agent completes:
 
-- The package scope (files allowed to touch, files explicitly NOT allowed)
-- Relevant excerpts from the recap (do not pass the full recap — extract what the sub-agent needs)
-- The eval criteria from Phase B that this package supports
-- **"Test only your block. Do not run end-to-end smoke. Commit your work with a clear message."**
-- **"If you encounter unclear requirements, stop and report back — do not improvise."**
+- [ ] `git status` + `git diff HEAD~1` to verify whitelist compliance
+- [ ] If files outside whitelist were touched: revert and re-dispatch
 
-Run independent packages in parallel by emitting multiple `Task` calls in a single message. Sequential packages (one depends on another's output) run one at a time.
+### Q&A relay (whenever a sub-agent reports a clarification request)
 
-### Q&A relay
+- [ ] Surface the question verbatim to the user
+- [ ] Wait for the user's answer
+- [ ] Append the Q&A pair to a "Lessons Learned" section of the recap (or experiment MD if one exists)
+- [ ] Re-dispatch the sub-agent with the answer appended
 
-If a sub-agent reports back with a clarification request:
-1. Surface the question to the user verbatim.
-2. Wait for the user's answer.
-3. Re-dispatch the sub-agent with the answer appended to the original prompt.
-4. **Append the Q&A pair** to a "Lessons Learned" section in the recap file (or in the experiment MD if one exists). Format:
-   ```
-   ### Q (sub-agent: <package>)
-   <question>
-   ### A (user)
-   <answer>
-   ```
+### Phase 3 — Args file
 
-This converts each pipeline run into accumulated wisdom for re-grills.
+- [ ] Write `scripts/pipeline/<name>.args` per [ARGS-FORMAT.md](ARGS-FORMAT.md) — only experiment-specific overrides; reuse the generic `scripts/slurm/train.sbatch`
 
-### Trust-but-verify
+### Phase 4 — Integration smoke (Gate 2)
 
-After each sub-agent reports completion, run `git status` and `git diff HEAD~1` to confirm what actually changed matches what the sub-agent claims. If a sub-agent commits code touching files outside its whitelist, revert and re-dispatch.
+- [ ] Run end-to-end smoke (1–5 min) using the args from `<name>.args` with a tiny step budget
+- [ ] Verify metrics emit at the expected path; `sbatch --test-only` for sbatch syntax
+- [ ] If smoke fails: fix in this session — never submit a long run on broken code
+- [ ] On smoke green: ask user "Smoke passed. Go for long run?" and **wait for confirmation**
 
-## Args file
+### Phase 5 — Submit (Gate 3 = user said "go")
 
-When all packages are committed, write the per-experiment args:
+- [ ] `bash scripts/pipeline/launch.sh <name>`
+- [ ] Print branch name, three SLURM job IDs (train, verify, report), recap path
+- [ ] Remind user: "On failure, verify creates a gh issue and report is skipped (afterok dependency)."
 
-```
-scripts/pipeline/<name>.args
-```
-
-This is a shell-sourceable file with hyperparameters, seeds, dataset selectors, and timing. Reuses the generic `scripts/slurm/train.sbatch`. Keep it minimal — only experiment-specific overrides.
-
-Example schema:
-```bash
-# scripts/pipeline/<name>.args
-EXPERIMENT_NAME="<name>"
-RECAP_PATH="docs/wiki/recaps/<date>-<topic>.md"
-TRAIN_PARTITION="gpu_h100"
-TRAIN_TIME="24:00:00"
-TRAIN_CMD="uv run python modules/r2dreamer/launch/train.py --config <name>"
-METRICS_PATH="output/runs/<name>/metrics.csv"
-```
-
-## Integration smoke test — gate 2
-
-Run an end-to-end smoke (short — 1–5 minutes) that exercises the full pipeline locally:
-- Train command from `.args` with a tiny step budget
-- Verify that metrics are emitted in the expected location
-- Confirm imports, sbatch file syntax (`sbatch --test-only`), no import errors
-
-If smoke fails, fix in this session — do not submit a long run on broken code. Sub-agents may be re-dispatched for fixes.
-
-When smoke is green, **wait for user confirmation**: "smoke passed, go for long run?" This is the second hard gate.
-
-## Submit the chain
-
-On user "go":
-
-```bash
-bash scripts/pipeline/launch.sh <name>
-```
-
-`launch.sh` reads `<name>.args`, submits `train.sbatch` → `verify.sbatch` → `report.sbatch` with `--dependency=afterok` chaining. It echoes the three job IDs.
-
-Print the job IDs and exit. The user can disconnect — verify and report run autonomously and produce either a PR (success) or a GitHub issue (failure).
-
-## When done
-
-Print:
-- Branch name
-- Three SLURM job IDs (train, verify, report)
-- Path to the recap and (if one was created) the experiment MD
-- One-line reminder: "Verify writes results to MD frontmatter and creates PR via report. On failure, gh issue is created and report job is skipped."
-
-Do NOT update `docs/wiki/index.md` here — that's the reporter's job after the run completes successfully.
+Do **not** update `docs/wiki/index.md` here — that is the reporter's job after the long run completes successfully.
