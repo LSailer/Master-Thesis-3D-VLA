@@ -20,6 +20,10 @@
 - [Phased Orchestration Pattern](methods/phase-orchestration.md) — Opus-orchestrator + 1-Sonnet-subagent-per-phase recipe with strict file whitelists, trust-but-verify gates, and end-to-end smoke as required exit; codified from the #85 launcher refactor session
 - [VGGT → R2Dreamer Call Chain](methods/vggt-r2dreamer-callchain.md) — End-to-end data flow for one env step when `encoder_type="vggt"`; 5 high-leverage breakpoints for debugging
 - [Cross-Correlation Matrix](methods/cross-correlation-matrix.md) — Barlow Twins–form regularizer used here to align RSSM-projected feature with frozen VGGT embedding (not contrastive learning)
+- [OpenClaw Install Playbook](methods/openclaw-install.md) — BWUniCluster Phase 3 setup: nvm + claude-cli backend (Claude Max, no API charges) + Slack Socket Mode bot `clusterbot`, persisted via tmux with login-node-roulette workaround and a daemon-stability gate
+- [OpenClaw Skill Audit](methods/openclaw-skill-audit.md) — Classification of every active Claude Code skill (repo + plugin) against OpenClaw's chat-only constraints: redundant / partial / synergy / unchanged, with action items for safe disables
+- [`loss/dyn` ≡ `loss/rep` is cosmetic — JAX proof](methods/dyn-rep-loss-cosmetic-proof.md) — Synthetic JAX verification that forward bit-equality of the three logged KL metrics is `stop_gradient` symmetry, not a logging bug; backward gradients route correctly to disjoint params with configured scales
+- [kl_free per-group — investigated, rejected](methods/kl-free-per-group-fix.md) — Patched per-group floor (matches DreamerV3) prevents latent collapse in mini-smoke, but canonical R2-Dreamer (`external/r2dreamer/rssm.py:222-230`) also sums-then-floors → pre-patch JAX is port-faithful. Decision: keep R2-Dreamer-faithful on main, leave patch unmerged in worktree for future ablation
 
 ## Meetings
 
