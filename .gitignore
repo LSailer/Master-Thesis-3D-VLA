@@ -29,6 +29,7 @@ uv.lock
 .claude/settings.local.json
 .claude/worktrees/
 .claude/memory/
+.claude/knowledge/
 
 # Manim partial movie files
 media/videos/*/partial_movie_files/
@@ -40,3 +41,6 @@ archiv/
 # Scratch planning notes
 Baseline
 Goal Condition
+
+# Personal documents
+antrag_masterarbeit_*.pdf
