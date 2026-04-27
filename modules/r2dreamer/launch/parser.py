@@ -36,6 +36,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
+    p.add_argument("--encoder", type=str, default=None, choices=["cnn", "vggt"])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)
