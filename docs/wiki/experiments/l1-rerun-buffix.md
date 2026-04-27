@@ -1,3 +1,10 @@
+---
+run_path: output/runs/r2dreamer-curriculum-l1-rerun/_blessed/l1-rerun-buffix
+slurm_id: 3957651
+wandb_id: y5a0upzd
+status: blessed
+---
+
 # L1 Rerun — Buffer Fix + Step Penalty, 2.4M Steps
 
 **Status**: completed

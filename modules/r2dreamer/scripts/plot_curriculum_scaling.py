@@ -4,11 +4,11 @@ L1-rerun (1 house, 1 goal) → L2 (1 house, 6 goals) → L3 (10 houses, 1 goal).
 Includes semantic floor plan of fK2vEV32Lag for L2 goal difficulty analysis.
 
 Reads from:
-  output/r2dreamer-curriculum-l1-rerun/run-3957651/metrics.csv
-  output/r2dreamer-curriculum-l2/run-3957713/metrics.csv
-  output/r2dreamer-curriculum-l3/run-3957714/metrics.csv
-  output/floorplan_fK2vEV32Lag.pkl
-Saves to: output/figures/
+  output/runs/r2dreamer-curriculum-l1-rerun/run-3957651/metrics.csv
+  output/runs/r2dreamer-curriculum-l2/run-3957713/metrics.csv
+  output/runs/r2dreamer-curriculum-l3/run-3957714/metrics.csv
+  output/methods/scenes/floorplan_fK2vEV32Lag.pkl
+Saves to: output/methods/comparisons/figures/
 """
 
 import os
@@ -67,11 +67,11 @@ SEMANTIC_TO_GOAL = {
     "tv": "tv_monitor",
 }
 
-L1_CSV = "output/r2dreamer-curriculum-l1-rerun/run-3957651/metrics.csv"
-L2_CSV = "output/r2dreamer-curriculum-l2/run-3957713/metrics.csv"
-L3_CSV = "output/r2dreamer-curriculum-l3/run-3957714/metrics.csv"
-FLOORPLAN_PKL = "output/floorplan_fK2vEV32Lag.pkl"
-OUTPUT_DIR = "output/figures"
+L1_CSV = "output/runs/r2dreamer-curriculum-l1-rerun/run-3957651/metrics.csv"
+L2_CSV = "output/runs/r2dreamer-curriculum-l2/run-3957713/metrics.csv"
+L3_CSV = "output/runs/r2dreamer-curriculum-l3/run-3957714/metrics.csv"
+FLOORPLAN_PKL = "output/methods/scenes/floorplan_fK2vEV32Lag.pkl"
+OUTPUT_DIR = "output/methods/comparisons/figures"
 
 
 def load_metric(df, name, rolling=0):

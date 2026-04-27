@@ -1,123 +1,95 @@
 ---
 name: reporter
-description: After experiments run, update the wiki experiment page with results, create plot scripts, and HTML slides. Use after /engineer completes and experiments have results.
+description: Turn finished experiment results into thesis deliverables — plot scripts, an updated wiki experiment page, an HTML slide deck, and an updated narrative on the docs index. Use after /engineer completes and experiments have metrics in output/, or when the user wants to refresh the slides for an existing experiment.
 ---
 
-Create thesis deliverables from experiment results. You are the reporter — turn results into analysis and presentation.
+# Reporter
 
-## When invoked
+## Quick start
 
-1. Read the experiment's wiki page at `docs/wiki/experiments/<name>.md`
-2. Locate results in `output/` (metrics CSV, summary JSON, episode CSV)
-3. Read `docs/wiki/index.md` for context on related experiments
-4. Read existing plot scripts in `modules/*/scripts/plot_*.py` to match style
-5. **Interview the user** before generating anything (see Phase 1 below)
+> **User:** `/reporter l2-vggt-baseline`
+> **You:** "Reading `docs/wiki/experiments/l2-vggt-baseline.md` and `output/runs/l2-vggt-baseline/`. Headline: SR=0.42 vs CNN baseline 0.36. Hypothesis (world models benefit from 3D) confirmed at L2. Two questions before I draft slides: (1) lead with the SR delta or with the SPL delta? (2) compare against L1 (continuity story) or only L2 (clean baseline)?"
 
-## Phase 1: Interview
+Wiki Results-section template and HTML slide style live in [TEMPLATES.md](TEMPLATES.md). For autonomous reporting (auto-pipeline Phase 4) the codepath is `scripts/pipeline/report_prompt.md` — a separate prompt, not this skill.
 
-Before creating any deliverables, present the results to the user and resolve uncertainties through a structured interview. This ensures the slides reflect the user's understanding, not just a mechanical metrics dump.
+## Workflow
 
-### How the interview works
+### Setup
 
-1. **Present a brief summary** of the experiment: setup, key metrics, and your initial read of what the results mean.
-2. **Ask questions one at a time.** Wait for the user's answer before asking the next question. Never batch multiple questions.
-3. **For each question, provide your recommended answer** so the user can simply agree or correct you.
-4. **If a question can be answered by reading the codebase or output data, answer it yourself** — don't ask the user things you can look up.
+- [ ] Read `docs/wiki/experiments/<name>.md` (Setup, Changes, Configuration)
+- [ ] Locate results in `output/` (metrics CSV, summary JSON, episode CSV)
+- [ ] Skim `docs/wiki/index.md` for related experiments
+- [ ] Read existing `modules/*/scripts/plot_*.py` for style conventions
 
-### Scope
+### Phase 1 — Interview (one question at a time)
 
-Ask about emphasis, interpretation, narrative framing, and connections to the broader thesis story. Generate your own questions based on the actual results — do not follow a fixed list. Stop asking when all uncertainties about what the slides should convey are resolved.
+Run a brief grill-me-style interview about emphasis and narrative — never batch. Cover only what shapes the slides:
 
-## Phase 2: Plot Scripts
+- [ ] Lead metric and framing
+- [ ] Comparison set (which baselines to show)
+- [ ] Connection to thesis question (3D > 2D for world models)
+- [ ] What was surprising vs expected
 
-Create or update plot scripts in `modules/*/scripts/`:
+Skip questions whose answers are obvious from the data — answer those yourself.
 
-- Training curves, loss plots, reward trajectories
-- Comparison plots (e.g., 3D vs 2D features, baselines)
-- Thesis-quality formatting: axis labels, titles, legends, readable fonts
-- Save publication-ready figures to `output/figures/`
-- Use matplotlib/seaborn for plots, pandas for tables
+### Phase 2 — Plot scripts
 
-Run the scripts locally to generate the figures. No GPU needed — plots read only from CSV/JSON metrics in `output/`.
+- [ ] Create or update plot scripts in `modules/*/scripts/plot_*.py` (matplotlib/seaborn, pandas for tables)
+- [ ] Save publication-quality figures to `output/figures/<name>/...`
+- [ ] Run the scripts locally — no GPU needed; plots read CSV/JSON only
 
-## Phase 3: Wiki Experiment Page
+### Phase 3 — Wiki experiment page
 
-The `/engineer` has already created the wiki page at `docs/wiki/experiments/<name>.md` with Setup, Changes, and Configuration sections. The reporter **updates the existing page** — do not create a new one.
+The page already exists from `/engineer`. Update in place — do not create a new one.
 
-Add the following sections to the existing page:
-
-```markdown
-**Slides**: [<experiment>.html](../../<experiment>.html)
-
-## Results
-
-Key metrics, embedded plots via ![](../../output/figures/...).
-
-## Findings
-
-What we learned. What surprised us. What this means for the research question:
-> Do world models benefit from 3D semantic scene representations over 2D?
-
-## Next
-
-What to try next based on these results.
-```
-
-Also update the page metadata:
-- Change `**Status**: implemented` → `**Status**: completed`
-- Add `**Slides**` link
-
-After updating the page:
-- Append to `docs/wiki/log.md`:
+- [ ] Append Results, Findings, Next sections per the template in [TEMPLATES.md](TEMPLATES.md)
+- [ ] Update frontmatter `**Status**: implemented` → `**Status**: completed`
+- [ ] Add `**Slides**` link pointing to `docs/<name>.html`
+- [ ] Ensure the page has YAML frontmatter at the very top (above the H1) with the new layout contract from `docs/wiki/recaps/2026-04-26-output-restructure.md` (decisions #7 and #10):
+  ```yaml
+  ---
+  run_path: output/runs/<family>/_blessed/<alias>
+  slurm_id: <id>
+  wandb_id: <id>
+  status: blessed
+  ---
+  ```
+  `<family>` is the run-family directory under `output/runs/` (e.g. `r2dreamer-curriculum-l2-vggt`); `<alias>` is the human slug (typically the `<name>` argument). If the page already has frontmatter, preserve other fields and add the new ones.
+- [ ] Create the `_blessed/<alias>` symlink in the runs dir pointing at the actual job-id-suffixed run dir, so wiki refs survive reruns:
+  ```bash
+  mkdir -p output/runs/<family>/_blessed
+  ln -snf ../<slug>-<jobid> output/runs/<family>/_blessed/<alias>
+  ```
+  Use a relative target (`../<slug>-<jobid>`) so the symlink survives directory moves. If the alias already exists pointing somewhere else, ask the user before re-pointing.
+- [ ] Append a one-liner to `docs/wiki/log.md`:
   ```
   ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /reporter
-  <Brief description>. Updated experiments/<name>.md with results. 
+  <one-paragraph result summary>. Updated experiments/<name>.md with results.
   ```
-- Add cross-references to related wiki pages
+- [ ] Add cross-references to related experiment pages
 
-## Phase 4: HTML Slides
+### Phase 4 — HTML slides
 
-Create or **replace** an HTML slide deck in `docs/` for the experiment:
+- [ ] Create or replace `docs/<name>.html` (replace, not append — git preserves history)
+- [ ] Match the dark-themed style from `docs/index.html` per [TEMPLATES.md](TEMPLATES.md)
+- [ ] 3–8 slides: title, setup+hypothesis, key results with plots, findings, next steps
+- [ ] Each experiment slide: Hypothesis → Setup → Result → Implication
+- [ ] Embed plots from `output/figures/<name>/` via relative paths
 
-- Match the existing dark-themed style from `docs/index.html` (Inter font, dark background, accent colors, fade animations)
-- 3-8 slides: title, setup/hypothesis, key results (with plots), findings, next steps
-- Embed plots from `output/figures/` directly
-- Publication-quality: clear labels, readable fonts, professional layout
-- Structure each experiment slide as: **Hypothesis → Setup → Result → Implication**
+### Phase 5 — Update narrative index
 
-## Phase 5: Update index.html
+- [ ] Update or add the experiment's summary slide in `docs/index.html` "Results So Far" — logical order (chain of reasoning), not chronological
+- [ ] Summary slide: hypothesis (1 line), key result (big metric), takeaway (1–2 sentences), link to full deck
+- [ ] Replace if already present
+- [ ] End with a "What We've Learned" synthesis slide spanning all completed experiments
 
-After generating the experiment deck, update the narrative "Results So Far" section in `docs/index.html`:
+### After deliverables
 
-- Add or update a summary slide for this experiment in logical order (not chronological — follow the chain of reasoning)
-- Each experiment summary slide contains: hypothesis (1 line), key result (big metric), takeaway (1-2 sentences), and a link to the full experiment deck
-- If the experiment's summary slide already exists in the index, replace it
-- Include a synthesis slide at the end: "What We've Learned" with the chain of reasoning across all completed experiments and what comes next
-
-## After creating deliverables
-
-Prompt the user for **chat-based review**:
-
-> "Here are the results. The wiki page is at `docs/wiki/experiments/<name>.md` and slides at `docs/<name>.html`. The index narrative has been updated. What questions do you have about the results?"
-
-Answer questions from wiki knowledge and output data. If a question can't be resolved, offer to create a GitHub issue:
-
-```bash
-gh issue create --label question --title "<question>" --body "..."
-```
-
-## Conventions
-
-- Scripts compute & save to `output/`, wiki pages and slides only reference saved outputs
-- One experiment per wiki page
-- Always compare against baselines when available
-- Frame all findings in terms of the thesis research question
+Prompt the user for chat-based review: "Wiki at `docs/wiki/experiments/<name>.md`, slides at `docs/<name>.html`, index narrative updated. Questions?" Answer from wiki + output. For unresolved questions, offer `gh issue create --label question --title "<q>" --body "..."`.
 
 ## Rules
 
-- NEVER recompute results — only visualize and analyze what's in `output/`
-- ALWAYS interview the user before generating slides — one question at a time
-- ALWAYS update wiki index.md and log.md when creating experiment pages
-- ALWAYS update the narrative section in docs/index.html after creating experiment slides
-- ALWAYS replace (not append) HTML slides for an experiment — git preserves history
-- Write for a thesis audience — clear, precise, academic tone
+- Never recompute — only visualise what's already in `output/`
+- One experiment per wiki page; always compare against baselines when available
+- Frame findings against the thesis research question (3D > 2D world models)
+- Thesis-audience tone: clear, precise, academic

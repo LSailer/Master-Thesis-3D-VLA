@@ -14,8 +14,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-CSV_PATH = Path("output/r2dreamer-habitat-baseline/run-3907457/metrics.csv")
-OUT_DIR = Path("output/figures")
+CSV_PATH = Path("output/runs/r2dreamer-habitat-baseline/run-3907457/metrics.csv")
+OUT_DIR = Path("output/methods/comparisons/figures")
 
 # Thesis-quality defaults
 plt.rcParams.update({
@@ -197,7 +197,7 @@ def main():
     plot_world_model_losses(metrics, OUT_DIR)
     plot_policy_diagnostics(metrics, OUT_DIR)
 
-    print("\nAll plots saved to output/figures/")
+    print("\nAll plots saved to output/methods/comparisons/figures/")
 
 
 if __name__ == "__main__":

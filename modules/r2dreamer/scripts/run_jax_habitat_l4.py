@@ -8,7 +8,7 @@ from modules.r2dreamer.launch.train import train
 if __name__ == "__main__":
     train(
         env="habitat", encoder="cnn", curriculum="L4",
-        output_dir="output/r2dreamer-curriculum-l4",
+        output_dir="output/runs/r2dreamer-curriculum-l4",
         wandb_name="r2d-L4-buffix",
         wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
     )

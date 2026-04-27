@@ -4,7 +4,7 @@ Measures per-frame wall time and peak GPU memory for each backend over a
 set of sequence lengths (frames per episode). Each sequence starts with a
 fresh ``reset()`` so the cache builds up organically.
 
-Writes a CSV to ``output/comparison/vggt_streaming_<timestamp>.csv`` with
+Writes a CSV to ``output/methods/comparisons/vggt_streaming_<timestamp>.csv`` with
 columns ``backend, n_frames, mean_latency_ms, median_latency_ms,
 peak_mem_mb``.
 
@@ -161,7 +161,7 @@ def main():
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("output/comparison"),
+        default=Path("output/methods/comparisons"),
     )
     args = p.parse_args()
     run(tuple(args.seq_lens), tuple(args.backends), args.out_dir)

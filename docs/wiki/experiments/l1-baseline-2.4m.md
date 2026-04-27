@@ -1,3 +1,10 @@
+---
+run_path: output/runs/r2dreamer-curriculum-l1/_blessed/l1-baseline-2.4m
+slurm_id: 3923812
+wandb_id: krokhgwi
+status: blessed
+---
+
 # L1 Baseline — 2.4M Steps, 1 House, Chair Only
 
 **Status**: completed

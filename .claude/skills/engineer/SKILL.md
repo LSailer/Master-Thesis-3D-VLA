@@ -1,136 +1,53 @@
 ---
 name: engineer
-description: Implement features from a plan. Receives the plan output and turns it into working code. Uses TDD for infrastructure code. Use after /plan completes.
+description: Implement features from a scoped spec, using TDD for infrastructure code (env wrappers, networks, replay buffers) and direct implementation for training loops and configs. Use when a /grill-me recap, GitHub issue, or direct brief is ready and the user wants to turn it into committed code on the current branch.
 ---
 
-Implement the plan provided below. You are the engineer — turn the plan into working code.
+# Engineer
 
-## When invoked
+## Quick start
 
-1. Read the plan carefully — understand requirements, architecture decisions, and acceptance criteria
-2. Check if you're on a GPU node: run `nvidia-smi`. If it succeeds, run all commands directly. If it fails, prefix GPU commands with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`
-3. Read `docs/wiki/` for context on related experiments and architecture decisions
-4. Review existing code in the relevant `modules/` directories for patterns and conventions
-5. Check dependencies in `pyproject.toml` — install missing ones with `uv add` if needed
-6. Implement phase by phase, following the lifecycle below
+> **User:** `/engineer #93`
+> **You:** "Read issue #93 — DreamerV3 `act_entropy=3e-4` fix. Single phase: edit `modules/r2dreamer/agent.py:147` + add regression test in `tests/test_actor.py`. This is a config tweak with no shape contract — direct fix + targeted test, not full TDD. Confirm path and I'll implement?"
 
-## What gets TDD vs. direct implementation
+Receive a GitHub issue, /grill-me recap, or direct brief and turn it into committed code. TDD methodology, design principles, and the experiment-MD template are in [REFERENCE.md](REFERENCE.md).
 
-**TDD (RED→GREEN tracer bullets):** env wrappers, network modules, replay buffers, preprocessing pipelines — anything with shape contracts or well-defined interfaces.
+## Workflow
 
-**Direct implementation:** training loops, configs, experiment scripts, SLURM jobs — their correctness is defined by experimental results, not test assertions.
+### Setup
 
-## TDD workflow (infrastructure code)
+- [ ] Read the spec — requirements, architecture decisions, acceptance criteria
+- [ ] Run `nvidia-smi`. If unavailable, prefix GPU commands with `srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00`
+- [ ] Read `docs/wiki/` for context on related experiments and methods
+- [ ] Skim relevant `modules/` for existing patterns and conventions
+- [ ] Check `pyproject.toml`; install missing deps with `uv add`
 
-Derive test cases from the plan's acceptance criteria. Then vertical slices — one test, one implementation, repeat.
-
-```
-RED:   Write test for one behavior → test fails
-GREEN: Write minimal code to pass → test passes
-       Repeat for next behavior
-```
-
-### Rules
-
-- **Test behavior, not implementation.** Tests exercise public interfaces. A test should survive an internal refactor without changing.
-- **One test at a time.** Don't write all tests first (horizontal slicing). Each test responds to what you learned from the previous cycle.
-- **Minimal code per cycle.** Only enough to pass the current test. Don't anticipate future tests.
-- **No speculative features.** If the plan doesn't ask for it, don't build it.
-
-### Design principles
-
-- **Deep modules**: small interface, deep implementation. Fewer methods, simpler params, complex logic hidden inside.
-- **Mock only at system boundaries**: Habitat/gym APIs, external services, time/randomness. Never mock your own modules.
-- **Pure functions**: compute and return values rather than mutating state. Natural fit for JAX's functional style.
-- **Minimal surface area**: fewer methods and parameters means fewer test cases and less coupling.
-
-## Phase lifecycle
+### Per phase — Implement → Refactor → Commit → Review
 
 For each phase in the plan:
 
-### 1. Implement
+- [ ] **Implement.** Decide TDD vs direct (see REFERENCE.md). TDD: one test → one implementation → repeat. Direct: minimum that satisfies the spec + smoke check.
+- [ ] **Verify config keys exist** before setting them on third-party libraries (OmegaConf, Hydra, Habitat). At API boundaries (Habitat, gym), use defensive types — values may be array or list.
+- [ ] **Refactor only at GREEN.** Look for duplication, long methods, shallow modules, feature envy. Run tests after each step. Never refactor while RED.
+- [ ] **Commit.** `feat(<module>): <what this phase delivers>` — one commit per phase, stage only this phase's files.
+- [ ] **`/review`.** Fix blockers, amend the phase commit. Goal: one clean commit per phase.
+- [ ] **Next phase only after review passes.**
 
-- TDD for infrastructure code, direct implementation for training/configs
-- Test each component incrementally — smoke check after each deliverable
-- Follow the plan — if something seems wrong, stop and ask rather than improvising
-- When setting config values on third-party libraries (OmegaConf, Hydra, Habitat), verify the key exists first with a quick Python snippet
-- At API boundaries (Habitat, gym, etc.), don't assume types — use defensive patterns for values that could be arrays or lists
-
-### 2. Refactor
-
-After all tests pass (GREEN), look for:
-
-- **Duplication** → extract function/class
-- **Long methods** → break into private helpers (keep tests on public interface)
-- **Shallow modules** → combine or deepen
-- **Feature envy** → move logic to where data lives
-- **Existing code** the new code reveals as problematic
-
-**Never refactor while RED.** Get to GREEN first. Run tests after each refactor step.
-
-### 3. Commit
-
-Commit the phase with a clear message:
-```
-feat(<module>): <what this phase delivers>
-```
-Stage only the files changed in this phase. One commit per phase.
-
-### 4. Review
-
-Invoke `/review` to check for bugs, logic errors, security issues, and convention violations. If review finds blockers:
-- Fix them
-- Amend the phase commit (`git commit --amend`)
-- The goal is one clean commit per phase
-
-### 5. Next phase
-
-Only move to the next phase after review passes.
-
-## Environment
-
-- **Package manager**: uv
-- **Language**: Python, JAX/Equinox preferred over PyTorch where possible
-
-## Codebase Conventions
+## Codebase conventions
 
 - Source in `modules/`, tests in `modules/*/tests/`
-- JAX: `jax.numpy`, `jax.jit`, no in-place mutations, `jax.random.split` for PRNG
+- Package manager: `uv`. Run Python via `uv run python …`
+- JAX preferred over PyTorch where possible; use `jax.numpy`, `jax.jit`, `jax.random.split`. No in-place mutation.
+- Equinox modules: `__call__` on single examples, callers `vmap`
 - Type hints on all public interfaces
-- Equinox modules: `__call__` on single examples, callers vmap
 
 ## When done
 
-Create a wiki experiment page at `docs/wiki/experiments/<name>.md` with the sections the engineer owns:
-
-```markdown
-# <Experiment Name>
-
-**Status**: implemented
-**Date**: YYYY-MM-DD
-**Tags**: #relevant #tags
-**Wandb**: <run URL if available>
-**SLURM Job ID**: <job id if available>
-
-## Setup
-
-What was tested and why. Hypothesis in one sentence.
-
-## Changes
-
-What changed compared to the previous run.
-
-## Configuration
-
-Key config values, hyperparameters, environment settings.
-```
-
-After writing the page:
-- Update `docs/wiki/index.md` — add entry under Experiments
-- Append to `docs/wiki/log.md`:
+- [ ] Create `docs/wiki/experiments/<name>.md` using the template in [REFERENCE.md](REFERENCE.md)
+- [ ] Add entry under Experiments in `docs/wiki/index.md`
+- [ ] Append a one-liner to `docs/wiki/log.md`:
   ```
   ## [YYYY-MM-DD] ingest | <Experiment Name> | source: /engineer
   <Brief description>. Created experiments/<name>.md. Updated index.
   ```
-
-Print a summary of what was implemented and where the code lives.
+- [ ] Print a summary of what was implemented and where the code lives

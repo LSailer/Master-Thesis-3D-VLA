@@ -1,8 +1,8 @@
 """Generate publication-quality plots for the L1 curriculum baseline experiment.
 
-Reads output/r2dreamer-curriculum-l1/run-3923812/metrics.csv and
-output/baselines/random-l1/summary.json for comparison.
-Saves figures to output/figures/.
+Reads output/runs/r2dreamer-curriculum-l1/run-3923812/metrics.csv and
+output/runs/baselines/random-l1/summary.json for comparison.
+Saves figures to output/methods/comparisons/figures/.
 """
 
 import json
@@ -37,9 +37,9 @@ RED = "#f87171"
 AMBER = "#fbbf24"
 CYAN = "#22d3ee"
 
-METRICS_CSV = "output/r2dreamer-curriculum-l1/run-3923812/metrics.csv"
-RANDOM_JSON = "output/baselines/random-l1/summary.json"
-OUTPUT_DIR = "output/figures"
+METRICS_CSV = "output/runs/r2dreamer-curriculum-l1/run-3923812/metrics.csv"
+RANDOM_JSON = "output/runs/baselines/random-l1/summary.json"
+OUTPUT_DIR = "output/methods/comparisons/figures"
 
 
 def load_metric(df: pd.DataFrame, name: str, rolling: int = 0) -> pd.DataFrame:

@@ -148,3 +148,43 @@ Updated recommendation for #72 repurpose order: **compile ✅ → frame-skip (ne
 - `wm_training` mean vs p50 differ by 5× for both encoders — that's JIT-compile on the first call (visible as XLA `slow_operation_alarm` lines in stderr). Always use p50 / p95, not mean, for steady-state interpretation. Mean values in the JSON are informative for understanding the warmup tax but not representative of sustained throughput.
 - `jax_upload` is measured as a separate probe (`jnp.asarray(features).block_until_ready()`) immediately before `agent.act`. The actual upload inside `agent.act` may be deduplicated by JAX; the probe gives a faithful worst-case of "what a fresh upload of this tensor costs" on this hardware.
 - Both runs used the same L1 curriculum (`level1_1house_1goal.json`). A larger curriculum (L3/L4) would see more scene switches per unit time, which the profiling result scales linearly with — the per-step breakdown is insensitive to curriculum size.
+
+## Update 2026-04-25 — Re-verification + JAX comparison
+
+Re-ran the same 2000/2000 L1-VGGT and L1-CNN configurations under the current `main` branch (post launcher Phase 1–3 refactor, post `act_entropy` fix #93). Goal: verify the 2026-04-20 numbers still hold, document the JAX port's relative position, and decide on issue #88 (GPU↔CPU round-trip).
+
+JSONs: `output/profiling/vggt_vs_cnn_20260425_135105.json` (CNN), `..._20260425_140803.json` (VGGT no-compile), `..._20260425_142600.json` (VGGT compile).
+
+### VGGT phase reproduction (p50 ms)
+
+| Phase | 2026-04-20 no-compile | 2026-04-25 no-compile | Δ | 2026-04-20 compile | 2026-04-25 compile | Δ |
+|---|--:|--:|--:|--:|--:|--:|
+| `vggt_forward` | 168.32 | 166.06 | −2.3 | 149.84 | 148.23 | −1.6 |
+| `vggt_wrapper` | 0.15 | 0.15 | 0 | 0.42 | 0.43 | 0 |
+| `jax_upload`   | 0.29  | 0.27 | 0 | —    | 0.26 | — |
+| `wm_inference` | 1.44  | 1.17 | −0.3 | 1.17 | 1.16 | 0 |
+| `wm_training`  | 35.76 | 33.70 | −2.1 | 34.09 | 34.22 | 0 |
+
+All deltas within noise. KV-cache audit still 9 = 9 ✓. The launcher refactor and `act_entropy` fix did not introduce a VGGT-path regression.
+
+### CNN side-note
+
+CNN `wm_training` p50 went from 60.41 → 67.57 ms (+12%). Outside noise but unrelated to the VGGT critical path; flagged for separate investigation.
+
+### JAX comparison (autoresearch harness)
+
+Three different harnesses report three different PyTorch baselines — direct cross-harness comparison is unreliable. The only apples-to-apples line is `modules/vggt/autoresearch/bench_fast.py` (synthetic input, seq_len=50, fp32):
+
+| Backend | Config | ms / forward | Source |
+|---|---|--:|---|
+| PyTorch | fp32, seq_len=50 | 72.2 | `modules/vggt/autoresearch/.pt_baseline.json` |
+| JAX (eager) | baseline | 4698.5 | `results.tsv` |
+| JAX (jit camera_head + padded KV) | promoted `90e123d` | 137.6 | `results.tsv` |
+
+JAX is currently **1.9× slower than PT-fp32** on the apples-to-apples bench, despite weeks of iteration in the #78 race. The aggregator-JIT attempt (`f30273b`) is marked "WIP, integration drift". Against PT-bf16+compile in production (~95 ms streaming bench), the gap widens further.
+
+### Decisions
+
+1. **#88 closed as won't-fix.** wrapper + jax_upload = 0.69 ms / forward 148 ms = 0.47% of the bottleneck. Both the original (2026-04-20) and re-verified (2026-04-25) data agree.
+2. **JAX port reframed.** Speedup-vs-PT is no longer the primary motivation; **codebase uniformity + trainable heads** (e.g. semantic head #8) is. New parity threshold is "within 1.5× of PT-compile", not "must be faster". Tracked in a new issue (supersedes #72 stub).
+3. **Frame-skip is the throughput lever.** 5.9 FPS today × 72 h = 1.53 M steps; 2.4 M target needs 9.3 FPS = ~1.6× more. K=2 frame-skip projects 2× and ships in ~5 LOC at `modules/r2dreamer/adapters/vggt_adapter.py:33-36`. Filed as a new issue.

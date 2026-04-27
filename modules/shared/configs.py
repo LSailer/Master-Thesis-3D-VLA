@@ -54,4 +54,4 @@ class DreamerConfig:
     log_every: int = 1000
     save_every: int = 50_000
     seed: int = 0
-    logdir: str = "output/dreamerv3"
+    logdir: str = "output/runs/dreamerv3"

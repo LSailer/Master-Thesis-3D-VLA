@@ -1,3 +1,10 @@
+---
+run_path: output/runs/r2dreamer-habitat-baseline/_blessed/baseline-2.4m-all-scenes
+slurm_id: 3907457
+wandb_id: qwdqowxq
+status: blessed
+---
+
 # Baseline 2.4M — All Scenes, No Goal Conditioning
 
 **Status**: completed

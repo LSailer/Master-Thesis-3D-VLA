@@ -418,7 +418,7 @@ def main() -> None:
     parser.add_argument("--encoder", choices=("cnn", "vggt"), required=True)
     parser.add_argument("--prefill_steps", type=int, default=2000)
     parser.add_argument("--acting_steps", type=int, default=2000)
-    parser.add_argument("--output_dir", type=str, default="output/profiling")
+    parser.add_argument("--output_dir", type=str, default="output/methods/profiling")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curriculum_path", type=str, default=None)
     parser.add_argument(

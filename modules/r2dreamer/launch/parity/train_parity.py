@@ -158,7 +158,7 @@ def run(*, train_steps=100_000, output_path=None, argv=None):
 
     Args:
         train_steps: number of train steps per framework.
-        output_path: directory for output JSON files; defaults to ROOT/output/parity.
+        output_path: directory for output JSON files; defaults to ROOT/output/methods/parity.
         argv: argument list (default: sys.argv[1:]).
 
     Returns:

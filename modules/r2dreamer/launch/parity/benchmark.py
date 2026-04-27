@@ -2,7 +2,7 @@
 
 Trains each variant for train_steps on identical Crafter replay data,
 measures timing/memory/losses, evaluates policies, and saves all results
-to output/comparison/r2dreamer_benchmark.json.
+to output/methods/comparisons/r2dreamer_benchmark.json.
 
 Public entry: run(train_steps, eval_episodes, output_path, argv)
 """
@@ -214,7 +214,7 @@ def run(*, train_steps=4_000, eval_episodes=10, output_path=None, argv=None):
     Args:
         train_steps: number of train steps per variant.
         eval_episodes: number of episodes for policy evaluation.
-        output_path: directory for output JSON; defaults to ROOT/output/comparison.
+        output_path: directory for output JSON; defaults to ROOT/output/methods/comparisons.
         argv: argument list (default: sys.argv[1:]).
 
     Returns:

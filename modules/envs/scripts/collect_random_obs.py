@@ -106,7 +106,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=500)
     parser.add_argument("--wandb-project", default="3d-vla-objectnav")
     parser.add_argument("--scene-dataset", default="data/scene_datasets/hm3d/minival")
-    parser.add_argument("--output-dir", default="output/observations")
+    parser.add_argument("--output-dir", default="output/runs/observations")
     parser.add_argument("--log-image-every", type=int, default=50)
     parser.add_argument("--no-save", action="store_true", help="Skip saving .npz files")
     args = parser.parse_args()

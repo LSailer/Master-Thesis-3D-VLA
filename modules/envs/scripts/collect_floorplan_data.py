@@ -3,7 +3,7 @@
 Loads the fK2vEV32Lag scene via Habitat, samples the navmesh, renders
 a top-down semantic map, and extracts goal positions + episode start
 positions for all L2 curriculum episodes.
-Saves to output/floorplan_fK2vEV32Lag.pkl.
+Saves to output/methods/scenes/floorplan_fK2vEV32Lag.pkl.
 
 Usage (GPU required for habitat-sim):
     srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 --mem=32G \
@@ -25,7 +25,7 @@ from omegaconf import OmegaConf
 
 from modules.envs.habitat import DATA_DIR, SCENE_DIR, sample_navmesh
 
-OUTPUT_PATH = "output/floorplan_fK2vEV32Lag.pkl"
+OUTPUT_PATH = "output/methods/scenes/floorplan_fK2vEV32Lag.pkl"
 CURRICULUM_PATH = "data/curriculum/level2_1house_6goals.json"
 
 
