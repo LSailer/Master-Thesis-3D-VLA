@@ -2,6 +2,7 @@
 
 ## Experiments
 
+- [L1 Rerun — act_entropy=3e-2 Baseline Restore](experiments/l1-act-entropy-3e-2.md) — Running: reconfirm 75% SR requires act_entropy=3e-2; gating encoder ablation matrix
 - [L1 Rerun — Buffer Fix + Step Penalty](experiments/l1-rerun-buffix.md) — L1 with buffer fix, 75% SR (+8pp over original), step penalty improves SPL
 - [L2 — 1 House, 6 Goals](experiments/l2-1house-6goals.md) — 6 goal categories, 36% avg SR, goal difficulty hierarchy driven by navigation complexity
 - [L3 — 10 Houses, Chair Only](experiments/l3-10houses-chair.md) — 10-house generalization, 32% SR, still 8x above random
