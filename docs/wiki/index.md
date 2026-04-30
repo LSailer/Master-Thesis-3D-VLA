@@ -21,6 +21,7 @@
 - [VGGT → R2Dreamer Call Chain](methods/vggt-r2dreamer-callchain.md) — End-to-end data flow for one env step when `encoder_type="vggt"`; 5 high-leverage breakpoints for debugging
 - [Cross-Correlation Matrix](methods/cross-correlation-matrix.md) — Barlow Twins–form regularizer used here to align RSSM-projected feature with frozen VGGT embedding (not contrastive learning)
 - [Shape Debugging](methods/shape-debugging.md) — Tracing tensor dims through R2-Dreamer / DreamerV3; known footguns (stoch size, NCHW vs NHWC, TwoHot bins)
+- [Encoder Fusion Plan](methods/encoder-fusion-plan.md) — Pose-aware, geometry-preserving encoder ablation (Tile/FiLM/Plücker/X-attn) on H100, with pose-influence diagnostics (#87/#88/#89)
 
 ## Lessons
 
