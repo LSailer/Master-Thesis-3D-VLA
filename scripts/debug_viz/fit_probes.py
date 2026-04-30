@@ -42,9 +42,9 @@ def _load_episode(ep_dir: Path):
 
 
 def _fit_probe(X: np.ndarray, Y: np.ndarray, alpha: float = 1.0):
-    """Standardize X and Y, fit Y ≈ X @ W + b via Ridge regression.
+    """Standardize X and Y, fit Y ≈ X @ W via Ridge regression.
 
-    Returns (W, b, x_mean, x_std, y_mean, y_std) so prediction is:
+    Returns (W, x_mean, x_std, y_mean, y_std) so prediction is:
         Y_hat = ((X - x_mean) / x_std) @ W * y_std + y_mean
     """
     x_mean = X.mean(axis=0, keepdims=True)
