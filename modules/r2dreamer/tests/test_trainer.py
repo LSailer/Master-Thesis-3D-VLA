@@ -1,0 +1,200 @@
+"""Tests for modules/r2dreamer/trainer.py — convert_batch and checkpoint."""
+
+import os
+import tempfile
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+from modules.r2dreamer.config import R2DreamerConfig
+from modules.r2dreamer.agent import R2DreamerAgent
+from modules.r2dreamer.trainer import (
+    Trainer,
+    TrainerConfig,
+    convert_batch,
+    load_checkpoint,
+    save_checkpoint,
+)
+
+
+class _DummyEnv:
+    """Minimal env stub — Trainer.__init__ does not call any of these methods."""
+
+    def reset(self) -> dict:
+        return {"image": np.zeros((3, 64, 64), dtype=np.uint8), "is_first": True}
+
+    def step(self, action: int) -> dict:
+        return {
+            "image": np.zeros((3, 64, 64), dtype=np.uint8),
+            "reward": 0.0,
+            "done": False,
+            "success": 0.0,
+        }
+
+    def close(self) -> None:
+        pass
+
+
+class TestConvertBatch:
+    """convert_batch turns replay buffer output into agent-ready batches."""
+
+    @pytest.fixture
+    def replay_batch(self):
+        B, T, A = 4, 8, 6
+        return {
+            "obs": jnp.ones((B, T, 3, 4, 4)),
+            "actions": jnp.array(np.random.randint(0, A, (B, T)), dtype=jnp.int32),
+            "rewards": jnp.ones((B, T)),
+            "dones": jnp.zeros((B, T)),
+            "terminals": jnp.zeros((B, T)),
+            "is_first": jnp.zeros((B, T)),
+        }
+
+    def test_actions_become_onehot(self, replay_batch):
+        out = convert_batch(replay_batch, num_actions=6)
+        assert out["actions"].shape == (4, 8, 6)
+        assert out["actions"].dtype == jnp.float32
+        # Each row should sum to 1 (one-hot)
+        assert jnp.allclose(out["actions"].sum(axis=-1), 1.0)
+
+    def test_dones_renamed_to_is_last(self, replay_batch):
+        replay_batch["dones"] = jnp.ones((4, 8))
+        out = convert_batch(replay_batch, num_actions=6)
+        assert "is_last" in out
+        assert "dones" not in out
+        assert jnp.allclose(out["is_last"], 1.0)
+
+    def test_terminals_renamed_to_is_terminal(self, replay_batch):
+        replay_batch["terminals"] = jnp.ones((4, 8))
+        out = convert_batch(replay_batch, num_actions=6)
+        assert "is_terminal" in out
+        assert "terminals" not in out
+        assert jnp.allclose(out["is_terminal"], 1.0)
+
+    def test_obs_and_rewards_pass_through(self, replay_batch):
+        out = convert_batch(replay_batch, num_actions=6)
+        assert jnp.allclose(out["obs"], replay_batch["obs"])
+        assert jnp.allclose(out["rewards"], replay_batch["rewards"])
+        assert jnp.allclose(out["is_first"], replay_batch["is_first"])
+
+    def test_output_keys(self, replay_batch):
+        out = convert_batch(replay_batch, num_actions=6)
+        assert set(out.keys()) == {"obs", "actions", "rewards", "is_first", "is_last", "is_terminal"}
+
+
+class TestCheckpoint:
+    """save_checkpoint and load_checkpoint round-trip agent state."""
+
+    @pytest.fixture
+    def agent(self):
+        cfg = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+        rng = jax.random.PRNGKey(42)
+        return R2DreamerAgent(cfg, rng)
+
+    def test_roundtrip_preserves_params(self, agent):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = save_checkpoint(agent, step=100, output_dir=tmpdir)
+            assert os.path.exists(path)
+
+            data = load_checkpoint(path)
+            assert data["step"] == 100
+            # Params should match
+            for key in agent.params:
+                orig = agent.params[key]
+                loaded = data["params"][key]
+                jax.tree.map(
+                    lambda a, b: np.testing.assert_allclose(a, b, atol=1e-6),
+                    orig, loaded,
+                )
+
+    def test_roundtrip_preserves_ema_state(self, agent):
+        """The old _save_checkpoint missed ema_state — verify it's saved now."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = save_checkpoint(agent, step=50, output_dir=tmpdir)
+            data = load_checkpoint(path)
+            assert "ema_state" in data
+            np.testing.assert_allclose(
+                data["ema_state"], np.array(agent.ema_state), atol=1e-6
+            )
+
+    def test_roundtrip_preserves_slow_critic(self, agent):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = save_checkpoint(agent, step=10, output_dir=tmpdir)
+            data = load_checkpoint(path)
+            jax.tree.map(
+                lambda a, b: np.testing.assert_allclose(a, b, atol=1e-6),
+                agent.slow_critic_params, data["slow_critic_params"],
+            )
+
+
+class TestResume:
+    """Trainer with resume_from restores agent state and offsets the step counter."""
+
+    @pytest.fixture
+    def cfg(self):
+        return R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+
+    @pytest.fixture
+    def saved_agent(self, cfg, tmp_path):
+        """Build an agent, save its checkpoint, return (agent, ckpt_path, step)."""
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        step = 12345
+        ckpt_path = save_checkpoint(agent, step=step, output_dir=str(tmp_path))
+        return agent, ckpt_path, step
+
+    def test_resume_restores_params_and_step(self, cfg, saved_agent, tmp_path):
+        original, ckpt_path, step = saved_agent
+
+        # Build a fresh agent with a different init seed so its weights differ.
+        fresh = R2DreamerAgent(cfg, jax.random.PRNGKey(99))
+        before = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
+        target = [np.asarray(x) for x in jax.tree.leaves(original.params)]
+        assert not all(np.allclose(a, b) for a, b in zip(before, target))
+
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=step + 1,
+            wandb_project=None,
+            resume_from=ckpt_path,
+        )
+        trainer = Trainer(
+            agent=fresh, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
+        )
+
+        assert trainer._resume_step == step
+        after_params = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
+        for a, b in zip(after_params, target):
+            np.testing.assert_allclose(a, b, atol=1e-6)
+        for a, b in zip(jax.tree.leaves(fresh.slow_critic_params),
+                        jax.tree.leaves(original.slow_critic_params)):
+            np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-6)
+        np.testing.assert_allclose(
+            np.asarray(fresh.ema_state), np.asarray(original.ema_state), atol=1e-6,
+        )
+
+    def test_no_resume_keeps_step_zero(self, cfg, tmp_path):
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+        )
+        trainer = Trainer(
+            agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
+        )
+        assert trainer._resume_step == 0
+
+    def test_missing_resume_path_raises(self, cfg, tmp_path):
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+            resume_from=str(tmp_path / "nope.pkl"),
+        )
+        with pytest.raises(FileNotFoundError):
+            Trainer(
+                agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
+            )
