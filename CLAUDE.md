@@ -2,42 +2,21 @@
 
 ## Project
 
-**World Models + 3D Scene Understanding** — Master's thesis testing whether DreamerV3 performs better with 3D (VGGT/UNITE) vs 2D features on HM3D ObjectNav. Pivoted Mar 2026 away from VLA + UNITE injection.
+**World Models + 3D Scene Understanding** — Master's thesis testing whether R2Dreamer performs better with 3D (VGGT) vs 2D features on HM3D ObjectNav.
 
 **Supervisors:**
 - Prof. Dr. Daniel Braun (Erstprüfer) — Head of Neuroinformatics, Uni Ulm
 - Prof. Dr. Timo Ropinski (Zweitprüfer) — Head of Visual Computing Group, Uni Ulm
-- Fabian (PhD Betreuer) — direct day-to-day supervisor (Mattermost / email)
+- Fabian (PhD Betreuer) — day-to-day supervisor (Mattermost / email)
 
-## Knowledge base
+## Knowledge
 
-Project knowledge lives in `docs/wiki/`. Start at [`docs/wiki/index.md`](docs/wiki/index.md):
+Start at [`docs/wiki/index.md`](docs/wiki/index.md). Two-tier: `output/` is raw artifacts (immutable, machine-emitted); `docs/wiki/` is curated synthesis. Never hand-edit anything under `output/`.
 
-- `experiments/` — training-run results
-- `methods/` — architecture, recipes (e.g. [phase-orchestration](docs/wiki/methods/phase-orchestration.md), [launcher-refactor](docs/wiki/methods/launcher-refactor.md), [vggt-r2dreamer-callchain](docs/wiki/methods/vggt-r2dreamer-callchain.md))
-- `meetings/` — supervisor notes
-- `research/` — paper summaries
-
-When creating or modifying wiki pages, also update `docs/wiki/index.md` and append to `docs/wiki/log.md`.
+Prior session learnings live in [`docs/wiki/lessons/`](docs/wiki/lessons/) — skim today's file before starting related work. Wiki conventions (frontmatter, index/log discipline) live in [`docs/wiki/CLAUDE.md`](docs/wiki/CLAUDE.md) and load when working in that subtree.
 
 ## Data layout
 
-Two-tier model: `output/` holds raw artifacts (immutable, machine-emitted); `docs/wiki/` holds synthesis (LLM-curated). Never hand-edit anything under `output/`.
-
-`output/` has three buckets: `runs/` (training/eval, one sub-dir per experiment family), `methods/` (parity, profiling, comparisons, scenes — anything not tied to a single run), `slurm/` (SLURM logs without a run-context).
-
-Per-run dirs are named `<slug>-<jobid>/` (readable + traceable). Runs cited from the wiki are stabilised via `_blessed/<alias>` symlinks under their family dir, so wiki refs survive reruns.
-
-Each run dir contains an auto-emitted `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, start/end timestamps) written by the training script — never hand-edited.
-
-Wiki experiment pages declare their backing run via YAML frontmatter: `run_path`, `slurm_id`, `wandb_id`, `status`. The `wiki-audit` skill consumes these to cross-check body claims against `metrics.csv` + `MANIFEST.json`.
-
-`/grill-me` session distillates land in `docs/wiki/recaps/YYYY-MM-DD-<topic>.md`.
-
-## Coding principles
-
-- **Clarify before coding** — present interpretations, ask, don't guess silently.
-- **Goal-driven** — define testable success criteria before implementing.
-- **Simplicity first** — minimum viable code. Three similar lines beat a clever helper.
-- **Surgical changes** — only modify what's necessary, no "while you're in there" cleanups.
-- **One question at a time** — wait for answer before next.
+- `output/runs/<family>/<slug>-<jobid>/` — per-run dirs. Each holds an auto-emitted `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, timestamps) — never hand-edited. `_blessed/<alias>` symlinks stabilise wiki references against reruns.
+- `output/methods/` — non-run artifacts (parity, profiling, comparisons, scenes).
+- `output/slurm/` — SLURM logs without run-context.
