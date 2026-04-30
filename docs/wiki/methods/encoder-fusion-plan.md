@@ -139,6 +139,7 @@ class CrossAttnEncoder(nn.Module):
 
     def __call__(self, obs):
         _, tokens, pose = unpack_vggt(obs)              # tokens: (B, 64, 37, 37)
+        B = tokens.shape[0]
         kv = tokens.reshape(B, 64, -1).transpose(0, 2, 1)  # (B, 1369, 64)
         q = nn.Dense(self.n_queries * 64)(pose).reshape(B, self.n_queries, 64)
         out = nn.MultiHeadDotProductAttention(num_heads=self.n_heads)(q, kv)
