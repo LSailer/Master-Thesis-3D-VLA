@@ -24,7 +24,7 @@ CELLS = [
 
 Companion to [`docs/wiki/methods/r2dreamer-encoder-drift-viz.md`](../docs/wiki/methods/r2dreamer-encoder-drift-viz.md).
 
-Pair: **ep7** (clean success, 135 steps, SPL 0.96) vs **ep1** (near-miss, 500 steps, ends 0.94 m from goal — *inside* the 1 m success radius without firing STOP).
+Pair: **ep7** (clean success, 135 steps, SPL 0.96) vs **ep1** (near-miss, 500 steps, ends 0.94 m from goal — **4.7× outside** the 0.2 m success radius; a final-approach failure, not a near-miss inside the goal).
 
 This notebook is a thin viewer of pre-rendered artifacts. Run order top-to-bottom; each cell is independent given the bundle files.
 """),

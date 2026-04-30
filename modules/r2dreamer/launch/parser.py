@@ -46,7 +46,8 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     # escape hatch: override shim-hardcoded curriculum
     p.add_argument("--curriculum_path", type=str, default=None,
                    help="Override shim curriculum path (escape hatch)")
-    p.add_argument("--render_resolution", type=int, default=64)
+    p.add_argument("--render_resolution", type=int, default=None,
+                   help="Render resolution (default: 518 for vggt, 64 for cnn)")
     p.add_argument("--split", type=str, default="val")
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")
