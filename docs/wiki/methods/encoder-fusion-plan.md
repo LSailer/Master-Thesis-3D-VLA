@@ -117,14 +117,19 @@ Each encoder takes the flat 91732-D obs and unpacks internally to:
 
 ```python
 class TileEncoder(nn.Module):
+    embed_dim: int = 1024
+
     def __call__(self, obs):
         wp, _, pose = unpack_vggt(obs)
-        pose_tiled = pose[:, :, None, None].repeat(37, axis=2).repeat(37, axis=3)  # (B, 9, 37, 37)
+        pose_tiled = jnp.broadcast_to(
+            pose[:, :, None, None], (pose.shape[0], 9, 37, 37)
+        )  # (B, 9, 37, 37)
         x = jnp.concatenate([wp, pose_tiled], axis=1)  # (B, 12, 37, 37)
-        return R2Encoder(mults=(2, 3, 4, 4))(x)        # reuses existing backbone
+        x = R2Encoder(mults=(2, 3, 4, 4))(x)           # (B, ~4096)
+        return nn.Dense(self.embed_dim)(x)              # (B, 1024) — matches RSSM contract
 ```
 
-**Note.** R2Encoder's first conv accepts arbitrary input channels, so this works without modification. Output dim ≈ 4096. Add a `Dense(4096 → 1024)` projection head to match the `embed_dim` contract used by RSSM (so the posterior MLP shapes don't change across variants).
+**Note.** R2Encoder's first conv accepts arbitrary input channels, so this works without modification. The `Dense(embed_dim)` projection head is required — without it the output dim (~4096) mismatches the RSSM posterior MLP which expects 1024.
 
 ### 2b. `FiLMEncoder`
 
@@ -310,7 +315,7 @@ Before declaring the experiment shipped:
 | Plücker rays diverge from VGGT's internal pose convention → ray-vs-feature misalignment | Use Habitat extrinsics directly; visualize one `(rays, world_points)` pair as a sanity check before training. |
 | FiLM γ explodes at init → NaN loss | Initialize the FiLM head's γ-output to predict 1, β-output to predict 0 (zero-init the final layer + add 1 to γ). Standard practice. |
 | Cross-attention destabilizes RSSM KL | Keep n_queries small (k=4 or 8), use RMSNorm, run x-attn outside the main matrix as exploratory. |
-| Buffer size 22× growth blows out RAM | Per-step ~91k floats × 1M steps = 350 GB. Verify the existing buffer is on disk (it should be — check `ReplayBuffer` config). If memory-resident, halve the patch-token projection to 32 channels. |
+| Buffer size 22× growth blows out RAM | ~367 GB at 1M cap (`replay_buffer.py:42` is memory-resident — confirmed). Mitigations per Phase 1: cap at 250k, disk-back (HDF5/memmap), or compress to 16 dims (~88 GB). Halving to 32 channels only saves ~84 GB → still ~283 GB. |
 | `vggt` baseline regresses after schema change | Phase 5 step 1 catches this; rollback path is reverting Phase 1 commits independently. |
 
 ---
