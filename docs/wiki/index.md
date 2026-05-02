@@ -24,6 +24,7 @@
 - [Shape Debugging](methods/shape-debugging.md) — Tracing tensor dims through R2-Dreamer / DreamerV3; known footguns (stoch size, NCHW vs NHWC, TwoHot bins)
 - [Encoder Fusion Plan](methods/encoder-fusion-plan.md) — Pose-aware, geometry-preserving encoder ablation (Tile/FiLM/Plücker/X-attn) on H100, with pose-influence diagnostics (#87/#88/#89)
 - [Encoder Fusion Plan Audit](methods/encoder-fusion-plan-audit.md) — 3-agent audit of PR #110 plan; 5 blockers (pose-grad probe, Habitat extrinsics, RAM buffer, aggregated_tokens shape, wrong cited paths)
+- [Pose as JAX Leaf](methods/pose-as-jax-leaf.md) — Design proposal for B1: minimal API change to make `pose` separable in `_loss_fn` for the `pose_grad_norm` diagnostic
 
 ## Lessons
 

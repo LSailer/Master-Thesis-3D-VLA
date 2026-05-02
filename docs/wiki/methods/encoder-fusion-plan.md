@@ -76,7 +76,7 @@ The downstream Phase 1 design assumes 64-dim tokens; if option (c) is chosen, al
 
 ### Files to modify
 
-- **Step 0 — verify `aggregated_tokens` shape.** Before any code change, print/assert the actual shape of `aggregated_tokens` at [feature_extractor.py:129](../../../modules/vggt/feature_extractor.py#L129). The plan assumes 37×37×1024 but the variable may be `(B, T_agg, C_agg)` with a different layout. The downstream projection design depends on the answer; if the shape is not spatial, a reshape/unflatten step must be added.
+- **Step 0 — verify `aggregated_tokens` shape. RESOLVED via [scripts/verify_aggregated_tokens.py](../../../scripts/verify_aggregated_tokens.py).** `aggregated_tokens` is a **list of 24 layer outputs** (one per aggregator block), each shape `(B, S, 1374, 2048)` float32. The first `patch_start_idx = 5` tokens are CLS + register prefix; tokens `5..1373` are the 1369 patch tokens (37×37 grid). Channel dim is **2048**, not 1024 as originally assumed. Downstream design: pick the last layer (`aggregated_tokens[-1]`), slice `[:, :, 5:, :]`, reshape to `(37, 37, 2048)`, then project. The fixed projection is therefore **2048→K** (32× compression at K=64, two orders below the JL bound — see M1 caveats). Recommended K = 128 or 256 to compensate for the larger source dim, not 64.
 
 - **[modules/envs/habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py)** — extend obs dict
   - Currently returns only `{image, reward, is_first, is_last, is_terminal, success, spl}`. The Plücker variant (Phase 2c) needs Habitat extrinsics + intrinsics; without this, Plücker is broken-by-default.
