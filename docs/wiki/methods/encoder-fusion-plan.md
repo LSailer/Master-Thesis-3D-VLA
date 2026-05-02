@@ -18,7 +18,7 @@ This produces three known confounders for the 3D-vs-2D claim (issues #87, #88, #
 
 **Why this needs fixing now.** Without a fix, any 3D-vs-2D win can be attributed to a confound (linear projection vs. CNN), and any 3D-vs-2D loss could mean "VGGT features don't help" or "the encoder threw them away." The encoder must be a fair channel before the comparison is interpretable.
 
-**Outcome we want.** Four fusion variants + a tile-baseline that share the same R2Encoder backbone (so the comparison isolates the *fusion mechanism*), a diagnostic harness that measures pose influence on `z` directly (not just SR), and a 12-run experiment matrix on HM3D that produces publication-grade ablation rows.
+**Outcome we want.** Four fusion variants + a tile-baseline + a magnitude-control baseline that share the same R2Encoder backbone (so the comparison isolates the *fusion mechanism*), a diagnostic harness that measures pose influence on `z` directly (not just SR), and a 15-run experiment matrix on HM3D (12 main + 3 magnitude control) that produces publication-grade ablation rows.
 
 User decisions guiding this plan:
 - Implement four approaches: **Tile/CoordConv**, **FiLM**, **Plücker rays**, **Cross-attention**.
@@ -39,8 +39,23 @@ All four variants reuse the existing `R2Encoder` ([networks.py:362](../../../mod
 | `vggt_film` | MLP(pose) → (γ, β) per channel; modulate after each Conv block | R2Encoder w/ FiLM hooks | Per-channel pose dominance, no spatial cost. |
 | `vggt_plucker` | Per-pixel 6D Plücker rays from Habitat extrinsics+intrinsics, concat to channels (input 9, 37, 37) | R2Encoder | Strongest per-token pose signal. Geometry-aware by construction. |
 | `vggt_xattn` | DINOv2 patch tokens as KV, k=8 learned pose queries → MHA | Token-level (no R2Encoder) | Most expressive. Tests whether pose-driven token routing > channel modulation. |
+| `vggt_pose_scaled` | pose × 100 through the existing flatten+linear path | Existing `VGGTEncoder` | Issue #87's Trivial fix. Isolates pose magnitude from encoder routing. If this matches Tile/FiLM/Plücker, the encoder rewrite was unnecessary. |
 
 Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the control, and `cnn` (raw RGB → R2Encoder) stays as the 2D comparison.
+
+---
+
+## Phase 0 — Baseline variance calibration
+
+**Why first.** No multi-seed variance baseline exists in the wiki today. The 75% SR anchor is one seed, and the act_entropy=3e-2 rerun ([l1-act-entropy-3e-2.md](../experiments/l1-act-entropy-3e-2.md)) is a single run. Before committing 12+ H100 runs, measure σ on the baseline.
+
+**Action.** Run 3 seeds of the current `vggt` baseline (commit `ab89a0a`, act_entropy=3e-2 hyperparameters, no plan changes) end-to-end. Report mean ± std on SR/SPL.
+
+**Gating rule.**
+- If σ ≤ 3pp on SR: proceed with 3 seeds × 4 encoders + 3 seeds × 1 magnitude-control = 15 runs.
+- If σ > 3pp on SR: expand to 5 seeds per variant, OR focus the matrix on the top-2 candidates (`vggt_film` + `vggt_plucker`) at 5 seeds each.
+
+**Side task.** Profile one full HM3D eval (val split) to confirm wall-time. The plan budgets ~30–60 min/eval; verify before committing 24 evals worth of cluster time.
 
 ---
 
@@ -48,14 +63,29 @@ Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the 
 
 **Why first.** Cross-attention needs DINOv2 patch tokens. Doing this before any encoder work means all variants see the same buffer schema and we don't ship two adapter changes.
 
-**Buffer budget.** Raw DINOv2 patch tokens at VGGT-L are 37×37×1024 ≈ 1.4M floats per step → infeasible. Solution: a **fixed (untrained, deterministic) projection** in PyTorch from 1024 → 64 channels before serialization. Per-step storage: 4107 (world_points) + 37·37·64 (tokens) + 9 (pose) = **~91k floats** (~22× current, manageable).
+**Buffer budget — corrected.** Current buffer is ~16.5 GB (4116 floats × 1M cap × 4 bytes), memory-resident at [replay_buffer.py:42](../../../modules/shared/replay_buffer.py#L42). New schema with 91732 floats/step is **~367 GB**. The "halve patch tokens to 32 channels" mitigation only saves ~84 GB → still ~283 GB. Before Phase 1 lands, the team must choose ONE of:
+- (a) cap buffer at 250k steps (~92 GB at 91732 floats);
+- (b) implement a disk-backed wrapper (HDF5 or memmap) — touches `replay_buffer.py` substantially;
+- (c) compress patch tokens harder than 64 dims (e.g., 16 dims → 22k floats/step → ~88 GB at 1M cap).
+
+The downstream Phase 1 design assumes 64-dim tokens; if option (c) is chosen, all "91732 floats" references in this plan must be updated.
 
 **Why a fixed projection.** A trainable projection inside the extractor would create a JAX/PyTorch gradient boundary problem (VGGT is frozen and runs in PyTorch acting; gradients flow only in JAX). A **fixed random projection** (Johnson–Lindenstrauss style, frozen at module construction) preserves enough signal for the JAX-side encoder to learn from. If empirically lossy, escalate to **learned PCA on a held-out batch** — still no gradient boundary issue.
 
+**JL caveats.** The JL bound for ε=0.1 with N=1369 patches needs k > ~6000; the proposed 64 dims is two orders below the bound. A more conservative starting point is 512 dims (~15× compression instead of 16×). The projection matrix MUST be seeded (e.g., `torch.manual_seed(42)` before `torch.randn`) and serialized into the model checkpoint, otherwise variants drift silently across SLURM jobs.
+
 ### Files to modify
 
+- **Step 0 — verify `aggregated_tokens` shape.** Before any code change, print/assert the actual shape of `aggregated_tokens` at [feature_extractor.py:129](../../../modules/vggt/feature_extractor.py#L129). The plan assumes 37×37×1024 but the variable may be `(B, T_agg, C_agg)` with a different layout. The downstream projection design depends on the answer; if the shape is not spatial, a reshape/unflatten step must be added.
+
+- **[modules/envs/habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py)** — extend obs dict
+  - Currently returns only `{image, reward, is_first, is_last, is_terminal, success, spl}`. The Plücker variant (Phase 2c) needs Habitat extrinsics + intrinsics; without this, Plücker is broken-by-default.
+  - Add `agent_state`: 4×4 extrinsics + 3×3 intrinsics (or a flat 25-D representation) to the obs dict.
+  - Update [vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) to also pack `agent_state` into the buffer flat layout.
+  - Validate Habitat's coordinate frame matches VGGT's `world_points` frame visually before training (one paired plot of rays + world_points).
+
 - **[modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py)** (~line 83)
-  - In `extract()`, also pull the DINOv2 patch tokens from `aggregated_tokens` (the layer before the DPT head — this is what VGGT calls "patch tokens"; verify the exact slice once code is open). Reshape to (37, 37, 1024).
+  - In `extract()`, also pull the DINOv2 patch tokens from `aggregated_tokens` (the layer before the DPT head — this is what VGGT calls "patch tokens"; verify the exact slice and shape per Step 0 above). Reshape to (37, 37, 1024) if the layout permits.
   - Apply a fixed projection: `tokens_compressed = tokens @ self._proj` where `self._proj` is a frozen `(1024, 64)` matrix initialized once with `torch.randn` × `1/sqrt(1024)` and stored on the module. Result: (37, 37, 64).
   - Return dict now includes `"patch_tokens": (37, 37, 64) float32`.
 
@@ -76,7 +106,7 @@ Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the 
 
 ## Phase 2 — Encoder registry expansion
 
-All encoders go in [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) (Flax). The registry lives in [modules/r2dreamer/launch/train.py:67](../../../modules/r2dreamer/launch/train.py#L67) — one entry per variant.
+All encoders go in [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) (Flax). The registry lives in [modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) — one entry per variant.
 
 Each encoder takes the flat 91732-D obs and unpacks internally to:
 - `wp` reshaped to (B, 3, 37, 37)
@@ -108,13 +138,13 @@ class FiLMEncoder(nn.Module):
         return R2EncoderFiLM(gammas, betas)(wp)
 ```
 
-`R2EncoderFiLM` is a parameterized variant of `R2Encoder`. To keep the diff small, add a `film_params: Optional[Tuple] = None` kwarg to `R2Encoder` itself rather than forking the class.
+`R2EncoderFiLM` is a parameterized variant of `R2Encoder`. The "small kwarg add" framing understates the refactor: R2Encoder's conv loop ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)) is tight (Conv → max_pool → RMSNorm → SiLU); branching on `film_params` leaks abstraction. A cleaner alternative is a separate `R2EncoderFiLM` wrapper class that calls R2Encoder internally. Pick one and document the choice; either is acceptable but the diff will be larger than a single kwarg.
 
 ### 2c. `PluckerEncoder`
 
 Compute Plücker rays from **Habitat ground-truth extrinsics+intrinsics**, not from VGGT's learned 9-D pose. This requires:
 
-- **[modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py)**: also write Habitat's `agent_state` (4×4 extrinsics + 3×3 intrinsics, or a flat 25-D representation) into the buffer. Habitat provides these in `obs_dict["sensor_pose"]` or similar — verify path during impl.
+- The Habitat-wrapper extension added in Phase 1 (extrinsics + intrinsics surfaced via `agent_state` in the obs dict). The current wrapper does NOT expose any pose/sensor metadata, so this is a hard dependency — Plücker is blocked until Phase 1 lands the Habitat change.
 - A `compute_plucker(extrinsics, intrinsics, H=37, W=37)` JAX function that returns rays of shape (B, 6, 37, 37). Each pixel (u, v) yields direction `d = R · K⁻¹·[u, v, 1]` and moment `m = origin × d`.
 - Concat to world_points: `x = jnp.concatenate([wp, rays], axis=1)` → (B, 9, 37, 37) → R2Encoder.
 
@@ -150,16 +180,17 @@ Note: this is the only variant that does **not** use R2Encoder. It uses the patc
 
 ### Registry update
 
-[modules/r2dreamer/launch/train.py:67](../../../modules/r2dreamer/launch/train.py#L67):
+[modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15):
 
 ```python
 encoder_registry = {
-    "cnn":           R2Encoder,
-    "vggt":          VGGTEncoder,        # current baseline
-    "vggt_tile":     TileEncoder,
-    "vggt_film":     FiLMEncoder,
-    "vggt_plucker":  PluckerEncoder,
-    "vggt_xattn":    CrossAttnEncoder,
+    "cnn":               CNNEncoder,
+    "vggt":              VGGTEncoder,        # current baseline
+    "vggt_pose_scaled":  VGGTEncoder,        # same class, pose × 100 in adapter
+    "vggt_tile":         TileEncoder,
+    "vggt_film":         FiLMEncoder,
+    "vggt_plucker":      PluckerEncoder,
+    "vggt_xattn":        CrossAttnEncoder,
 }
 ```
 
@@ -177,7 +208,7 @@ Goal: directly measure "does pose actually influence the latent `z`," beyond jus
 
 ### 3a. Gradient-norm probe (training-time)
 
-In [modules/r2dreamer/trainer.py](../../../modules/r2dreamer/trainer.py) (find the `_loss_fn` cited in the call-chain doc), after the forward pass, compute and log:
+In [modules/r2dreamer/agent.py:299](../../../modules/r2dreamer/agent.py#L299) (`_loss_fn`), after the forward pass, compute and log:
 
 ```python
 grad_z_wrt_pose = jax.grad(lambda p: stoch_logits(... pose=p ...).sum())(pose)
@@ -186,9 +217,11 @@ log["pose_grad_norm"] = jnp.linalg.norm(grad_z_wrt_pose)
 
 Cheap (one extra grad call on a scalar reduction). Expected behavior: rises during training as pose becomes more informative; the variants that fix the failure mode should show ≥10× the baseline's `pose_grad_norm` after warmup.
 
+**Gating caveat — Phase 3a is blocked until encoders accept `pose` as a separable JAX leaf.** Today, pose is bundled inside `batch["obs"]` (a flat array) and unpacked inside each encoder. There is no `pose=...` kwarg path through the encoder/RSSM, so the snippet above cannot run as-is. Two ways forward: (i) restructure the encoder call signatures so `pose` is a separate JAX argument, or (ii) live with the cross-variant interpretation gap — for Tile/Plücker the gradient measures image-space flux through Conv kernels; for FiLM it measures modulation-weight sensitivity; for the baseline `vggt` and `vggt_pose_scaled` it measures linear-projection sensitivity. The numbers are NOT directly comparable across encoder families. If (i) is too invasive, document the per-variant interpretation in the results page.
+
 ### 3b. Pose-ablation eval (eval-time only, expensive)
 
-Add a `--ablate-pose` flag to [modules/r2dreamer/eval/](../../../modules/r2dreamer/eval/) that, at every acting step, replaces the real pose with either zeros or a permutation across the batch, then runs a full HM3D evaluation. **SR drop = causal contribution of pose.**
+Add a `--ablate-pose` flag to [modules/r2dreamer/launch/evaluate.py:72](../../../modules/r2dreamer/launch/evaluate.py#L72) (there is no `eval/` directory; the entry point is `evaluate.py`) that, at every acting step, replaces the real pose with **a permutation across the batch** (primary mode, breaks pose-image correspondence cleanly), with **zero-pose** as a secondary mode. Then run a full HM3D evaluation. **SR drop = causal contribution of pose.** Note: zero-pose is NOT equivalent to "no pose" once FiLM γ,β are trained — it produces a different (β-only) deterministic input. Permutation is the cleaner test.
 
 Expected ranking:
 - Baseline `vggt`: SR drop ≈ 0% (pose was never used).
@@ -205,11 +238,13 @@ This is the **money diagnostic** for the thesis claim: "3D features only help if
 
 ---
 
-## Phase 4 — Experiment matrix (12 runs, H100 cluster)
+## Phase 4 — Experiment matrix (15 runs, H100 cluster)
 
-SLURM scripts go in [slurm/l1/](../../../slurm/l1/) following the `ab89a0a` pattern. Each run uses the same hyperparameters as the 75% SR baseline (act_entropy=3e-2, fixed VGGT) — only the `--encoder` flag changes.
+SLURM scripts go in [modules/r2dreamer/scripts/slurm/](../../../modules/r2dreamer/scripts/slurm/) following the [train_curriculum_l1.sbatch](../../../modules/r2dreamer/scripts/slurm/train_curriculum_l1.sbatch) pattern (the precedent for the `ab89a0a` baseline). Each run uses the same hyperparameters as the 75% SR baseline (act_entropy=3e-2, fixed VGGT) — only the `--encoder` flag changes. Each script must emit `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, start/end timestamps) per the project's data-layout discipline; the reporter skill creates `_blessed/encoder-fusion-ablation/<variant>` aliases after the matrix completes so the wiki-audit skill can cross-check the result table.
 
-**Cluster targeting.** All 12 runs go directly to the H100 cluster — skip local debug runs beyond Phase 1/2 unit tests. The phase-2 smoke trains (5k steps each) are the only local steps; if they don't NaN, push to SLURM. H100 capacity means we can launch the four-encoder × three-seed grid as parallel jobs rather than sequential.
+**Cluster targeting.** All 15 runs go directly to the H100 cluster — skip local debug runs beyond Phase 1/2 unit tests. The phase-2 smoke trains (5k steps each) are the only local steps; if they don't NaN, push to SLURM. H100 capacity means we can launch the matrix as parallel jobs rather than sequential.
+
+**Eval cost.** Each run produces 2 evals (with-pose + ablate-pose). 15 runs × 2 evals × ~30–60 min/eval = ~15–30 H100-hours of post-training eval. Parallelizable across nodes after training completes. Phase 0 verifies the per-eval wall time before this is committed.
 
 | # | Encoder | Seeds | Purpose |
 |---|---|---|---|
@@ -217,6 +252,7 @@ SLURM scripts go in [slurm/l1/](../../../slurm/l1/) following the `ab89a0a` patt
 | 4–6 | `vggt_tile` | 3 | Cheap baseline. Tests "preserve geometry" alone. |
 | 7–9 | `vggt_film` | 3 | Primary candidate. Tests pose-channel modulation. |
 | 10–12 | `vggt_plucker` | 3 | Primary candidate. Tests per-pixel pose injection. |
+| 13–15 | `vggt_pose_scaled` | 3 | Magnitude control (issue #87 Trivial fix). Disambiguates "pose was drowned by magnitude" from "encoder needs new architecture". |
 
 **Why not include `vggt_xattn` in the main matrix.** Cross-attention has more knobs (n_queries, n_heads, layer count) and bigger KL-stability risk in the RSSM posterior. Run it as an exploratory follow-up after the matrix completes — adds 3 more runs if the pilot looks good.
 
@@ -234,7 +270,7 @@ SLURM scripts go in [slurm/l1/](../../../slurm/l1/) following the `ab89a0a` patt
 Before declaring the experiment shipped:
 
 1. **Reproduce baseline.** Re-run `vggt` with same seed as `ab89a0a`; confirm SR ≈ 75% within 2pp. If not, the buffer-schema change (Phase 1) regressed something.
-2. **Sanity-rank the variants.** Pose-ablation SR drop should be monotonic: `vggt < vggt_tile < vggt_film ≤ vggt_plucker`. If `vggt_film` shows zero drop, FiLM is broken (probably the γ/β routing).
+2. **Sanity-rank the variants.** Pose-ablation SR drop should be monotonic: `vggt < vggt_pose_scaled ≈ vggt_tile < vggt_film ≤ vggt_plucker`. **Quantitative decision rule:** if `vggt_film`'s `pose_grad_norm` (Phase 3a) is statistically indistinguishable from baseline `vggt` (t-test p > 0.05 across the 3 seeds), then FiLM training is not learning to extract pose; rerun with `vggt_pose_scaled` results to disambiguate "encoder is broken" from "magnitude was the only confound." A monotonicity violation (e.g., Plücker < FiLM) is interpretable post-hoc, not a fatal regression — record it in the writeup.
 3. **Param-count audit.** No variant should have >2× the baseline's encoder param count without justification.
 4. **Wiki entry.** Add [encoder-fusion-ablation.md](encoder-fusion-ablation.md) with the result table and a short post-mortem on which family won and why.
 
@@ -244,14 +280,16 @@ Before declaring the experiment shipped:
 
 | Path | Change |
 |---|---|
-| [modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py) | Expose patch tokens with fixed 1024→64 projection. |
-| [modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) | New flat layout (91732-D); also pack Habitat extrinsics+intrinsics for Plücker. |
-| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `R2Encoder` with optional FiLM hooks. |
+| [modules/envs/habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py) | Surface Habitat `agent_state` (4×4 extrinsics + 3×3 intrinsics) in obs dict — required by Plücker. |
+| [modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py) | Expose patch tokens with seeded fixed 1024→K projection (K = 64 default; consider 512). Verify `aggregated_tokens` shape first. |
+| [modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) | New flat layout; also pack Habitat extrinsics+intrinsics for Plücker; pose ×100 path for `vggt_pose_scaled`. |
+| [modules/shared/replay_buffer.py](../../../modules/shared/replay_buffer.py) | Touched only if option (b) disk-backed wrapper is chosen for the buffer-budget mitigation. |
+| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `R2Encoder` with optional FiLM hooks (or add `R2EncoderFiLM` wrapper). |
 | [modules/r2dreamer/config.py](../../../modules/r2dreamer/config.py) | New `vggt_feature_dim`, per-variant config fields. |
-| [modules/r2dreamer/launch/train.py:67](../../../modules/r2dreamer/launch/train.py#L67) | Register four new encoder names. |
-| [modules/r2dreamer/trainer.py](../../../modules/r2dreamer/trainer.py) | Add `pose_grad_norm` logging. |
-| [modules/r2dreamer/eval/](../../../modules/r2dreamer/eval/) | Add `--ablate-pose` flag. |
-| [slurm/l1/](../../../slurm/l1/) | 12 SLURM scripts (4 encoders × 3 seeds), H100 partition, modeled on ab89a0a. |
+| [modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) | Register five new encoder names (incl. `vggt_pose_scaled`). |
+| [modules/r2dreamer/agent.py:299](../../../modules/r2dreamer/agent.py#L299) | Add `pose_grad_norm` logging in `_loss_fn` (gated on encoder restructure — see Phase 3a). |
+| [modules/r2dreamer/launch/evaluate.py:72](../../../modules/r2dreamer/launch/evaluate.py#L72) | Add `--ablate-pose` flag (permutation primary, zero secondary). |
+| [modules/r2dreamer/scripts/slurm/](../../../modules/r2dreamer/scripts/slurm/) | 15 SLURM scripts (5 encoders × 3 seeds), H100 partition, modeled on `train_curriculum_l1.sbatch`. Each emits MANIFEST.json. |
 | [encoder-fusion-ablation.md](encoder-fusion-ablation.md) | Results writeup at the end. |
 | [../index.md](../index.md) | Wiki index entry pointing at this plan. |
 
@@ -279,4 +317,4 @@ Before declaring the experiment shipped:
 
 ## Summary
 
-The plan keeps the existing R2Encoder as a shared backbone across three variants and adds a token-level cross-attention as a fourth. Pose is given a real pathway in every variant (channels for tile/plücker, modulation for FiLM, queries for x-attn) — none of them can repeat the "pose drowned in 0.22% of dims" failure mode by construction. Diagnostics measure pose influence directly, so the experiment can distinguish "method works but RSSM ignored it" from "method doesn't help." Twelve runs land a clean ablation table with the same seeds and hyperparameters as the 75% SR baseline.
+The plan keeps the existing R2Encoder as a shared backbone across three variants, adds a token-level cross-attention as a fourth, and adds a magnitude-control baseline (`vggt_pose_scaled`) so the encoder rewrite isn't credited for a fix that pose × 100 alone would deliver. Pose is given a real pathway in every variant (channels for tile/plücker, modulation for FiLM, queries for x-attn) — none of them can repeat the "pose drowned in 0.22% of dims" failure mode by construction. Diagnostics measure pose influence directly, so the experiment can distinguish "method works but RSSM ignored it" from "method doesn't help." Phase 0 calibrates baseline seed-variance before the matrix runs. Fifteen runs (12 main + 3 magnitude control) land a clean ablation table with the same hyperparameters as the 75% SR baseline.
