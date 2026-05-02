@@ -69,7 +69,7 @@ class R2DreamerConfig:
 
     # --- Behavior ---
     kl_free: float = 1.0
-    act_entropy: float = 3e-4
+    act_entropy: float = 3e-2
     unimix_ratio: float = 0.01
     slow_target_fraction: float = 0.02
 
