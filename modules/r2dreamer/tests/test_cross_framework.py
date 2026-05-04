@@ -31,6 +31,7 @@ from networks import ConvEncoder as PT_ConvEncoder, MLPHead as PT_MLPHead, Proje
 # -- JAX imports --
 from modules.r2dreamer.networks import (
     RMSNorm, BlockLinear, Deter, R2RSSM, R2Encoder, R2MLP, Projector,
+    onehot_mode_st,
 )
 from modules.r2dreamer.agent import _kl_loss, _lambda_return
 
@@ -546,6 +547,34 @@ class TestKLLoss:
             atol=ATOL_COMPONENT, rtol=RTOL,
             err_msg="KL rep_loss mismatch",
         )
+
+
+class TestOneHotModeST:
+    """Greedy mode parity: forward and gradient match reference OneHotDist.mode."""
+
+    @pytest.mark.parametrize("unimix", [0.0, 0.01])
+    def test_forward_and_gradient(self, unimix):
+        from distributions import OneHotDist as PT_OneHotDist
+
+        np.random.seed(SEED)
+        logits_np = np.random.randn(8, 16).astype(np.float32)
+
+        pt_logits = torch.tensor(logits_np, requires_grad=True)
+        pt_mode = PT_OneHotDist(pt_logits, unimix_ratio=unimix).mode
+        pt_mode.sum().backward()
+        pt_forward = pt_mode.detach().numpy()
+        pt_grad = pt_logits.grad.numpy()
+
+        jx_logits = jnp.array(logits_np)
+        jx_forward = np.array(onehot_mode_st(jx_logits, unimix_ratio=unimix))
+        jx_grad = np.array(
+            jax.grad(lambda x: onehot_mode_st(x, unimix_ratio=unimix).sum())(jx_logits)
+        )
+
+        np.testing.assert_allclose(jx_forward, pt_forward, atol=ATOL_COMPONENT, rtol=RTOL,
+                                   err_msg=f"forward mismatch (unimix={unimix})")
+        np.testing.assert_allclose(jx_grad, pt_grad, atol=ATOL_COMPONENT, rtol=RTOL,
+                                   err_msg=f"gradient mismatch (unimix={unimix})")
 
 
 class TestBarlowLoss:
