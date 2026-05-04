@@ -20,3 +20,17 @@ Prior session learnings live in [`docs/wiki/lessons/`](docs/wiki/lessons/) — s
 - `output/runs/<family>/<slug>-<jobid>/` — per-run dirs. Each holds an auto-emitted `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, timestamps) — never hand-edited. `_blessed/<alias>` symlinks stabilise wiki references against reruns.
 - `output/methods/` — non-run artifacts (parity, profiling, comparisons, scenes).
 - `output/slurm/` — SLURM logs without run-context.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in this repo's GitHub Issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Pure canonical vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
