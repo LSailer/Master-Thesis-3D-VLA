@@ -30,6 +30,10 @@ uv.lock
 .claude/worktrees/
 .claude/memory/
 .claude/knowledge/
+.claude/scheduled_tasks.lock
+
+# agent-loop workspace
+.agent_loop/
 
 # Manim partial movie files
 media/videos/*/partial_movie_files/

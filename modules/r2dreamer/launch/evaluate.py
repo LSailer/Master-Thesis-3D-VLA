@@ -76,6 +76,7 @@ def evaluate(
     Returns metrics dict with 'results' and 'meta' keys.
     """
     from modules.r2dreamer.launch.registries import encoder_registry
+    from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
     from modules.shared.configs import DreamerConfig
     from modules.envs.habitat import HabitatObjectNavEnv
 

@@ -18,6 +18,7 @@ The thesis question this addresses: **does R2Dreamer's RSSM preserve the geometr
 | Pair-pick run | `debug/eval-pick-20ep/` (20 eps, SR = 5/20) |
 | Instrumented re-roll | `debug/viz-pair-a/` (12 eps, SR = 5/12, 1.64 GB dumped) |
 | Selected pair | **ep7** (success, 135 steps, SPL 0.96) + **ep1** (near-miss, 500 steps, ends 0.94 m from goal — **4.7× outside** the 0.2 m success radius; a final-approach failure) |
+| Selected pair | **ep7** (success, 135 steps, SPL 0.96) + **ep1** (near-miss, 500 steps, ends 0.94 m from goal — *inside* the 1.0 m success radius without firing STOP) |
 
 Pair-pick must come from the same run as the dumps because eval is non-deterministic on H100 ([#101](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/101)).
 
