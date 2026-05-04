@@ -6,8 +6,12 @@
 # bullets like "- [gotcha|finding|decision|deadend] one-line lesson - context".
 set -euo pipefail
 
-PROJECT_DIR="/Users/luca/Coding/Master-Thesis-3D-VLA"
-TRANSCRIPT_DIR="$HOME/.claude/projects/-Users-luca-Coding-Master-Thesis-3D-VLA"
+# Resolve project root from this script's physical location so the hook
+# works on any host (laptop or cluster). Claude's transcript dir mangles
+# both `/` and `_` to `-` in the project path.
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+PROJECT_SLUG="$(echo "$PROJECT_DIR" | sed 's|[/_]|-|g')"
+TRANSCRIPT_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
 LESSONS_DIR="$PROJECT_DIR/docs/wiki/lessons"
 LESSONS_FILE="$LESSONS_DIR/$(date +%Y-%m-%d).md"
 
