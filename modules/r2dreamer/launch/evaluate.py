@@ -76,11 +76,17 @@ def evaluate(
     Returns metrics dict with 'results' and 'meta' keys.
     """
     from modules.r2dreamer.launch.registries import encoder_registry
+    from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
     from modules.shared.configs import DreamerConfig
     from modules.envs.habitat import HabitatObjectNavEnv
 
     parser = _build_parser_eval()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    # CLI --encoder overrides shim kwarg if user passed it explicitly.
+    eff_encoder = args.encoder if args.encoder is not None else encoder
+    if eff_encoder not in encoder_registry:
+        raise KeyError(f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}")
 
     # --- Resolve checkpoint ---
     eff_checkpoint = args.checkpoint if args.checkpoint is not None else checkpoint
@@ -111,8 +117,12 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
+    if eff_encoder == "vggt":
+        render_resolution = args.render_resolution if args.render_resolution != 64 else 518
+    else:
+        render_resolution = 64
     hab_config = DreamerConfig(
-        obs_shape=(3, 64, 64),
+        obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
         split=args.split,
         reward_type="geodesic_delta",
@@ -124,8 +134,23 @@ def evaluate(
         curriculum_mode="eval",
     )
 
+    # --- Build encoder + adapter ---
+    encoder_cls = encoder_registry[eff_encoder]
+    if eff_encoder == "vggt":
+        enc = encoder_cls(resolution=render_resolution)
+    else:
+        enc = encoder_cls()
+    adapter = enc.make_adapter()
+
     # --- Build agent ---
-    config = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+    if eff_encoder == "vggt":
+        config = R2DreamerConfig(
+            encoder_type="vggt",
+            obs_shape=(VGGT_FEATURE_DIM,),
+            num_actions=4,
+        )
+    else:
+        config = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
     rng_key = jax.random.PRNGKey(args.seed)
 
     if args.random:
@@ -146,6 +171,9 @@ def evaluate(
 
     for ep_idx in range(args.episodes):
         obs = env_instance.reset()
+        if adapter.on_episode_reset:
+            adapter.on_episode_reset()
+        _, agent_obs = adapter.transform(obs)
         actions_taken = []
         rewards = []
         trajectory = []
@@ -173,11 +201,12 @@ def evaluate(
         for _step in range(500):
             if agent is not None:
                 rng_key, act_key = jax.random.split(rng_key)
-                action = agent.act(obs, act_key, training=False)
+                action = agent.act(agent_obs, act_key, training=False)
             else:
                 action = np.random.randint(0, config.num_actions)
 
             next_obs = env_instance.step(action)
+            _, next_agent_obs = adapter.transform(next_obs)
             actions_taken.append(int(action))
             rewards.append(float(next_obs["reward"]))
 
@@ -189,6 +218,7 @@ def evaluate(
                 obs = next_obs
                 break
             obs = next_obs
+            agent_obs = next_agent_obs
 
         ep_result = {
             "episode": ep_idx,

@@ -25,6 +25,12 @@
 - [Encoder Fusion Plan](methods/encoder-fusion-plan.md) — Pose-aware, geometry-preserving encoder ablation (Tile/FiLM/Plücker/X-attn) on H100, with pose-influence diagnostics (#87/#88/#89)
 - [Encoder Fusion Plan Audit](methods/encoder-fusion-plan-audit.md) — 3-agent audit of PR #110 plan; 5 blockers (pose-grad probe, Habitat extrinsics, RAM buffer, aggregated_tokens shape, wrong cited paths)
 - [Pose as JAX Leaf](methods/pose-as-jax-leaf.md) — Design proposal for B1: minimal API change to make `pose` separable in `_loss_fn` for the `pose_grad_norm` diagnostic
+- [OpenClaw Verdict — shelved](methods/openclaw-verdict.md) — End-state 2026-04-27: install completes, plugin-bug fixed in 4.25, but `claude -p` cold-spawn = 20–30 s/message. Structural, unfit for Slack-from-phone use case. Companion to install playbook + skill audit
+- [OpenClaw Install Playbook](methods/openclaw-install.md) — BWUniCluster Phase 3 setup: nvm + claude-cli backend (Claude Max, no API charges) + Slack Socket Mode bot `clusterbot`, persisted via tmux with login-node-roulette workaround and a daemon-stability gate
+- [OpenClaw Skill Audit](methods/openclaw-skill-audit.md) — Classification of every active Claude Code skill (repo + plugin) against OpenClaw's chat-only constraints: redundant / partial / synergy / unchanged, with action items for safe disables
+- [`loss/dyn` ≡ `loss/rep` is cosmetic — JAX proof](methods/dyn-rep-loss-cosmetic-proof.md) — Synthetic JAX verification that forward bit-equality of the three logged KL metrics is `stop_gradient` symmetry, not a logging bug; backward gradients route correctly to disjoint params with configured scales
+- [kl_free per-group — investigated, rejected](methods/kl-free-per-group-fix.md) — Patched per-group floor (matches DreamerV3) prevents latent collapse in mini-smoke, but canonical R2-Dreamer (`external/r2dreamer/rssm.py:222-230`) also sums-then-floors → pre-patch JAX is port-faithful. Decision: keep R2-Dreamer-faithful on main, leave patch unmerged in worktree for future ablation
+- [R2Dreamer encoder-drift visualization (L1 VGGT)](methods/r2dreamer-encoder-drift-viz.md) — Linear-probe + temporal-similarity comparison of latents vs VGGT world_points on a matched success (ep7) / near-miss (ep1) pair. Three coherent drift signals show ep1 has higher absolute probe RMSE *and* collapsed similarity range while preserving relational rank — representation-collapse symptom, not topology loss. Surfaces #101 (TF32 non-determinism) + #102 (standalone eval was CNN-only)
 
 ## Lessons
 
