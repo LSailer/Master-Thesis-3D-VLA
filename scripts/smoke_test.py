@@ -1,4 +1,4 @@
-"""Smoke test: validate JAX + Habitat + wandb environment."""
+"""Smoke test: check JAX + Habitat + wandb environment."""
 
 import sys
 
