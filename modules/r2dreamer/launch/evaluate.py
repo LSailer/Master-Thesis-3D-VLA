@@ -118,9 +118,9 @@ def evaluate(
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
     if eff_encoder == "vggt":
-        render_resolution = args.render_resolution if args.render_resolution != 64 else 518
+        render_resolution = args.render_resolution if args.render_resolution is not None else 518
     else:
-        render_resolution = 64
+        render_resolution = args.render_resolution if args.render_resolution is not None else 64
     hab_config = DreamerConfig(
         obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
@@ -144,6 +144,7 @@ def evaluate(
 
     # --- Build agent ---
     if eff_encoder == "vggt":
+        from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
         config = R2DreamerConfig(
             encoder_type="vggt",
             obs_shape=(VGGT_FEATURE_DIM,),
