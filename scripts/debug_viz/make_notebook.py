@@ -132,12 +132,13 @@ def _plot_3d_with_trajectory(b, title):
 
     # Goal positions
     goals = np.array(b["meta"]["goal_positions"])
-    fig.add_trace(go.Scatter3d(
-        x=goals[:, 0], y=goals[:, 2], z=goals[:, 1],
-        mode="markers",
-        marker=dict(size=7, color="gold", symbol="diamond"),
-        name="goal positions",
-    ))
+    if len(goals) > 0:
+        fig.add_trace(go.Scatter3d(
+            x=goals[:, 0], y=goals[:, 2], z=goals[:, 1],
+            mode="markers",
+            marker=dict(size=7, color="gold", symbol="diamond"),
+            name="goal positions",
+        ))
 
     # Per-frame: cloud (camera-frame, NOT world frame — relative geometry only)
     cloud_traces = []
@@ -165,10 +166,9 @@ def _plot_3d_with_trajectory(b, title):
         fig.add_trace(tr)
 
     # Visibility toggles per frame
-    n_static = 2  # trajectory + goals
     buttons = []
     for k in range(K):
-        vis = [True, True]  # static traces
+        vis = [True, True]  # 2 static traces: trajectory + goals
         for kk in range(K):
             vis += [kk == k, kk == k]  # cloud + agent dot
         buttons.append(dict(label=f"frame {int(frames_idx[k])}", method="update", args=[{"visible": vis}]))
@@ -252,7 +252,7 @@ _plot_recon_pair(ep1, "ep1 (near-miss)")
 
 - Replicate on a second pair (e.g. ep10 + ep0) to move past n=1 per regime.
 - If the figure story under-delivers, escalate from linear ridge probe to small MLP. Wiki page §Limitations explains why this likely won't change the *gap* signal.
-- Actor-termination hypothesis: ep1 ends inside the 1 m radius without STOP. A focused experiment could pull `actor.apply(feat)` logits at every step of ep1 and inspect whether STOP probability ever spikes.
+- Actor-termination hypothesis: ep1 ends at 0.94 m — 4.7× outside the 0.2 m success radius — without firing STOP. A focused experiment could pull `actor.apply(feat)` logits at every step of ep1 and inspect whether STOP probability ever spikes, but the primary failure is a final-approach positioning failure, not a missing termination signal.
 """),
 ]
 

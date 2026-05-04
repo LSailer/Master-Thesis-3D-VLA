@@ -143,12 +143,13 @@ def main() -> None:
             summary_rows.append((idx, name, P["alpha"], per_probe_r2[name], float(per_probe_mse[name].mean())))
             print(f"  ep{idx} probe_{name} (alpha={P['alpha']}): R^2 = {per_probe_r2[name]:.4f}  RMSE = {np.sqrt(per_probe_mse[name].mean()):.3f} m")
 
+        h = w = int(round((ep["world_points"].shape[1] / 3) ** 0.5))
         np.savez_compressed(
             out_dir / f"predictions_ep{idx:03d}.npz",
-            world_points_pred_feat=per_probe_pred["feat"].reshape(-1, 37, 37, 3),
-            world_points_pred_deter=per_probe_pred["deter"].reshape(-1, 37, 37, 3),
-            world_points_pred_stoch=per_probe_pred["stoch"].reshape(-1, 37, 37, 3),
-            world_points_true=ep["world_points"].reshape(-1, 37, 37, 3),
+            world_points_pred_feat=per_probe_pred["feat"].reshape(-1, h, w, 3),
+            world_points_pred_deter=per_probe_pred["deter"].reshape(-1, h, w, 3),
+            world_points_pred_stoch=per_probe_pred["stoch"].reshape(-1, h, w, 3),
+            world_points_true=ep["world_points"].reshape(-1, h, w, 3),
             mse_feat=per_probe_mse["feat"],
             mse_deter=per_probe_mse["deter"],
             mse_stoch=per_probe_mse["stoch"],
