@@ -73,8 +73,13 @@ class HabitatR2DreamerEnv:
         sim = self._env._env.sim
         agent_state = sim.get_agent_state()
         # The RGB sensor's pose is the camera pose; agent_state.position is
-        # the agent root, but for ObjectNav the RGB sensor sits at the agent.
-        sensor_state = agent_state.sensor_states.get("rgb", agent_state)
+        # the agent root (at the agent's feet), not the camera position.
+        if "rgb" not in agent_state.sensor_states:
+            raise KeyError(
+                "No 'rgb' sensor in agent_state.sensor_states; "
+                "is the RGB sensor configured in the Habitat scene?"
+            )
+        sensor_state = agent_state.sensor_states["rgb"]
         position = np.asarray(sensor_state.position, dtype=np.float32)
         rotation = sensor_state.rotation
         # habitat_sim quaternion: .x .y .z .w
