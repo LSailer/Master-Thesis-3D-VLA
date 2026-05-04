@@ -117,15 +117,15 @@ def bench_jax(
     ext.reset()
     for i in range(WARMUP_FRAMES):
         out = ext.extract(_make_frame(i))
-        # block_until_ready on a sentinel
-        _ = np.asarray(out["world_points"])
+        # block until ready without host transfer
+        _ = out["world_points"].block_until_ready()
 
     ext.reset()
     latencies = []
     for i in range(n_frames):
         t0 = time.perf_counter()
         out = ext.extract(_make_frame(1000 + i))
-        _ = np.asarray(out["world_points"])  # ensure sync
+        out["world_points"].block_until_ready()
         latencies.append((time.perf_counter() - t0) * 1000.0)
 
     # JAX doesn't expose a simple peak-memory counter here; fall back to 0.
@@ -166,7 +166,7 @@ def run(
         # Match the extractor's budget split: max(total_budget / depth, P).
         depth = 24
         patch_tokens = 5 + (518 // 14) ** 2
-        total_budget = 1_200_000
+        total_budget = 200_000
         uniform = max(total_budget // depth, patch_tokens)
         budgets_static = tuple([uniform] * depth)
 

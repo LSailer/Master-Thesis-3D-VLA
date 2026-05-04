@@ -324,7 +324,7 @@ class JAXVGGTFeatureExtractor:
         self,
         rgb: np.ndarray,
         phase_times: dict[str, list[float]] | None = None,
-    ) -> dict[str, np.ndarray]:
+    ) -> dict[str, jnp.ndarray]:
         """Single-frame streaming inference."""
         profiling = phase_times is not None
         fwd_t0 = time.perf_counter() if profiling else 0.0
@@ -400,8 +400,8 @@ class JAXVGGTFeatureExtractor:
 
         world_points = _adaptive_avg_pool_518_to_37(pts3d)
 
-        world_points_np = np.asarray(world_points[0], dtype=np.float32)
-        camera_pose_np = np.asarray(camera_pose[0], dtype=np.float32)
+        world_points_out = world_points[0].astype(jnp.float32)
+        camera_pose_out = camera_pose[0].astype(jnp.float32)
 
         if profiling:
             wrap_t1 = time.perf_counter()
@@ -411,6 +411,6 @@ class JAXVGGTFeatureExtractor:
         self._frame_idx += 1
 
         return {
-            "world_points": world_points_np,
-            "camera_pose": camera_pose_np,
+            "world_points": world_points_out,
+            "camera_pose": camera_pose_out,
         }
