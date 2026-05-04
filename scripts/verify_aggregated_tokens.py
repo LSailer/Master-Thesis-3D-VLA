@@ -59,12 +59,20 @@ def main() -> None:
         print(f"  {k}: shape={v.shape} dtype={v.dtype}")
 
     print()
-    if "agg_shape" in captured:
+    # agg is a list of per-layer tensors (VGGT) or a single tensor (fallback).
+    if "agg_per_layer" in captured:
+        # Use last layer — the one closest to the DPT head output.
+        s = captured["agg_per_layer"][-1][0]
+    elif "agg_shape" in captured:
         s = captured["agg_shape"]
+    else:
+        s = None
+
+    if s is not None:
         psi = captured["patch_start_idx"]
         if len(s) >= 3:
             n_patches = s[-2] - psi if s[-2] > psi else s[-2]
-            print(f"Inferred patch tokens: {n_patches}")
+            print(f"Inferred patch tokens (last layer): {n_patches}")
             print(f"Expected for 37x37 grid: 1369")
             if n_patches == 1369:
                 ch = s[-1]

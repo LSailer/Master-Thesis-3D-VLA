@@ -20,9 +20,9 @@ def build_agent_state(
     convention (camera looks down -Z). Downstream Plücker math must respect
     that or rays will point the wrong way.
 
-    Layout (row-major):
-        bytes  0..15: 4x4 camera-to-world extrinsics
-        bytes 16..24: 3x3 intrinsics K (fx, fy, cx, cy from hfov + image size)
+    Layout (row-major float32 elements):
+        [0..15]:  4x4 camera-to-world extrinsics
+        [16..24]: 3x3 intrinsics K (fx=fy from hfov, cx=W/2, cy=H/2)
     """
     qx, qy, qz, qw = (float(quat_xyzw[0]), float(quat_xyzw[1]),
                       float(quat_xyzw[2]), float(quat_xyzw[3]))
