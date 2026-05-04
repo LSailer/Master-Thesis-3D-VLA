@@ -1,6 +1,6 @@
 """Fit linear probes from R2Dreamer latents to VGGT world_points.
 
-Trains three OLS probes via np.linalg.lstsq on per-step npz dumps:
+Trains three Ridge probes (closed-form, alpha=1.0) on per-step npz dumps:
   - probe_feat:  feat  (2560,) -> world_points_flat (4107,)
   - probe_deter: deter (2048,) -> world_points_flat (4107,)
   - probe_stoch: stoch (512,)  -> world_points_flat (4107,)
@@ -42,9 +42,9 @@ def _load_episode(ep_dir: Path):
 
 
 def _fit_probe(X: np.ndarray, Y: np.ndarray, alpha: float = 1.0):
-    """Standardize X and Y, fit Y ≈ X @ W + b via Ridge regression.
+    """Standardize X and Y, fit Y ≈ X @ W via Ridge regression.
 
-    Returns (W, b, x_mean, x_std, y_mean, y_std) so prediction is:
+    Returns (W, x_mean, x_std, y_mean, y_std) so prediction is:
         Y_hat = ((X - x_mean) / x_std) @ W * y_std + y_mean
     """
     x_mean = X.mean(axis=0, keepdims=True)

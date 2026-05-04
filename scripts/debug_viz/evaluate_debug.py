@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import pickle
 import subprocess
 import sys
@@ -37,7 +36,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.r2dreamer.launch.curricula import CURRICULA
 from modules.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
 from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
 from modules.r2dreamer.adapters.vggt_adapter import _flatten_vggt

@@ -17,6 +17,7 @@ The thesis question this addresses: **does R2Dreamer's RSSM preserve the geometr
 | Curriculum | L1 (`fK2vEV32Lag` / chair only); 7499 train episodes / 834 eval, intersection = 0 |
 | Pair-pick run | `debug/eval-pick-20ep/` (20 eps, SR = 5/20) |
 | Instrumented re-roll | `debug/viz-pair-a/` (12 eps, SR = 5/12, 1.64 GB dumped) |
+| Selected pair | **ep7** (success, 135 steps, SPL 0.96) + **ep1** (near-miss, 500 steps, ends 0.94 m from goal — **4.7× outside** the 0.2 m success radius; a final-approach failure) |
 | Selected pair | **ep7** (success, 135 steps, SPL 0.96) + **ep1** (near-miss, 500 steps, ends 0.94 m from goal — *inside* the 1.0 m success radius without firing STOP) |
 
 Pair-pick must come from the same run as the dumps because eval is non-deterministic on H100 ([#101](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/101)).
@@ -84,7 +85,7 @@ The matching trajectory variability (`feat.std` over time = 0.165 on ep1 vs 0.17
 
 The encoder is not failing in a single localized way. It is **lossy in a specific direction**: it preserves *which* moments are similar to *which* others (relational structure), but the absolute geometric content of each moment is degraded — and the degradation is worse during the trajectories that fail to terminate. The recurrent (`deter`) component carries this collapse more strongly than the stochastic (`stoch`) component does, which is consistent with the prior callchain finding that `deter` underutilizes its capacity ([#90](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/90)).
 
-A working hypothesis to verify with the 4-panel notebook: ep1 ends *inside* the 1.0 m success radius but does not emit STOP. If the latent's similarity to the start-of-episode "I'm-near-the-goal" frames is preserved at the moment of failure, the bug is in the actor head, not the encoder. If the similarity is lost, the bug is upstream. **The visualization is the empirical answer.**
+A working hypothesis to verify with the 4-panel notebook: ep1 ends 0.94 m from the goal — 4.7× outside the 0.2 m success radius (`GOAL_RADIUS` in `habitat.py:23`). This is a **final-approach failure**, not a STOP-suppression bug. The question the notebook asks is whether the encoder's latent correctly represents that the agent is still far from the goal, or whether it has drifted to a "near-goal" representation early. If the similarity to early "approaching goal" frames is high at the final step, the encoder is wrong. **The visualization is the empirical answer.**
 
 ## Methodological surprises encountered (and parked as issues)
 
@@ -97,7 +98,7 @@ While running this analysis, three methodological problems surfaced that the the
 ## Limitations
 
 - **Probe absolute R² ≤ 0.28** on the best probe + episode. The *differential* R² is the load-bearing signal; absolute reconstructions are illustrative only.
-- **Euclidean distance fallback** for end-to-goal computation (Habitat's `geodesic_distance` is not exposed by `evaluate.py`). For the L1 single-room scene this is a tight proxy. The 1.5 m near-miss threshold used in pair-picking is more permissive than the formal 1.0 m geodesic success radius; episodes flagged NEAR-MISS may be slightly farther than 1.5 m geodesic.
+- **Euclidean distance fallback** for end-to-goal computation (Habitat's `geodesic_distance` is not exposed by `evaluate.py`). For the L1 single-room scene this is a tight proxy. The 1.5 m near-miss threshold used in pair-picking is much larger than the formal 0.2 m success radius (`GOAL_RADIUS` in `habitat.py`); episodes flagged NEAR-MISS include trajectories that end well short of the goal.
 - **Sample size n = 1 per regime** (one success, one near-miss). The per-episode findings could be idiosyncratic to the specific trajectory rather than representative of the policy. Replicating with a second pair (e.g. ep10 + ep0) would strengthen the claim — deferred.
 - **Linear probe is OOD-fragile.** ep1's latent regime may genuinely fall outside what 6 LOST + 4 short-SUCCESS train episodes cover.
 
