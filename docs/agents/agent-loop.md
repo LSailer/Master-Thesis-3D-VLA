@@ -58,6 +58,63 @@ a comment containing the last 100 lines of stderr. The tmux pane prints
 Recover by inspecting the issue + comment, fixing the root cause (in code,
 prompt, or issue body), then re-launching `agent_loop.sh`.
 
+## Troubleshooting
+
+### `LOOP HALTED: see issue #N` in the tmux pane
+
+The loop hit a hard failure on issue #N and called `halt()`. The diagnostic
+comment (reason + last 100 lines of stderr) is on the issue itself, not in
+the tmux scrollback. The issue is left labelled `in-progress`, so the picker
+will skip it on the next launch.
+
+```bash
+gh issue view <N> --comments              # read the halt reason
+# fix the root cause in code / prompt / issue body, commit if needed
+gh issue edit <N> --remove-label in-progress --add-label ready-for-agent
+./scripts/agent_loop.sh                   # relaunch
+```
+
+### Orphaned tmux session after SLURM reservation expires
+
+When the `srun` reservation hits its `--time` limit, the inner shell dies but
+the outer tmux session can linger. The pane shows `srun: error: ...` or sits
+at a closed bash prompt; `tmux ls` lists the session, but `squeue -u $USER`
+shows no job.
+
+```bash
+squeue -u "$USER"                         # confirm no job
+tmux ls                                   # find the stale session
+tmux kill-session -t agent-loop           # or whatever name was used
+```
+
+### `git push` rejected mid-iteration
+
+The remote branch (`agent/issue-<M>` or `agent/prd-<N>`) advanced from another
+source, or `main` was force-pushed under it. `halt()` will have already fired
+with `git push failed`.
+
+```bash
+git fetch origin
+git rebase origin/<branch>                # reconcile, then relaunch the loop
+# — or, if the remote branch is junk —
+git push origin --delete <branch>         # let the loop recreate it from main
+```
+
+### `.agent_loop/review-verdict` missing or unparseable
+
+The review pass crashed before writing the verdict file, or wrote something
+other than `APPROVED` / `BLOCKED: …`. The halt comment will read
+`review verdict not APPROVED (got: MISSING)` or similar. The actual stderr
+from the review pass is in the per-issue log:
+
+```bash
+less .agent_loop/review-<N>.log           # real error from the review claude run
+cat .agent_loop/review-verdict            # whatever (if anything) was written
+```
+
+Fix the prompt or the underlying error, flip the issue back to
+`ready-for-agent` (see first subsection), and relaunch.
+
 ## Files
 
 | Path                                                | Role                                  |
