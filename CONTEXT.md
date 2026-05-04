@@ -21,5 +21,10 @@ Architectural decisions live in `docs/adr/`.
 
 ## Project domain
 
-*(populated as terms come up in future grilling sessions — start with the
-thesis-specific vocabulary as it's introduced)*
+| Term                 | Meaning |
+| -------------------- | ------- |
+| **end-to-end run**   | A single training run of R2Dreamer on the HM3D ObjectNav curriculum with the VGGT (or CNN) encoder. Comprises *acting* (env_step → vggt_forward → wm_inference → buffer_add) and *world-model training* (replay-buffer windows). Profiled in `docs/wiki/methods/l4-profiling.md`. |
+| **SLURM run window** | Hard wall-clock cap per slurm job on uc3 = **48 hours**. Jobs that run longer are killed with `TIMEOUT` (verified: job `4109486`, wandb run `4c5xd78l`, ran exactly 2-00:00:28 before cancellation). The thesis training plan splits longer experiments into chained jobs that resume from checkpoint. |
+| **chained training run** | A sequence of slurm jobs covering a single end-to-end experiment, each ≤ the SLURM run window, resuming from the previous job's checkpoint. The 4-day full L4-VGGT plot at ~5.2 FPS = ~3.2 M env steps requires ~4 chained jobs at 24h each (or 2 at 48h). |
+| **frame-skip (K)**   | Throughput lever filed as issue #97. Run VGGT every K env steps; reuse cached features in between. K=2 ≈ 2× throughput, K=4 ≈ ~4×. Trades feature freshness for steps-per-hour. Orthogonal to the JAX uniformity track (#98). |
+| **eviction-onset cliff** | Latency regression in the JAX VGGT extractor: from ~frame 36 onwards every frame triggers a fresh XLA compile (~43 s) because `current_budgets_static` (a static jit arg) drifts after eviction first fires. Diagnosed 2026-05-04 in `docs/wiki/methods/vggt-jax-eviction-recompile.md`. |

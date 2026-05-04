@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 
 from modules.r2dreamer.adapters.obs_adapter import ObsAdapter
 from modules.r2dreamer.adapters.vggt_adapter import VGGTObsAdapter
-from modules.vggt.feature_extractor import VGGTFeatureExtractor
+from modules.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
 
 
 class Encoder(ABC):

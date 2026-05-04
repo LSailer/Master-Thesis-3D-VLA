@@ -189,7 +189,7 @@ class R2DreamerAgent:
         """
         # Preprocess observation
         if self.cfg.encoder_type == "vggt":
-            obs = jnp.array(obs_dict["features"][None])  # (1, D)
+            obs = jnp.asarray(obs_dict["features"])[None]  # (1, D)
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
             obs = jnp.array(image[None])  # (1, C, H, W)
