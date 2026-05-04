@@ -27,8 +27,10 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
-    p.add_argument("--act_entropy", type=float, default=3e-4,
-                   help="Actor entropy coefficient (DreamerV3 paper default 3e-4)")
+    p.add_argument("--act_entropy", type=float, default=3e-2,
+                   help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
+                        "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
+                        "collapses the policy here.")
     return p
 
 

@@ -6,7 +6,7 @@ from typing import Tuple
 class R2DreamerConfig:
     # --- Environment ---
     obs_shape: Tuple[int, ...] = (3, 64, 64)  # CHW format (matches JAX codebase)
-    num_actions: int = 17  # Crafter default
+    num_actions: int = 4   # Habitat default (STOP, FORWARD, TURN_LEFT, TURN_RIGHT); Crafter overrides to 17 in train.py
     max_episode_steps: int = 1000
 
     # --- RSSM ---
@@ -69,7 +69,7 @@ class R2DreamerConfig:
 
     # --- Behavior ---
     kl_free: float = 1.0
-    act_entropy: float = 3e-4
+    act_entropy: float = 3e-2
     unimix_ratio: float = 0.01
     slow_target_fraction: float = 0.02
 

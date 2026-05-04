@@ -23,6 +23,7 @@ fi
 # Level 1: 1 house (fK2vEV32Lag), chair only, 7499 train episodes
 # 2.4M steps, single scene = focused learning
 uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
+    --act_entropy 3e-2 \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \
@@ -30,6 +31,7 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
     --seed "${SLURM_JOB_ID}" \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
-    --wandb_name "r2d-L1-1house-chair-${SLURM_JOB_ID}" \
+    --wandb_name "r2d-L1-act-entropy-3e-2-${SLURM_JOB_ID}" \
+    --wandb_tags "act-entropy-3e-2,baseline-restore,l1" \
     --val_data data/val_replay/val_200ep.npz \
     --val_loss_every 10000

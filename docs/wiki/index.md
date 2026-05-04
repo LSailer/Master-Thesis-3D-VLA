@@ -2,6 +2,7 @@
 
 ## Experiments
 
+- [L1 Rerun — act_entropy=3e-2 Baseline Restore](experiments/l1-act-entropy-3e-2.md) — Running: reconfirm 75% SR requires act_entropy=3e-2; gating encoder ablation matrix
 - [L1 Rerun — Buffer Fix + Step Penalty](experiments/l1-rerun-buffix.md) — L1 with buffer fix, 75% SR (+8pp over original), step penalty improves SPL
 - [L2 — 1 House, 6 Goals](experiments/l2-1house-6goals.md) — 6 goal categories, 36% avg SR, goal difficulty hierarchy driven by navigation complexity
 - [L3 — 10 Houses, Chair Only](experiments/l3-10houses-chair.md) — 10-house generalization, 32% SR, still 8x above random
@@ -21,6 +22,9 @@
 - [VGGT → R2Dreamer Call Chain](methods/vggt-r2dreamer-callchain.md) — End-to-end data flow for one env step when `encoder_type="vggt"`; 5 high-leverage breakpoints for debugging
 - [Cross-Correlation Matrix](methods/cross-correlation-matrix.md) — Barlow Twins–form regularizer used here to align RSSM-projected feature with frozen VGGT embedding (not contrastive learning)
 - [Shape Debugging](methods/shape-debugging.md) — Tracing tensor dims through R2-Dreamer / DreamerV3; known footguns (stoch size, NCHW vs NHWC, TwoHot bins)
+- [Encoder Fusion Plan](methods/encoder-fusion-plan.md) — Pose-aware, geometry-preserving encoder ablation (Tile/FiLM/Plücker/X-attn) on H100, with pose-influence diagnostics (#87/#88/#89)
+- [Encoder Fusion Plan Audit](methods/encoder-fusion-plan-audit.md) — 3-agent audit of PR #110 plan; 5 blockers (pose-grad probe, Habitat extrinsics, RAM buffer, aggregated_tokens shape, wrong cited paths)
+- [Pose as JAX Leaf](methods/pose-as-jax-leaf.md) — Design proposal for B1: minimal API change to make `pose` separable in `_loss_fn` for the `pose_grad_norm` diagnostic
 - [OpenClaw Verdict — shelved](methods/openclaw-verdict.md) — End-state 2026-04-27: install completes, plugin-bug fixed in 4.25, but `claude -p` cold-spawn = 20–30 s/message. Structural, unfit for Slack-from-phone use case. Companion to install playbook + skill audit
 - [OpenClaw Install Playbook](methods/openclaw-install.md) — BWUniCluster Phase 3 setup: nvm + claude-cli backend (Claude Max, no API charges) + Slack Socket Mode bot `clusterbot`, persisted via tmux with login-node-roulette workaround and a daemon-stability gate
 - [OpenClaw Skill Audit](methods/openclaw-skill-audit.md) — Classification of every active Claude Code skill (repo + plugin) against OpenClaw's chat-only constraints: redundant / partial / synergy / unchanged, with action items for safe disables
