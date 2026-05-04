@@ -28,6 +28,33 @@ class TestCNNEncoder:
         assert agent_obs is obs
 
 
+class TestVGGTEncoderConfiguration:
+    def test_vggt_encoder_uses_static_jax_budgets(self, monkeypatch):
+        """R2Dreamer training must use the fast JAX static-budget VGGT path."""
+        constructed_kwargs = {}
+
+        class FakeExtractor:
+            def __init__(self, **kwargs):
+                constructed_kwargs.update(kwargs)
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = VGGTEncoder()
+        adapter = enc.make_adapter()
+
+        assert isinstance(adapter, VGGTObsAdapter)
+        assert constructed_kwargs == {
+            "total_budget": 200_000,
+            "budgets_static": tuple([8333] * 24),
+        }
+
+
 @pytest.mark.gpu
 class TestVGGTEncoder:
     def test_vggt_encoder_constructs(self):

@@ -84,7 +84,23 @@ Option 3 is the proper fix and matches the deferred work in `vggt-jax-streaming.
 
 ## Regression test seam
 
-`modules/vggt/tests/test_jax_integration.py` already drives multi-frame rollouts. Add:
+Why the issue did not appear in existing unit tests:
+
+- `modules/r2dreamer/launch/tests/test_encoders.py` only checked that `VGGTEncoder` constructs an adapter; it did not inspect extractor construction kwargs.
+- `modules/r2dreamer/launch/tests/test_encoders.py::test_vggt_adapter_behavior` uses 10 frames, below the eviction threshold (~36 frames), so the changing-budget path never executes.
+- `modules/vggt/tests/test_jax_integration.py` also uses 5-frame contract/parity rollouts, again below eviction onset.
+- Most R2Dreamer agent/replay tests use synthetic 4116-dim features and therefore do not run the real VGGT extractor or its KV-cache eviction.
+
+A cheap config regression is now required: instantiate `modules.r2dreamer.launch.encoders.VGGTEncoder` with the extractor monkeypatched and assert it passes:
+
+```python
+{
+    "total_budget": 200_000,
+    "budgets_static": tuple([8333] * 24),
+}
+```
+
+For the real recompile cliff, `modules/vggt/tests/test_jax_integration.py` can drive multi-frame rollouts. Add/run a GPU slow test when changing the extractor internals:
 
 ```python
 def test_no_post_eviction_recompile_cliff():
@@ -106,9 +122,42 @@ def test_no_post_eviction_recompile_cliff():
 
 50 frames is enough to span eviction (frame 36) and capture the cliff. The bound is "p95 < 3× p50" — generous enough for honest tail variance, tight enough to fail the current 530× ratio.
 
+Full-pipeline smoke to run before `sbatch` relaunch:
+
+```bash
+WANDB_MODE=disabled XLA_PYTHON_CLIENT_PREALLOCATE=false \
+uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt.py \
+  --steps 60 \
+  --prefill 50 \
+  --checkpoint_every 60 \
+  --log_every 10 \
+  --seed 123 \
+  --render_resolution 518 \
+  --output_dir output/runs/r2dreamer-curriculum-l1-vggt/smoke-static-budget-$(date +%Y%m%d-%H%M%S)
+```
+
+This is intentionally a smoke, not a statistical experiment. It should verify the real chain `Habitat RGB -> VGGTObsAdapter -> JAXVGGTFeatureExtractor(static budgets) -> replay buffer -> agent.act -> trainer loop`. Success criteria:
+
+- prefill reaches 50 in minutes, not hours;
+- the log progresses past `Prefilling 50 steps...` into `Training from step...`;
+- no frame around 38 takes ~43 seconds;
+- the run directory contains `MANIFEST.json` and at least the expected smoke artifacts/checkpoint for the configured interval;
+- if a tiny run cannot collect enough samples for a real gradient update, pair it with the synthetic `modules/r2dreamer/tests/test_vggt_encoder.py::TestVGGTAgentInit::test_agent_train_step_vggt` train-step smoke.
+
 ## Verification — Option 1 override (2026-05-04)
 
 `feature_extractor.py` ships an opt-in override (`budgets_static` ctor kwarg, plumbed as `--jax-static-budgets` in the bench). When set, every frame uses a uniform `(total_budget // depth, ...)` tuple and the static-arg cache key never changes.
+
+**R2Dreamer training configuration (paper note):** the Habitat VGGT training path now intentionally uses the same static-budget setting as the fast JAX benchmark, not the dynamic-budget default:
+
+```python
+JAXVGGTFeatureExtractor(
+    total_budget=200_000,
+    budgets_static=tuple([8333] * 24),
+)
+```
+
+This is an algorithmic choice that must be reported in methods/results: JAX VGGT uses a bounded uniform per-layer KV-cache budget of 8,333 tokens for each of the 24 aggregator blocks (global budget 200k). This follows the InfiniteVGGT-style bounded rolling-memory idea, but disables adaptive layer-wise budget changes to avoid JAX/XLA static-argument recompilation after eviction. It is the configuration used for the JAX-vs-PyTorch speed comparison and for the R2Dreamer VGGT L1 training path.
 
 CSV: `output/methods/vggt-jax-latency/vggt_streaming_20260504_091752.csv`.
 
