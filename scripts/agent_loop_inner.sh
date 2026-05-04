@@ -167,6 +167,7 @@ while [[ $processed -lt $MAX_ISSUES ]]; do
 
     # CLOSE issue with branch reference
     gh issue close "$num" --comment "Implemented on \`$branch\`. PR will be opened when this PRD's last child closes (or immediately, for orphan issues)."
+    gh issue edit "$num" --remove-label in-progress
 
     # OPEN PR — orphan immediately, PRD only when last sibling closes
     if [[ -z "$parent" ]]; then
