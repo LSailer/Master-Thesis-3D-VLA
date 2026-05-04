@@ -1,6 +1,6 @@
 """Fit linear probes from R2Dreamer latents to VGGT world_points.
 
-Trains three OLS probes via np.linalg.lstsq on per-step npz dumps:
+Trains three Ridge probes (closed-form, alpha=1.0) on per-step npz dumps:
   - probe_feat:  feat  (2560,) -> world_points_flat (4107,)
   - probe_deter: deter (2048,) -> world_points_flat (4107,)
   - probe_stoch: stoch (512,)  -> world_points_flat (4107,)
