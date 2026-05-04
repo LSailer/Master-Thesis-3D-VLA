@@ -72,18 +72,26 @@ class HabitatR2DreamerEnv:
     def _agent_state(self) -> np.ndarray:
         sim = self._env._env.sim
         agent_state = sim.get_agent_state()
-        # The RGB sensor's pose is the camera pose; agent_state.position is
-        # the agent root, but for ObjectNav the RGB sensor sits at the agent.
-        sensor_state = agent_state.sensor_states.get("rgb", agent_state)
+        if "rgb" not in agent_state.sensor_states:
+            raise KeyError(
+                "No 'rgb' sensor in agent_state.sensor_states — check Habitat sensor config"
+            )
+        sensor_state = agent_state.sensor_states["rgb"]
         position = np.asarray(sensor_state.position, dtype=np.float32)
         rotation = sensor_state.rotation
         # habitat_sim quaternion: .x .y .z .w
         quat_xyzw = np.array(
             [rotation.x, rotation.y, rotation.z, rotation.w], dtype=np.float32)
-        # hfov is set per-sensor; default 90 deg if introspection fails
+        # hfov is set per-sensor; default 90 deg if introspection fails (unit tests only)
         try:
             hfov_deg = float(sim._sensors["rgb"].specification().hfov)
         except (AttributeError, KeyError):
+            import warnings
+            warnings.warn(
+                "Could not read HFOV from sim._sensors['rgb']; defaulting to 90.0 deg. "
+                "Plücker rays will be wrong if actual HFOV differs.",
+                stacklevel=3,
+            )
             hfov_deg = 90.0
         return build_agent_state(position, quat_xyzw, hfov_deg, self._H, self._W)
 
