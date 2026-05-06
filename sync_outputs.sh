@@ -4,7 +4,7 @@
 
 REMOTE="ul_hfj15@bwunicluster.scc.kit.edu"
 REMOTE_PATH="/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/output/"
-LOCAL_PATH="/Users/lucamac/Coding/Master-Thesis-3D-VLA/output/"
+LOCAL_PATH="${MASTER_THESIS_LOCAL:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/output/}"
 
 mkdir -p "$LOCAL_PATH"
 
