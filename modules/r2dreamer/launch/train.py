@@ -69,7 +69,7 @@ def train(
         raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
 
     encoder_cls = encoder_registry[encoder]
-    if encoder == "vggt":
+    if encoder in ("vggt", "vggt_film_v1"):
         enc = encoder_cls(resolution=args.render_resolution)
     else:
         enc = encoder_cls()
@@ -95,16 +95,16 @@ def train(
             curriculum_path=curriculum_path,
             curriculum_mode=args.curriculum_mode,
             seed=args.seed,
-            render_resolution=args.render_resolution if encoder == "vggt" else 64,
+            render_resolution=args.render_resolution if encoder in ("vggt", "vggt_film_v1") else 64,
         )
     else:
         # crafter
         env_instance = env_fn(seed=args.seed)
 
     # --- Build agent config ---
-    if encoder == "vggt":
+    if encoder in ("vggt", "vggt_film_v1"):
         agent_config = R2DreamerConfig(
-            encoder_type="vggt",
+            encoder_type=encoder,
             obs_shape=(VGGT_FEATURE_DIM,),
             num_actions=4,
             total_steps=args.steps,

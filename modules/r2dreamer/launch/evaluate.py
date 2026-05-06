@@ -117,7 +117,7 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    if eff_encoder == "vggt":
+    if eff_encoder in ("vggt", "vggt_film_v1"):
         render_resolution = args.render_resolution if args.render_resolution is not None else 518
     else:
         render_resolution = args.render_resolution if args.render_resolution is not None else 64
@@ -136,17 +136,16 @@ def evaluate(
 
     # --- Build encoder + adapter ---
     encoder_cls = encoder_registry[eff_encoder]
-    if eff_encoder == "vggt":
+    if eff_encoder in ("vggt", "vggt_film_v1"):
         enc = encoder_cls(resolution=render_resolution)
     else:
         enc = encoder_cls()
     adapter = enc.make_adapter()
 
     # --- Build agent ---
-    if eff_encoder == "vggt":
-        from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
+    if eff_encoder in ("vggt", "vggt_film_v1"):
         config = R2DreamerConfig(
-            encoder_type="vggt",
+            encoder_type=eff_encoder,
             obs_shape=(VGGT_FEATURE_DIM,),
             num_actions=4,
         )

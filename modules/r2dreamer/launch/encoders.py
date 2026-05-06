@@ -37,3 +37,7 @@ class VGGTEncoder(Encoder):
 
     def make_adapter(self) -> ObsAdapter:
         return VGGTObsAdapter(self._extractor)
+
+
+class VGGTFiLMEncoderV1(VGGTEncoder):
+    """VGGT feature extractor plus FiLM fusion inside the R2Dreamer agent."""

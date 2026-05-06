@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.networks import VGGTEncoder
+from modules.r2dreamer.networks import FiLMEncoder_v1, VGGTEncoder
 from modules.shared.replay_buffer import VGGTReplayBuffer
 
 
@@ -40,6 +40,61 @@ class TestVGGTEncoder:
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (1, 512)
+
+
+class TestFiLMEncoderV1:
+    """Test Vanilla FiLM encoder for VGGT world-points + pose features."""
+
+    def test_output_shape(self):
+        enc = FiLMEncoder_v1(embed_dim=1024, channels=64, hidden=128)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, FEATURE_DIM))
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 1024)
+
+    def test_film_branch_initializes_to_identity_modulation(self):
+        enc = FiLMEncoder_v1(embed_dim=1024, channels=64, hidden=128)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, FEATURE_DIM))
+        params = enc.init(rng, dummy)
+        film = params["params"]["pose_film"]
+        assert jnp.all(film["kernel"] == 0.0)
+        assert jnp.all(film["bias"] == 0.0)
+
+    def test_agent_train_step_vggt_film_logs_stream_gradient_norms(self):
+        from modules.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_film_v1",
+            obs_shape=(FEATURE_DIM,),
+            num_actions=4,
+            batch_size=2,
+            seq_len=8,
+            imagination_horizon=3,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        B, T = cfg.batch_size, cfg.seq_len
+        batch = {
+            "obs": jnp.zeros((B, T, FEATURE_DIM)),
+            "actions": jax.nn.one_hot(
+                jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
+            ),
+            "rewards": jnp.zeros((B, T)),
+            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
+            "is_last": jnp.zeros((B, T)),
+            "is_terminal": jnp.zeros((B, T)),
+        }
+        rng, train_key = jax.random.split(rng)
+        metrics = agent.train_step(batch, train_key)
+
+        assert "grad/obs_wp_norm" in metrics
+        assert "grad/obs_pose_norm" in metrics
+        assert "grad/obs_pose_to_wp_ratio" in metrics
+        assert np.isfinite(metrics["grad/obs_wp_norm"])
+        assert np.isfinite(metrics["grad/obs_pose_norm"])
 
 
 class TestVGGTReplayBuffer:

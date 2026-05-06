@@ -26,6 +26,7 @@ class TestEncoderRegistry:
     def test_known_keys_present(self):
         assert "cnn" in encoder_registry
         assert "vggt" in encoder_registry
+        assert "vggt_film_v1" in encoder_registry
 
 
 class TestEnvRegistry:

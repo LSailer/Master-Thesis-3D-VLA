@@ -18,6 +18,7 @@ from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
     VGGTEncoder,
+    FiLMEncoder_v1,
     R2RSSM,
     R2MLP,
     Projector,
@@ -50,6 +51,12 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
 def _make_encoder(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt":
         return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
+    if cfg.encoder_type == "vggt_film_v1":
+        return FiLMEncoder_v1(
+            embed_dim=cfg.vggt_embed_dim,
+            channels=cfg.film_channels,
+            hidden=cfg.film_hidden,
+        )
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -188,7 +195,7 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         # Preprocess observation
-        if self.cfg.encoder_type == "vggt":
+        if self.cfg.encoder_type in ("vggt", "vggt_film_v1"):
             obs = jnp.asarray(obs_dict["features"])[None]  # (1, D)
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
@@ -303,6 +310,28 @@ class R2DreamerAgent:
 
         (total_loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
 
+        metrics = aux["metrics"]
+        if self.cfg.encoder_type in ("vggt", "vggt_film_v1"):
+            def obs_loss_fn(obs):
+                obs_batch = dict(batch)
+                obs_batch["obs"] = obs
+                loss, _ = self._loss_fn(
+                    params,
+                    slow_critic_params=updated_slow,
+                    ema_state=ema_state,
+                    batch=obs_batch,
+                    rng_key=rng_key,
+                )
+                return loss
+
+            obs_grads = jax.grad(obs_loss_fn)(batch["obs"])
+            wp_dim = self.cfg.vggt_feature_dim - 9
+            wp_norm = jnp.linalg.norm(obs_grads[..., :wp_dim])
+            pose_norm = jnp.linalg.norm(obs_grads[..., wp_dim:])
+            metrics["grad/obs_wp_norm"] = wp_norm
+            metrics["grad/obs_pose_norm"] = pose_norm
+            metrics["grad/obs_pose_to_wp_ratio"] = pose_norm / (wp_norm + 1e-8)
+
         # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
         is_finite = jnp.isfinite(total_loss)
 
@@ -327,7 +356,6 @@ class R2DreamerAgent:
         new_ema_state = jax.tree.map(
             lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
 
-        metrics = aux["metrics"]
         metrics["total_loss"] = total_loss
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_params, new_opt_state, new_slow, new_ema_state, metrics

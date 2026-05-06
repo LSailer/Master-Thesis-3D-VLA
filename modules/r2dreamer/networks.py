@@ -433,6 +433,50 @@ class R2MLP(nn.Module):
         return x
 
 
+class FiLMEncoder_v1(nn.Module):
+    """Vanilla FiLM encoder for VGGT world-points + pose features.
+
+    Splits flattened VGGT observations into spatial world-points
+    (37, 37, 3) and a 9-dim pose embedding. Pose conditions the spatial
+    stream with FiLM before global-average-pooling into embed_dim.
+    """
+    embed_dim: int = 1024
+    channels: int = 64
+    hidden: int = 128
+    wp_shape: tuple = (37, 37, 3)
+    pose_dim: int = 9
+
+    @nn.compact
+    def __call__(self, obs):
+        # obs: (B, 4116) = flattened world_points (37*37*3) + camera_pose (9)
+        wp_dim = self.wp_shape[0] * self.wp_shape[1] * self.wp_shape[2]
+        wp_flat = obs[..., :wp_dim]
+        pose = obs[..., wp_dim:wp_dim + self.pose_dim]
+
+        x = wp_flat.reshape(obs.shape[0], *self.wp_shape)
+        x = nn.Conv(self.channels, (3, 3), padding="SAME", name="conv")(x)
+        x = RMSNorm(name="conv_norm")(x)
+        x = nn.silu(x)
+
+        pose_h = nn.Dense(self.hidden, name="pose_fc0")(pose)
+        pose_h = RMSNorm(name="pose_norm0")(pose_h)
+        pose_h = nn.silu(pose_h)
+        gamma_beta = nn.Dense(
+            2 * self.channels,
+            kernel_init=nn.initializers.zeros,
+            bias_init=nn.initializers.zeros,
+            name="pose_film",
+        )(pose_h)
+        gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
+        gamma = gamma[:, None, None, :]
+        beta = beta[:, None, None, :]
+
+        # Zero-initialized gamma/beta gives identity FiLM: y = x at step 0.
+        x = (1.0 + gamma) * x + beta
+        x = jnp.mean(x, axis=(1, 2))
+        return nn.Dense(self.embed_dim, name="proj")(x)
+
+
 class VGGTEncoder(nn.Module):
     """Linear projection encoder for VGGT features.
 
