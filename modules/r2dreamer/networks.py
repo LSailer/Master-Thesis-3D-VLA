@@ -88,6 +88,28 @@ class R2TwoHotDist:
         return wavg  # (..., 1) — real space, no unsquash needed
 
 
+def onehot_mode_st(logits: jnp.ndarray, unimix_ratio: float = 0.0) -> jnp.ndarray:
+    """Straight-through one-hot at argmax — JAX port of OneHotDist.mode.
+
+    Forward: ``one_hot(argmax(log_probs))`` where ``log_probs`` are unimix-mixed
+    log-softmax of ``logits``. Backward: identity through ``log_probs``, which
+    propagates the ``log_softmax`` Jacobian back to ``logits``.
+
+    Matches PyTorch R2-Dreamer (``distributions.py``): ``OneHotDist`` reparameterises
+    ``self.logits = log(softmax(input) * (1-r) + r/K)`` in ``__init__``, then
+    ``mode`` returns ``one_hot(argmax).detach() + self.logits - self.logits.detach()``.
+    """
+    K = logits.shape[-1]
+    if unimix_ratio > 0:
+        probs = jax.nn.softmax(logits, axis=-1)
+        probs = (1.0 - unimix_ratio) * probs + unimix_ratio / K
+        log_probs = jnp.log(probs + 1e-8)
+    else:
+        log_probs = jax.nn.log_softmax(logits, axis=-1)
+    hard = jax.nn.one_hot(jnp.argmax(log_probs, axis=-1), K)
+    return hard + log_probs - jax.lax.stop_gradient(log_probs)
+
+
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization."""
     eps: float = 1e-4

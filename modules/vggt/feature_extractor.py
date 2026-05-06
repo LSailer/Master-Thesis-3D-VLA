@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from contextlib import nullcontext
 
 import numpy as np
 import torch
@@ -30,7 +31,16 @@ class VGGTFeatureExtractor:
     Then call :meth:`extract` once per step with the current 518x518 RGB frame.
     """
 
-    def __init__(self, device: str = "cuda", compile: bool = False):
+    def __init__(
+        self,
+        device: str = "cuda",
+        compile: bool = False,
+        compile_mode: str | None = None,
+        total_budget: int | None = None,
+        max_camera_frames: int | None = None,
+        camera_iterations: int = 4,
+        prefer_flash_sdp: bool = True,
+    ):
         """Load frozen InfiniteVGGT model.
 
         Args:
@@ -39,6 +49,19 @@ class VGGTFeatureExtractor:
                 ``torch.compile``. Aggregator and camera_head use ``dynamic=True``
                 (their KV-cache grows each frame). point_head is static.
                 First few calls are slow (tracing); steady-state may be faster.
+            compile_mode: Optional ``mode=`` argument forwarded to
+                ``torch.compile`` when ``compile=True``. ``None`` (default)
+                preserves the original behaviour (mode unset → torch's
+                ``"default"``). Accepted values are ``None``, ``"default"``,
+                ``"reduce-overhead"``, and ``"max-autotune"``.
+                ``"max-autotune"`` can take minutes on the first call while
+                kernels are autotuned.
+            total_budget: Optional override for aggregator cache budget.
+            max_camera_frames: Optional cap on camera-head KV cache length
+                (in frames). The cache keeps the most recent frames.
+            camera_iterations: Number of pose refinement iterations per frame
+                (default 4) used to estimate camera-head cache growth.
+            prefer_flash_sdp: If True, prefer Flash SDP kernels when available.
         """
         self.device = torch.device(device)
 
@@ -48,16 +71,56 @@ class VGGTFeatureExtractor:
         for p in self.model.parameters():
             p.requires_grad = False
 
+        if total_budget is not None:
+            self.model.total_budget = int(total_budget)
+
+        # Prefer Flash SDP kernels when available (PyTorch 2.0+).
+        if prefer_flash_sdp and self.device.type == "cuda":
+            self._flash_sdp_ctx_factory = (
+                lambda: torch.backends.cuda.sdp_kernel(
+                    enable_flash=True,
+                    enable_math=True,
+                    enable_mem_efficient=True,
+                )
+            )
+        else:
+            self._flash_sdp_ctx_factory = lambda: nullcontext()
+        self._prefer_flash_sdp = prefer_flash_sdp
+
+        # Camera cache management (keep most recent frames).
+        self._camera_iterations = int(camera_iterations)
+        if max_camera_frames is not None:
+            self._max_camera_tokens = int(max_camera_frames) * self._camera_iterations
+        else:
+            self._max_camera_tokens = None
+
         if compile:
-            print("Compiling VGGT sub-modules with torch.compile...")
-            self.model.aggregator = torch.compile(self.model.aggregator, dynamic=True)
-            self.model.camera_head = torch.compile(self.model.camera_head, dynamic=True)
-            self.model.point_head = torch.compile(self.model.point_head)
+            _allowed_modes = {None, "default", "reduce-overhead", "max-autotune"}
+            if compile_mode not in _allowed_modes:
+                raise ValueError(
+                    f"compile_mode={compile_mode!r} not in {_allowed_modes}"
+                )
+            mode_kwargs = {} if compile_mode is None else {"mode": compile_mode}
+            print(
+                f"Compiling VGGT sub-modules with torch.compile "
+                f"(mode={compile_mode!r})..."
+            )
+            self.model.aggregator = torch.compile(
+                self.model.aggregator, dynamic=True, **mode_kwargs
+            )
+            self.model.camera_head = torch.compile(
+                self.model.camera_head, dynamic=True, **mode_kwargs
+            )
+            self.model.point_head = torch.compile(
+                self.model.point_head, **mode_kwargs
+            )
 
         # Aggregator depth drives the per-layer KV-cache list length.
         self._agg_depth: int = self.model.aggregator.depth
         # Camera head trunk depth drives camera KV-cache list length.
         self._cam_depth: int = self.model.camera_head.trunk_depth
+        # Max camera tokens for cache (tokens, not frames).
+        self._max_camera_tokens: int | None = self._max_camera_tokens
 
         # Determine mixed-precision dtype based on GPU capability.
         if self.device.type == "cuda":
@@ -119,24 +182,37 @@ class VGGTFeatureExtractor:
             # Images must be (B, S, C, H, W) — S=1 for streaming.
             images = img.unsqueeze(1)  # (1, 1, C, H, W)
 
-            aggregator_out = self.model.aggregator(
-                images,
-                past_key_values=self._past_key_values,
-                use_cache=True,
-                past_frame_idx=self._frame_idx,
-                total_budget=self.model.total_budget,
-            )
+            with self._flash_sdp_ctx_factory():
+                aggregator_out = self.model.aggregator(
+                    images,
+                    past_key_values=self._past_key_values,
+                    use_cache=True,
+                    past_frame_idx=self._frame_idx,
+                    total_budget=self.model.total_budget,
+                )
             aggregated_tokens, patch_start_idx, self._past_key_values = aggregator_out
 
             # Camera head (with its own KV-cache).
             with torch.amp.autocast("cuda", enabled=False):
-                pose_enc, self._past_key_values_camera = self.model.camera_head(
-                    aggregated_tokens,
-                    past_key_values_camera=self._past_key_values_camera,
-                    use_cache=True,
-                )
+                with self._flash_sdp_ctx_factory():
+                    pose_enc, self._past_key_values_camera = self.model.camera_head(
+                        aggregated_tokens,
+                        past_key_values_camera=self._past_key_values_camera,
+                        use_cache=True,
+                    )
                 pose_enc = pose_enc[-1]           # last iteration
                 camera_pose = pose_enc[:, 0, :]   # (B, 9)
+
+                # Prune camera-head KV cache to a fixed window if requested.
+                if self._max_camera_tokens is not None:
+                    for idx, kv in enumerate(self._past_key_values_camera):
+                        if kv is None:
+                            continue
+                        k, v = kv
+                        if k.shape[2] > self._max_camera_tokens:
+                            k = k[:, :, -self._max_camera_tokens :, :].contiguous()
+                            v = v[:, :, -self._max_camera_tokens :, :].contiguous()
+                            self._past_key_values_camera[idx] = (k, v)
 
                 # Point head (DPT upsampled).
                 pts3d, _ = self.model.point_head(

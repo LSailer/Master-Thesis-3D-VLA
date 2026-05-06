@@ -188,3 +188,54 @@ JAX is currently **1.9× slower than PT-fp32** on the apples-to-apples bench, de
 1. **#88 closed as won't-fix.** wrapper + jax_upload = 0.69 ms / forward 148 ms = 0.47% of the bottleneck. Both the original (2026-04-20) and re-verified (2026-04-25) data agree.
 2. **JAX port reframed.** Speedup-vs-PT is no longer the primary motivation; **codebase uniformity + trainable heads** (e.g. semantic head #8) is. New parity threshold is "within 1.5× of PT-compile", not "must be faster". Tracked in a new issue (supersedes #72 stub).
 3. **Frame-skip is the throughput lever.** 5.9 FPS today × 72 h = 1.53 M steps; 2.4 M target needs 9.3 FPS = ~1.6× more. K=2 frame-skip projects 2× and ships in ~5 LOC at `modules/r2dreamer/adapters/vggt_adapter.py:33-36`. Filed as a new issue.
+
+## Update 2026-05-04 — `torch.compile` mode sweep
+
+Frame-skip was rejected as thesis-unsafe (the agent must see every step). The next zero-method-change lever is to try non-default `torch.compile` modes on the same PyTorch path. Extended `VGGTFeatureExtractor.__init__` with a `compile_mode: str | None = None` argument, plumbed through `profile_training.py --compile-mode` and `benchmark_streaming.py --pt-compile-mode`. `None` = torch's default mode (preserves the 2026-04-20 behaviour).
+
+Bench harness: `modules/vggt/jax/benchmark_streaming.py --backends pytorch --seq-lens 10 50 100`, run as **four separate `uv run` invocations** (one per mode) on the local H100 to avoid compile-cache pollution. Each invocation: 3 warmup frames + n measured frames per `seq_len` with a fresh extractor.
+
+Selection rule: pick winner on **n=100 median** (closest to a steady-state production run; n=10 / n=50 are warmup-dominated for compiled paths because torch.compile takes the first frames to trace).
+
+### Results — n=100 median latency per mode
+
+| Mode | n=100 mean (ms) | n=100 **median (ms)** | Δ vs no-compile (median) | CSV |
+|---|--:|--:|--:|---|
+| no compile | 136.7 | 160.6 | — (baseline) | `output/methods/vggt-jax-latency/compile-modes/vggt_streaming_20260504_091152.csv` |
+| `default` | 123.0 | **144.8** | **−15.8 ms (−9.8%)** | `output/methods/vggt-jax-latency/compile-modes/vggt_streaming_20260504_091446.csv` |
+| `reduce-overhead` | — | — | **FAILED** | `output/methods/vggt-jax-latency/compile-modes/vggt_streaming_20260504_091724_reduce_overhead_FAILED.csv` |
+| `max-autotune` | — | — | **FAILED** | `output/methods/vggt-jax-latency/compile-modes/vggt_streaming_20260504_092038_max_autotune_FAILED.csv` |
+
+Both `reduce-overhead` and `max-autotune` use **CUDA graphs** under the hood. CUDA graphs are incompatible with the InfiniteVGGT streaming KV-cache pattern: the `camera_head.trunk_fn` returns a tensor (`activated_pose = torch.cat([T, quat, fl], dim=-1)`) whose storage gets overwritten by the next graph replay, so reading `camera_pose.cpu()` after the next forward call raises:
+
+> `RuntimeError: Error: accessing tensor output of CUDAGraphs that has been overwritten by a subsequent run … To prevent overwriting, clone the tensor outside of torch.compile() or call torch.compiler.cudagraph_mark_step_begin() before each model invocation.`
+
+The same trace happens in both modes (camera_head.py:94 → head_act.py:24). Fixing this would require either an extra `.clone()` on every cached tensor (defeating reduce-overhead's purpose) or a `cudagraph_mark_step_begin()` call inside `extract()` (cuts further into the savings). Both are method changes outside this lever's scope.
+
+### Winner & speedup
+
+- **Winner: `default`** — by elimination, since the two CUDA-graph modes are incompatible with this model.
+- vs **no-compile**: −9.8% on n=100 median.
+- vs the **2026-04-20 / 04-25 numbers** (reported as ~−11% on `vggt_forward` p50 inside the full training loop, 168 → 150 ms): consistent, since `default` is exactly the mode that 04-20 ran under (`compile_mode=None` = torch default = the only one tested back then). The bench harness measures the full extractor (load + forward + downsample + .cpu()), so the −9.8% wall-clock gain matches the −11% forward-only p50 gain to within noise.
+- The n=10 and n=50 medians visibly include compile-trace warmup overhead (e.g. `compile-default` has 61.8 ms median at n=10 — that is "most frames after warmup are fast") and are **not used** for the steady-state decision per the selection rule.
+
+### Recommendation for L4 production sbatch
+
+- Keep `--compile` enabled.
+- **Do not pass `--compile-mode`** (i.e. leave `compile_mode=None`, the default, which forwards no `mode=` kwarg to `torch.compile`). This is identical to passing `--compile-mode default`; we keep `None` as the wire-format default so the production sbatch doesn't have to change at all.
+- Do **not** flip to `reduce-overhead` or `max-autotune` until the CUDA-graph aliasing in `streamvggt/heads/camera_head.py` is fixed upstream — the failure is deterministic on the first non-warmup frame and would crash an L4 run.
+
+### Compile-time costs
+
+- `default`: ~30 s tracing on the first forward, then steady-state. Already paid in current production runs.
+- `reduce-overhead` / `max-autotune` (had they worked): documented to take **minutes** on the first call while CUDA graph capture and (for max-autotune) Triton kernel autotuning runs. Not relevant here since both fail before reaching steady state.
+
+### Stack progress
+
+L4 cycle target: ~4 d → ~3 d. With **only** `--compile` (default mode), projected gain is ~10% on the bottleneck phase, which lands at ~3.6 d, not ~3 d. **This lever alone is insufficient to hit the target.** The remaining gap must come from orthogonal levers (FastVGGT, distillation, async pipeline) — frame-skip remains rejected.
+
+### Files touched
+
+- `modules/vggt/feature_extractor.py:34-43,52-58,92-111` — added `compile_mode` arg, validated against `{None, "default", "reduce-overhead", "max-autotune"}`, forwarded as `mode=` to all three `torch.compile` calls when not `None`.
+- `modules/r2dreamer/scripts/profile_training.py` — new `--compile-mode` CLI option on the existing `--compile` flag (no new compile flag introduced).
+- `modules/vggt/jax/benchmark_streaming.py` — new `--pt-compile-mode {default,reduce-overhead,max-autotune}` CLI option; CSV `config` column records the resolved mode (e.g. `bf16-autocast+compile-default`).

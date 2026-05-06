@@ -107,25 +107,26 @@ def _build_cnn(
     return env, agent, buffer, obs_adapter, agent_cfg, None
 
 
-def _flatten_vggt(out: dict) -> np.ndarray:
+def _flatten_vggt(out: dict) -> jnp.ndarray:
     """Concatenate VGGT output into a single (4116,) float32 feature vector.
 
     Duplicated from run_jax_habitat_vggt.py to keep this script self-contained.
     """
     wp = out["world_points"].reshape(-1)  # (4107,)
-    cp = out["camera_pose"]                # (9,)
-    return np.concatenate([wp, cp]).astype(np.float32)
+    cp = out["camera_pose"]              # (9,)
+    return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
 def _build_vggt(
     seed: int, curriculum_path: str | None, render_resolution: int,
     compile: bool = False,
+    compile_mode: str | None = None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
     """Construct env (518 res), agent (VGGT encoder), buffer (float32 features),
     obs_adapter with on_episode_reset hook wired to extractor.reset, and the
     raw VGGTFeatureExtractor (needed by the loop for instrumented extract calls).
     """
-    from modules.vggt.feature_extractor import VGGTFeatureExtractor
+    from modules.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
 
     agent_cfg = R2DreamerConfig(
         encoder_type="vggt",
@@ -147,8 +148,10 @@ def _build_vggt(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    print(f"Loading InfiniteVGGT model (compile={compile})...")
-    extractor = VGGTFeatureExtractor(device="cuda", compile=compile)
+    print(f"Loading InfiniteVGGT model (compile={compile}, compile_mode={compile_mode!r})...")
+    extractor = VGGTFeatureExtractor(
+        device="cuda", compile=compile, compile_mode=compile_mode,
+    )
     print("InfiniteVGGT loaded.")
 
     # ObsAdapter wired so Trainer-style reset hook fires extractor.reset.
@@ -178,6 +181,7 @@ def run_loop(
     curriculum_path: str | None = None,
     render_resolution: int = 518,
     compile: bool = False,
+    compile_mode: str | None = None,
 ) -> RunResult:
     if encoder == "cnn":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_cnn(
@@ -186,6 +190,7 @@ def run_loop(
     elif encoder == "vggt":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_vggt(
             seed, curriculum_path, render_resolution, compile=compile,
+            compile_mode=compile_mode,
         )
     else:
         raise ValueError(f"Unknown encoder: {encoder!r}")
@@ -209,10 +214,11 @@ def run_loop(
         # so vggt_wrapper represents the full "output → numpy feature" cost.
         out = extractor.extract(obs_dict["image"], phase_times=phase_times)
         t0 = time.perf_counter()
-        features = _flatten_vggt(out)
+        features_jax = _flatten_vggt(out)
+        features_np = np.asarray(features_jax)
         phase_times["vggt_wrapper"][-1] += (time.perf_counter() - t0) * 1000.0
-        agent_obs = {"features": features, "is_first": obs_dict.get("is_first", False)}
-        return features, agent_obs
+        agent_obs = {"features": features_jax, "is_first": obs_dict.get("is_first", False)}
+        return features_np, agent_obs
 
     def do_reset() -> tuple[dict, np.ndarray, dict]:
         nonlocal reset_count, boundary_count
@@ -429,6 +435,16 @@ def main() -> None:
         "--compile", action="store_true",
         help="Apply torch.compile to VGGT sub-modules (VGGT only).",
     )
+    parser.add_argument(
+        "--compile-mode",
+        choices=("default", "reduce-overhead", "max-autotune"),
+        default=None,
+        help=(
+            "torch.compile mode forwarded to all three sub-module compiles "
+            "(VGGT only; ignored unless --compile is set). Omit to use "
+            "torch's default mode (current shipped behaviour)."
+        ),
+    )
     args = parser.parse_args()
 
     result = run_loop(
@@ -439,6 +455,7 @@ def main() -> None:
         curriculum_path=args.curriculum_path,
         render_resolution=args.render_resolution,
         compile=args.compile,
+        compile_mode=args.compile_mode,
     )
 
     json_path = save_json({args.encoder: result}, Path(args.output_dir))

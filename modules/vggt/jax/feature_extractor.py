@@ -73,7 +73,9 @@ class JAXVGGTFeatureExtractor:
         total_budget: int = _DEFAULT_TOTAL_BUDGET,
         dtype: Any = jnp.bfloat16,
         max_camera_frames: int = 1024,
+        budgets_static: tuple[int, ...] | None = None,
     ):
+        self._budgets_static_override = budgets_static
         if device in ("cuda", "gpu"):
             self._device = jax.devices("gpu")[0]
         elif device == "cpu":
@@ -322,7 +324,7 @@ class JAXVGGTFeatureExtractor:
         self,
         rgb: np.ndarray,
         phase_times: dict[str, list[float]] | None = None,
-    ) -> dict[str, np.ndarray]:
+    ) -> dict[str, jnp.ndarray]:
         """Single-frame streaming inference."""
         profiling = phase_times is not None
         fwd_t0 = time.perf_counter() if profiling else 0.0
@@ -340,8 +342,11 @@ class JAXVGGTFeatureExtractor:
             self._last_scores = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
 
         # Compute budgets outside jit as a static tuple of Python ints.
-        ls_np = np.asarray(self._last_scores)
-        budgets_static = self._compute_static_budgets(ls_np)
+        if self._budgets_static_override is not None:
+            budgets_static = self._budgets_static_override
+        else:
+            ls_np = np.asarray(self._last_scores)
+            budgets_static = self._compute_static_budgets(ls_np)
 
         out_list, patch_start_idx, self._past_kvs_padded, self._last_scores = (
             self._aggregator_apply(
@@ -395,8 +400,8 @@ class JAXVGGTFeatureExtractor:
 
         world_points = _adaptive_avg_pool_518_to_37(pts3d)
 
-        world_points_np = np.asarray(world_points[0], dtype=np.float32)
-        camera_pose_np = np.asarray(camera_pose[0], dtype=np.float32)
+        world_points_out = world_points[0].astype(jnp.float32)
+        camera_pose_out = camera_pose[0].astype(jnp.float32)
 
         if profiling:
             wrap_t1 = time.perf_counter()
@@ -406,6 +411,6 @@ class JAXVGGTFeatureExtractor:
         self._frame_idx += 1
 
         return {
-            "world_points": world_points_np,
-            "camera_pose": camera_pose_np,
+            "world_points": world_points_out,
+            "camera_pose": camera_pose_out,
         }

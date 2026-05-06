@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=r2d-L1-vggt-buffix
+#SBATCH --job-name=vggt_jax
 #SBATCH --partition=gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
@@ -31,5 +31,6 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt.py \
     --seed "${SLURM_JOB_ID}" \
     --log_every 250 \
     --wandb_project 3d-vla-objectnav \
-    --wandb_name "r2d-L1-vggt-buffix-${SLURM_JOB_ID}" \
+    --wandb_name "vggt_jax-${SLURM_JOB_ID}" \
+    --wandb_tags "curriculum,level1,1house,chair-only,vggt,vggt_jax,jax,3d-encoder" \
     --render_resolution 518
