@@ -586,6 +586,20 @@ class R2DreamerAgent:
         entropy = -jnp.sum(probs[:, :-1] * log_probs[:, :-1], axis=-1, keepdims=True)
         metrics["actor/entropy"] = jnp.mean(entropy)
 
+        # Issue #142: actor return / value / advantage / ret_scale diagnostics.
+        # Lets us verify whether the percentile-based return normalizer (S = Per95 - Per5,
+        # clipped to >= 1) actually fires under dense ObjectNav rewards, or whether
+        # ret_scale stays at the floor 1.0 and a single advantage spike dominates.
+        metrics["actor/return_mean"] = jnp.mean(ret)
+        metrics["actor/return_std"] = jnp.std(ret)
+        metrics["actor/value_mean"] = jnp.mean(imag_value[:, :-1])
+        metrics["actor/advantage_mean"] = jnp.mean(adv)
+        metrics["actor/advantage_std"] = jnp.std(adv)
+        metrics["actor/ret_scale"] = ret_scale
+        metrics["actor/ret_offset"] = ret_offset
+        metrics["actor/entropy_mean"] = jnp.mean(entropy)
+        metrics["actor/weight_mean"] = jnp.mean(weight[:, :-1])
+
         losses["policy"] = jnp.mean(
             jax.lax.stop_gradient(weight[:, :-1])
             * -(logpi * jax.lax.stop_gradient(adv) + cfg.act_entropy * entropy)
