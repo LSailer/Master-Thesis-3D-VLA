@@ -90,11 +90,24 @@ class TestFiLMEncoderV1:
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
 
-        assert "grad/obs_wp_norm" in metrics
-        assert "grad/obs_pose_norm" in metrics
-        assert "grad/obs_pose_to_wp_ratio" in metrics
-        assert np.isfinite(metrics["grad/obs_wp_norm"])
-        assert np.isfinite(metrics["grad/obs_pose_norm"])
+        expected_metrics = [
+            "grad/obs_wp_norm",
+            "grad/obs_pose_norm",
+            "grad/obs_pose_to_wp_ratio",
+            "actor/entropy",
+            "actor/grad_norm",
+            "critic/grad_norm",
+            "wm/grad_norm",
+            "kl/prior",
+            "kl/post",
+            "reward_pred_acc",
+            "continue_pred_acc",
+            "continue_pred_acc/done",
+            "replay/is_first_rate",
+        ]
+        for name in expected_metrics:
+            assert name in metrics
+            assert np.isfinite(metrics[name])
 
 
 class TestVGGTReplayBuffer:

@@ -337,6 +337,13 @@ class R2DreamerAgent:
 
         # Adaptive gradient clipping
         grads = agc(grads, params, clip=self.cfg.agc_clip, pmin=self.cfg.agc_pmin)
+        metrics["actor/grad_norm"] = optax.global_norm(grads.get("actor", {}))
+        metrics["critic/grad_norm"] = optax.global_norm(grads.get("critic", {}))
+        metrics["wm/grad_norm"] = optax.global_norm({
+            k: grads[k]
+            for k in ("encoder", "rssm", "projector", "reward", "cont")
+            if k in grads
+        })
 
         # Optimizer step
         updates, new_opt_state = self.tx.update(grads, opt_state, params)
@@ -429,12 +436,17 @@ class R2DreamerAgent:
         post_logits_flat = post_logits.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
         prior_logits_flat = prior_logits.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
 
-        dyn_loss, rep_loss = _kl_loss(
+        dyn_loss, rep_loss, kl_prior, kl_post = _kl_loss(
             post_logits_flat, prior_logits_flat,
             cfg.stoch_classes, cfg.stoch_discrete, cfg.kl_free
         )
         losses["dyn"] = jnp.mean(dyn_loss)
         losses["rep"] = jnp.mean(rep_loss)
+        metrics["kl/prior"] = jnp.mean(kl_prior)
+        metrics["kl/post"] = jnp.mean(kl_post)
+        # Alias names for dashboards that prefer underscore metric names.
+        metrics["kl_prior"] = metrics["kl/prior"]
+        metrics["kl_post"] = metrics["kl/post"]
 
         # Feature vector
         feat = self.rssm_mod.apply(
@@ -466,6 +478,11 @@ class R2DreamerAgent:
         rew_logits = self.reward_mod.apply(params["reward"], feat_flat)
         rew_logits = rew_logits.reshape(B, T, -1)
         losses["rew"] = jnp.mean(self.twohot.loss(rew_logits, batch["rewards"]))
+        reward_target_bins = jnp.argmax(self.twohot.encode(batch["rewards"]), axis=-1)
+        reward_pred_bins = jnp.argmax(rew_logits, axis=-1)
+        metrics["reward_pred_acc"] = jnp.mean(
+            (reward_pred_bins == reward_target_bins).astype(jnp.float32)
+        )
 
         cont_logits = self.cont_mod.apply(params["cont"], feat_flat)
         cont_logits = cont_logits.reshape(B, T, 1)
@@ -475,6 +492,17 @@ class R2DreamerAgent:
                 cont_logits[..., 0], cont_target
             )
         )
+        cont_pred = (jax.nn.sigmoid(cont_logits[..., 0]) >= 0.5).astype(jnp.float32)
+        cont_correct = (cont_pred == cont_target).astype(jnp.float32)
+        done_mask = batch["is_terminal"] > 0.5
+        done_count = jnp.sum(done_mask.astype(jnp.float32))
+        metrics["continue_pred_acc"] = jnp.mean(cont_correct)
+        metrics["continue_pred_acc/done"] = jnp.where(
+            done_count > 0,
+            jnp.sum(jnp.where(done_mask, cont_correct, 0.0)) / done_count,
+            0.0,
+        )
+        metrics["replay/is_first_rate"] = jnp.mean(batch["is_first"])
 
         # ----------------------------------------------------------
         # 4. Imagination rollout (actor-critic)
@@ -556,6 +584,7 @@ class R2DreamerAgent:
 
         # Entropy: -sum(p * log p)
         entropy = -jnp.sum(probs[:, :-1] * log_probs[:, :-1], axis=-1, keepdims=True)
+        metrics["actor/entropy"] = jnp.mean(entropy)
 
         losses["policy"] = jnp.mean(
             jax.lax.stop_gradient(weight[:, :-1])
@@ -681,6 +710,8 @@ def _kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
     Returns:
         dyn_loss: (N,) — KL(sg(post) || prior), clipped
         rep_loss: (N,) — KL(post || sg(prior)), clipped
+        kl_prior: (N,) — unclipped KL(sg(post) || prior), prior/dynamics update signal
+        kl_post: (N,) — unclipped KL(post || sg(prior)), posterior/encoder update signal
     """
     post_probs = jax.nn.softmax(post_logits, axis=-1)
     prior_probs = jax.nn.softmax(prior_logits, axis=-1)
@@ -706,7 +737,7 @@ def _kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
     kl_rep = jnp.sum(_kl(post_probs, post_log, sg_prior_log), axis=-1)
     rep_loss = jnp.maximum(kl_rep, kl_free)
 
-    return dyn_loss, rep_loss
+    return dyn_loss, rep_loss, kl_dyn, kl_rep
 
 
 def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
