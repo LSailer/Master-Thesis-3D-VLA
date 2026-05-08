@@ -2,6 +2,7 @@
 
 ## Experiments
 
+- [R2-Dreamer Parity — Internal (JAX) vs External (PyTorch ref) on Crafter](experiments/r2dreamer-parity-crafter.md) — Running: 1M-step A/B on Crafter, 1 seed each, isolated W&B project `r2dreamer-parity-crafter`
 - [L1 Rerun — act_entropy=3e-2 Baseline Restore](experiments/l1-act-entropy-3e-2.md) — Running: reconfirm 75% SR requires act_entropy=3e-2; gating encoder ablation matrix
 - [L1 Rerun — Buffer Fix + Step Penalty](experiments/l1-rerun-buffix.md) — L1 with buffer fix, 75% SR (+8pp over original), step penalty improves SPL
 - [L2 — 1 House, 6 Goals](experiments/l2-1house-6goals.md) — 6 goal categories, 36% avg SR, goal difficulty hierarchy driven by navigation complexity
