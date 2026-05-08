@@ -28,6 +28,12 @@ class R2DreamerConfig:
     vggt_embed_dim: int = 1024
     film_channels: int = 64
     film_hidden: int = 128
+    # Diagnostic ablations for VGGT-FiLM. "zero_pose" tests whether the FiLM path
+    # is pose-dependent; "zero_wp" tests whether the spatial world-point path is
+    # contributing beyond pose-conditioned biases.
+    film_ablation: str = "none"  # "none", "zero_pose", or "zero_wp"
+    film_pose_skip: bool = False  # Concatenate 9-d pose after FiLM GAP before proj.
+    film_gamma_init_std: float = 0.0  # Stddev for delta-gamma kernel; beta stays zero.
 
     # --- MLP heads ---
     mlp_units: int = 256

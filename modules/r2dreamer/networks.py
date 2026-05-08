@@ -445,6 +445,9 @@ class FiLMEncoder_v1(nn.Module):
     hidden: int = 128
     wp_shape: tuple = (37, 37, 3)
     pose_dim: int = 9
+    ablation: str = "none"
+    pose_skip: bool = False
+    gamma_init_std: float = 0.0
 
     @nn.compact
     def __call__(self, obs):
@@ -452,6 +455,12 @@ class FiLMEncoder_v1(nn.Module):
         wp_dim = self.wp_shape[0] * self.wp_shape[1] * self.wp_shape[2]
         wp_flat = obs[..., :wp_dim]
         pose = obs[..., wp_dim:wp_dim + self.pose_dim]
+        if self.ablation == "zero_wp":
+            wp_flat = jnp.zeros_like(wp_flat)
+        elif self.ablation == "zero_pose":
+            pose = jnp.zeros_like(pose)
+        elif self.ablation != "none":
+            raise ValueError(f"Unknown FiLM ablation: {self.ablation}")
 
         x = wp_flat.reshape(obs.shape[0], *self.wp_shape)
         x = nn.Conv(self.channels, (3, 3), padding="SAME", name="conv")(x)
@@ -461,9 +470,18 @@ class FiLMEncoder_v1(nn.Module):
         pose_h = nn.Dense(self.hidden, name="pose_fc0")(pose)
         pose_h = RMSNorm(name="pose_norm0")(pose_h)
         pose_h = nn.silu(pose_h)
+        def film_kernel_init(key, shape, dtype=jnp.float32):
+            if self.gamma_init_std == 0.0:
+                return jnp.zeros(shape, dtype)
+            gamma_shape = (shape[0], self.channels)
+            beta_shape = (shape[0], self.channels)
+            gamma_kernel = jax.random.normal(key, gamma_shape, dtype) * self.gamma_init_std
+            beta_kernel = jnp.zeros(beta_shape, dtype)
+            return jnp.concatenate([gamma_kernel, beta_kernel], axis=-1)
+
         gamma_beta = nn.Dense(
             2 * self.channels,
-            kernel_init=nn.initializers.zeros,
+            kernel_init=film_kernel_init,
             bias_init=nn.initializers.zeros,
             name="pose_film",
         )(pose_h)
@@ -474,6 +492,8 @@ class FiLMEncoder_v1(nn.Module):
         # Zero-initialized gamma/beta gives identity FiLM: y = x at step 0.
         x = (1.0 + gamma) * x + beta
         x = jnp.mean(x, axis=(1, 2))
+        if self.pose_skip:
+            x = jnp.concatenate([x, pose], axis=-1)
         return nn.Dense(self.embed_dim, name="proj")(x)
 
 

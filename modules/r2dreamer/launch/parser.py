@@ -31,6 +31,17 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
                         "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
                         "collapses the policy here.")
+    p.add_argument("--film_ablation", choices=["none", "zero_pose", "zero_wp"], default="none",
+                   help="Diagnostic ablation for vggt_film_v1: zero the 9-d pose input "
+                        "or the 4107-d world-point input inside the FiLM encoder.")
+    p.add_argument("--film_channels", type=int, default=64,
+                   help="VGGT-FiLM spatial channel count.")
+    p.add_argument("--film_hidden", type=int, default=128,
+                   help="VGGT-FiLM pose MLP hidden size.")
+    p.add_argument("--film_pose_skip", action="store_true",
+                   help="Concatenate the 9-d pose vector to the post-GAP FiLM embedding before projection.")
+    p.add_argument("--film_gamma_init_std", type=float, default=0.0,
+                   help="Stddev for non-zero delta-gamma kernel init; beta kernel/bias remain zero.")
     return p
 
 

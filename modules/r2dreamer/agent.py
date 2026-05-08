@@ -56,12 +56,46 @@ def _make_encoder(cfg: R2DreamerConfig):
             embed_dim=cfg.vggt_embed_dim,
             channels=cfg.film_channels,
             hidden=cfg.film_hidden,
+            ablation=cfg.film_ablation,
+            pose_skip=cfg.film_pose_skip,
+            gamma_init_std=cfg.film_gamma_init_std,
         )
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
         mults=cfg.encoder_mults,
     )
+
+
+def _film_gamma_beta_metrics(params: Dict[str, Any], batch: Dict[str, jnp.ndarray], cfg: R2DreamerConfig) -> Dict[str, jnp.ndarray]:
+    """Recompute FiLM gamma/beta from params for diagnostics.
+
+    FiLMEncoder_v1 intentionally returns only the embedding, so train_step logs
+    modulation magnitudes by replaying just the pose MLP here. The encoder uses
+    y = (1 + gamma) * conv(world_points) + beta; therefore gamma near 0 and beta
+    near 0 means the pose-conditioned FiLM modulation is effectively a no-op.
+    """
+    enc = params["encoder"]["params"]
+    wp_dim = cfg.vggt_feature_dim - 9
+    pose = batch["obs"][..., wp_dim:wp_dim + 9]
+    if cfg.film_ablation == "zero_pose":
+        pose = jnp.zeros_like(pose)
+
+    pose_h = jnp.einsum("...d,dh->...h", pose, enc["pose_fc0"]["kernel"])
+    pose_h = pose_h + enc["pose_fc0"]["bias"]
+    rms = jnp.sqrt(jnp.mean(pose_h ** 2, axis=-1, keepdims=True) + 1e-4)
+    pose_h = (pose_h / rms) * enc["pose_norm0"]["scale"]
+    pose_h = nn.silu(pose_h)
+    gamma_beta = jnp.einsum("...h,hc->...c", pose_h, enc["pose_film"]["kernel"])
+    gamma_beta = gamma_beta + enc["pose_film"]["bias"]
+    gamma, beta = jnp.split(gamma_beta, 2, axis=-1)
+    return {
+        "film/gamma_minus_1_abs_mean": jnp.mean(jnp.abs(gamma)),
+        "film/gamma_actual_mean": jnp.mean(1.0 + gamma),
+        "film/gamma_actual_std": jnp.std(1.0 + gamma),
+        "film/beta_abs_mean": jnp.mean(jnp.abs(beta)),
+        "film/beta_rms": jnp.sqrt(jnp.mean(beta ** 2)),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +365,8 @@ class R2DreamerAgent:
             metrics["grad/obs_wp_norm"] = wp_norm
             metrics["grad/obs_pose_norm"] = pose_norm
             metrics["grad/obs_pose_to_wp_ratio"] = pose_norm / (wp_norm + 1e-8)
+            if self.cfg.encoder_type == "vggt_film_v1":
+                metrics.update(_film_gamma_beta_metrics(params, batch, self.cfg))
 
         # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
         is_finite = jnp.isfinite(total_loss)

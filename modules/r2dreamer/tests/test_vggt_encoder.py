@@ -62,6 +62,38 @@ class TestFiLMEncoderV1:
         assert jnp.all(film["kernel"] == 0.0)
         assert jnp.all(film["bias"] == 0.0)
 
+    def test_gamma_noise_init_randomizes_only_delta_gamma_kernel(self):
+        enc = FiLMEncoder_v1(
+            embed_dim=1024,
+            channels=64,
+            hidden=128,
+            gamma_init_std=0.01,
+        )
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, FEATURE_DIM))
+        params = enc.init(rng, dummy)
+        film = params["params"]["pose_film"]
+        gamma_kernel, beta_kernel = jnp.split(film["kernel"], 2, axis=-1)
+        gamma_bias, beta_bias = jnp.split(film["bias"], 2, axis=-1)
+        assert not jnp.all(gamma_kernel == 0.0)
+        assert jnp.all(beta_kernel == 0.0)
+        assert jnp.all(gamma_bias == 0.0)
+        assert jnp.all(beta_bias == 0.0)
+
+    def test_pose_skip_concat_expands_projection_input(self):
+        enc = FiLMEncoder_v1(
+            embed_dim=1024,
+            channels=64,
+            hidden=128,
+            pose_skip=True,
+        )
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, FEATURE_DIM))
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 1024)
+        assert params["params"]["proj"]["kernel"].shape == (64 + 9, 1024)
+
     def test_agent_train_step_vggt_film_logs_stream_gradient_norms(self):
         from modules.r2dreamer.agent import R2DreamerAgent
 
@@ -94,6 +126,11 @@ class TestFiLMEncoderV1:
             "grad/obs_wp_norm",
             "grad/obs_pose_norm",
             "grad/obs_pose_to_wp_ratio",
+            "film/gamma_minus_1_abs_mean",
+            "film/gamma_actual_mean",
+            "film/gamma_actual_std",
+            "film/beta_abs_mean",
+            "film/beta_rms",
             "actor/entropy",
             "actor/grad_norm",
             "critic/grad_norm",
