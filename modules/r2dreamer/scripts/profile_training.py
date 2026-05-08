@@ -28,9 +28,9 @@ import numpy as np
 from modules.shared.configs import DreamerConfig
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 from modules.envs.habitat import HabitatObjectNavEnv
-from modules.r2dreamer.agent import R2DreamerAgent
+from modules.r2dreamer.agent import R2DreamerAgent, agent_obs_to_obs_jax
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.adapters import ObsAdapter
+from modules.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
 from modules.r2dreamer.trainer import convert_batch
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches run_jax_habitat_vggt.py
@@ -123,8 +123,10 @@ def _build_vggt(
     compile_mode: str | None = None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
     """Construct env (518 res), agent (VGGT encoder), buffer (float32 features),
-    obs_adapter with on_episode_reset hook wired to extractor.reset, and the
-    raw VGGTFeatureExtractor (needed by the loop for instrumented extract calls).
+    obs_adapter (VGGTObsAdapter — its reset() flushes the extractor cache),
+    and the raw VGGTFeatureExtractor (needed by the loop for instrumented
+    extract calls; this profiler bypasses obs_adapter.transform for VGGT
+    so it can time the extract phases inline).
     """
     from modules.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
 
@@ -154,14 +156,10 @@ def _build_vggt(
     )
     print("InfiniteVGGT loaded.")
 
-    # ObsAdapter wired so Trainer-style reset hook fires extractor.reset.
-    # transform() is NOT used — the loop inlines extract(..., phase_times=...).
-    obs_adapter = ObsAdapter(
-        buffer_dtype="float32",
-        buffer_shape=(VGGT_FEATURE_DIM,),
-        normalize_on_sample=False,
-        on_episode_reset=extractor.reset,
-    )
+    # VGGTObsAdapter exposes reset() which flushes the extractor KV cache.
+    # transform() is NOT used by this profiler — the loop inlines
+    # extract(..., phase_times=...) for per-phase timing.
+    obs_adapter = VGGTObsAdapter(extractor)
     buffer = ReplayBuffer(BufferConfig(
         capacity=agent_cfg.buffer_capacity,
         obs_shape=(VGGT_FEATURE_DIM,),
@@ -204,6 +202,14 @@ def run_loop(
 
     rng_key = jax.random.PRNGKey(seed + 1)
 
+    # Local RSSM acting state (used to live on agent as _act_*; the profiler
+    # owns its own loop so it owns its own state). Zeroed on every do_reset.
+    stoch_local = np.zeros(
+        (1, acfg.stoch_classes, acfg.stoch_discrete), dtype=np.float32,
+    )
+    deter_local = np.zeros((1, acfg.deter_size), dtype=np.float32)
+    prev_action_local = np.zeros((1, acfg.num_actions), dtype=np.float32)
+
     def transform(obs_dict: dict) -> tuple[np.ndarray, dict]:
         """Build (buffer_obs, agent_obs). For VGGT, time VGGT phases inline."""
         if encoder != "vggt":
@@ -224,9 +230,16 @@ def run_loop(
         nonlocal reset_count, boundary_count
         obs = env.reset()
         boundary_count += 1
-        if obs_adapter.on_episode_reset is not None:
-            obs_adapter.on_episode_reset()
-            reset_count += 1
+        # All adapters expose reset(); CNN's is a no-op. The KV-cache audit
+        # below only fires for VGGT, so always-incrementing reset_count
+        # remains correct for the VGGT case.
+        obs_adapter.reset()
+        reset_count += 1
+        # Zero RSSM acting state at the episode boundary — matches the
+        # is_first=True self-reset that the old agent.act did internally.
+        stoch_local[:] = 0.0
+        deter_local[:] = 0.0
+        prev_action_local[:] = 0.0
         buffer_obs, agent_obs = transform(obs)
         return obs, buffer_obs, agent_obs
 
@@ -273,7 +286,19 @@ def run_loop(
             probe_jax_upload(buffer_obs)
 
         with timed(phase_times, "wm_inference"):
-            action = agent.act(agent_obs, act_key)
+            obs_jax = agent_obs_to_obs_jax(agent_obs, acfg.encoder_type)
+            action_jax, new_stoch, new_deter = agent.policy_step(
+                agent.params, obs_jax,
+                jnp.asarray(stoch_local),
+                jnp.asarray(deter_local),
+                jnp.asarray(prev_action_local),
+                act_key, True,
+            )
+            action = int(action_jax)
+            stoch_local = np.array(new_stoch)
+            deter_local = np.array(new_deter)
+            prev_action_local[:] = 0.0
+            prev_action_local[0, action] = 1.0
 
         with timed(phase_times, "env_step"):
             next_obs = env.step(action)
@@ -305,8 +330,8 @@ def run_loop(
 
     env.close()
 
-    # KV-cache audit: for VGGT, the reset hook must fire exactly once per
-    # env.reset(). For CNN there is no hook so reset_count stays 0 — skip.
+    # KV-cache audit: for VGGT, adapter.reset() must fire exactly once per
+    # env.reset(). For CNN, adapter.reset() is a no-op — skip the audit.
     if encoder == "vggt":
         assert reset_count == boundary_count, (
             f"KV-cache audit FAILED: reset_count={reset_count} "

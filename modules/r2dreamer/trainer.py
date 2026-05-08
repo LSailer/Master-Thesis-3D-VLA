@@ -22,6 +22,7 @@ import numpy as np
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
 from modules.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from modules.r2dreamer.manifest import write_manifest_end, write_manifest_start
+from modules.r2dreamer.step_driver import StepDriver
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +211,14 @@ class Trainer:
             normalize_obs=self.obs_adapter.normalize_on_sample,
         ))
 
+        # StepDriver owns the acting step end-to-end: env reset, adapter
+        # reset (extractor cache flush), and RSSM acting state, all reset
+        # atomically on episode boundaries. Replaces the four-place reset
+        # coordination that used to live inline in _prefill / _train_loop.
+        self.step_driver = StepDriver(
+            env=self.env, agent=self.agent, obs_adapter=self.obs_adapter,
+        )
+
         # Resume from checkpoint (overwrite freshly-initialised agent state).
         self._resume_step = 0
         if trainer_config.resume_from is not None:
@@ -304,31 +313,15 @@ class Trainer:
     # ------------------------------------------------------------------
 
     def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> None:
-        acfg, tcfg = self.acfg, self.tcfg
+        tcfg = self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
-        obs = self.env.reset()
-        if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
-        buffer_obs, _ = self.obs_adapter.transform(obs)
-
         for _ in range(tcfg.prefill_steps):
-            action = np.random.randint(0, acfg.num_actions)
-            next_obs = self.env.step(action)
-            next_buffer_obs, _ = self.obs_adapter.transform(next_obs)
-
-            success = next_obs.get("success", 0.0) > 0
-            self.buffer.add(buffer_obs, action, next_obs["reward"],
-                            next_obs["done"], terminal=success)
-
-            if next_obs["done"]:
-                obs = self.env.reset()
-                if self.obs_adapter.on_episode_reset:
-                    self.obs_adapter.on_episode_reset()
-                buffer_obs, _ = self.obs_adapter.transform(obs)
-            else:
-                obs = next_obs
-                buffer_obs = next_buffer_obs
+            rng_key, k = jax.random.split(rng_key)
+            t, _ = self.step_driver.step(k, policy="random", training=False)
+            self.buffer.add(
+                t.buffer_obs, t.action, t.reward, t.done, terminal=t.terminal,
+            )
 
     # ------------------------------------------------------------------
     # Train loop
@@ -339,10 +332,10 @@ class Trainer:
 
         start_step = self._resume_step
         print(f"Training from step {start_step} to {tcfg.total_steps}...")
-        obs = self.env.reset()
-        if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
-        buffer_obs, agent_obs = self.obs_adapter.transform(obs)
+        # Force the next step to start a fresh episode regardless of where
+        # prefill left off — preserves the original train_loop semantics
+        # of unconditionally resetting at entry.
+        self.step_driver.force_reset()
 
         episode_reward = 0.0
         episode_steps = 0
@@ -355,34 +348,25 @@ class Trainer:
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
-            action = self.agent.act(agent_obs, act_key)
-            next_obs = self.env.step(action)
-            next_buffer_obs, next_agent_obs = self.obs_adapter.transform(next_obs)
-
-            success = next_obs.get("success", 0.0) > 0
-            self.buffer.add(buffer_obs, action, next_obs["reward"],
-                            next_obs["done"], terminal=success)
-            action_counts[action] += 1
-            episode_reward += next_obs["reward"]
+            t, ep_ended = self.step_driver.step(
+                act_key, policy="agent", training=True,
+            )
+            self.buffer.add(
+                t.buffer_obs, t.action, t.reward, t.done, terminal=t.terminal,
+            )
+            action_counts[t.action] += 1
+            episode_reward += t.reward
             episode_steps += 1
 
-            if next_obs["done"]:
+            if ep_ended:
                 episode_count += 1
                 ep_metrics = self._on_episode_end(
-                    next_obs, episode_reward, episode_steps,
+                    t.info, episode_reward, episode_steps,
                     action_counts, step, writer, f,
                 )
                 episode_reward = 0.0
                 episode_steps = 0
                 action_counts = np.zeros(acfg.num_actions, dtype=int)
-                obs = self.env.reset()
-                if self.obs_adapter.on_episode_reset:
-                    self.obs_adapter.on_episode_reset()
-                buffer_obs, agent_obs = self.obs_adapter.transform(obs)
-            else:
-                obs = next_obs
-                buffer_obs = next_buffer_obs
-                agent_obs = next_agent_obs
 
             # --- Train ---
             if self.buffer.size >= batch_steps:

@@ -98,6 +98,19 @@ def _film_gamma_beta_metrics(params: Dict[str, Any], batch: Dict[str, jnp.ndarra
     }
 
 
+def agent_obs_to_obs_jax(obs_dict: Dict[str, Any], encoder_type: str) -> jnp.ndarray:
+    """Convert an adapter-emitted agent_obs dict to the obs tensor for policy_step.
+
+    Mirrors the encoder branching that agent.act() does inline today; isolated
+    here so StepDriver and other callers can share one preprocessing path.
+    Adds the leading batch dimension of 1.
+    """
+    if encoder_type in ("vggt", "vggt_film_v1"):
+        return jnp.asarray(obs_dict["features"])[None]
+    image = np.asarray(obs_dict["image"]).astype(np.float32) / 255.0
+    return jnp.array(image[None])
+
+
 # ---------------------------------------------------------------------------
 # R2DreamerAgent
 # ---------------------------------------------------------------------------
@@ -200,14 +213,9 @@ class R2DreamerAgent:
         self.return_ema = ReturnEMA()
         self.ema_state = self.return_ema.init_state()
 
-        # ---- Acting state (for single-env stepping) ----
-        self._act_stoch = np.zeros(
-            (1, config.stoch_classes, config.stoch_discrete), dtype=np.float32
-        )
-        self._act_deter = np.zeros((1, config.deter_size), dtype=np.float32)
-        self._act_prev_action = np.zeros((1, config.num_actions), dtype=np.float32)
-
         # ---- JIT-compiled functions ----
+        # Acting state lives in the caller (StepDriver in production, locals
+        # in profile_training.py / scripts/debug_viz/evaluate_debug.py).
         self._jit_train_step = jax.jit(self._train_step)
         self._jit_eval_loss = jax.jit(self._eval_loss_fn)
         self._jit_act = jax.jit(self._act_jit)
@@ -216,51 +224,26 @@ class R2DreamerAgent:
     # Acting
     # ------------------------------------------------------------------
 
-    def act(self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True) -> int:
-        """Select an action for a single environment step.
+    def policy_step(
+        self,
+        params: Dict[str, Any],
+        obs: jnp.ndarray,
+        stoch: jnp.ndarray,
+        deter: jnp.ndarray,
+        prev_action: jnp.ndarray,
+        rng_key: jnp.ndarray,
+        training: bool = True,
+    ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Pure policy step. Returns (action_int, new_stoch, new_deter).
 
-        Args:
-            obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN, or
-                      {"features": float32 (D,), "is_first": bool} for VGGT.
-            rng_key: PRNG key
-            training: if False, use argmax (greedy)
+        All RSSM acting state is passed in and returned out — no internal
+        mutable state. The caller (StepDriver in production) owns the state.
 
-        Returns:
-            Integer action in [0, num_actions).
+        ``obs`` must already be encoder-shaped: for CNN, (1, C, H, W) float32
+        in [0, 1]; for VGGT, (1, feature_dim) float32. Use
+        ``agent_obs_to_obs_jax`` to convert from adapter-emitted dicts.
         """
-        # Preprocess observation
-        if self.cfg.encoder_type in ("vggt", "vggt_film_v1"):
-            obs = jnp.asarray(obs_dict["features"])[None]  # (1, D)
-        else:
-            image = obs_dict["image"].astype(np.float32) / 255.0
-            obs = jnp.array(image[None])  # (1, C, H, W)
-        # === BP #3 (debug walkthrough — uncomment to re-enable) ===
-        # print(f"[BP#3] obs: shape={obs.shape} dtype={obs.dtype} is_first={obs_dict['is_first']}", flush=True)
-
-        is_first = bool(obs_dict["is_first"])
-        if is_first:
-            self._act_stoch = np.zeros_like(self._act_stoch)
-            self._act_deter = np.zeros_like(self._act_deter)
-            self._act_prev_action = np.zeros_like(self._act_prev_action)
-
-        stoch = jnp.array(self._act_stoch)
-        deter = jnp.array(self._act_deter)
-        prev_action = jnp.array(self._act_prev_action)
-
-        action_int, new_stoch, new_deter = self._jit_act(
-            self.params, obs, stoch, deter, prev_action, rng_key, training
-        )
-        action_int = int(action_int)
-
-        # Update acting state
-        self._act_stoch = np.array(new_stoch)
-        self._act_deter = np.array(new_deter)
-        self._act_prev_action = np.zeros(
-            (1, self.cfg.num_actions), dtype=np.float32
-        )
-        self._act_prev_action[0, action_int] = 1.0
-
-        return action_int
+        return self._jit_act(params, obs, stoch, deter, prev_action, rng_key, training)
 
     def _act_jit(self, params, obs, stoch, deter, prev_action, rng_key, training):
         """JIT-able acting logic.  Returns (action_int, new_stoch, new_deter)."""

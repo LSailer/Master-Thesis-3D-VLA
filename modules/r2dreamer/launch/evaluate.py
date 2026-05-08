@@ -17,6 +17,7 @@ from modules.r2dreamer.launch.registries import env_registry
 from modules.r2dreamer.launch.curricula import CURRICULA
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
+from modules.r2dreamer.step_driver import StepDriver
 from modules.envs.habitat import sample_navmesh
 
 
@@ -168,12 +169,21 @@ def evaluate(
     # --- Evaluate ---
     ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
     results = []
+    policy_mode = "agent" if agent is not None else "random"
+    # When agent is None, StepDriver still needs an Agent for cfg.num_actions
+    # in its random branch. Build a throwaway agent (no params used) only if
+    # there isn't one already.
+    if agent is None:
+        rng_key, init_key = jax.random.split(rng_key)
+        agent_for_driver = R2DreamerAgent(config, init_key)
+    else:
+        agent_for_driver = agent
+    driver = StepDriver(env=env_instance, agent=agent_for_driver, obs_adapter=adapter)
 
     for ep_idx in range(args.episodes):
-        obs = env_instance.reset()
-        if adapter.on_episode_reset:
-            adapter.on_episode_reset()
-        _, agent_obs = adapter.transform(obs)
+        # begin_episode fires env.reset + adapter.reset + RSSM zero now,
+        # so the env's per-episode metadata is readable below before we step.
+        driver.begin_episode()
         actions_taken = []
         rewards = []
         trajectory = []
@@ -198,27 +208,20 @@ def evaluate(
         trajectory.append(start_pos)
         headings.append(_get_agent_heading(env_instance))
 
+        obs: dict = {}
         for _step in range(500):
-            if agent is not None:
-                rng_key, act_key = jax.random.split(rng_key)
-                action = agent.act(agent_obs, act_key, training=False)
-            else:
-                action = np.random.randint(0, config.num_actions)
-
-            next_obs = env_instance.step(action)
-            _, next_agent_obs = adapter.transform(next_obs)
-            actions_taken.append(int(action))
-            rewards.append(float(next_obs["reward"]))
+            rng_key, act_key = jax.random.split(rng_key)
+            t, ep_ended = driver.step(act_key, policy=policy_mode, training=False)
+            actions_taken.append(t.action)
+            rewards.append(t.reward)
 
             pos = env_instance._env.sim.get_agent_state().position.tolist()
             trajectory.append(pos)
             headings.append(_get_agent_heading(env_instance))
 
-            if next_obs["done"]:
-                obs = next_obs
+            obs = t.info
+            if ep_ended:
                 break
-            obs = next_obs
-            agent_obs = next_agent_obs
 
         ep_result = {
             "episode": ep_idx,

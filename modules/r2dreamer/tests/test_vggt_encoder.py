@@ -205,8 +205,14 @@ class TestVGGTAgentInit:
         assert agent.embed_size == cfg.vggt_embed_dim
         assert "encoder" in agent.params
 
-    def test_agent_act_vggt(self):
-        from modules.r2dreamer.agent import R2DreamerAgent
+    def test_agent_policy_step_vggt(self):
+        """Smoke test the pure VGGT policy step through its real interface.
+
+        Was test_agent_act_vggt; migrated to policy_step + StepDriver-style
+        explicit state when agent.act() was deleted as part of the
+        StepDriver deepening.
+        """
+        from modules.r2dreamer.agent import R2DreamerAgent, agent_obs_to_obs_jax
 
         cfg = R2DreamerConfig(
             encoder_type="vggt",
@@ -217,12 +223,18 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         obs_dict = {
-            "features": np.random.randn(FEATURE_DIM).astype(np.float32),
+            "features": jnp.asarray(np.random.randn(FEATURE_DIM).astype(np.float32)),
             "is_first": True,
         }
+        obs_jax = agent_obs_to_obs_jax(obs_dict, "vggt")
+        stoch = jnp.zeros((1, cfg.stoch_classes, cfg.stoch_discrete))
+        deter = jnp.zeros((1, cfg.deter_size))
+        prev_action = jnp.zeros((1, cfg.num_actions))
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
-        assert 0 <= action < 4
+        action_jax, _, _ = agent.policy_step(
+            agent.params, obs_jax, stoch, deter, prev_action, act_key, True,
+        )
+        assert 0 <= int(action_jax) < 4
 
     def test_agent_train_step_vggt(self):
         from modules.r2dreamer.agent import R2DreamerAgent

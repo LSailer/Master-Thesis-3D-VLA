@@ -39,7 +39,7 @@ import numpy as np
 from modules.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
 from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
 from modules.r2dreamer.adapters.vggt_adapter import _flatten_vggt
-from modules.r2dreamer.agent import R2DreamerAgent
+from modules.r2dreamer.agent import R2DreamerAgent, agent_obs_to_obs_jax
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv
@@ -154,6 +154,16 @@ def main(argv: list[str] | None = None) -> dict:
     total_dump_bytes = 0
     total_dump_steps = 0
 
+    # Local RSSM acting state — this script bypasses StepDriver because it
+    # needs raw extractor output and per-step latents that the StepDriver
+    # interface intentionally hides. The deepening principle still applies:
+    # state lives in one place per loop, not on Agent.
+    stoch_local = np.zeros(
+        (1, config.stoch_classes, config.stoch_discrete), dtype=np.float32,
+    )
+    deter_local = np.zeros((1, config.deter_size), dtype=np.float32)
+    prev_action_local = np.zeros((1, config.num_actions), dtype=np.float32)
+
     for ep_idx in range(args.episodes):
         dump_this = ep_idx in dump_set
         ep_dir = output_dir / f"episode_{ep_idx:03d}"
@@ -161,8 +171,11 @@ def main(argv: list[str] | None = None) -> dict:
             ep_dir.mkdir(parents=True, exist_ok=True)
 
         obs = env_instance.reset()
-        if adapter.on_episode_reset:
-            adapter.on_episode_reset()
+        adapter.reset()
+        # Episode boundary — zero RSSM acting state to match a fresh start.
+        stoch_local[:] = 0.0
+        deter_local[:] = 0.0
+        prev_action_local[:] = 0.0
 
         # First-frame VGGT extract — reuse the dict for both agent input and dump.
         rgb0 = obs["image"]
@@ -206,10 +219,23 @@ def main(argv: list[str] | None = None) -> dict:
             # --- act ---
             if agent is not None:
                 rng_key, act_key = jax.random.split(rng_key)
-                action = agent.act(agent_obs, act_key, training=False)
-                # Capture RSSM latents AFTER act() — they're updated in-place.
-                stoch = np.asarray(agent._act_stoch[0]).astype(np.float32)  # (32,16)
-                deter = np.asarray(agent._act_deter[0]).astype(np.float32)  # (2048,)
+                obs_jax = agent_obs_to_obs_jax(agent_obs, "vggt")
+                action_jax, new_stoch, new_deter = agent.policy_step(
+                    agent.params, obs_jax,
+                    jnp.asarray(stoch_local),
+                    jnp.asarray(deter_local),
+                    jnp.asarray(prev_action_local),
+                    act_key, False,
+                )
+                action = int(action_jax)
+                # Capture RSSM latents post-step for the dump.
+                stoch = np.asarray(new_stoch[0]).astype(np.float32)  # (32,16)
+                deter = np.asarray(new_deter[0]).astype(np.float32)  # (2048,)
+                # Roll forward.
+                stoch_local = np.array(new_stoch)
+                deter_local = np.array(new_deter)
+                prev_action_local[:] = 0.0
+                prev_action_local[0, action] = 1.0
             else:
                 action = int(np.random.randint(0, config.num_actions))
                 stoch = np.zeros((config.stoch_classes, config.stoch_discrete), dtype=np.float32)

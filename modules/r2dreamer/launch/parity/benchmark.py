@@ -51,22 +51,24 @@ def _train_step_pytorch(agent, data, initial):
 def _eval_jax_agent(agent, num_episodes, max_steps, rng_key):
     import jax
     from modules.envs.crafter import CrafterEnv
+    from modules.r2dreamer.adapters import ObsAdapter
+    from modules.r2dreamer.step_driver import StepDriver
+
     env = CrafterEnv(size=(64, 64), seed=123)
+    driver = StepDriver(env=env, agent=agent, obs_adapter=ObsAdapter())
     rewards, lengths = [], []
     for _ in range(num_episodes):
-        obs = env.reset()
+        driver.begin_episode()
         total = 0.0
         for step in range(max_steps):
             rng_key, ak = jax.random.split(rng_key)
-            action = agent.act(obs, ak, training=False)
-            next_obs = env.step(action)
-            total += next_obs["reward"]
-            if next_obs["done"]:
+            t, ep_ended = driver.step(ak, policy="agent", training=False)
+            total += t.reward
+            if ep_ended:
                 break
-            obs = next_obs
         rewards.append(total)
         lengths.append(step + 1)
-    env.close()
+    driver.close()
     return rewards, lengths
 
 

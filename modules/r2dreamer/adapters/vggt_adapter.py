@@ -27,7 +27,6 @@ class VGGTObsAdapter(ObsAdapter):
             buffer_dtype="float32",
             buffer_shape=(VGGT_FEATURE_DIM,),
             normalize_on_sample=False,
-            on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
 
@@ -37,3 +36,7 @@ class VGGTObsAdapter(ObsAdapter):
         features_np = np.asarray(features_jax)
         agent_obs = {"features": features_jax, "is_first": obs_dict.get("is_first", False)}
         return features_np, agent_obs
+
+    def reset(self) -> None:
+        """Flush the extractor's KV cache at an episode boundary."""
+        self._extractor.reset()

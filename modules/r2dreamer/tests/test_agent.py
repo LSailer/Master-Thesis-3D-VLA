@@ -34,11 +34,6 @@ class TestR2DreamerAgent:
     def test_init(self, agent):
         assert agent is not None
 
-    def test_act(self, agent, cfg):
-        obs = {"image": np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8), "is_first": True}
-        action = agent.act(obs, jax.random.PRNGKey(0))
-        assert 0 <= action < cfg.num_actions
-
     def test_train_step_produces_metrics(self, agent, cfg):
         batch = make_batch(cfg)
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))

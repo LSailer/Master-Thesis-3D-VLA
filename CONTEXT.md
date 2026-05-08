@@ -28,3 +28,11 @@ Architectural decisions live in `docs/adr/`.
 | **chained training run** | A sequence of slurm jobs covering a single end-to-end experiment, each ≤ the SLURM run window, resuming from the previous job's checkpoint. The 4-day full L4-VGGT plot at ~5.2 FPS = ~3.2 M env steps requires ~4 chained jobs at 24h each (or 2 at 48h). |
 | **frame-skip (K)**   | Throughput lever filed as issue #97. Run VGGT every K env steps; reuse cached features in between. K=2 ≈ 2× throughput, K=4 ≈ ~4×. Trades feature freshness for steps-per-hour. Orthogonal to the JAX uniformity track (#98). |
 | **eviction-onset cliff** | Latency regression in the JAX VGGT extractor: from ~frame 36 onwards every frame triggers a fresh XLA compile (~43 s) because `current_budgets_static` (a static jit arg) drifts after eviction first fires. Diagnosed 2026-05-04 in `docs/wiki/methods/vggt-jax-eviction-recompile.md`. |
+
+## Acting
+
+| Term                 | Meaning |
+| -------------------- | ------- |
+| **acting step**      | One iteration of perceive-decide-commit during an **end-to-end run**: read env obs, optionally run the encoder (e.g. VGGT extractor), run the policy, push a transition into the replay buffer. The unit the **StepDriver** owns. Distinct from a *training step* (world-model + actor-critic gradient update on a buffer batch). |
+| **StepDriver**       | `modules/r2dreamer/step_driver.py`. The **module** that owns the **acting step** end-to-end: holds the env, the optional encoder, the policy's RSSM acting state (stoch/deter/prev_action), and a `previous_done` flag that is the single source of truth for episode boundaries. On boundary, fires env reset, encoder reset, and RSSM reset atomically. Replaces the four-place reset coordination dance previously spread across `Trainer._prefill` and `Trainer._train_loop`. |
+| **policy step**      | The *pure* function `(params, obs, stoch, deter, prev_action, rng_key, training) -> (action, new_stoch, new_deter)`. Lives on `Agent` as `agent.policy_step`. Has no side effects and no internal mutable state — all state is passed in and returned out. The **StepDriver** is the only caller in production; tests can call it directly to assert deterministic policy behaviour. |
