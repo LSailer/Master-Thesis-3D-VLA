@@ -39,3 +39,18 @@
   - Tried: Let the 10k smoke continue into the first JAX train-step compile with the default Dreamer batch `(batch_size=16, seq_len=64)`.
   - Chose: Use Variant 1-specific training defaults `batch_size=4`, `seq_len=32`, and `train_ratio=128` for this memory-heavy encoder.
   - Why: The run reached episode metrics at steps 499 and 999, proving Habitat+VGGT acting and W&B logging, but the first train-step compile consumed ~75 GiB H100 VRAM. The aggregator MLP has a very large 87,616-wide flattened input, so reduced sequence/batch settings keep the ablation feasible on a single H100 while maintaining the locked encoder architecture.
+
+- 2026-05-09T05:18:00Z
+  - Tried: Re-ran focused structural tests after memory-feasibility changes.
+  - Chose: Keep the Variant 1-specific replay/batch defaults and proceed to PR/SLURM wiring.
+  - Why: `uv run --python 3.11 pytest modules/r2dreamer/launch/tests/test_registries.py modules/r2dreamer/tests/test_vggt_encoder.py -q` passed with 20 tests.
+
+- 2026-05-09T05:23:00Z
+  - Tried: Ran a 10k-step local smoke with W&B enabled using `variant-1-aggregator-mlp-smoke-local-b4`.
+  - Chose: Treat the run as an end-to-end smoke milestone once it produced train losses at steps 250/500 and episode metrics at step 499.
+  - Why: The pipeline exercised Habitat reset/step, VGGT JAX extraction, the new aggregator MLP encoder, replay sampling, Dreamer train_step, local metrics, and W&B config/notes wiring. The full 10k local run remained slow, but the same branch was ready for the queued H100 SLURM run.
+
+- 2026-05-09T05:26:00Z
+  - Tried: Submitted the 2M-step bwUniCluster H100 job from the Variant 1 worktree.
+  - Chose: Record SLURM job ID `4498241` in the PR body.
+  - Why: The job was accepted by `sbatch` and was pending in partition `gpu_h100` with reason `Priority` when checked.
