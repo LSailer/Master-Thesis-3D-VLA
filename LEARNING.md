@@ -54,3 +54,9 @@
   - Tried: Submitted the 2M-step bwUniCluster H100 job from the Variant 1 worktree.
   - Chose: Record SLURM job ID `4498241` in the PR body.
   - Why: The job was accepted by `sbatch` and was pending in partition `gpu_h100` with reason `Priority` when checked.
+
+- 2026-05-09T06:42:03Z
+  - Tried: Let the 10k local Habitat+VGGT+Dreamer smoke run finish after PR creation and SLURM submission.
+  - Chose: Update the PR smoke evidence with the completed 10k transcript and checkpoint path, and keep the 2M SLURM job running from the already-submitted commit.
+  - Why: The smoke completed all 10,000 steps, saved `output/variant-1-aggregator-mlp-smoke-b4/checkpoints/step_000010000.pkl`, synced W&B run `ufubjxh2`, and logged 20 completed episodes with train losses through step 9,750.
+
