@@ -34,5 +34,4 @@ uv run --python 3.11 python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggre
     --wandb_project 3d-vla-objectnav \
     --wandb_name "variant-1-aggregator-mlp-${SLURM_JOB_ID}" \
     --wandb_tags "curriculum,level1,1house,chair-only,vggt,aggregator-mlp,variant-1,jax,3d-encoder" \
-    --wandb_notes_file LEARNING.md \
     --render_resolution 518

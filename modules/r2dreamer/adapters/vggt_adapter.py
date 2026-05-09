@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
-import numpy as np
+from typing import Literal
+
 import jax.numpy as jnp
+import numpy as np
 
 from modules.r2dreamer.adapters.obs_adapter import ObsAdapter
 from modules.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
 
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9
-VGGT_AGGREGATOR_FEATURE_SHAPE = (37, 37, 1024)
+VGGTFeatureKind = Literal["wp_cp", "aggregator"]
 
 
 def _flatten_vggt(out: dict) -> jnp.ndarray:
@@ -20,12 +22,12 @@ def _flatten_vggt(out: dict) -> jnp.ndarray:
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
-def _vggt_aggregator_features(out: dict) -> jnp.ndarray:
-    """Return final pre-head VGGT aggregator patch features (37, 37, 1024)."""
+def _vggt_aggregator_features(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Return final pre-head VGGT aggregator patch features."""
     features = out["aggregator_features"]
-    if features.shape != VGGT_AGGREGATOR_FEATURE_SHAPE:
+    if features.shape != expected_shape:
         raise ValueError(
-            f"expected aggregator_features shape {VGGT_AGGREGATOR_FEATURE_SHAPE}, "
+            f"expected aggregator_features shape {expected_shape}, "
             f"got {features.shape}"
         )
     return features.astype(jnp.float32)
@@ -34,14 +36,15 @@ def _vggt_aggregator_features(out: dict) -> jnp.ndarray:
 class VGGTObsAdapter(ObsAdapter):
     """Runs VGGT extraction, returns features for both buffer and agent."""
 
-    def __init__(self, extractor: VGGTFeatureExtractor, feature_kind: str = "wp_cp"):
+    def __init__(self, extractor: VGGTFeatureExtractor, feature_kind: VGGTFeatureKind = "wp_cp"):
         if feature_kind == "wp_cp":
             buffer_shape = (VGGT_FEATURE_DIM,)
+            buffer_dtype = "float32"
         elif feature_kind == "aggregator":
-            buffer_shape = VGGT_AGGREGATOR_FEATURE_SHAPE
+            buffer_shape = tuple(extractor.aggregator_feature_shape)
+            buffer_dtype = "float16"
         else:
             raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
-        buffer_dtype = "float16" if feature_kind == "aggregator" else "float32"
         super().__init__(
             buffer_dtype=buffer_dtype,
             buffer_shape=buffer_shape,
@@ -49,17 +52,21 @@ class VGGTObsAdapter(ObsAdapter):
             on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
-        self._feature_kind = feature_kind
+        self._feature_kind: VGGTFeatureKind = feature_kind
 
     def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
         out = self._extractor.extract(obs_dict["image"])
         if self._feature_kind == "aggregator":
-            features_jax = _vggt_aggregator_features(out)
+            features_jax = _vggt_aggregator_features(out, self.buffer_shape)
         else:
             features_jax = _flatten_vggt(out)
-        # Replay buffer stores numpy; agent consumes JAX.
-        features_np = np.asarray(features_jax)
+
+        # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
+        # float32 features so it can feed the JIT-compiled agent directly.
+        replay_features = np.asarray(features_jax)
         if self._feature_kind == "aggregator":
-            features_np = features_np.astype(np.float16)
-        agent_obs = {"features": features_jax, "is_first": obs_dict.get("is_first", False)}
-        return features_np, agent_obs
+            replay_features = replay_features.astype(np.float16)
+
+        agent_features = features_jax.astype(jnp.float32)
+        agent_obs = {"features": agent_features, "is_first": obs_dict.get("is_first", False)}
+        return replay_features, agent_obs

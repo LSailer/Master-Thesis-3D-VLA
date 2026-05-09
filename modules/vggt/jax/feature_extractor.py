@@ -182,6 +182,16 @@ class JAXVGGTFeatureExtractor:
         # valid_len=0) and frame 1 (past_kvs=3-tuples with valid_len>0).
         self._warmup()
 
+    @property
+    def patch_grid(self) -> int:
+        """Number of VGGT patch tokens per spatial side for the configured image size."""
+        return _IMG_SIZE // _PATCH_SIZE
+
+    @property
+    def aggregator_feature_shape(self) -> tuple[int, int, int]:
+        """Shape of one frame's pre-head global aggregator patch features."""
+        return (self.patch_grid, self.patch_grid, self._aggregator.embed_dim)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

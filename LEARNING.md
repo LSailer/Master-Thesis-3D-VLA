@@ -60,3 +60,8 @@
   - Chose: Update the PR smoke evidence with the completed 10k transcript and checkpoint path, and keep the 2M SLURM job running from the already-submitted commit.
   - Why: The smoke completed all 10,000 steps, saved `output/variant-1-aggregator-mlp-smoke-b4/checkpoints/step_000010000.pkl`, synced W&B run `ufubjxh2`, and logged 20 completed episodes with train losses through step 9,750.
 
+- 2026-05-09T13:38:57Z
+  - Tried: Reviewed the Variant 1 follow-up concerns around hardcoded aggregator shape, stringly-typed feature selection, replay dtype naming, train.py encoder branching, and W&B notes mirroring.
+  - Chose: Introduce `EncoderSpec`, let encoders/adapters expose observation shape and render-resolution requirements, derive aggregator replay shape from VGGT extractor metadata, type `feature_kind` as `Literal["wp_cp", "aggregator"]`, keep NumPy replay storage with explicit `replay_features`/`agent_features` names, and remove W&B notes-file plumbing.
+  - Why: This keeps train.py generic and removes duplicated encoder string checks while preserving the locked Variant 1 architecture and keeping W&B focused on config/design metadata instead of duplicating the PR decision log.
+
