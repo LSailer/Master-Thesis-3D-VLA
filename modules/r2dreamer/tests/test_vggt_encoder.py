@@ -6,11 +6,33 @@ import numpy as np
 import pytest
 
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.networks import VGGTEncoder
+from modules.r2dreamer.networks import VGGTEncoder, VGGTAggregatorMLPEncoder
 from modules.shared.replay_buffer import VGGTReplayBuffer
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
+AGGREGATOR_SHAPE = (37, 37, 1024)
+
+
+class TestVGGTAggregatorMLPEncoder:
+    """Test Variant 1 aggregator-token encoder."""
+
+    def test_output_shape(self):
+        enc = VGGTAggregatorMLPEncoder(embed_dim=1024)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, *AGGREGATOR_SHAPE))
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 1024)
+        assert jnp.isfinite(out).all()
+
+    def test_custom_dims(self):
+        enc = VGGTAggregatorMLPEncoder(embed_dim=512, channels=8, hidden=128)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.ones((1, *AGGREGATOR_SHAPE), dtype=jnp.float32)
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (1, 512)
 
 
 class TestVGGTEncoder:
@@ -113,6 +135,27 @@ class TestVGGTAgentInit:
 
         obs_dict = {
             "features": np.random.randn(FEATURE_DIM).astype(np.float32),
+            "is_first": True,
+        }
+        rng, act_key = jax.random.split(rng)
+        action = agent.act(obs_dict, act_key)
+        assert 0 <= action < 4
+
+    def test_agent_act_vggt_aggregator_mlp(self):
+        from modules.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_aggregator_mlp",
+            obs_shape=AGGREGATOR_SHAPE,
+            num_actions=4,
+            vggt_aggregator_channels=8,
+            vggt_aggregator_hidden=128,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        obs_dict = {
+            "features": np.random.randn(*AGGREGATOR_SHAPE).astype(np.float32),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)

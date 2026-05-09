@@ -28,6 +28,7 @@ class VGGTEncoder(Encoder):
     # eviction starts because the budget tuple is a jit static argument.
     VGGT_TOTAL_BUDGET = 200_000
     VGGT_STATIC_BUDGETS = tuple([8333] * 24)
+    feature_kind = "wp_cp"
 
     def __init__(self, resolution: int = 518):
         self._extractor = VGGTFeatureExtractor(
@@ -36,4 +37,10 @@ class VGGTEncoder(Encoder):
         )  # device="cuda" default
 
     def make_adapter(self) -> ObsAdapter:
-        return VGGTObsAdapter(self._extractor)
+        return VGGTObsAdapter(self._extractor, feature_kind=self.feature_kind)
+
+
+class VGGTAggregatorMLPEncoder(VGGTEncoder):
+    """External VGGT extractor exposing pre-head aggregator patch features."""
+
+    feature_kind = "aggregator"

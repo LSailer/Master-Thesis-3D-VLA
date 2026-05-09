@@ -34,7 +34,7 @@ def train(
     from modules.r2dreamer.launch.curricula import CURRICULA
     from modules.r2dreamer.agent import R2DreamerAgent
     from modules.r2dreamer.config import R2DreamerConfig
-    from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
+    from modules.r2dreamer.adapters import VGGT_FEATURE_DIM, VGGT_AGGREGATOR_FEATURE_SHAPE
     from modules.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
 
     parser = _build_parser_train()
@@ -69,7 +69,7 @@ def train(
         raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
 
     encoder_cls = encoder_registry[encoder]
-    if encoder == "vggt":
+    if encoder in ("vggt", "vggt_aggregator_mlp"):
         enc = encoder_cls(resolution=args.render_resolution)
     else:
         enc = encoder_cls()
@@ -95,12 +95,17 @@ def train(
             curriculum_path=curriculum_path,
             curriculum_mode=args.curriculum_mode,
             seed=args.seed,
-            render_resolution=args.render_resolution if encoder == "vggt" else 64,
+            render_resolution=args.render_resolution if encoder in ("vggt", "vggt_aggregator_mlp") else 64,
         )
     else:
         # crafter
         env_instance = env_fn(seed=args.seed)
 
+    design_notes = (
+        "Variant 1 encoder: VGGT final pre-head aggregator global patch features "
+        "(37x37x1024) -> 1x1 Conv 1024->64 -> flatten 87616 -> "
+        "2-layer MLP 87616->1024->1024; excludes VGGT world-points and camera-pose heads."
+    )
     # --- Build agent config ---
     if encoder == "vggt":
         agent_config = R2DreamerConfig(
@@ -114,6 +119,23 @@ def train(
             seed=args.seed,
             log_every=args.log_every,
             logdir=eff_output_dir,
+        )
+    elif encoder == "vggt_aggregator_mlp":
+        agent_config = R2DreamerConfig(
+            encoder_type="vggt_aggregator_mlp",
+            obs_shape=VGGT_AGGREGATOR_FEATURE_SHAPE,
+            num_actions=4,
+            total_steps=args.steps,
+            prefill_steps=args.prefill,
+            buffer_capacity=5_000,
+            batch_size=4,
+            seq_len=32,
+            train_ratio=128,
+            act_entropy=args.act_entropy,
+            seed=args.seed,
+            log_every=args.log_every,
+            logdir=eff_output_dir,
+            design_notes=design_notes,
         )
     elif env == "habitat":
         agent_config = R2DreamerConfig(
@@ -155,6 +177,7 @@ def train(
         wandb_name=eff_wandb_name,
         wandb_tags=eff_wandb_tags,
         wandb_id=args.wandb_id,
+        wandb_notes_file=args.wandb_notes_file,
         val_data=args.val_data,
         val_loss_every=args.val_loss_every,
         resume_from=args.resume_from,

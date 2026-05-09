@@ -107,6 +107,7 @@ class TrainerConfig:
     wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
     # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
     wandb_id: str | None = None
+    wandb_notes_file: str | None = None
 
     # Validation (None = disabled)
     val_data: str | None = None
@@ -235,11 +236,19 @@ class Trainer:
         if trainer_config.wandb_project is not None:
             import wandb
             self._wandb = wandb
+            notes = None
+            if trainer_config.wandb_notes_file is not None:
+                notes_path = Path(trainer_config.wandb_notes_file)
+                if notes_path.exists():
+                    notes = notes_path.read_text(encoding="utf-8")
+                else:
+                    print(f"W&B notes file not found: {notes_path}")
             init_kwargs: dict[str, Any] = dict(
                 project=trainer_config.wandb_project,
                 name=trainer_config.wandb_name,
                 config=vars(agent_config) if hasattr(agent_config, "__dict__") else {},
                 tags=trainer_config.wandb_tags,
+                notes=notes,
             )
             if trainer_config.wandb_id is not None:
                 # resume="must" fails loudly if the run-id does not exist,

@@ -454,6 +454,31 @@ class VGGTEncoder(nn.Module):
         return out
 
 
+class VGGTAggregatorMLPEncoder(nn.Module):
+    """Variant 1 encoder for pre-head VGGT aggregator patch features.
+
+    Architecture: (B, 37, 37, 1024) -> 1x1 Conv(64) -> flatten
+    -> Dense(1024) -> Dense(embed_dim). Hidden transforms use RMSNorm+SiLU.
+    """
+    embed_dim: int = 1024
+    channels: int = 64
+    hidden: int = 1024
+
+    @nn.compact
+    def __call__(self, obs):
+        # obs: (B, 37, 37, 1024) float32 pre-head aggregator features.
+        if obs.ndim != 4:
+            raise ValueError(f"expected (B, 37, 37, 1024), got {obs.shape}")
+        x = nn.Conv(self.channels, (1, 1), padding="VALID", name="conv1x1")(obs)
+        x = RMSNorm(name="conv_norm")(x)
+        x = nn.silu(x)
+        x = x.reshape(x.shape[0], -1)
+        x = nn.Dense(self.hidden, name="fc0")(x)
+        x = RMSNorm(name="fc0_norm")(x)
+        x = nn.silu(x)
+        return nn.Dense(self.embed_dim, name="fc1")(x)
+
+
 class Projector(nn.Module):
     """Single linear projection without bias (maps feat_size -> embed_dim)."""
     out_dim: int

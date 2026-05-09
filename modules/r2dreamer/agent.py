@@ -18,6 +18,7 @@ from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
     VGGTEncoder,
+    VGGTAggregatorMLPEncoder,
     R2RSSM,
     R2MLP,
     Projector,
@@ -50,6 +51,12 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
 def _make_encoder(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt":
         return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
+    if cfg.encoder_type == "vggt_aggregator_mlp":
+        return VGGTAggregatorMLPEncoder(
+            embed_dim=cfg.vggt_embed_dim,
+            channels=cfg.vggt_aggregator_channels,
+            hidden=cfg.vggt_aggregator_hidden,
+        )
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -188,8 +195,8 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         # Preprocess observation
-        if self.cfg.encoder_type == "vggt":
-            obs = jnp.asarray(obs_dict["features"])[None]  # (1, D)
+        if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp"):
+            obs = jnp.asarray(obs_dict["features"])[None]  # (1, ...) external features
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
             obs = jnp.array(image[None])  # (1, C, H, W)

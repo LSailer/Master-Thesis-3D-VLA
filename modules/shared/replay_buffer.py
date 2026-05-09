@@ -38,7 +38,12 @@ class ReplayBuffer:
                 obs_shape=config.obs_shape,
             )
         cap = config.capacity
-        np_dtype = np.uint8 if config.obs_dtype == "uint8" else np.float32
+        if config.obs_dtype == "uint8":
+            np_dtype = np.uint8
+        elif config.obs_dtype == "float16":
+            np_dtype = np.float16
+        else:
+            np_dtype = np.float32
         self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)
         self.actions = np.zeros(cap, dtype=np.int32)
         self.rewards = np.zeros(cap, dtype=np.float32)

@@ -408,9 +408,20 @@ class JAXVGGTFeatureExtractor:
             phase_times["vggt_forward"].append((wrap_t0 - fwd_t0) * 1000.0)
             phase_times["vggt_wrapper"].append((wrap_t1 - wrap_t0) * 1000.0)
 
+        # Final pre-head aggregator patch tokens for encoder ablations. The JAX
+        # port stores frame/local and global/contextual streams concatenated as
+        # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
+        # by Variant 1 before camera/point heads transform it into WP+CP.
+        final_tokens = out_list[-1][:, :, int(np.asarray(patch_start_idx)):, :]
+        final_global = final_tokens[..., final_tokens.shape[-1] // 2:]
+        aggregator_features = final_global[0, 0].reshape(
+            _PATCH_GRID, _PATCH_GRID, self._aggregator.embed_dim
+        ).astype(jnp.float32)
+
         self._frame_idx += 1
 
         return {
             "world_points": world_points_out,
             "camera_pose": camera_pose_out,
+            "aggregator_features": aggregator_features,
         }
