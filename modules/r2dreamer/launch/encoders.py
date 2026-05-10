@@ -89,14 +89,15 @@ class VGGTEncoder(Encoder):
 
 
 class VGGTAggregatorMLPEncoder(VGGTEncoder):
-    """External VGGT extractor exposing pre-head aggregator patch features."""
+    """External VGGT extractor exposing all pre-head aggregator tokens."""
 
     feature_kind = "aggregator"
     encoder_type = "vggt_aggregator_mlp"
     design_notes = (
-        "Variant 1 encoder: VGGT final pre-head aggregator global patch features "
-        "(37x37x1024) -> 1x1 Conv 1024->64 -> flatten 87616 -> "
-        "2-layer MLP 87616->1024->1024; excludes VGGT world-points and camera-pose heads."
+        "Variant 1 encoder: VGGT final pre-head all-token global aggregator features "
+        "(1374x1024 = 5 camera/register special tokens + 37x37 patch tokens) "
+        "-> tokenwise linear projection/mean pooling; excludes VGGT world-points "
+        "and camera-pose heads. Matches VGGT-DP/VGGT-World token usage more directly."
     )
 
     def spec(self) -> EncoderSpec:

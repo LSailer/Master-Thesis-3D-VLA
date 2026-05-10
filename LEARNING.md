@@ -65,3 +65,13 @@
   - Chose: Introduce `EncoderSpec`, let encoders/adapters expose observation shape and render-resolution requirements, derive aggregator replay shape from VGGT extractor metadata, type `feature_kind` as `Literal["wp_cp", "aggregator"]`, keep NumPy replay storage with explicit `replay_features`/`agent_features` names, and remove W&B notes-file plumbing.
   - Why: This keeps train.py generic and removes duplicated encoder string checks while preserving the locked Variant 1 architecture and keeping W&B focused on config/design metadata instead of duplicating the PR decision log.
 
+- 2026-05-10T12:04:00Z
+  - Tried: Added a real GPU integration assertion for `JAXVGGTFeatureExtractor` using the Habitat RGB fixture instead of only downstream synthetic/unit checks.
+  - Chose: Assert that the extractor emits NaN-free `aggregator_features` with shape `(1374, 1024)` and dtype `float32`, covering 5 camera/register special tokens plus 37x37 patch tokens.
+  - Why: The risky change is in the real JAX VGGT forward path; the integration test now verifies the changed extractor output directly on real data.
+
+- 2026-05-10T12:18:00Z
+  - Tried: Ran the smallest possible end-to-end Habitat+VGGT+Dreamer smoke with `seq_len=1`.
+  - Chose: Use `batch_size=1`, `seq_len=2`, `train_ratio=2`, `prefill=2` for the minimum train-step smoke.
+  - Why: `seq_len=1` leaves the replay lambda-return `T-1` axis empty and fails before proving the train step. The `seq_len=2` smoke completed three train steps, logged finite `total_loss` values, `nan_skipped=0`, manifest status `completed`, and wrote checkpoint `output/smoke-aggregator-pipeline-20260510-121204-seq2/checkpoints/step_000000003.pkl`.
+

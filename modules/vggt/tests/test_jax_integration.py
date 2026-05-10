@@ -9,6 +9,7 @@ PyTorch extractor to within the production tolerance.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import jax
 
@@ -40,6 +41,19 @@ def _make_frame(seed: int = 0) -> np.ndarray:
     return rng.randint(0, 256, size=(3, 518, 518), dtype=np.uint8)
 
 
+def _real_habitat_frame(index: int = 0) -> np.ndarray:
+    """Real Habitat RGB frame fixture (CHW, uint8)."""
+    fixture = (
+        Path(__file__).parents[2]
+        / "r2dreamer"
+        / "launch"
+        / "tests"
+        / "fixtures"
+        / "sample_habitat_obs.npz"
+    )
+    return np.load(fixture)["frames"][index]
+
+
 @gpu_jax
 class TestJAXFeatureExtractorContract:
     """API-contract tests for the JAX extractor — mirrors PyTorch suite."""
@@ -52,11 +66,14 @@ class TestJAXFeatureExtractorContract:
 
     def test_single_frame_shapes(self, extractor):
         extractor.reset()
-        out = extractor.extract(_make_frame(seed=42))
+        out = extractor.extract(_real_habitat_frame(index=0))
         assert out["world_points"].shape == (37, 37, 3)
         assert out["camera_pose"].shape == (9,)
+        assert out["aggregator_features"].shape == (1374, 1024)
         assert out["world_points"].dtype == np.float32
         assert out["camera_pose"].dtype == np.float32
+        assert out["aggregator_features"].dtype == np.float32
+        assert not np.any(np.isnan(out["aggregator_features"]))
 
     def test_streaming_multiple_frames(self, extractor):
         """Five streaming frames produce NaN-free outputs of the right shape."""

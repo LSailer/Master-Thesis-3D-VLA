@@ -47,7 +47,7 @@ class TestVGGTEncoderConfiguration:
         constructed_kwargs = {}
 
         class FakeExtractor:
-            aggregator_feature_shape = (37, 37, 1024)
+            aggregator_feature_shape = (1374, 1024)
 
             def __init__(self, **kwargs):
                 constructed_kwargs.update(kwargs)
@@ -71,7 +71,7 @@ class TestVGGTEncoderConfiguration:
 
     def test_vggt_encoder_exposes_wp_cp_spec(self, monkeypatch):
         class FakeExtractor:
-            aggregator_feature_shape = (37, 37, 1024)
+            aggregator_feature_shape = (1374, 1024)
 
             def __init__(self, **kwargs):
                 pass
@@ -92,7 +92,7 @@ class TestVGGTEncoderConfiguration:
 
     def test_aggregator_encoder_spec_uses_extractor_metadata(self, monkeypatch):
         class FakeExtractor:
-            aggregator_feature_shape = (9, 9, 128)
+            aggregator_feature_shape = (86, 128)
 
             def __init__(self, **kwargs):
                 pass
@@ -109,8 +109,8 @@ class TestVGGTEncoderConfiguration:
         adapter = enc.make_adapter()
         spec = enc.spec()
 
-        assert adapter.buffer_shape == (9, 9, 128)
-        assert spec.obs_shape == (9, 9, 128)
+        assert adapter.buffer_shape == (86, 128)
+        assert spec.obs_shape == (86, 128)
         assert spec.env_render_resolution == 256
         assert spec.encoder_type == "vggt_aggregator_mlp"
         assert spec.agent_overrides == {
@@ -119,25 +119,25 @@ class TestVGGTEncoderConfiguration:
             "seq_len": 32,
             "train_ratio": 128,
         }
-        assert "pre-head aggregator" in spec.design_notes
+        assert "all-token" in spec.design_notes
 
     def test_aggregator_adapter_uses_float16_replay_and_float32_agent(self):
         class FakeExtractor:
-            aggregator_feature_shape = (2, 2, 4)
+            aggregator_feature_shape = (6, 4)
 
             def reset(self):
                 pass
 
             def extract(self, image):
                 import jax.numpy as jnp
-                return {"aggregator_features": jnp.ones((2, 2, 4), dtype=jnp.float32)}
+                return {"aggregator_features": jnp.ones((6, 4), dtype=jnp.float32)}
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform({"image": np.zeros((3, 4, 4), dtype=np.uint8)})
 
-        assert replay_features.shape == (2, 2, 4)
+        assert replay_features.shape == (6, 4)
         assert replay_features.dtype == np.float16
-        assert agent_obs["features"].shape == (2, 2, 4)
+        assert agent_obs["features"].shape == (6, 4)
         assert agent_obs["features"].dtype.name == "float32"
 
 

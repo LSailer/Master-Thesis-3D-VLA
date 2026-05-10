@@ -52,11 +52,7 @@ def _make_encoder(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt":
         return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
     if cfg.encoder_type == "vggt_aggregator_mlp":
-        return VGGTAggregatorMLPEncoder(
-            embed_dim=cfg.vggt_embed_dim,
-            channels=cfg.vggt_aggregator_channels,
-            hidden=cfg.vggt_aggregator_hidden,
-        )
+        return VGGTAggregatorMLPEncoder(embed_dim=cfg.vggt_embed_dim)
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
