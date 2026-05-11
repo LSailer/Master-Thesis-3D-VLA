@@ -455,11 +455,12 @@ class VGGTEncoder(nn.Module):
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):
-    """Variant 1 encoder for all pre-head VGGT aggregator tokens.
+    """Variant 1 encoder for VGGT aggregator features.
 
-    Architecture follows the paper-style VGGT-DP/VGGT-World token path:
-    (B, N, D) all tokens, including camera/register special tokens and patch
-    tokens -> tokenwise linear projection -> mean pool over tokens.
+    The fast training path stores mean-pooled pre-head aggregator features in
+    replay as ``(B, D)`` and projects them to ``embed_dim``.  The module still
+    accepts the legacy ``(B, N, D)`` all-token shape for tests/debugging by
+    applying the same Dense layer tokenwise and then mean-pooling tokens.
     """
     embed_dim: int = 1024
     channels: int = 64
@@ -467,11 +468,14 @@ class VGGTAggregatorMLPEncoder(nn.Module):
 
     @nn.compact
     def __call__(self, obs):
-        # obs: (B, N, D) float32 all-token pre-head aggregator features.
-        if obs.ndim != 3:
-            raise ValueError(f"expected (B, N, D) all-token VGGT features, got {obs.shape}")
-        tokens = nn.Dense(self.embed_dim, name="proj")(obs)
-        return tokens.mean(axis=1)
+        # obs: (B, D) mean-pooled features in the training path, or legacy
+        # (B, N, D) all-token features for isolated token-path checks.
+        if obs.ndim == 2:
+            return nn.Dense(self.embed_dim, name="proj")(obs)
+        if obs.ndim == 3:
+            tokens = nn.Dense(self.embed_dim, name="proj")(obs)
+            return tokens.mean(axis=1)
+        raise ValueError(f"expected (B, D) or (B, N, D) VGGT features, got {obs.shape}")
 
 
 class Projector(nn.Module):

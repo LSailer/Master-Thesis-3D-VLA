@@ -34,6 +34,14 @@ class TestVGGTAggregatorMLPEncoder:
         out = enc.apply(params, dummy)
         assert out.shape == (1, 512)
 
+    def test_pooled_feature_input_shape(self):
+        enc = VGGTAggregatorMLPEncoder(embed_dim=512)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.ones((3, 1024), dtype=jnp.float32)
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (3, 512)
+
     def test_uses_all_tokens_not_spatial_cnn_params(self):
         enc = VGGTAggregatorMLPEncoder(embed_dim=32)
         rng = jax.random.PRNGKey(0)
@@ -156,14 +164,14 @@ class TestVGGTAgentInit:
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_aggregator_mlp",
-            obs_shape=AGGREGATOR_TOKEN_SHAPE,
+            obs_shape=(1024,),
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
         agent = R2DreamerAgent(cfg, rng)
 
         obs_dict = {
-            "features": np.random.randn(*AGGREGATOR_TOKEN_SHAPE).astype(np.float32),
+            "features": np.random.randn(1024).astype(np.float32),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
@@ -187,6 +195,37 @@ class TestVGGTAgentInit:
         B, T = cfg.batch_size, cfg.seq_len
         batch = {
             "obs": jnp.zeros((B, T, FEATURE_DIM)),
+            "actions": jax.nn.one_hot(
+                jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
+            ),
+            "rewards": jnp.zeros((B, T)),
+            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
+            "is_last": jnp.zeros((B, T)),
+            "is_terminal": jnp.zeros((B, T)),
+        }
+        rng, train_key = jax.random.split(rng)
+        metrics = agent.train_step(batch, train_key)
+        assert "total_loss" in metrics
+        assert np.isfinite(metrics["total_loss"])
+
+    def test_agent_train_step_vggt_aggregator_mlp(self):
+        from modules.r2dreamer.agent import R2DreamerAgent
+
+        pooled_dim = 1024
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_aggregator_mlp",
+            obs_shape=(pooled_dim,),
+            num_actions=4,
+            batch_size=2,
+            seq_len=8,
+            imagination_horizon=3,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        B, T = cfg.batch_size, cfg.seq_len
+        batch = {
+            "obs": jnp.zeros((B, T, pooled_dim)),
             "actions": jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),

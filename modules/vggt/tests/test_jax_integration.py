@@ -130,6 +130,35 @@ class TestJAXFeatureExtractorContract:
         with pytest.raises(RuntimeError, match="Camera-head padded cache overflow"):
             ext.extract(_make_frame(seed=599))
 
+    def test_compute_heads_false_returns_only_aggregator(self):
+        """compute_heads=False skips camera/point heads and world_points wrapper."""
+        from modules.vggt.jax import JAXVGGTFeatureExtractor
+
+        ext = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
+        ext.reset()
+        out = ext.extract(_make_frame(seed=7))
+        assert set(out.keys()) == {"aggregator_features"}
+        assert out["aggregator_features"].shape == (1374, 1024)
+        assert out["aggregator_features"].dtype == np.float32
+        assert not np.any(np.isnan(out["aggregator_features"]))
+
+    def test_compute_heads_false_aggregator_matches_full(self, extractor):
+        """Skipping heads must not change the aggregator output values."""
+        from modules.vggt.jax import JAXVGGTFeatureExtractor
+
+        frame = _make_frame(seed=11)
+        extractor.reset()
+        out_full = extractor.extract(frame)
+        ext_skip = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
+        ext_skip.reset()
+        out_skip = ext_skip.extract(frame)
+        np.testing.assert_allclose(
+            np.asarray(out_full["aggregator_features"]),
+            np.asarray(out_skip["aggregator_features"]),
+            atol=1e-5,
+            err_msg="aggregator_features changed when heads were skipped",
+        )
+
 
 @both
 class TestJAXvsPyTorchExtractor:

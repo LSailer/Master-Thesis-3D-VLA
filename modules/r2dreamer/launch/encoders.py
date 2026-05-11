@@ -60,6 +60,10 @@ class VGGTEncoder(Encoder):
     VGGT_STATIC_BUDGETS = tuple([8333] * 24)
     feature_kind = "wp_cp"
     encoder_type = "vggt"
+    # Subclasses set vggt_compute_heads = False when they consume only the
+    # pre-head aggregator tokens, so the extractor can skip camera_head +
+    # point_head + world_points wrapper on every frame.
+    vggt_compute_heads = True
 
     @classmethod
     def from_train_args(cls, args: Any) -> "VGGTEncoder":
@@ -71,6 +75,7 @@ class VGGTEncoder(Encoder):
         self._extractor = VGGTFeatureExtractor(
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
+            compute_heads=self.vggt_compute_heads,
         )  # device="cuda" default
 
     def make_adapter(self) -> ObsAdapter:
@@ -89,15 +94,19 @@ class VGGTEncoder(Encoder):
 
 
 class VGGTAggregatorMLPEncoder(VGGTEncoder):
-    """External VGGT extractor exposing all pre-head aggregator tokens."""
+    """External VGGT extractor exposing pooled pre-head aggregator features."""
 
     feature_kind = "aggregator"
     encoder_type = "vggt_aggregator_mlp"
+    # Aggregator-only path: skip camera_head + point_head + world_points wrapper
+    # in the extractor; only `aggregator_features` is needed downstream.
+    vggt_compute_heads = False
     design_notes = (
         "Variant 1 encoder: VGGT final pre-head all-token global aggregator features "
         "(1374x1024 = 5 camera/register special tokens + 37x37 patch tokens) "
-        "-> tokenwise linear projection/mean pooling; excludes VGGT world-points "
-        "and camera-pose heads. Matches VGGT-DP/VGGT-World token usage more directly."
+        "-> mean-pooled to 1024-dim float32 before replay storage -> linear projection; "
+        "excludes VGGT world-points and camera-pose heads. This preserves the global "
+        "aggregator-token signal while avoiding huge all-token replay batches."
     )
 
     def spec(self) -> EncoderSpec:
