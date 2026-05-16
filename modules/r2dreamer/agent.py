@@ -18,6 +18,7 @@ from .config import R2DreamerConfig
 from .networks import (
     R2Encoder,
     VGGTEncoder,
+    VGGTAggregatorMLPEncoder,
     R2RSSM,
     R2MLP,
     Projector,
@@ -50,6 +51,8 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
 def _make_encoder(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt":
         return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
+    if cfg.encoder_type == "vggt_aggregator_mlp":
+        return VGGTAggregatorMLPEncoder(embed_dim=cfg.vggt_embed_dim)
     return R2Encoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -188,8 +191,8 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         # Preprocess observation
-        if self.cfg.encoder_type == "vggt":
-            obs = jnp.asarray(obs_dict["features"])[None]  # (1, D)
+        if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp"):
+            obs = jnp.asarray(obs_dict["features"])[None]  # (1, ...) external features
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
             obs = jnp.array(image[None])  # (1, C, H, W)
@@ -419,7 +422,11 @@ class R2DreamerAgent:
         # ----------------------------------------------------------
         feat_flat = feat.reshape(B * T, -1)
         x1 = self.proj_mod.apply(params["projector"], feat_flat)  # (BT, embed_size)
-        x2 = jax.lax.stop_gradient(embed.reshape(B * T, -1))  # stop grad on encoder side
+        # Protocol D toggle: cfg.barlow_stop_grad=False lets Barlow gradient
+        # reach the encoder (aggregator MLP / VGGT). Default True preserves
+        # the original PyTorch behaviour.
+        embed_flat = embed.reshape(B * T, -1)
+        x2 = jax.lax.stop_gradient(embed_flat) if cfg.barlow_stop_grad else embed_flat
 
         # Use ddof=1 to match PyTorch's torch.std() default (Bessel correction)
         x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0, ddof=1) + 1e-8)
@@ -620,6 +627,15 @@ class R2DreamerAgent:
         # Metrics dict
         for k, v in losses.items():
             metrics[f"loss/{k}"] = v
+
+        # Protocol D diagnostic: track encoder parameter L2 norm so we can see
+        # whether Barlow gradient (or its absence) is actually moving the
+        # encoder weights. Cheap; computed once per step.
+        enc_sq = jax.tree_util.tree_reduce(
+            lambda acc, x: acc + jnp.sum(jnp.square(x)),
+            params["encoder"], 0.0,
+        )
+        metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
 
         # Latent diagnostics
         prior_probs = jax.nn.softmax(prior_logits_flat, axis=-1)

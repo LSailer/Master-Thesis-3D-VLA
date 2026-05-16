@@ -6,7 +6,12 @@ import numpy as np
 import pytest
 
 from modules.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
-from modules.r2dreamer.launch.encoders import CNNEncoder, VGGTEncoder
+from modules.r2dreamer.launch.encoders import (
+    CNNEncoder,
+    EncoderSpec,
+    VGGTEncoder,
+    VGGTAggregatorMLPEncoder,
+)
 
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -17,6 +22,14 @@ class TestCNNEncoder:
         enc = CNNEncoder()
         adapter = enc.make_adapter()
         assert isinstance(adapter, ObsAdapter)
+
+    def test_cnn_encoder_exposes_spec(self):
+        spec = CNNEncoder().spec()
+        assert isinstance(spec, EncoderSpec)
+        assert spec.encoder_type == "cnn"
+        assert spec.obs_shape == (3, 64, 64)
+        assert spec.env_render_resolution == 64
+        assert spec.agent_overrides == {}
 
     def test_cnn_adapter_passthrough(self):
         adapter = CNNEncoder().make_adapter()
@@ -34,6 +47,8 @@ class TestVGGTEncoderConfiguration:
         constructed_kwargs = {}
 
         class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
             def __init__(self, **kwargs):
                 constructed_kwargs.update(kwargs)
 
@@ -53,6 +68,80 @@ class TestVGGTEncoderConfiguration:
             "total_budget": 200_000,
             "budgets_static": tuple([8333] * 24),
         }
+
+    def test_vggt_encoder_exposes_wp_cp_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        spec = VGGTEncoder(resolution=518).spec()
+        assert spec.encoder_type == "vggt"
+        assert spec.obs_shape == (4116,)
+        assert spec.env_render_resolution == 518
+        assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
+
+    def test_aggregator_encoder_spec_uses_pooled_extractor_feature_dim(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (86, 128)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = VGGTAggregatorMLPEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert adapter.buffer_shape == (128,)
+        assert adapter.buffer_dtype == "float32"
+        assert spec.obs_shape == (128,)
+        assert spec.env_render_resolution == 256
+        assert spec.encoder_type == "vggt_aggregator_mlp"
+        assert spec.agent_overrides == {
+            "buffer_capacity": 5_000,
+            "batch_size": 4,
+            "seq_len": 32,
+            "train_ratio": 128,
+        }
+        assert "mean-pooled" in spec.design_notes
+
+    def test_aggregator_adapter_mean_pools_tokens_to_float32_replay_and_agent(self):
+        class FakeExtractor:
+            aggregator_feature_shape = (6, 4)
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {"aggregator_features": jnp.arange(24, dtype=jnp.float32).reshape(6, 4)}
+
+        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
+        replay_features, agent_obs = adapter.transform({"image": np.zeros((3, 4, 4), dtype=np.uint8)})
+
+        expected = np.arange(24, dtype=np.float32).reshape(6, 4).mean(axis=0)
+        assert replay_features.shape == (4,)
+        assert replay_features.dtype == np.float32
+        np.testing.assert_allclose(replay_features, expected)
+        assert agent_obs["features"].shape == (4,)
+        assert agent_obs["features"].dtype.name == "float32"
 
 
 @pytest.mark.gpu

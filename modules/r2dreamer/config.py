@@ -20,12 +20,13 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # "cnn" or "vggt"
+    encoder_type: str = "cnn"  # "cnn", "vggt", or "vggt_aggregator_mlp"
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)
     vggt_feature_dim: int = 4116  # 37*37*3 + 9 (world_points + camera_pose)
     vggt_embed_dim: int = 1024
+    design_notes: str = ""
 
     # --- MLP heads ---
     mlp_units: int = 256
@@ -37,6 +38,11 @@ class R2DreamerConfig:
 
     # --- Projector (Barlow Twins) ---
     barlow_lambda: float = 5e-4
+    # When True (default, matches PyTorch reference), Barlow Twins detaches the
+    # encoder side: gradient flows only into the projector + RSSM. Set False
+    # for Protocol D — verifies whether the detached encoder is starving the
+    # aggregator MLP and VGGT of useful signal.
+    barlow_stop_grad: bool = True
 
     # --- Training ---
     batch_size: int = 16

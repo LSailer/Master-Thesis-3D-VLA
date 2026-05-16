@@ -31,6 +31,37 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
                         "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
                         "collapses the policy here.")
+    # --- Diagnostic / overfit-one-batch knobs (Karpathy step 3) ---
+    p.add_argument("--overfit_one_batch", action="store_true",
+                   help="After prefill, freeze a single sampled batch and call "
+                        "train_step on it for --overfit_steps iterations. Disables "
+                        "env rollouts, validation and checkpointing.")
+    p.add_argument("--overfit_steps", type=int, default=1000,
+                   help="Number of gradient steps to run on the frozen batch "
+                        "when --overfit_one_batch is set.")
+    p.add_argument("--overfit_batch_size", type=int, default=1,
+                   help="B for the frozen overfit batch (default 1).")
+    p.add_argument("--overfit_seq_len", type=int, default=8,
+                   help="T for the frozen overfit batch (default 8).")
+    # Loss-scale overrides (Protocol C). None => keep config default.
+    p.add_argument("--actor_loss_weight", type=float, default=None,
+                   help="Override cfg.scale_policy. Set 0 to disable actor loss.")
+    p.add_argument("--value_loss_weight", type=float, default=None,
+                   help="Override cfg.scale_value. Set 0 to disable critic loss.")
+    p.add_argument("--repval_loss_weight", type=float, default=None,
+                   help="Override cfg.scale_repval. Set 0 to disable replay value loss.")
+    # Protocol D toggle
+    p.add_argument("--barlow_grad_to_encoder", action="store_true",
+                   help="Let Barlow Twins gradient reach the encoder (removes the "
+                        "stop_gradient at agent._loss_fn). Default off matches "
+                        "PyTorch reference.")
+    # Small-batch knobs for the overfit run
+    p.add_argument("--batch_size", type=int, default=None,
+                   help="Override cfg.batch_size (production default 16).")
+    p.add_argument("--seq_len", type=int, default=None,
+                   help="Override cfg.seq_len (production default 64).")
+    p.add_argument("--lr", type=float, default=None,
+                   help="Override cfg.lr (production default 4e-5).")
     return p
 
 

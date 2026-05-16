@@ -74,7 +74,12 @@ class JAXVGGTFeatureExtractor:
         dtype: Any = jnp.bfloat16,
         max_camera_frames: int = 1024,
         budgets_static: tuple[int, ...] | None = None,
+        compute_heads: bool = True,
     ):
+        # compute_heads=False skips camera_head + point_head + world_points
+        # wrapper in extract(); only `aggregator_features` is returned. Used by
+        # encoders that consume the pre-head aggregator tokens directly.
+        self._compute_heads = compute_heads
         self._budgets_static_override = budgets_static
         if device in ("cuda", "gpu"):
             self._device = jax.devices("gpu")[0]
@@ -181,6 +186,16 @@ class JAXVGGTFeatureExtractor:
         # AOT warmup: compile for frame 0 (past_kvs=None → padded init with
         # valid_len=0) and frame 1 (past_kvs=3-tuples with valid_len>0).
         self._warmup()
+
+    @property
+    def patch_grid(self) -> int:
+        """Number of VGGT patch tokens per spatial side for the configured image size."""
+        return _IMG_SIZE // _PATCH_SIZE
+
+    @property
+    def aggregator_feature_shape(self) -> tuple[int, int, int]:
+        """Shape of one frame's all-token pre-head global aggregator features."""
+        return (1 + self._aggregator.num_register_tokens + self.patch_grid ** 2, self._aggregator.embed_dim)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -361,56 +376,74 @@ class JAXVGGTFeatureExtractor:
             )
         )
 
-        if self._past_kvs_camera is None:
-            self._past_kvs_camera = [
-                self._new_padded_camera_entry() for _ in range(self._cam_depth)
-            ]
-        # Guard against silent cache overflow: dynamic_update_slice_in_dim
-        # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
-        # produces undefined cuDNN behavior.  Fail loud here instead.
-        max_frames = self._CAM_MAX // self._cam_num_iters
-        if self._frame_idx >= max_frames:
-            raise RuntimeError(
-                f"Camera-head padded cache overflow: cannot extract frame "
-                f"{self._frame_idx + 1}, max_camera_frames={max_frames}. "
-                f"Raise max_camera_frames at construction or call reset()."
+        if self._compute_heads:
+            if self._past_kvs_camera is None:
+                self._past_kvs_camera = [
+                    self._new_padded_camera_entry() for _ in range(self._cam_depth)
+                ]
+            # Guard against silent cache overflow: dynamic_update_slice_in_dim
+            # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
+            # produces undefined cuDNN behavior.  Fail loud here instead.
+            max_frames = self._CAM_MAX // self._cam_num_iters
+            if self._frame_idx >= max_frames:
+                raise RuntimeError(
+                    f"Camera-head padded cache overflow: cannot extract frame "
+                    f"{self._frame_idx + 1}, max_camera_frames={max_frames}. "
+                    f"Raise max_camera_frames at construction or call reset()."
+                )
+            pose_list, self._past_kvs_camera = self._camera_head_apply(
+                self._cam_params,
+                out_list,
+                self._past_kvs_camera,
             )
-        pose_list, self._past_kvs_camera = self._camera_head_apply(
-            self._cam_params,
-            out_list,
-            self._past_kvs_camera,
-        )
-        pose_enc = pose_list[-1]
-        camera_pose = pose_enc[:, 0, :]
+            pose_enc = pose_list[-1]
+            camera_pose = pose_enc[:, 0, :]
 
-        # patch_start_idx is always 1 + num_register_tokens = 5; cast to Python
-        # int so it can be used as a static JIT arg (JIT returns JAX scalars).
-        pts3d, _ = self._point_head_apply(
-            self._pt_params,
-            out_list,
-            images,
-            int(np.asarray(patch_start_idx)),
-        )
-        pts3d = pts3d[:, 0]
+            # patch_start_idx is always 1 + num_register_tokens = 5; cast to Python
+            # int so it can be used as a static JIT arg (JIT returns JAX scalars).
+            pts3d, _ = self._point_head_apply(
+                self._pt_params,
+                out_list,
+                images,
+                int(np.asarray(patch_start_idx)),
+            )
+            pts3d = pts3d[:, 0]
 
-        if profiling:
-            pts3d.block_until_ready()
-            camera_pose.block_until_ready()
+            if profiling:
+                pts3d.block_until_ready()
+                camera_pose.block_until_ready()
+                wrap_t0 = time.perf_counter()
+
+            world_points = _adaptive_avg_pool_518_to_37(pts3d)
+
+            world_points_out = world_points[0].astype(jnp.float32)
+            camera_pose_out = camera_pose[0].astype(jnp.float32)
+
+            if profiling:
+                wrap_t1 = time.perf_counter()
+                phase_times["vggt_forward"].append((wrap_t0 - fwd_t0) * 1000.0)
+                phase_times["vggt_wrapper"].append((wrap_t1 - wrap_t0) * 1000.0)
+        elif profiling:
+            # No heads: forward timing ends right after aggregator, no wrapper work.
             wrap_t0 = time.perf_counter()
-
-        world_points = _adaptive_avg_pool_518_to_37(pts3d)
-
-        world_points_out = world_points[0].astype(jnp.float32)
-        camera_pose_out = camera_pose[0].astype(jnp.float32)
-
-        if profiling:
-            wrap_t1 = time.perf_counter()
             phase_times["vggt_forward"].append((wrap_t0 - fwd_t0) * 1000.0)
-            phase_times["vggt_wrapper"].append((wrap_t1 - wrap_t0) * 1000.0)
+            phase_times["vggt_wrapper"].append(0.0)
+
+        # Final pre-head aggregator tokens for encoder ablations. The JAX port
+        # stores frame/local and global/contextual streams concatenated as
+        # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
+        # by Variant 1 before camera/point heads transform it into WP+CP. Keep
+        # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
+        final_tokens = out_list[-1]
+        final_global = final_tokens[..., final_tokens.shape[-1] // 2:]
+        aggregator_features = final_global[0, 0].astype(jnp.float32)
 
         self._frame_idx += 1
 
-        return {
-            "world_points": world_points_out,
-            "camera_pose": camera_pose_out,
-        }
+        if self._compute_heads:
+            return {
+                "world_points": world_points_out,
+                "camera_pose": camera_pose_out,
+                "aggregator_features": aggregator_features,
+            }
+        return {"aggregator_features": aggregator_features}

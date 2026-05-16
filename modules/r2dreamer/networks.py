@@ -454,6 +454,30 @@ class VGGTEncoder(nn.Module):
         return out
 
 
+class VGGTAggregatorMLPEncoder(nn.Module):
+    """Variant 1 encoder for VGGT aggregator features.
+
+    The fast training path stores mean-pooled pre-head aggregator features in
+    replay as ``(B, D)`` and projects them to ``embed_dim``.  The module still
+    accepts the legacy ``(B, N, D)`` all-token shape for tests/debugging by
+    applying the same Dense layer tokenwise and then mean-pooling tokens.
+    """
+    embed_dim: int = 1024
+    channels: int = 64
+    hidden: int = 1024
+
+    @nn.compact
+    def __call__(self, obs):
+        # obs: (B, D) mean-pooled features in the training path, or legacy
+        # (B, N, D) all-token features for isolated token-path checks.
+        if obs.ndim == 2:
+            return nn.Dense(self.embed_dim, name="proj")(obs)
+        if obs.ndim == 3:
+            tokens = nn.Dense(self.embed_dim, name="proj")(obs)
+            return tokens.mean(axis=1)
+        raise ValueError(f"expected (B, D) or (B, N, D) VGGT features, got {obs.shape}")
+
+
 class Projector(nn.Module):
     """Single linear projection without bias (maps feat_size -> embed_dim)."""
     out_dim: int

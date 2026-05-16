@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -29,12 +28,11 @@ def train(
     """
     import jax
 
-    from modules.r2dreamer.launch.parser import _build_parser_train
-    from modules.r2dreamer.launch.registries import env_registry, encoder_registry
-    from modules.r2dreamer.launch.curricula import CURRICULA
     from modules.r2dreamer.agent import R2DreamerAgent
     from modules.r2dreamer.config import R2DreamerConfig
-    from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
+    from modules.r2dreamer.launch.curricula import CURRICULA
+    from modules.r2dreamer.launch.parser import _build_parser_train
+    from modules.r2dreamer.launch.registries import env_registry, encoder_registry
     from modules.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
 
     parser = _build_parser_train()
@@ -47,7 +45,6 @@ def train(
     # --- Resolve curriculum path ---
     # CLI --curriculum_path is the escape hatch; otherwise use registry lookup.
     if args.curriculum_path is not None:
-        # explicit CLI override
         curriculum_path = args.curriculum_path
     elif curriculum is not None:
         if curriculum not in CURRICULA:
@@ -64,16 +61,14 @@ def train(
     if env == "crafter" and curriculum_path is not None:
         raise ValueError("Crafter env does not use a curriculum.")
 
-    # --- Resolve encoder ---
+    # --- Resolve encoder and its observation spec ---
     if encoder not in encoder_registry:
         raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
 
     encoder_cls = encoder_registry[encoder]
-    if encoder == "vggt":
-        enc = encoder_cls(resolution=args.render_resolution)
-    else:
-        enc = encoder_cls()
+    enc = encoder_cls.from_train_args(args)
     adapter = enc.make_adapter()
+    encoder_spec = enc.spec()
 
     # --- Resolve effective output_dir / wandb_name / wandb_tags ---
     # CLI value (non-None) wins over shim kwarg.
@@ -95,49 +90,44 @@ def train(
             curriculum_path=curriculum_path,
             curriculum_mode=args.curriculum_mode,
             seed=args.seed,
-            render_resolution=args.render_resolution if encoder == "vggt" else 64,
+            render_resolution=encoder_spec.env_render_resolution,
         )
+        num_actions = 4
     else:
-        # crafter
         env_instance = env_fn(seed=args.seed)
+        num_actions = 17
 
     # --- Build agent config ---
-    if encoder == "vggt":
-        agent_config = R2DreamerConfig(
-            encoder_type="vggt",
-            obs_shape=(VGGT_FEATURE_DIM,),
-            num_actions=4,
-            total_steps=args.steps,
-            prefill_steps=args.prefill,
-            buffer_capacity=1_000_000,
-            act_entropy=args.act_entropy,
-            seed=args.seed,
-            log_every=args.log_every,
-            logdir=eff_output_dir,
-        )
-    elif env == "habitat":
-        agent_config = R2DreamerConfig(
-            obs_shape=(3, 64, 64),
-            num_actions=4,
-            total_steps=args.steps,
-            prefill_steps=args.prefill,
-            buffer_capacity=1_000_000,
-            act_entropy=args.act_entropy,
-            seed=args.seed,
-            log_every=args.log_every,
-            logdir=eff_output_dir,
-        )
-    else:
-        # crafter
-        agent_config = R2DreamerConfig(
-            obs_shape=(3, 64, 64),
-            num_actions=17,
-            total_steps=args.steps,
-            prefill_steps=args.prefill,
-            seed=args.seed,
-            log_every=args.log_every,
-            logdir=eff_output_dir,
-        )
+    agent_overrides = dict(encoder_spec.agent_overrides)
+    # Diagnostic CLI overrides (None => keep config default / encoder override).
+    if args.actor_loss_weight is not None:
+        agent_overrides["scale_policy"] = args.actor_loss_weight
+    if args.value_loss_weight is not None:
+        agent_overrides["scale_value"] = args.value_loss_weight
+    if args.repval_loss_weight is not None:
+        agent_overrides["scale_repval"] = args.repval_loss_weight
+    if args.barlow_grad_to_encoder:
+        agent_overrides["barlow_stop_grad"] = False
+    if args.batch_size is not None:
+        agent_overrides["batch_size"] = args.batch_size
+    if args.seq_len is not None:
+        agent_overrides["seq_len"] = args.seq_len
+    if args.lr is not None:
+        agent_overrides["lr"] = args.lr
+
+    agent_config = R2DreamerConfig(
+        encoder_type=encoder_spec.encoder_type,
+        obs_shape=encoder_spec.obs_shape,
+        num_actions=num_actions,
+        total_steps=args.steps,
+        prefill_steps=args.prefill,
+        act_entropy=args.act_entropy,
+        seed=args.seed,
+        log_every=args.log_every,
+        logdir=eff_output_dir,
+        design_notes=encoder_spec.design_notes,
+        **agent_overrides,
+    )
 
     # --- Build agent ---
     _rng_key, init_key = jax.random.split(jax.random.PRNGKey(args.seed))
@@ -158,6 +148,10 @@ def train(
         val_data=args.val_data,
         val_loss_every=args.val_loss_every,
         resume_from=args.resume_from,
+        overfit_one_batch=args.overfit_one_batch,
+        overfit_steps=args.overfit_steps,
+        overfit_batch_size=args.overfit_batch_size,
+        overfit_seq_len=args.overfit_seq_len,
     )
 
     # --- Build trainer ---

@@ -9,6 +9,7 @@ PyTorch extractor to within the production tolerance.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import jax
 
@@ -40,6 +41,19 @@ def _make_frame(seed: int = 0) -> np.ndarray:
     return rng.randint(0, 256, size=(3, 518, 518), dtype=np.uint8)
 
 
+def _real_habitat_frame(index: int = 0) -> np.ndarray:
+    """Real Habitat RGB frame fixture (CHW, uint8)."""
+    fixture = (
+        Path(__file__).parents[2]
+        / "r2dreamer"
+        / "launch"
+        / "tests"
+        / "fixtures"
+        / "sample_habitat_obs.npz"
+    )
+    return np.load(fixture)["frames"][index]
+
+
 @gpu_jax
 class TestJAXFeatureExtractorContract:
     """API-contract tests for the JAX extractor — mirrors PyTorch suite."""
@@ -52,11 +66,14 @@ class TestJAXFeatureExtractorContract:
 
     def test_single_frame_shapes(self, extractor):
         extractor.reset()
-        out = extractor.extract(_make_frame(seed=42))
+        out = extractor.extract(_real_habitat_frame(index=0))
         assert out["world_points"].shape == (37, 37, 3)
         assert out["camera_pose"].shape == (9,)
+        assert out["aggregator_features"].shape == (1374, 1024)
         assert out["world_points"].dtype == np.float32
         assert out["camera_pose"].dtype == np.float32
+        assert out["aggregator_features"].dtype == np.float32
+        assert not np.any(np.isnan(out["aggregator_features"]))
 
     def test_streaming_multiple_frames(self, extractor):
         """Five streaming frames produce NaN-free outputs of the right shape."""
@@ -112,6 +129,35 @@ class TestJAXFeatureExtractorContract:
             ext.extract(_make_frame(seed=500 + i))
         with pytest.raises(RuntimeError, match="Camera-head padded cache overflow"):
             ext.extract(_make_frame(seed=599))
+
+    def test_compute_heads_false_returns_only_aggregator(self):
+        """compute_heads=False skips camera/point heads and world_points wrapper."""
+        from modules.vggt.jax import JAXVGGTFeatureExtractor
+
+        ext = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
+        ext.reset()
+        out = ext.extract(_make_frame(seed=7))
+        assert set(out.keys()) == {"aggregator_features"}
+        assert out["aggregator_features"].shape == (1374, 1024)
+        assert out["aggregator_features"].dtype == np.float32
+        assert not np.any(np.isnan(out["aggregator_features"]))
+
+    def test_compute_heads_false_aggregator_matches_full(self, extractor):
+        """Skipping heads must not change the aggregator output values."""
+        from modules.vggt.jax import JAXVGGTFeatureExtractor
+
+        frame = _make_frame(seed=11)
+        extractor.reset()
+        out_full = extractor.extract(frame)
+        ext_skip = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
+        ext_skip.reset()
+        out_skip = ext_skip.extract(frame)
+        np.testing.assert_allclose(
+            np.asarray(out_full["aggregator_features"]),
+            np.asarray(out_skip["aggregator_features"]),
+            atol=1e-5,
+            err_msg="aggregator_features changed when heads were skipped",
+        )
 
 
 @both
