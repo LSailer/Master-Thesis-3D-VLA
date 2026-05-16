@@ -98,6 +98,23 @@ def train(
         num_actions = 17
 
     # --- Build agent config ---
+    agent_overrides = dict(encoder_spec.agent_overrides)
+    # Diagnostic CLI overrides (None => keep config default / encoder override).
+    if args.actor_loss_weight is not None:
+        agent_overrides["scale_policy"] = args.actor_loss_weight
+    if args.value_loss_weight is not None:
+        agent_overrides["scale_value"] = args.value_loss_weight
+    if args.repval_loss_weight is not None:
+        agent_overrides["scale_repval"] = args.repval_loss_weight
+    if args.barlow_grad_to_encoder:
+        agent_overrides["barlow_stop_grad"] = False
+    if args.batch_size is not None:
+        agent_overrides["batch_size"] = args.batch_size
+    if args.seq_len is not None:
+        agent_overrides["seq_len"] = args.seq_len
+    if args.lr is not None:
+        agent_overrides["lr"] = args.lr
+
     agent_config = R2DreamerConfig(
         encoder_type=encoder_spec.encoder_type,
         obs_shape=encoder_spec.obs_shape,
@@ -109,7 +126,7 @@ def train(
         log_every=args.log_every,
         logdir=eff_output_dir,
         design_notes=encoder_spec.design_notes,
-        **encoder_spec.agent_overrides,
+        **agent_overrides,
     )
 
     # --- Build agent ---
@@ -131,6 +148,10 @@ def train(
         val_data=args.val_data,
         val_loss_every=args.val_loss_every,
         resume_from=args.resume_from,
+        overfit_one_batch=args.overfit_one_batch,
+        overfit_steps=args.overfit_steps,
+        overfit_batch_size=args.overfit_batch_size,
+        overfit_seq_len=args.overfit_seq_len,
     )
 
     # --- Build trainer ---

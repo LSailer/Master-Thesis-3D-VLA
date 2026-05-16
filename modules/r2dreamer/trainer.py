@@ -117,6 +117,16 @@ class TrainerConfig:
     # offsets the train loop to start at the checkpoint's step.
     resume_from: str | None = None
 
+    # --- Karpathy step-3 diagnostic: overfit a single sampled batch ---
+    # When True, the run does the normal prefill, then samples one batch
+    # (overfit_batch_size, overfit_seq_len) once, freezes it, and runs
+    # agent.train_step on that same batch for overfit_steps iterations.
+    # No env rollouts, no validation, no checkpointing.
+    overfit_one_batch: bool = False
+    overfit_steps: int = 1000
+    overfit_batch_size: int = 1
+    overfit_seq_len: int = 8
+
 
 # ---------------------------------------------------------------------------
 # habitat_defaults
@@ -286,7 +296,10 @@ class Trainer:
                     print(f"Resume mode: skipping prefill, jumping to step {self._resume_step}")
                 else:
                     self._prefill(rng_key, writer, f)
-                rng_key = self._train_loop(rng_key, writer, f)
+                if tcfg.overfit_one_batch:
+                    rng_key = self._overfit_loop(rng_key, writer, f)
+                else:
+                    rng_key = self._train_loop(rng_key, writer, f)
 
             save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
             status = "completed"
@@ -406,6 +419,47 @@ class Trainer:
             # --- Checkpoint ---
             if (step + 1) % tcfg.checkpoint_every == 0:
                 save_checkpoint(self.agent, step + 1, tcfg.output_dir)
+
+        return rng_key
+
+    # ------------------------------------------------------------------
+    # Overfit-one-batch diagnostic loop (Karpathy step 3)
+    # ------------------------------------------------------------------
+
+    def _overfit_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+        """Freeze one sampled batch and call train_step on it repeatedly.
+
+        Proves the full stack (encoder -> RSSM -> heads) can memorise a real
+        trajectory. If loss does not drop monotonically, the gradient path is
+        broken — no amount of production wall-clock will save the run.
+
+        Disables env rollouts, validation, and checkpointing.
+        """
+        tcfg = self.tcfg
+
+        if self.buffer.size < tcfg.overfit_batch_size * tcfg.overfit_seq_len:
+            raise RuntimeError(
+                f"overfit_one_batch: buffer too small "
+                f"({self.buffer.size} < {tcfg.overfit_batch_size}*{tcfg.overfit_seq_len}). "
+                f"Increase --prefill."
+            )
+
+        # Sample once, freeze, reuse.
+        batch_raw = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch = convert_batch(batch_raw, self.acfg.num_actions)
+        print(
+            f"Overfit mode: cached batch "
+            f"B={tcfg.overfit_batch_size} T={tcfg.overfit_seq_len}; "
+            f"running {tcfg.overfit_steps} train_step iterations."
+        )
+
+        self._t0 = time.time()
+        for step in range(tcfg.overfit_steps):
+            rng_key, train_key = jax.random.split(rng_key)
+            metrics = self.agent.train_step(batch, train_key)
+
+            if step % tcfg.log_every == 0 or step == tcfg.overfit_steps - 1:
+                self._log_train_metrics(metrics, step, writer, f)
 
         return rng_key
 
