@@ -1,35 +1,49 @@
-"""R2DreamerAgent — JAX/Flax port of the R2-Dreamer agent.
+"""R2DreamerAgent — composition root.
 
-Single-optimizer agent with Barlow Twins representation loss, LaProp optimizer,
-AGC gradient clipping, imagination-based actor-critic, and replay-based value
-learning (repval) with gradients through the world model.
+The agent is a thin orchestrator: it owns parameters, the LaProp optimizer,
+the slow-target EMA, the acting state, and the JIT'd train/eval entry points.
+The actual loss math lives in three subpackages, each with its own loss file:
+
+    world_model/loss.py     — KL (dyn + rep) + reward + continue heads
+    behavior/loss.py        — imagination rollout, actor + critic losses
+    representation/loss.py  — Barlow Twins + replay-based value learning
+
+A single shared forward pass (`_world_model_forward`) computes `embed`, the
+RSSM posterior states, prior logits, and `feat`. Those tensors thread into
+all three sub-loss functions so the encoder/RSSM receive the correct combined
+gradient signal under one `jax.grad`.
 """
 
 import functools
-from typing import Any, Dict, Tuple
+from typing import Any, Dict
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
-import flax.linen as nn
 
 from .config import R2DreamerConfig
-from .networks import (
+from .world_model.rssm import R2RSSM
+from .world_model.encoders import (
     R2Encoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
-    R2RSSM,
-    R2MLP,
-    Projector,
-    ReturnEMA,
-    R2TwoHotDist,
 )
+from .world_model.heads import R2MLP, R2TwoHotDist
+from .world_model.loss import world_model_loss, kl_loss as _kl_loss
+from .behavior.return_ema import ReturnEMA
+from .behavior.imagination import _imagine, _lambda_return
+from .behavior.loss import behavior_loss
+from .representation.barlow import Projector
+from .representation.loss import representation_loss
 from modules.shared.optim import laprop, agc
+
+# Re-export internal helpers so test_cross_framework.py keeps working.
+__all__ = ["R2DreamerAgent", "_kl_loss", "_lambda_return", "_imagine"]
 
 
 # ---------------------------------------------------------------------------
-# Helper: Flax module wrappers for apply calls
+# Module factories
 # ---------------------------------------------------------------------------
 
 
@@ -70,7 +84,8 @@ class R2DreamerAgent:
 
     All Flax modules are *stateless* — parameters live in a flat pytree dict
     ``self.params``.  Training is done via ``jax.grad`` of a single loss
-    function that encompasses world-model, actor-critic, and repval losses.
+    function (``_loss_fn``) that composes the world-model, behavior, and
+    representation sub-losses.
     """
 
     def __init__(self, config: R2DreamerConfig, rng_key: jnp.ndarray):
@@ -94,7 +109,8 @@ class R2DreamerAgent:
         action0 = jnp.zeros((1, config.num_actions))
         embed0 = jnp.zeros((1, self.embed_size))
         rng_key, k_sample = jax.random.split(rng_key)
-        rssm_params = self.rssm_mod.init({"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0)
+        rssm_params = self.rssm_mod.init(
+            {"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0)
 
         # Projector: feat_size -> embed_size
         self.proj_mod = Projector(out_dim=self.embed_size)
@@ -145,6 +161,17 @@ class R2DreamerAgent:
             "critic": cri_params,
         }
 
+        # Module bundle passed to sub-loss functions
+        self._modules = {
+            "encoder": self.encoder_mod,
+            "rssm": self.rssm_mod,
+            "projector": self.proj_mod,
+            "reward": self.reward_mod,
+            "cont": self.cont_mod,
+            "actor": self.actor_mod,
+            "critic": self.critic_mod,
+        }
+
         # ---- Optimizer: LaProp with linear warmup ----
         self.tx = laprop(
             lr=config.lr,
@@ -184,20 +211,17 @@ class R2DreamerAgent:
         Args:
             obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN, or
                       {"features": float32 (D,), "is_first": bool} for VGGT.
-            rng_key: PRNG key
-            training: if False, use argmax (greedy)
+            rng_key: PRNG key.
+            training: if False, use argmax (greedy).
 
         Returns:
             Integer action in [0, num_actions).
         """
-        # Preprocess observation
         if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp"):
-            obs = jnp.asarray(obs_dict["features"])[None]  # (1, ...) external features
+            obs = jnp.asarray(obs_dict["features"])[None]
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0
-            obs = jnp.array(image[None])  # (1, C, H, W)
-        # === BP #3 (debug walkthrough — uncomment to re-enable) ===
-        # print(f"[BP#3] obs: shape={obs.shape} dtype={obs.dtype} is_first={obs_dict['is_first']}", flush=True)
+            obs = jnp.array(image[None])
 
         is_first = bool(obs_dict["is_first"])
         if is_first:
@@ -214,7 +238,6 @@ class R2DreamerAgent:
         )
         action_int = int(action_int)
 
-        # Update acting state
         self._act_stoch = np.array(new_stoch)
         self._act_deter = np.array(new_deter)
         self._act_prev_action = np.zeros(
@@ -225,24 +248,17 @@ class R2DreamerAgent:
         return action_int
 
     def _act_jit(self, params, obs, stoch, deter, prev_action, rng_key, training):
-        """JIT-able acting logic.  Returns (action_int, new_stoch, new_deter)."""
+        """JIT-able acting logic. Returns (action_int, new_stoch, new_deter)."""
         embed = self.encoder_mod.apply(params["encoder"], obs)
         rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = self.rssm_mod.apply(
             params["rssm"], stoch, deter, prev_action, embed,
             rngs={"sample": k_sample},
         )
-        # === BP #5 (inside JIT — debug walkthrough — uncomment to re-enable) ===
-        # jax.debug.print(
-        #     "[BP#5] embed: mean={em} std={es} | new_stoch: shape={ss} mean={sm} std={ss2} | new_deter: shape={ds} mean={dm} std={ds2}",
-        #     em=embed.mean(), es=embed.std(),
-        #     ss=new_stoch.shape, sm=new_stoch.mean(), ss2=new_stoch.std(),
-        #     ds=new_deter.shape, dm=new_deter.mean(), ds2=new_deter.std(),
-        # )
         feat = self.rssm_mod.apply(
             params["rssm"], new_stoch, new_deter, method=self.rssm_mod.get_feat
         )
-        logits = self.actor_mod.apply(params["actor"], feat)  # (1, num_actions)
+        logits = self.actor_mod.apply(params["actor"], feat)
 
         def _sample(logits, rng_key):
             return jax.random.categorical(rng_key, logits, axis=-1)[0]
@@ -258,17 +274,7 @@ class R2DreamerAgent:
     # ------------------------------------------------------------------
 
     def train_step(self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray) -> Dict[str, float]:
-        """Perform one gradient step on the given batch.
-
-        Args:
-            batch: dict with keys obs (B,T,C,H,W), actions (B,T,A),
-                   rewards (B,T), is_first (B,T), is_last (B,T),
-                   is_terminal (B,T).
-            rng_key: PRNG key.
-
-        Returns:
-            Metrics dict (Python floats).
-        """
+        """One LaProp step on `batch`. Returns Python-float metrics."""
         (
             self.params,
             self.opt_state,
@@ -309,18 +315,13 @@ class R2DreamerAgent:
         # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
         is_finite = jnp.isfinite(total_loss)
 
-        # Adaptive gradient clipping
         grads = agc(grads, params, clip=self.cfg.agc_clip, pmin=self.cfg.agc_pmin)
-
-        # Optimizer step
         updates, new_opt_state = self.tx.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
 
-        # Return EMA update
-        imag_returns = aux["imag_returns"]
-        new_ema_state = self.return_ema.update(ema_state, imag_returns)
+        new_ema_state = self.return_ema.update(ema_state, aux["imag_returns"])
 
-        # If loss was NaN/inf, roll back to pre-update state
+        # Roll back to pre-update state on NaN/inf
         new_params = jax.tree.map(
             lambda new, old: jnp.where(is_finite, new, old), new_params, params)
         new_opt_state = jax.tree.map(
@@ -336,18 +337,13 @@ class R2DreamerAgent:
         return new_params, new_opt_state, new_slow, new_ema_state, metrics
 
     def eval_loss(self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray) -> Dict[str, float]:
-        """Compute loss on a batch without updating parameters.
-
-        Same metrics as train_step but no gradient computation or optimizer step.
-        Useful for validation loss on held-out data.
-        """
+        """Forward-only loss for validation. Same metrics as `train_step`."""
         metrics = self._jit_eval_loss(
             self.params, self.slow_critic_params, self.ema_state, batch, rng_key,
         )
         return {k: float(v) for k, v in metrics.items()}
 
     def _eval_loss_fn(self, params, slow_critic_params, ema_state, batch, rng_key):
-        """Pure-functional eval loss (JIT-able). Forward pass only."""
         total_loss, aux = self._loss_fn(
             params,
             slow_critic_params=slow_critic_params,
@@ -359,260 +355,90 @@ class R2DreamerAgent:
         metrics["total_loss"] = total_loss
         return metrics
 
-    def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
-        """Compute all losses in one function for jax.grad.
+    # ------------------------------------------------------------------
+    # Composition root: shared forward + 3 sub-losses
+    # ------------------------------------------------------------------
 
-        Returns:
-            (total_loss, aux_dict)
+    def _world_model_forward(self, params, batch, rng_key):
+        """Encoder + posterior rollout + prior + features. Shared across sub-losses.
+
+        Computing this once is essential: if each sub-loss recomputed `embed`,
+        the encoder would receive doubled gradient signal and the
+        `barlow_stop_grad` toggle would no longer mean what it claims.
         """
         cfg = self.cfg
         B, T = batch["obs"].shape[0], batch["obs"].shape[1]
-        metrics = {}
-        losses = {}
 
-        # ----------------------------------------------------------
-        # 1. World model: encode observations, posterior rollout, KL
-        # ----------------------------------------------------------
         obs_flat = batch["obs"].reshape(B * T, *cfg.obs_shape)
-        embed = self.encoder_mod.apply(params["encoder"], obs_flat)
-        embed = embed.reshape(B, T, -1)  # (B, T, embed_size)
+        embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
 
         stoch0, deter0 = self.rssm_mod.apply(
-            params["rssm"], B, method=self.rssm_mod.initial_state
-        )
+            params["rssm"], B, method=self.rssm_mod.initial_state)
+
         rng_key, k_obs = jax.random.split(rng_key)
         post_stochs, post_deters, post_logits = self.rssm_mod.apply(
             params["rssm"], embed, batch["actions"], (stoch0, deter0),
             batch["is_first"], method=self.rssm_mod.observe,
             rngs={"sample": k_obs},
         )
-        # (B, T, stoch_classes, stoch_discrete)
 
-        # Prior logits from posterior deters
         rng_key, k_prior = jax.random.split(rng_key)
-        def _prior_fn(deter_flat):
-            _, logit = self.rssm_mod.apply(
-                params["rssm"], deter_flat, method=self.rssm_mod.prior,
-                rngs={"sample": k_prior},
-            )
-            return logit
-
-        prior_logits = _prior_fn(post_deters.reshape(B * T, -1))
-        prior_logits = prior_logits.reshape(B, T, cfg.stoch_classes, cfg.stoch_discrete)
-
-        # KL losses (free-nats clipping)
-        post_logits_flat = post_logits.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
-        prior_logits_flat = prior_logits.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
-
-        dyn_loss, rep_loss = _kl_loss(
-            post_logits_flat, prior_logits_flat,
-            cfg.stoch_classes, cfg.stoch_discrete, cfg.kl_free
+        _, prior_logits_flat = self.rssm_mod.apply(
+            params["rssm"], post_deters.reshape(B * T, -1),
+            method=self.rssm_mod.prior,
+            rngs={"sample": k_prior},
         )
-        losses["dyn"] = jnp.mean(dyn_loss)
-        losses["rep"] = jnp.mean(rep_loss)
+        prior_logits = prior_logits_flat.reshape(
+            B, T, cfg.stoch_classes, cfg.stoch_discrete)
 
-        # Feature vector
         feat = self.rssm_mod.apply(
-            params["rssm"], post_stochs, post_deters,
-            method=self.rssm_mod.get_feat
-        )  # (B, T, feat_size)
-
-        # ----------------------------------------------------------
-        # 2. Barlow Twins representation loss
-        # ----------------------------------------------------------
-        feat_flat = feat.reshape(B * T, -1)
-        x1 = self.proj_mod.apply(params["projector"], feat_flat)  # (BT, embed_size)
-        # Protocol D toggle: cfg.barlow_stop_grad=False lets Barlow gradient
-        # reach the encoder (aggregator MLP / VGGT). Default True preserves
-        # the original PyTorch behaviour.
-        embed_flat = embed.reshape(B * T, -1)
-        x2 = jax.lax.stop_gradient(embed_flat) if cfg.barlow_stop_grad else embed_flat
-
-        # Use ddof=1 to match PyTorch's torch.std() default (Bessel correction)
-        x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0, ddof=1) + 1e-8)
-        x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0, ddof=1) + 1e-8)
-
-        c = (x1_norm.T @ x2_norm) / (B * T)  # (embed_size, embed_size)
-        invariance_loss = jnp.sum((jnp.diag(c) - 1.0) ** 2)
-        # Off-diagonal: mask the diagonal
-        off_diag_mask = 1.0 - jnp.eye(c.shape[0])
-        redundancy_loss = jnp.sum((c * off_diag_mask) ** 2)
-        losses["barlow"] = invariance_loss + cfg.barlow_lambda * redundancy_loss
-
-        # ----------------------------------------------------------
-        # 3. Reward and continue losses
-        # ----------------------------------------------------------
-        rew_logits = self.reward_mod.apply(params["reward"], feat_flat)
-        rew_logits = rew_logits.reshape(B, T, -1)
-        losses["rew"] = jnp.mean(self.twohot.loss(rew_logits, batch["rewards"]))
-
-        cont_logits = self.cont_mod.apply(params["cont"], feat_flat)
-        cont_logits = cont_logits.reshape(B, T, 1)
-        cont_target = 1.0 - batch["is_terminal"]  # (B, T)
-        losses["con"] = jnp.mean(
-            optax.sigmoid_binary_cross_entropy(
-                cont_logits[..., 0], cont_target
-            )
+            params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat,
         )
 
-        # ----------------------------------------------------------
-        # 4. Imagination rollout (actor-critic)
-        # ----------------------------------------------------------
-        rng_key, imag_key = jax.random.split(rng_key)
+        return {
+            "embed": embed,
+            "post_stochs": post_stochs,
+            "post_deters": post_deters,
+            "post_logits": post_logits,
+            "prior_logits": prior_logits,
+            "feat": feat,
+        }
 
-        # Start from ALL posterior states, detached from world model
-        start_stoch = jax.lax.stop_gradient(
-            post_stochs.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
-        )
-        start_deter = jax.lax.stop_gradient(
-            post_deters.reshape(B * T, cfg.deter_size)
-        )
+    def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
+        """Compose the world-model, behavior, and representation losses.
 
-        horizon = cfg.imagination_horizon + 1
-        imag_feats, imag_actions, imag_rng_keys = _imagine(
-            params["rssm"], params["actor"],
-            self.rssm_mod, self.actor_mod,
-            start_stoch, start_deter,
-            horizon, imag_key,
-        )
-        # imag_feats: (BT, H, feat_size) — detached
-        # imag_actions: (BT, H, num_actions) — clean one-hot, detached
+        Returns:
+            (total_loss, aux) — `aux` carries metrics and the imagination
+            returns used for the post-step `ReturnEMA` update.
+        """
+        cfg = self.cfg
+        B, T = batch["obs"].shape[0], batch["obs"].shape[1]
 
-        # Detach everything from imagination (matches PyTorch @torch.no_grad)
-        imag_feats = jax.lax.stop_gradient(imag_feats)
-        imag_actions = jax.lax.stop_gradient(imag_actions)
+        rng_key, k_fwd = jax.random.split(rng_key)
+        forward = self._world_model_forward(params, batch, k_fwd)
 
-        # Reward and cont predictions on imagined features (frozen)
-        imag_feat_flat = imag_feats.reshape(B * T * horizon, -1)
-        imag_rew_logits = self.reward_mod.apply(
-            jax.lax.stop_gradient(params["reward"]), imag_feat_flat
-        )
-        imag_reward = self.twohot.pred(imag_rew_logits).reshape(B * T, horizon, 1)
-
-        imag_cont_logits = self.cont_mod.apply(
-            jax.lax.stop_gradient(params["cont"]), imag_feat_flat
-        )
-        imag_cont = jax.nn.sigmoid(imag_cont_logits).reshape(B * T, horizon, 1)
-
-        imag_val_logits = self.critic_mod.apply(
-            jax.lax.stop_gradient(params["critic"]), imag_feat_flat
-        )
-        imag_value = self.twohot.pred(imag_val_logits).reshape(B * T, horizon, 1)
-
-        imag_slow_logits = self.critic_mod.apply(
-            slow_critic_params, imag_feat_flat
-        )
-        imag_slow_value = self.twohot.pred(imag_slow_logits).reshape(B * T, horizon, 1)
-
-        disc = 1.0 - 1.0 / cfg.horizon
-        # Match original: weight = cumprod(cont * disc) over all horizon steps
-        weight = jnp.cumprod(imag_cont * disc, axis=1)
-
-        last = jnp.zeros_like(imag_cont)
-        term = 1.0 - imag_cont
-        ret = _lambda_return(
-            last, term, imag_reward, imag_value, imag_value, disc, cfg.lamb
-        )  # (BT, H-1, 1)
-
-        # Advantage
-        ret_offset, ret_scale = self.return_ema.get_stats(ema_state)
-        adv = (ret - imag_value[:, :-1]) / ret_scale
-
-        # Actor loss: re-evaluate unfrozen actor on detached imagined feats
-        # (matches PyTorch: self.actor(imag_feat) on detached features)
-        actor_logits = self.actor_mod.apply(
-            params["actor"], imag_feat_flat
-        ).reshape(B * T, horizon, cfg.num_actions)
-
-        # Apply unimix: mix softmax with uniform (matches PyTorch OneHotDist)
-        probs = jax.nn.softmax(actor_logits, axis=-1)
-        uniform = jnp.ones_like(probs) / cfg.num_actions
-        probs = (1.0 - cfg.unimix_ratio) * probs + cfg.unimix_ratio * uniform
-        log_probs = jnp.log(probs + 1e-8)  # (BT, H, A)
-
-        # log_prob of taken action using clean one-hot (detached)
-        logpi = jnp.sum(log_probs[:, :-1] * imag_actions[:, :-1], axis=-1, keepdims=True)
-
-        # Entropy: -sum(p * log p)
-        entropy = -jnp.sum(probs[:, :-1] * log_probs[:, :-1], axis=-1, keepdims=True)
-
-        losses["policy"] = jnp.mean(
-            jax.lax.stop_gradient(weight[:, :-1])
-            * -(logpi * jax.lax.stop_gradient(adv) + cfg.act_entropy * entropy)
+        wm_losses, wm_metrics = world_model_loss(
+            forward=forward, params=params, batch=batch,
+            modules=self._modules, cfg=cfg, twohot=self.twohot,
         )
 
-        # Critic loss on imagined features
-        cri_logits_imag = self.critic_mod.apply(
-            params["critic"], imag_feat_flat
-        ).reshape(B * T, horizon, cfg.twohot_bins)
-
-        tar_padded = jnp.concatenate(
-            [ret, jnp.zeros_like(ret[:, -1:])], axis=1
-        )  # (BT, H, 1)
-
-        critic_loss_tar = self.twohot.loss(cri_logits_imag[:, :-1], tar_padded[:, :-1, 0])
-        critic_loss_slow = self.twohot.loss(
-            cri_logits_imag[:, :-1],
-            jax.lax.stop_gradient(imag_slow_value[:, :-1, 0]),
-        )
-        losses["value"] = jnp.mean(
-            jax.lax.stop_gradient(weight[:, :-1, 0])
-            * (critic_loss_tar + critic_loss_slow)
+        rng_key, k_behavior = jax.random.split(rng_key)
+        bh_losses, bh_metrics, imag_ret = behavior_loss(
+            forward=forward, params=params, modules=self._modules,
+            cfg=cfg, twohot=self.twohot,
+            slow_critic_params=slow_critic_params, ema_state=ema_state,
+            return_ema=self.return_ema, rng_key=k_behavior,
+            B=B, T=T,
         )
 
-        # ----------------------------------------------------------
-        # 5. Replay-based value learning (repval)
-        # ----------------------------------------------------------
-        # Use feat WITH gradients through world model
-        replay_last = batch["is_last"]   # (B, T)
-        replay_term = batch["is_terminal"]  # (B, T)
-        replay_reward = batch["rewards"]  # (B, T)
-
-        # Bootstrap from imagination returns at first step
-        boot = ret[:, 0].reshape(B, T, 1)
-
-        # Value predictions (frozen) for lambda return computation
-        replay_val_logits = self.critic_mod.apply(
-            jax.lax.stop_gradient(params["critic"]),
-            feat.reshape(B * T, -1),
-        ).reshape(B, T, cfg.twohot_bins)
-        replay_value = self.twohot.pred(replay_val_logits)  # (B, T, 1)
-
-        replay_slow_logits = self.critic_mod.apply(
-            slow_critic_params,
-            feat.reshape(B * T, -1),
-        ).reshape(B, T, cfg.twohot_bins)
-        replay_slow_value = self.twohot.pred(replay_slow_logits)  # (B, T, 1)
-
-        replay_ret = _lambda_return(
-            replay_last[..., None], replay_term[..., None],
-            replay_reward[..., None], replay_value, boot, disc, cfg.lamb,
-        )  # (B, T-1, 1)
-        ret_padded_replay = jnp.concatenate(
-            [replay_ret, jnp.zeros_like(replay_ret[:, -1:])], axis=1
+        rep_losses, rep_metrics = representation_loss(
+            forward=forward, batch=batch, params=params, modules=self._modules,
+            cfg=cfg, twohot=self.twohot,
+            slow_critic_params=slow_critic_params, imag_ret=imag_ret,
+            B=B, T=T,
         )
 
-        # Critic on replay features (WITH world model gradients)
-        repval_logits = self.critic_mod.apply(
-            params["critic"], feat.reshape(B * T, -1)
-        ).reshape(B, T, cfg.twohot_bins)
-
-        repval_weight = 1.0 - replay_last  # (B, T)
-        repval_loss_tar = self.twohot.loss(
-            repval_logits[:, :-1],
-            jax.lax.stop_gradient(ret_padded_replay[:, :-1, 0]),
-        )
-        repval_loss_slow = self.twohot.loss(
-            repval_logits[:, :-1],
-            jax.lax.stop_gradient(replay_slow_value[:, :-1, 0]),
-        )
-        losses["repval"] = jnp.mean(
-            repval_weight[:, :-1] * (repval_loss_tar + repval_loss_slow)
-        )
-
-        # ----------------------------------------------------------
-        # 6. Total loss with scales
-        # ----------------------------------------------------------
+        losses = {**wm_losses, **bh_losses, **rep_losses}
         total_loss = (
             cfg.scale_dyn * losses["dyn"]
             + cfg.scale_rep * losses["rep"]
@@ -624,163 +450,18 @@ class R2DreamerAgent:
             + cfg.scale_repval * losses["repval"]
         )
 
-        # Metrics dict
+        # ---- Metrics ----
+        metrics = {**wm_metrics, **bh_metrics, **rep_metrics}
         for k, v in losses.items():
             metrics[f"loss/{k}"] = v
 
-        # Protocol D diagnostic: track encoder parameter L2 norm so we can see
-        # whether Barlow gradient (or its absence) is actually moving the
-        # encoder weights. Cheap; computed once per step.
+        # Encoder L2 — Protocol D diagnostic for whether Barlow's gradient
+        # toggle is actually moving the encoder weights.
         enc_sq = jax.tree_util.tree_reduce(
             lambda acc, x: acc + jnp.sum(jnp.square(x)),
             params["encoder"], 0.0,
         )
         metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
 
-        # Latent diagnostics
-        prior_probs = jax.nn.softmax(prior_logits_flat, axis=-1)
-        post_probs = jax.nn.softmax(post_logits_flat, axis=-1)
-        metrics["latent/prior_entropy"] = -jnp.mean(
-            jnp.sum(prior_probs * jnp.log(prior_probs + 1e-8), axis=-1))
-        metrics["latent/posterior_entropy"] = -jnp.mean(
-            jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1))
-        metrics["latent/kl_divergence"] = jnp.mean(dyn_loss)
-
-        aux = {
-            "metrics": metrics,
-            "imag_returns": ret.reshape(-1),  # flat for percentile computation
-        }
+        aux = {"metrics": metrics, "imag_returns": imag_ret.reshape(-1)}
         return total_loss, aux
-
-
-# ---------------------------------------------------------------------------
-# Standalone pure functions (used inside JIT)
-# ---------------------------------------------------------------------------
-
-
-def _kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
-    """Compute DreamerV3-style KL losses with free nats.
-
-    Args:
-        post_logits: (N, C, K) posterior logits
-        prior_logits: (N, C, K) prior logits
-        kl_free: free bits threshold
-
-    Returns:
-        dyn_loss: (N,) — KL(sg(post) || prior), clipped
-        rep_loss: (N,) — KL(post || sg(prior)), clipped
-    """
-    post_probs = jax.nn.softmax(post_logits, axis=-1)
-    prior_probs = jax.nn.softmax(prior_logits, axis=-1)
-
-    post_log = jnp.log(post_probs + 1e-8)
-    prior_log = jnp.log(prior_probs + 1e-8)
-
-    # KL(post || prior) = sum(post * (log post - log prior))
-    def _kl(p, logp, logq):
-        return jnp.sum(p * (logp - logq), axis=-1)  # (N, C)
-
-    kl_post_prior = _kl(post_probs, post_log, prior_log)  # (N, C)
-    kl_val = jnp.sum(kl_post_prior, axis=-1)  # (N,) sum over classes
-
-    # dyn_loss: train prior toward frozen posterior
-    sg_post_probs = jax.lax.stop_gradient(post_probs)
-    sg_post_log = jax.lax.stop_gradient(post_log)
-    kl_dyn = jnp.sum(_kl(sg_post_probs, sg_post_log, prior_log), axis=-1)
-    dyn_loss = jnp.maximum(kl_dyn, kl_free)
-
-    # rep_loss: train posterior toward frozen prior
-    sg_prior_log = jax.lax.stop_gradient(prior_log)
-    kl_rep = jnp.sum(_kl(post_probs, post_log, sg_prior_log), axis=-1)
-    rep_loss = jnp.maximum(kl_rep, kl_free)
-
-    return dyn_loss, rep_loss
-
-
-def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
-             start_stoch, start_deter, horizon, rng_key):
-    """Imagination rollout in latent space (no gradients).
-
-    Matches PyTorch: imagination is fully detached (@torch.no_grad).
-    The policy loss is computed separately by re-evaluating the actor
-    on the detached imagined features.
-
-    Args:
-        rssm_params: RSSM parameters (frozen)
-        actor_params: Actor parameters (frozen for imagination)
-        rssm_mod: R2RSSM module
-        actor_mod: MLP module for actor
-        start_stoch: (N, C, K) starting stochastic state
-        start_deter: (N, D) starting deterministic state
-        horizon: number of steps to imagine
-        rng_key: PRNG key
-
-    Returns:
-        feats: (N, horizon, feat_size) — detached
-        actions: (N, horizon, num_actions) — clean one-hot, detached
-    """
-    frozen_rssm_params = jax.lax.stop_gradient(rssm_params)
-    frozen_actor_params = jax.lax.stop_gradient(actor_params)
-
-    stoch = start_stoch
-    deter = start_deter
-    feats = []
-    actions = []
-
-    for step in range(horizon):
-        feat = rssm_mod.apply(
-            frozen_rssm_params, stoch, deter, method=rssm_mod.get_feat
-        )
-
-        # Frozen actor — no gradients during imagination
-        logits = actor_mod.apply(frozen_actor_params, feat)
-        rng_key, k = jax.random.split(rng_key)
-        action = jax.nn.one_hot(
-            jax.random.categorical(k, logits, axis=-1),
-            logits.shape[-1],
-        )
-
-        feats.append(feat)
-        actions.append(action)
-
-        rng_key, k_img = jax.random.split(rng_key)
-        stoch, deter = rssm_mod.apply(
-            frozen_rssm_params, stoch, deter, action, method=rssm_mod.img_step,
-            rngs={"sample": k_img},
-        )
-
-    return jnp.stack(feats, axis=1), jnp.stack(actions, axis=1), None
-
-
-def _lambda_return(last, term, reward, value, boot, disc, lamb):
-    """Compute lambda-returns (generalized advantage estimation target).
-
-    All inputs: (..., T, 1).
-    Returns: (..., T-1, 1).
-    """
-    live = (1.0 - term)[..., 1:, :] * disc
-    cont = (1.0 - last)[..., 1:, :] * lamb
-    interm = reward[..., 1:, :] + (1.0 - cont) * live * boot[..., 1:, :]
-    T_minus_1 = live.shape[-2]
-
-    # Backward scan
-    def _scan_fn(carry, i):
-        # i counts from 0 to T_minus_1 - 1, but we want reversed order
-        idx = T_minus_1 - 1 - i
-        val = interm[..., idx, :] + live[..., idx, :] * cont[..., idx, :] * carry
-        return val, val
-
-    init = boot[..., -1, :]
-    _, outs = jax.lax.scan(
-        _scan_fn, init, jnp.arange(T_minus_1)
-    )
-    # outs: (T_minus_1, ..., 1) — need to reverse and transpose
-    # jax.lax.scan stacks along axis 0, we need to reverse since we computed backwards
-    outs = jnp.flip(outs, axis=0)
-    # Move time axis: (T-1, ..., 1) -> (..., T-1, 1)
-    # For (..., T, 1) input where ... can be (B,) or (B*T,), the scan output is (T-1, ..., 1)
-    # We need to move axis 0 to the second-to-last position
-    ndim = outs.ndim
-    axes = list(range(1, ndim - 1)) + [0, ndim - 1]
-    outs = jnp.transpose(outs, axes)
-    return outs
