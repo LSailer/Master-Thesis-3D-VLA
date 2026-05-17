@@ -126,6 +126,7 @@ class TrainerConfig:
     overfit_steps: int = 1000
     overfit_batch_size: int = 1
     overfit_seq_len: int = 8
+    overfit_min_loss_drop: float = 0.20
 
 
 # ---------------------------------------------------------------------------
@@ -453,13 +454,40 @@ class Trainer:
             f"running {tcfg.overfit_steps} train_step iterations."
         )
 
+        if tcfg.overfit_steps < 1:
+            raise ValueError(f"overfit_steps must be >= 1, got {tcfg.overfit_steps}")
+
         self._t0 = time.time()
+        first_loss = last_loss = 0.0
         for step in range(tcfg.overfit_steps):
             rng_key, train_key = jax.random.split(rng_key)
             metrics = self.agent.train_step(batch, train_key)
+            last_loss = metrics["total_loss"]
+            if step == 0:
+                first_loss = last_loss
 
             if step % tcfg.log_every == 0 or step == tcfg.overfit_steps - 1:
                 self._log_train_metrics(metrics, step, writer, f)
+
+        loss_drop = (first_loss - last_loss) / max(abs(first_loss), 1e-12)
+        writer.writerow([tcfg.overfit_steps - 1, "verify/overfit_loss_drop", loss_drop])
+        writer.writerow([
+            tcfg.overfit_steps - 1,
+            "verify/overfit_pass",
+            float(loss_drop >= tcfg.overfit_min_loss_drop),
+        ])
+        f.flush()
+        print(
+            f"Overfit verify: first_loss={first_loss:.6g} "
+            f"last_loss={last_loss:.6g} drop={loss_drop:.1%} "
+            f"required={tcfg.overfit_min_loss_drop:.1%}"
+        )
+        if loss_drop < tcfg.overfit_min_loss_drop:
+            raise RuntimeError(
+                "overfit_one_batch verification failed: total_loss did not drop "
+                f"by at least {tcfg.overfit_min_loss_drop:.1%}. "
+                "Do not launch a production run until this passes."
+            )
 
         return rng_key
 

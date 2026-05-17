@@ -1,4 +1,4 @@
-"""Observation encoders: convolutional (R2Encoder) and VGGT-based variants.
+"""Observation encoders: convolutional (ConvEncoder) and VGGT-based variants.
 
 Each encoder produces a flat embedding vector consumed by the RSSM posterior
 head. The choice between them is set by `R2DreamerConfig.encoder_type`.
@@ -10,7 +10,7 @@ import flax.linen as nn
 from .rssm import RMSNorm
 
 
-class R2Encoder(nn.Module):
+class ConvEncoder(nn.Module):
     """Convolutional encoder ported from R2-Dreamer.
 
     Expects obs in CHW format (JAX codebase convention: B, C, H, W).

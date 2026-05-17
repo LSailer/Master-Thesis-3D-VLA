@@ -130,6 +130,7 @@ def main(argv: list[str] | None = None) -> dict:
     # --- agent ---
     config = R2DreamerConfig(
         encoder_type="vggt",
+        encoder_module_cls=enc.spec().module_cls,
         obs_shape=(VGGT_FEATURE_DIM,),
         num_actions=4,
     )

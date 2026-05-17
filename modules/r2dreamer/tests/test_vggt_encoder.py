@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.networks import VGGTEncoder, VGGTAggregatorMLPEncoder
+from modules.r2dreamer.world_model.encoders import VGGTEncoder, VGGTAggregatorMLPEncoder
 from modules.shared.replay_buffer import VGGTReplayBuffer
 
 

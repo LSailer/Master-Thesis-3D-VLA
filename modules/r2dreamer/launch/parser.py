@@ -43,6 +43,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="B for the frozen overfit batch (default 1).")
     p.add_argument("--overfit_seq_len", type=int, default=8,
                    help="T for the frozen overfit batch (default 8).")
+    p.add_argument("--overfit_min_loss_drop", type=float, default=0.20,
+                   help="Fail --overfit_one_batch unless total_loss drops by this "
+                        "fraction over the frozen-batch run (default 0.20).")
     # Loss-scale overrides (Protocol C). None => keep config default.
     p.add_argument("--actor_loss_weight", type=float, default=None,
                    help="Override cfg.scale_policy. Set 0 to disable actor loss.")

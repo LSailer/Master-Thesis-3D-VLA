@@ -6,7 +6,7 @@
 
 ## Context
 
-PR #110 is a *spec PR*: it adds the encoder-fusion plan and the `l1-act-entropy-3e-2` baseline page; no implementation. The plan addresses the **3 confounders** documented in issues #87/#88/#89 (geometry destroyed, pose drowned at 0.22% of dims, no multiplicative pose×geometry interactions) by proposing 4 encoder variants on a shared R2Encoder backbone. Until those confounders are removed, the thesis's 3D-vs-2D comparison is uninterpretable.
+PR #110 is a *spec PR*: it adds the encoder-fusion plan and the `l1-act-entropy-3e-2` baseline page; no implementation. The plan addresses the **3 confounders** documented in issues #87/#88/#89 (geometry destroyed, pose drowned at 0.22% of dims, no multiplicative pose×geometry interactions) by proposing 4 encoder variants on a shared ConvEncoder backbone. Until those confounders are removed, the thesis's 3D-vs-2D comparison is uninterpretable.
 
 This audit was run by 3 parallel Explore agents in two rounds (pre-checkout via `git show`, then live-tree). Both rounds converged on the same blockers. Angles: **code-truth** of cited paths/symbols, **design-risk** in the proposed mechanisms, **experiment-rigor** for thesis-defense readiness.
 
@@ -66,8 +66,8 @@ This audit was run by 3 parallel Explore agents in two rounds (pre-checkout via 
 - **Fix:** add `vggt_pose_scaled` (pose × 100, existing Dense) as a 5th variant or 2-run diagnostic. Cheap; large interpretability gain.
 
 ### M4. FiLM "small diff" claim understates the refactor
-- R2Encoder's conv loop is tight ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)): Conv → max_pool → RMSNorm → SiLU.
-- Adding `film_params` kwarg makes R2Encoder branch on FiLM presence — leaks abstraction. Cleaner: `R2EncoderFiLM` wrapper.
+- ConvEncoder's conv loop is tight ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)): Conv → max_pool → RMSNorm → SiLU.
+- Adding `film_params` kwarg makes ConvEncoder branch on FiLM presence — leaks abstraction. Cleaner: `ConvEncoderFiLM` wrapper.
 - Not a blocker, but the diff will be larger than "small kwarg add."
 
 ---
@@ -84,8 +84,8 @@ This audit was run by 3 parallel Explore agents in two rounds (pre-checkout via 
 
 ## What the plan got right
 
-- Shared R2Encoder backbone across 3 of 4 variants — isolates the fusion-mechanism variable cleanly.
-- `R2Encoder` is genuinely shape-agnostic on input channels (Flax `nn.Conv` infers; `mults` derive widths multiplicatively from a base).
+- Shared ConvEncoder backbone across 3 of 4 variants — isolates the fusion-mechanism variable cleanly.
+- `ConvEncoder` is genuinely shape-agnostic on input channels (Flax `nn.Conv` infers; `mults` derive widths multiplicatively from a base).
 - Anchoring on `ab89a0a` (act_entropy=3e-2, 75% SR, 2026-04-30) and freezing hyperparameters across the matrix isolates encoder variation without sabotaging any variant.
 - Pose-ablation as a *causal* probe (vs. SR alone) is well-motivated and aligned with the [2026-03-03 Braun meeting](../meetings/2026-03-03-braun.md).
 - Wiki/reporting integration mirrors the existing [l1-act-entropy-3e-2.md](../experiments/l1-act-entropy-3e-2.md) template.

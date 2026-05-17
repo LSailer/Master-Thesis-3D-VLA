@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Tuple
+from typing import Any, Tuple
 
 
 @dataclass
@@ -21,6 +21,7 @@ class R2DreamerConfig:
 
     # --- Encoder ---
     encoder_type: str = "cnn"  # "cnn", "vggt", or "vggt_aggregator_mlp"
+    encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)

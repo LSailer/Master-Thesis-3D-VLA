@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from modules.r2dreamer.launch.encoders import (
+from modules.r2dreamer.encoders import (
     Encoder,
     CNNEncoder,
     VGGTEncoder,

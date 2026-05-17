@@ -3,7 +3,7 @@
 import inspect
 import pytest
 
-from modules.r2dreamer.launch.encoders import Encoder
+from modules.r2dreamer.encoders import Encoder
 from modules.r2dreamer.launch.registries import encoder_registry, env_registry
 from modules.r2dreamer.launch.curricula import CURRICULA
 

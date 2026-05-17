@@ -38,7 +38,7 @@ from modules.r2dreamer.adapters.vggt_adapter import _vggt_aggregator_features
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
 from modules.r2dreamer.launch.curricula import CURRICULA
-from modules.r2dreamer.launch.encoders import VGGTAggregatorMLPEncoder
+from modules.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from modules.r2dreamer.launch.habitat_setup import make_habitat_env
 from modules.r2dreamer.trainer import convert_batch
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
@@ -94,6 +94,7 @@ def setup(args):
 
     cfg = R2DreamerConfig(
         encoder_type=spec.encoder_type,
+        encoder_module_cls=spec.module_cls,
         obs_shape=spec.obs_shape,
         num_actions=4,
         **spec.agent_overrides,

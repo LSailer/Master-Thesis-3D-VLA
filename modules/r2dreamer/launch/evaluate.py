@@ -143,15 +143,21 @@ def evaluate(
     adapter = enc.make_adapter()
 
     # --- Build agent ---
+    encoder_spec = enc.spec()
     if eff_encoder == "vggt":
         from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
         config = R2DreamerConfig(
             encoder_type="vggt",
+            encoder_module_cls=encoder_spec.module_cls,
             obs_shape=(VGGT_FEATURE_DIM,),
             num_actions=4,
         )
     else:
-        config = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+        config = R2DreamerConfig(
+            encoder_module_cls=encoder_spec.module_cls,
+            obs_shape=(3, 64, 64),
+            num_actions=4,
+        )
     rng_key = jax.random.PRNGKey(args.seed)
 
     if args.random:

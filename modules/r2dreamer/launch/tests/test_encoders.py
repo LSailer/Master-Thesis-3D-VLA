@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from modules.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
-from modules.r2dreamer.launch.encoders import (
+from modules.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
     VGGTEncoder,
@@ -56,7 +56,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            "modules.r2dreamer.encoders.VGGTFeatureExtractor",
             FakeExtractor,
         )
 
@@ -67,6 +67,7 @@ class TestVGGTEncoderConfiguration:
         assert constructed_kwargs == {
             "total_budget": 200_000,
             "budgets_static": tuple([8333] * 24),
+            "compute_heads": True,
         }
 
     def test_vggt_encoder_exposes_wp_cp_spec(self, monkeypatch):
@@ -80,7 +81,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            "modules.r2dreamer.encoders.VGGTFeatureExtractor",
             FakeExtractor,
         )
 
@@ -101,7 +102,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "modules.r2dreamer.launch.encoders.VGGTFeatureExtractor",
+            "modules.r2dreamer.encoders.VGGTFeatureExtractor",
             FakeExtractor,
         )
 

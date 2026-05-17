@@ -36,7 +36,7 @@ Update every encoder `__call__` to accept the new positional `pose` arg:
 
 | Encoder | New signature | Internal change |
 |---|---|---|
-| `R2Encoder` (CNN baseline, no pose) | `__call__(self, obs, pose=None)` | Ignore `pose` |
+| `ConvEncoder` (CNN baseline, no pose) | `__call__(self, obs, pose=None)` | Ignore `pose` |
 | `VGGTEncoder` (current baseline) | `__call__(self, obs, pose)` | Concat internally — numerically identical to the existing single-Dense path |
 | `VGGTEncoder` for `vggt_pose_scaled` | same, with `pose * 100` scaling | Same |
 | `TileEncoder` | `__call__(self, obs, pose)` | Already needed pose as input — minor refactor |
@@ -93,7 +93,7 @@ What stays:
 | Files | LOC (net) |
 |---|---|
 | [modules/r2dreamer/agent.py](../../../modules/r2dreamer/agent.py) — add `_split_obs_pose`, update call site | +30 |
-| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) — update existing `VGGTEncoder` + `R2Encoder` signatures | +15 |
+| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) — update existing `VGGTEncoder` + `ConvEncoder` signatures | +15 |
 | [modules/r2dreamer/launch/registries.py](../../../modules/r2dreamer/launch/registries.py) — none (registry is just class refs) | 0 |
 | `tests/` — new encoder-API tests + parity check that baseline `vggt` is bit-identical before/after | +60 |
 | **Total** | **~100 LOC** across 3 files + 1 new test file |

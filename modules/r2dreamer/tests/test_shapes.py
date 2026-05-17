@@ -17,7 +17,7 @@ class TestR2DreamerConfig:
 
 import jax
 import jax.numpy as jnp
-from modules.r2dreamer.networks import RMSNorm, BlockLinear
+from modules.r2dreamer.world_model.rssm import RMSNorm, BlockLinear
 
 @pytest.fixture
 def rng():
@@ -63,7 +63,7 @@ class TestBlockLinear:
         assert params["params"]["bias"].shape == (512,)
 
 
-from modules.r2dreamer.networks import Deter
+from modules.r2dreamer.world_model.rssm import Deter
 
 class TestDeter:
     def test_output_shape(self, rng):
@@ -96,7 +96,7 @@ class TestDeter:
         assert jnp.allclose(h1, h2)
 
 
-from modules.r2dreamer.networks import R2RSSM
+from modules.r2dreamer.world_model.rssm import R2RSSM
 
 class TestR2RSSM:
     def test_posterior_step(self, rng):
@@ -189,12 +189,14 @@ class TestR2RSSM:
         assert feat.shape == (B, cfg.stoch_size + cfg.deter_size)
 
 
-from modules.r2dreamer.networks import R2Encoder, Projector, ReturnEMA
+from modules.r2dreamer.world_model.encoders import ConvEncoder
+from modules.r2dreamer.representation.barlow import Projector
+from modules.r2dreamer.behavior.return_ema import ReturnEMA
 
-class TestR2Encoder:
+class TestConvEncoder:
     def test_output_shape(self, rng):
         cfg = R2DreamerConfig()
-        enc = R2Encoder(depth=cfg.encoder_depth, kernel_size=cfg.encoder_kernel)
+        enc = ConvEncoder(depth=cfg.encoder_depth, kernel_size=cfg.encoder_kernel)
         obs = jnp.zeros((2, *cfg.obs_shape))  # (2, 3, 64, 64)
         params = enc.init(rng, obs)
         out = enc.apply(params, obs)

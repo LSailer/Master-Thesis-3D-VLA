@@ -80,8 +80,10 @@ class RunResult:
 def _build_cnn(
     seed: int, curriculum_path: str | None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
+    from modules.r2dreamer.world_model.encoders import ConvEncoder
     agent_cfg = R2DreamerConfig(
         encoder_type="cnn",
+        encoder_module_cls=ConvEncoder,
         obs_shape=(3, 64, 64),
         num_actions=4,
         batch_size=16,
@@ -127,9 +129,11 @@ def _build_vggt(
     raw VGGTFeatureExtractor (needed by the loop for instrumented extract calls).
     """
     from modules.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
+    from modules.r2dreamer.world_model.encoders import VGGTEncoder as VGGTEncoderModule
 
     agent_cfg = R2DreamerConfig(
         encoder_type="vggt",
+        encoder_module_cls=VGGTEncoderModule,
         obs_shape=(VGGT_FEATURE_DIM,),
         num_actions=4,
         batch_size=16,

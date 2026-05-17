@@ -117,6 +117,7 @@ def train(
 
     agent_config = R2DreamerConfig(
         encoder_type=encoder_spec.encoder_type,
+        encoder_module_cls=encoder_spec.module_cls,
         obs_shape=encoder_spec.obs_shape,
         num_actions=num_actions,
         total_steps=args.steps,
@@ -152,6 +153,7 @@ def train(
         overfit_steps=args.overfit_steps,
         overfit_batch_size=args.overfit_batch_size,
         overfit_seq_len=args.overfit_seq_len,
+        overfit_min_loss_drop=args.overfit_min_loss_drop,
     )
 
     # --- Build trainer ---

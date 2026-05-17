@@ -24,11 +24,7 @@ import optax
 
 from .config import R2DreamerConfig
 from .world_model.rssm import R2RSSM
-from .world_model.encoders import (
-    R2Encoder,
-    VGGTEncoder,
-    VGGTAggregatorMLPEncoder,
-)
+from .world_model.encoders import ConvEncoder
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
 from .behavior.return_ema import ReturnEMA
@@ -63,15 +59,14 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
 
 
 def _make_encoder(cfg: R2DreamerConfig):
-    if cfg.encoder_type == "vggt":
-        return VGGTEncoder(embed_dim=cfg.vggt_embed_dim)
-    if cfg.encoder_type == "vggt_aggregator_mlp":
-        return VGGTAggregatorMLPEncoder(embed_dim=cfg.vggt_embed_dim)
-    return R2Encoder(
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
+    cls = cfg.encoder_module_cls
+    if cls is ConvEncoder:
+        return cls(
+            depth=cfg.encoder_depth,
+            kernel_size=cfg.encoder_kernel,
+            mults=cfg.encoder_mults,
+        )
+    return cls(embed_dim=cfg.vggt_embed_dim)
 
 
 # ---------------------------------------------------------------------------

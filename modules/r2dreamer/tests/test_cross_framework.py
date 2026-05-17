@@ -26,14 +26,14 @@ from omegaconf import OmegaConf
 
 # -- PyTorch imports --
 from rssm import RSSM as PT_RSSM
-from networks import ConvEncoder as PT_ConvEncoder, MLPHead as PT_MLPHead, Projector as PT_Projector
+from networks import ConvEncoder as PT_ConvEncoder, MLPHead as PT_MLPHead
 
 # -- JAX imports --
-from modules.r2dreamer.networks import (
-    RMSNorm, BlockLinear, Deter, R2RSSM, R2Encoder, R2MLP, Projector,
-    onehot_mode_st,
-)
-from modules.r2dreamer.agent import _kl_loss, _lambda_return
+from modules.r2dreamer.world_model.rssm import RMSNorm, BlockLinear, R2RSSM
+from modules.r2dreamer.world_model.encoders import ConvEncoder
+from modules.r2dreamer.world_model.heads import R2MLP, onehot_mode_st
+from modules.r2dreamer.world_model.loss import kl_loss
+from modules.r2dreamer.behavior.imagination import _lambda_return
 
 
 # =========================================================================
@@ -72,7 +72,7 @@ def _to_np(t):
 
 
 def transfer_encoder(pt_enc, jax_params):
-    """Copy PyTorch ConvEncoder weights into JAX R2Encoder param dict."""
+    """Copy PyTorch ConvEncoder weights into JAX ConvEncoder param dict."""
     p = jax_params["params"].copy() if isinstance(jax_params["params"], dict) else dict(jax_params["params"])
 
     # PyTorch layers: [Conv(0), MaxPool(1), RMSNorm2D(2), SiLU(3), Conv(4), ...]
@@ -325,8 +325,8 @@ class TestEncoder:
             pt_input = torch.tensor(obs_hwc[:, None]).float()  # (B, 1, H, W, C)
             pt_out = _to_np(pt_enc(pt_input).squeeze(1))  # (B, embed_dim)
 
-        # JAX — R2Encoder expects (B, C, H, W) float [0,1]
-        jax_enc = R2Encoder(depth=DEPTH, kernel_size=KERNEL)
+        # JAX — ConvEncoder expects (B, C, H, W) float [0,1]
+        jax_enc = ConvEncoder(depth=DEPTH, kernel_size=KERNEL)
         jax_params = jax_enc.init(rng, jnp.array(obs_chw))
         jax_params = transfer_encoder(pt_enc, jax_params)
         jax_out = np.array(jax_enc.apply(jax_params, jnp.array(obs_chw)))
@@ -532,7 +532,7 @@ class TestKLLoss:
         pt_rep_np = _to_np(pt_rep)
 
         # JAX
-        jax_dyn, jax_rep = _kl_loss(
+        jax_dyn, jax_rep = kl_loss(
             jnp.array(post_logits), jnp.array(prior_logits),
             STOCH, DISCRETE, kl_free,
         )

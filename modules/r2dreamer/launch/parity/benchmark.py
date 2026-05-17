@@ -109,9 +109,11 @@ def _run_variant_jax(transitions, all_starts, train_steps):
     import jax
     from modules.r2dreamer.config import R2DreamerConfig
     from modules.r2dreamer.agent import R2DreamerAgent
+    from modules.r2dreamer.world_model.encoders import ConvEncoder
 
     cfg = R2DreamerConfig(obs_shape=OBS_SHAPE_CHW, num_actions=NUM_ACTIONS,
-                          batch_size=BATCH_SIZE, seq_len=SEQ_LEN)
+                          batch_size=BATCH_SIZE, seq_len=SEQ_LEN,
+                          encoder_module_cls=ConvEncoder)
     rng = jax.random.PRNGKey(SEED)
     rng, init_key = jax.random.split(rng)
     agent = R2DreamerAgent(cfg, init_key)

@@ -18,7 +18,7 @@ This produces three known confounders for the 3D-vs-2D claim (issues #87, #88, #
 
 **Why this needs fixing now.** Without a fix, any 3D-vs-2D win can be attributed to a confound (linear projection vs. CNN), and any 3D-vs-2D loss could mean "VGGT features don't help" or "the encoder threw them away." The encoder must be a fair channel before the comparison is interpretable.
 
-**Outcome we want.** Four fusion variants + a tile-baseline + a magnitude-control baseline that share the same R2Encoder backbone (so the comparison isolates the *fusion mechanism*), a diagnostic harness that measures pose influence on `z` directly (not just SR), and a 15-run experiment matrix on HM3D (12 main + 3 magnitude control) that produces publication-grade ablation rows.
+**Outcome we want.** Four fusion variants + a tile-baseline + a magnitude-control baseline that share the same ConvEncoder backbone (so the comparison isolates the *fusion mechanism*), a diagnostic harness that measures pose influence on `z` directly (not just SR), and a 15-run experiment matrix on HM3D (12 main + 3 magnitude control) that produces publication-grade ablation rows.
 
 User decisions guiding this plan:
 - Implement four approaches: **Tile/CoordConv**, **FiLM**, **Plücker rays**, **Cross-attention**.
@@ -31,17 +31,17 @@ User decisions guiding this plan:
 
 ## Approach overview
 
-All four variants reuse the existing `R2Encoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) as a shared CNN backbone, treating `world_points` as a 3-channel image at 37×37. They differ only in **how camera pose enters**, which is precisely the variable we want to ablate.
+All four variants reuse the existing `ConvEncoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) as a shared CNN backbone, treating `world_points` as a 3-channel image at 37×37. They differ only in **how camera pose enters**, which is precisely the variable we want to ablate.
 
 | Variant | Pose injection | Backbone | Expected role |
 |---|---|---|---|
-| `vggt_tile` | Broadcast 9-D pose to (9, 37, 37), concat to channels (input 12, 37, 37) | R2Encoder | Cheap baseline. If FiLM/Plücker don't beat this, they aren't earning their keep. |
-| `vggt_film` | MLP(pose) → (γ, β) per channel; modulate after each Conv block | R2Encoder w/ FiLM hooks | Per-channel pose dominance, no spatial cost. |
-| `vggt_plucker` | Per-pixel 6D Plücker rays from Habitat extrinsics+intrinsics, concat to channels (input 9, 37, 37) | R2Encoder | Strongest per-token pose signal. Geometry-aware by construction. |
-| `vggt_xattn` | DINOv2 patch tokens as KV, k=8 learned pose queries → MHA | Token-level (no R2Encoder) | Most expressive. Tests whether pose-driven token routing > channel modulation. |
+| `vggt_tile` | Broadcast 9-D pose to (9, 37, 37), concat to channels (input 12, 37, 37) | ConvEncoder | Cheap baseline. If FiLM/Plücker don't beat this, they aren't earning their keep. |
+| `vggt_film` | MLP(pose) → (γ, β) per channel; modulate after each Conv block | ConvEncoder w/ FiLM hooks | Per-channel pose dominance, no spatial cost. |
+| `vggt_plucker` | Per-pixel 6D Plücker rays from Habitat extrinsics+intrinsics, concat to channels (input 9, 37, 37) | ConvEncoder | Strongest per-token pose signal. Geometry-aware by construction. |
+| `vggt_xattn` | DINOv2 patch tokens as KV, k=8 learned pose queries → MHA | Token-level (no ConvEncoder) | Most expressive. Tests whether pose-driven token routing > channel modulation. |
 | `vggt_pose_scaled` | pose × 100 through the existing flatten+linear path | Existing `VGGTEncoder` | Issue #87's Trivial fix. Isolates pose magnitude from encoder routing. If this matches Tile/FiLM/Plücker, the encoder rewrite was unnecessary. |
 
-Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the control, and `cnn` (raw RGB → R2Encoder) stays as the 2D comparison.
+Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the control, and `cnn` (raw RGB → ConvEncoder) stays as the 2D comparison.
 
 ---
 
@@ -125,25 +125,25 @@ class TileEncoder(nn.Module):
             pose[:, :, None, None], (pose.shape[0], 9, 37, 37)
         )  # (B, 9, 37, 37)
         x = jnp.concatenate([wp, pose_tiled], axis=1)  # (B, 12, 37, 37)
-        x = R2Encoder(mults=(2, 3, 4, 4))(x)           # (B, ~4096)
+        x = ConvEncoder(mults=(2, 3, 4, 4))(x)           # (B, ~4096)
         return nn.Dense(self.embed_dim)(x)              # (B, 1024) — matches RSSM contract
 ```
 
-**Note.** R2Encoder's first conv accepts arbitrary input channels, so this works without modification. The `Dense(embed_dim)` projection head is required — without it the output dim (~4096) mismatches the RSSM posterior MLP which expects 1024.
+**Note.** ConvEncoder's first conv accepts arbitrary input channels, so this works without modification. The `Dense(embed_dim)` projection head is required — without it the output dim (~4096) mismatches the RSSM posterior MLP which expects 1024.
 
 ### 2b. `FiLMEncoder`
 
-Refactor `R2Encoder` so the conv loop optionally accepts a list of `(γ, β)` pairs and applies FiLM after each block (after RMSNorm, before SiLU). A small pose MLP produces all (γ, β) at once: `MLP(pose) → 2 * sum(channels)`, split per layer.
+Refactor `ConvEncoder` so the conv loop optionally accepts a list of `(γ, β)` pairs and applies FiLM after each block (after RMSNorm, before SiLU). A small pose MLP produces all (γ, β) at once: `MLP(pose) → 2 * sum(channels)`, split per layer.
 
 ```python
 class FiLMEncoder(nn.Module):
     def __call__(self, obs):
         wp, _, pose = unpack_vggt(obs)
         gammas, betas = FiLMHead(channels=(32, 48, 64, 64))(pose)
-        return R2EncoderFiLM(gammas, betas)(wp)
+        return ConvEncoderFiLM(gammas, betas)(wp)
 ```
 
-`R2EncoderFiLM` is a parameterized variant of `R2Encoder`. The "small kwarg add" framing understates the refactor: R2Encoder's conv loop ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)) is tight (Conv → max_pool → RMSNorm → SiLU); branching on `film_params` leaks abstraction. A cleaner alternative is a separate `R2EncoderFiLM` wrapper class that calls R2Encoder internally. Pick one and document the choice; either is acceptable but the diff will be larger than a single kwarg.
+`ConvEncoderFiLM` is a parameterized variant of `ConvEncoder`. The "small kwarg add" framing understates the refactor: ConvEncoder's conv loop ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)) is tight (Conv → max_pool → RMSNorm → SiLU); branching on `film_params` leaks abstraction. A cleaner alternative is a separate `ConvEncoderFiLM` wrapper class that calls ConvEncoder internally. Pick one and document the choice; either is acceptable but the diff will be larger than a single kwarg.
 
 ### 2c. `PluckerEncoder`
 
@@ -151,7 +151,7 @@ Compute Plücker rays from **Habitat ground-truth extrinsics+intrinsics**, not f
 
 - The Habitat-wrapper extension added in Phase 1 (extrinsics + intrinsics surfaced via `agent_state` in the obs dict). The current wrapper does NOT expose any pose/sensor metadata, so this is a hard dependency — Plücker is blocked until Phase 1 lands the Habitat change.
 - A `compute_plucker(extrinsics, intrinsics, H=37, W=37)` JAX function that returns rays of shape (B, 6, 37, 37). Each pixel (u, v) yields direction `d = R · K⁻¹·[u, v, 1]` and moment `m = origin × d`.
-- Concat to world_points: `x = jnp.concatenate([wp, rays], axis=1)` → (B, 9, 37, 37) → R2Encoder.
+- Concat to world_points: `x = jnp.concatenate([wp, rays], axis=1)` → (B, 9, 37, 37) → ConvEncoder.
 
 ```python
 class PluckerEncoder(nn.Module):
@@ -159,7 +159,7 @@ class PluckerEncoder(nn.Module):
         wp, _, _, extr, intr = unpack_vggt_with_habitat(obs)
         rays = compute_plucker(extr, intr, 37, 37)
         x = jnp.concatenate([wp, rays], axis=1)
-        return R2Encoder()(x)
+        return ConvEncoder()(x)
 ```
 
 **Why Habitat extrinsics, not VGGT's 9-D.** VGGT's pose is a learned embedding without a guaranteed metric interpretation; Plücker math needs a real SE(3) transform. Habitat gives this exactly. (For the other variants, VGGT's 9-D is fine — it's a feature, not a geometric quantity.)
@@ -181,7 +181,7 @@ class CrossAttnEncoder(nn.Module):
         return nn.Dense(self.embed_dim)(out.reshape(B, -1))
 ```
 
-Note: this is the only variant that does **not** use R2Encoder. It uses the patch tokens directly. Include world_points only as an optional KV concat (keep it simple for v1: tokens-only KV).
+Note: this is the only variant that does **not** use ConvEncoder. It uses the patch tokens directly. Include world_points only as an optional KV concat (keep it simple for v1: tokens-only KV).
 
 ### Registry update
 
@@ -189,7 +189,7 @@ Note: this is the only variant that does **not** use R2Encoder. It uses the patc
 
 ```python
 encoder_registry = {
-    "cnn":               CNNEncoder,
+    "cnn":               ConvEncoder,
     "vggt":              VGGTEncoder,        # current baseline
     "vggt_pose_scaled":  VGGTEncoder,        # same class, pose × 100 in adapter
     "vggt_tile":         TileEncoder,
@@ -289,7 +289,7 @@ Before declaring the experiment shipped:
 | [modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py) | Expose patch tokens with seeded fixed 1024→K projection (K = 64 default; consider 512). Verify `aggregated_tokens` shape first. |
 | [modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) | New flat layout; also pack Habitat extrinsics+intrinsics for Plücker; pose ×100 path for `vggt_pose_scaled`. |
 | [modules/shared/replay_buffer.py](../../../modules/shared/replay_buffer.py) | Touched only if option (b) disk-backed wrapper is chosen for the buffer-budget mitigation. |
-| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `R2Encoder` with optional FiLM hooks (or add `R2EncoderFiLM` wrapper). |
+| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `ConvEncoder` with optional FiLM hooks (or add `ConvEncoderFiLM` wrapper). |
 | [modules/r2dreamer/config.py](../../../modules/r2dreamer/config.py) | New `vggt_feature_dim`, per-variant config fields. |
 | [modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) | Register five new encoder names (incl. `vggt_pose_scaled`). |
 | [modules/r2dreamer/agent.py:299](../../../modules/r2dreamer/agent.py#L299) | Add `pose_grad_norm` logging in `_loss_fn` (gated on encoder restructure — see Phase 3a). |
@@ -300,7 +300,7 @@ Before declaring the experiment shipped:
 
 ## Reused functions (no rewriting needed)
 
-- `R2Encoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) — backbone for tile/film/plucker variants.
+- `ConvEncoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) — backbone for tile/film/plucker variants.
 - `RMSNorm`, `R2MLP` ([networks.py:389](../../../modules/r2dreamer/networks.py#L389)) — building blocks.
 - `VGGTFeatureExtractor.extract` and KV-cache machinery ([feature_extractor.py:83](../../../modules/vggt/feature_extractor.py#L83)) — only adds an output, doesn't change call-shape.
 - `R2RSSM.__call__` ([networks.py:229](../../../modules/r2dreamer/networks.py#L229)) — untouched. The encoder contract (`obs → embed (B, 1024)`) is preserved by all variants, so the RSSM posterior head sees the same input shape.
@@ -322,4 +322,4 @@ Before declaring the experiment shipped:
 
 ## Summary
 
-The plan keeps the existing R2Encoder as a shared backbone across three variants, adds a token-level cross-attention as a fourth, and adds a magnitude-control baseline (`vggt_pose_scaled`) so the encoder rewrite isn't credited for a fix that pose × 100 alone would deliver. Pose is given a real pathway in every variant (channels for tile/plücker, modulation for FiLM, queries for x-attn) — none of them can repeat the "pose drowned in 0.22% of dims" failure mode by construction. Diagnostics measure pose influence directly, so the experiment can distinguish "method works but RSSM ignored it" from "method doesn't help." Phase 0 calibrates baseline seed-variance before the matrix runs. Fifteen runs (12 main + 3 magnitude control) land a clean ablation table with the same hyperparameters as the 75% SR baseline.
+The plan keeps the existing ConvEncoder as a shared backbone across three variants, adds a token-level cross-attention as a fourth, and adds a magnitude-control baseline (`vggt_pose_scaled`) so the encoder rewrite isn't credited for a fix that pose × 100 alone would deliver. Pose is given a real pathway in every variant (channels for tile/plücker, modulation for FiLM, queries for x-attn) — none of them can repeat the "pose drowned in 0.22% of dims" failure mode by construction. Diagnostics measure pose influence directly, so the experiment can distinguish "method works but RSSM ignored it" from "method doesn't help." Phase 0 calibrates baseline seed-variance before the matrix runs. Fifteen runs (12 main + 3 magnitude control) land a clean ablation table with the same hyperparameters as the 75% SR baseline.
