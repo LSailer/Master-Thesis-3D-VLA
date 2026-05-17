@@ -1,0 +1,346 @@
+/* ============================================================
+   docs/_assets/style.css — Shared white theme
+   Used by all HTML docs under docs/{reports,research,proposals,
+   onboarding,slides}/.  Per-doc <style> blocks may add accents
+   or diagram styling on top; everything below is the base.
+   ============================================================ */
+
+:root {
+  --bg:           #ffffff;
+  --ink:          #1a1a1a;
+  --muted:        #5a5a5a;
+  --faint:        #8a8a8a;
+  --rule:         #e6e6e6;
+  --rule-strong:  #cfcfcf;
+  --card:         #fbfbfb;
+  --accent:       #2a5db0;
+  --accent-soft:  #eaf0fa;
+  --good:         #1f7a3a;
+  --good-soft:    #ecf6ef;
+  --warn:         #8a5b16;
+  --warn-soft:    #fcf3e0;
+  --bad:          #a02323;
+  --bad-soft:     #fbe9e9;
+  --code-bg:      #f5f5f7;
+  --code-ink:     #2a2a2a;
+  --code-border:  #e6e6e6;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: ui-serif, "Iowan Old Style", Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---------- Layout ---------- */
+.wrap, .container {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 48px 32px 96px;
+}
+
+/* ---------- Headings ---------- */
+header.title,
+header[class~="title"] {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
+}
+
+h1, h2, h3, h4 {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  letter-spacing: -0.005em;
+}
+
+h1 {
+  font-size: 32px;
+  line-height: 1.15;
+  margin: 8px 0 10px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 21px;
+  margin: 44px 0 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+  font-weight: 600;
+}
+
+h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 24px 0 8px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+p { margin: 10px 0; }
+
+.kicker {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lede, .subtitle {
+  color: var(--muted);
+  font-size: 17px;
+  max-width: 64ch;
+  margin: 0;
+}
+
+.subtitle { font-style: italic; font-size: 15px; }
+
+/* ---------- "Valid as of commit" header strip ---------- */
+.valid-as-of {
+  display: block;
+  margin: 12px 0 0;
+  padding: 8px 12px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.valid-as-of code { background: rgba(255,255,255,0.7); }
+
+/* ---------- Code ---------- */
+code, pre, kbd, samp {
+  font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+code {
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--code-border);
+}
+
+pre {
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border: 1px solid var(--code-border);
+  border-radius: 5px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+pre code { background: none; border: none; padding: 0; }
+
+/* ---------- Tables ---------- */
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 14px;
+}
+th, td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+th {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  background: var(--card);
+}
+
+/* ---------- Callouts ---------- */
+.tldr, .ok, .warn, .bad, .callout {
+  padding: 14px 18px;
+  border-radius: 4px;
+  margin: 14px 0 24px;
+  font-size: 15px;
+}
+.tldr     { background: var(--accent-soft); border-left: 4px solid var(--accent); }
+.ok       { background: var(--good-soft);   border-left: 4px solid var(--good); }
+.warn     { background: var(--warn-soft);   border-left: 4px solid var(--warn); }
+.bad      { background: var(--bad-soft);    border-left: 4px solid var(--bad); }
+.callout  { background: var(--card);        border-left: 4px solid var(--accent); }
+.callout.warn { border-left-color: var(--warn); }
+
+.tldr strong, .ok strong, .warn strong, .bad strong, .callout strong {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ---------- TOC ---------- */
+.toc {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 5px;
+  padding: 16px 22px;
+  margin: 24px 0 36px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+}
+.toc strong, .toc-label {
+  display: block;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.toc ol { margin: 0; padding-left: 22px; }
+.toc li { margin: 4px 0; }
+.toc a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+.toc a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+
+/* ---------- Generic links ---------- */
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- Pills & tags ---------- */
+.pill, .tag, .badge {
+  display: inline-block;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 99px;
+  letter-spacing: 0.04em;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.pill.ship, .tag.good   { background: var(--good-soft); color: var(--good); }
+.pill.fix, .tag.warn    { background: var(--warn-soft); color: var(--warn); }
+.pill.bad, .tag.bad     { background: var(--bad-soft);  color: var(--bad); }
+.pill.hist              { background: #ececec; color: #444; }
+.pill.repath            { background: var(--accent-soft); color: var(--accent); }
+
+.effort {
+  display: inline-block;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  margin-left: 6px;
+}
+.effort.low  { background: var(--good-soft); color: var(--good); }
+.effort.med  { background: var(--warn-soft); color: var(--warn); }
+.effort.high { background: var(--bad-soft);  color: var(--bad); }
+
+/* ---------- Suggestion / section cards ---------- */
+section.suggestion,
+.sug,
+.card {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-left: 5px solid var(--accent);
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin: 24px 0;
+}
+section.suggestion { border-left: none; border-top: 1px solid var(--rule); border-radius: 0; padding: 28px 0 0; margin: 48px 0; background: transparent; }
+
+/* ---------- Two-column compare grids ---------- */
+.grid, .grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 14px 0;
+}
+.grid .col, .grid2 .col {
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  padding: 14px 16px;
+}
+.col-header {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+.before .col-header { color: var(--bad); }
+.after  .col-header { color: var(--good); }
+
+/* ---------- Why / How blocks (proposals) ---------- */
+.why, .how, .payoff {
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  font-size: 14.5px;
+}
+.why    { background: var(--card);        border-left: 3px solid var(--muted); }
+.how    { background: var(--accent-soft); border-left: 3px solid var(--accent); }
+.payoff { background: var(--good-soft);   border-left: 3px solid var(--good); }
+
+.why strong, .how strong, .payoff strong {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+.why strong { color: var(--muted); }
+.payoff strong { color: var(--good); }
+
+/* ---------- Footer ---------- */
+footer {
+  margin-top: 64px;
+  padding-top: 20px;
+  border-top: 1px solid var(--rule);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ---------- Misc ---------- */
+hr { border: 0; border-top: 1px solid var(--rule); margin: 30px 0; }
+ul, ol { padding-left: 22px; }
+li { margin: 4px 0; }
+blockquote {
+  margin: 14px 0;
+  padding: 10px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--card);
+  color: var(--ink);
+  font-style: normal;
+}

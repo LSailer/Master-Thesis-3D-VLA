@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>How to structure docs/ better — 5 suggestions</title>
+<link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="title">
+  <div class="kicker">Docs Restructuring · 2026-05-17</div>
+  <h1>Five suggestions for a tidier <code>docs/</code></h1>
+  <p class="lede">
+    Today <code>docs/</code> mixes 13 HTML reports, 6 Markdown plans, slide decks, ADRs and a parallel wiki at one
+    flat level &mdash; with no landing page, no shared style, and no naming convention that tells you whether a
+    file is a snapshot, a plan, or a deck. Five concrete moves, ordered cheapest first.
+  </p>
+</header>
+
+<p class="valid-as-of"><strong>Valid as of:</strong> 2026-05-17 · branch <code>main</code> · HEAD <code>2314ad8</code>.</p>
+
+<!-- ===================== SUG 1 ===================== -->
+<div class="sug">
+  <div class="sug-head">
+    <span class="sug-num">SUG 1</span>
+    <span class="effort low">Effort · 15 min</span>
+    <h2>Rename <code>index.html</code> &rarr; a real docs landing page</h2>
+  </div>
+
+  <p>
+    <code>docs/index.html</code> is not an index. It's a slide deck titled
+    &ldquo;Supervisor Meeting &middot; Mar 3, 2026.&rdquo; A new reader who opens <code>docs/</code> in a browser
+    sees a presentation and has no map to the other 18 files.
+  </p>
+
+  <h3>Concrete move</h3>
+<pre>git mv docs/index.html               docs/slides/2026-03-03-supervisor.html
+# (or .../slides/supervisor-2026-03-03.html)
+
+# Then write a new, lightweight docs/index.html that simply lists
+# every other doc grouped by kind (reports / proposals / research / slides / plans).</pre>
+
+  <div class="why">
+    <strong>Why</strong>
+    A real index is the cheapest piece of navigation infrastructure you can add. It also gives you a single page to
+    link from CLAUDE.md or the repo README, instead of pointing readers at &ldquo;the docs folder, sort by date.&rdquo;
+  </div>
+
+  <div class="how">
+    <strong>How to apply</strong>
+    The new landing page can be 100 lines of static HTML &mdash; one <code>&lt;ul&gt;</code> per section, one
+    <code>&lt;li&gt;</code> per doc with a one-line description. Treat it as the README for the docs folder.
+  </div>
+
+  <p class="now">Right now, <code>docs/index.html</code> ranks #1 on <code>ls docs/</code> alphabetically &mdash; readers expect it to <em>be</em> an index.</p>
+</div>
+
+<!-- ===================== SUG 2 ===================== -->
+<div class="sug">
+  <div class="sug-head">
+    <span class="sug-num">SUG 2</span>
+    <span class="effort low">Effort · 30 min</span>
+    <h2>Subdivide by <em>kind</em>, not by topic</h2>
+  </div>
+
+  <p>
+    There are already four subfolders (<code>adr/</code>, <code>agents/</code>, <code>notes/</code>,
+    <code>wiki/</code>) but HTML reports landed flat alongside them. The rule that's emerging is &ldquo;notes go in
+    folders, HTML stays flat&rdquo; &mdash; which scales badly. Move every doc into a kind-named subdir so the
+    folder name answers &ldquo;what kind of thing is this?&rdquo; before you open it.
+  </p>
+
+  <h3>Target tree</h3>
+<pre>docs/
+  index.html               # SUG 1
+  README.md                # SUG 5 &mdash; the &ldquo;HTML vs MD&rdquo; rule
+  _assets/                 # SUG 4 &mdash; shared stylesheet, images
+  reports/                 # point-in-time experiment reports (baseline-*.html, curriculum-scaling.html, l1-baseline-*.html)
+  research/                # surveys, deep dives (dreamer-vector-input-research.html, transformer-encoder-survey.html, dreamerv3.html, dreamernav.html)
+  proposals/               # design memos with suggestions (aggregator-mlp-upgrade-suggestions.html, ddd-refactor-suggestions.html, overfit-one-batch-aggregator-mlp.html)
+  onboarding/              # onboarding-mlp-encoder.html and future per-variant onboarding docs
+  plans/                   # baseline-training-plan.md, curriculum-preprocessing-plan.md, dreamerv3-evaluation-plan.md, slurm-ci-pipeline.md
+  slides/                  # 2026-03-03-supervisor.html and future decks
+  adr/                     # already exists, leave alone
+  notes/                   # already exists, leave alone (meeting notes)
+  agents/                  # already exists, leave alone (agent runbooks)
+  wiki/                    # already exists, leave alone</pre>
+
+  <div class="why">
+    <strong>Why</strong>
+    Five new readers will all ask the same question first &mdash; &ldquo;is this a proposal I should act on, or a
+    snapshot of something that already happened?&rdquo; The folder name should answer it. <code>reports/</code> vs
+    <code>proposals/</code> is a stronger signal than any naming prefix.
+  </div>
+
+  <div class="how">
+    <strong>How to apply</strong>
+    Use <code>git mv</code> so history is preserved. Do it in one commit to avoid half-states. Update any
+    cross-references (e.g. <code>onboarding-mlp-encoder.html</code> links to
+    <code>aggregator-mlp-upgrade-suggestions.html</code>; those links will need a <code>../proposals/</code> prefix).
+  </div>
+</div>
+
+<!-- ===================== SUG 3 ===================== -->
+<div class="sug">
+  <div class="sug-head">
+    <span class="sug-num">SUG 3</span>
+    <span class="effort low">Effort · 10 min per doc, ongoing</span>
+    <h2>Adopt a &ldquo;valid-as-of&rdquo; convention for snapshots</h2>
+  </div>
+
+  <p>
+    The review of these six files surfaced one recurring failure mode: line-anchored citations decay fast in an
+    active refactor. <code>onboarding-mlp-encoder.html</code> already does the right thing &mdash; its footer says
+    &ldquo;Generated 2026-05-16 from branch <code>feat/variant-1-aggregator-mlp</code> at commit
+    <code>34f8c05</code>.&rdquo; Make that pattern standard.
+  </p>
+
+  <h3>Two-line header template</h3>
+<pre>&lt;p class=&quot;subtitle&quot;&gt;
+  Valid as of commit &lt;code&gt;34f8c05&lt;/code&gt; &middot; 2026-05-16 &middot; branch &lt;code&gt;feat/variant-1-aggregator-mlp&lt;/code&gt;.
+  For drift after this date, prefer &lt;code&gt;git log -- &lt;paths&gt;&lt;/code&gt; over this document.
+&lt;/p&gt;</pre>
+
+  <h3>Where it goes</h3>
+  <table>
+    <thead><tr><th>Folder</th><th>Header required?</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>reports/</code></td><td>Yes</td><td>Snapshot of a run; numbers will change.</td></tr>
+      <tr><td><code>onboarding/</code></td><td>Yes</td><td>File paths and shapes will move.</td></tr>
+      <tr><td><code>proposals/</code></td><td>Yes</td><td>Code may already match the proposal (see <code>ddd-refactor-suggestions.html</code>).</td></tr>
+      <tr><td><code>research/</code></td><td>Optional</td><td>If grounded in upstream repos, an external-cite date is enough.</td></tr>
+      <tr><td><code>plans/</code></td><td>Date in filename</td><td>Plans are short-lived &mdash; encode the date in the name.</td></tr>
+      <tr><td><code>slides/</code></td><td>Date in filename</td><td>One deck per meeting; date is the primary key.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="why">
+    <strong>Why</strong>
+    The five recently-generated docs all carry &ldquo;2026-05-16&rdquo; in their body text but <em>not</em> in
+    their filename. After a few weeks they become indistinguishable from each other in <code>ls -t</code>. A
+    consistent header lets future-you (and PR reviewers) tell &ldquo;is this still load-bearing?&rdquo; without
+    opening the file.
+  </div>
+</div>
+
+<!-- ===================== SUG 4 ===================== -->
+<div class="sug">
+  <div class="sug-head">
+    <span class="sug-num">SUG 4</span>
+    <span class="effort med">Effort · 1&ndash;2 hours one-off</span>
+    <h2>Extract one shared stylesheet, retire the per-file CSS</h2>
+  </div>
+
+  <p>
+    Every new HTML report ships ~250 lines of bespoke CSS in its <code>&lt;head&gt;</code>. The aesthetic varies
+    file-to-file (warm cream serif vs cool dark dev theme vs blue clinical theme). That's fine for an artist's
+    portfolio; for a thesis docs corpus it makes the work feel uncurated and bloats every file by 5&ndash;10 KB
+    of duplicated styling.
+  </p>
+
+  <h3>The change</h3>
+<pre>docs/_assets/
+  style.css            # one base stylesheet: typography, code blocks, callouts, tables, tags
+  style-dark.css       # optional: dark variant for &ldquo;dev tooling&rdquo; docs that prefer it
+  print.css            # optional: pdf-friendly variant
+
+&lt;!-- in every doc --&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../_assets/style.css&quot;&gt;</pre>
+
+  <p>Keep the per-doc visual identity small &mdash; one accent color and any doc-specific diagram CSS &mdash; in a
+  short <code>&lt;style&gt;</code> block. That's the 80/20 split: 90% shared, 10% bespoke.</p>
+
+  <div class="why">
+    <strong>Why</strong>
+    Three downstream wins. (1) A new doc takes 5 minutes to author, not 30 spent picking colors. (2) Fixing a
+    typography choice (e.g. better code-block contrast) becomes one edit instead of 13. (3) The corpus reads
+    like one body of work, which matters for thesis presentation.
+  </div>
+
+  <div class="how">
+    <strong>How to apply</strong>
+    Start by copy-pasting the <em>most legible</em> existing stylesheet (the cream-serif theme used in
+    <code>aggregator-mlp-upgrade-suggestions.html</code> and <code>ddd-refactor-suggestions.html</code> is
+    consistent and readable) into <code>_assets/style.css</code>, then migrate one doc at a time. Don't try to
+    unify everything in one PR.
+  </div>
+</div>
+
+<!-- ===================== SUG 5 ===================== -->
+<div class="sug">
+  <div class="sug-head">
+    <span class="sug-num">SUG 5</span>
+    <span class="effort low">Effort · 15 min</span>
+    <h2>Write a one-page <code>docs/README.md</code> that defines the rules</h2>
+  </div>
+
+  <p>
+    Right now the rules for &ldquo;when do I write Markdown vs HTML?&rdquo; live nowhere &mdash; they have to be
+    inferred. A short README codifies the conventions so the next Claude session (or collaborator) doesn't have to
+    re-derive them.
+  </p>
+
+  <h3>Sketch contents</h3>
+<pre># docs/
+
+A map of what lives here and the rules for adding to it.
+
+## Folders
+- `reports/`      Polished experiment snapshots. HTML. Always include a &ldquo;valid-as-of commit&rdquo; header.
+- `research/`     Surveys and deep-dives grounded in upstream code or papers. HTML.
+- `proposals/`    Design memos with suggestions. HTML.
+- `onboarding/`   Onboarding docs for new variants / new collaborators. HTML.
+- `plans/`        Short-lived plans. Markdown. Date-prefixed filename.
+- `slides/`       Presentation decks. HTML. Date-prefixed filename.
+- `notes/`        Meeting notes. Markdown. Date-prefixed filename.
+- `adr/`          Architectural decision records. Markdown.
+- `agents/`       Agent runbooks. Markdown.
+- `wiki/`         Long-form wiki (separate index inside).
+- `_assets/`      Shared stylesheet + images.
+
+## HTML vs Markdown
+- Use **HTML** when: the doc has diagrams, custom tables, multi-color callouts, slide-style layout, or will be
+  shared as a static page.
+- Use **Markdown** when: you want clean `git diff`s, the doc is short, or the audience is GitHub web UI.
+- Never both for the same content &mdash; pick one and link from the other if needed.
+
+## Adding a new HTML doc
+1. Copy `_assets/_template.html` for the boilerplate header.
+2. Drop into the right folder per the kind rule above.
+3. Include the &ldquo;valid-as-of&rdquo; header.
+4. Link it from `index.html`.</pre>
+
+  <div class="why">
+    <strong>Why</strong>
+    Documentation rot is usually a coordination problem, not a writing problem. A 60-line README that says
+    &ldquo;HTML goes in <code>proposals/</code>, plans go in <code>plans/</code>&rdquo; resolves 90% of the
+    &ldquo;where do I put this?&rdquo; decisions before they happen.
+  </div>
+
+  <div class="how">
+    <strong>How to apply</strong>
+    Add the README in the same commit as Suggestion 2's restructure so the rules and the layout ship together.
+    Reference it from the root <code>CLAUDE.md</code> so Claude reads it when starting a new docs task.
+  </div>
+</div>
+
+<h2 style="border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin-top: 48px;">Suggested order of attack</h2>
+
+<ol>
+  <li><strong>SUG 1 &amp; 5</strong> first &mdash; pure additions, no moves, instantly useful.</li>
+  <li><strong>SUG 2</strong> next &mdash; one commit, all <code>git mv</code>, fixes the &ldquo;flat folder&rdquo; problem.</li>
+  <li><strong>SUG 3</strong> as you write each new doc &mdash; no batch migration needed; the convention spreads naturally.</li>
+  <li><strong>SUG 4</strong> last &mdash; biggest effort, smallest correctness payoff. Worth doing eventually for the thesis-quality polish, but never blocking.</li>
+</ol>
+
+<footer>
+  Generated 2026-05-17 against branch <code>main</code> (HEAD <code>2314ad8</code>).
+  Grounded in <code>ls docs/</code>, <code>docs/index.html</code> (currently a slide deck), and the file-naming
+  patterns of the six newly-untracked HTML docs.
+</footer>
+
+</div>
+</body>
+</html>

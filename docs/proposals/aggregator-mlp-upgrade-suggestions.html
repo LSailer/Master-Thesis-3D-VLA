@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Aggregator MLP — Upgrade Suggestions</title>
+<link rel="stylesheet" href="../_assets/style.css">
+</head>
+<body>
+<div class="wrap">
+
+<h1>Aggregator MLP — Upgrade Suggestions</h1>
+<p class="subtitle">
+Five concrete ways to replace the mean-pool / single-Dense path with r2dreamer-style <code>3×(Linear + RMSNorm + SiLU) + symlog</code>, ordered cheapest&nbsp;→&nbsp;heaviest.<br>
+Branch context: <code>feat/variant-1-aggregator-mlp</code> · 2026-05-16<br>
+Source reports: <a href="../onboarding/onboarding-mlp-encoder.html">onboarding-mlp-encoder.html</a> · <a href="../research/dreamer-vector-input-research.html">dreamer-vector-input-research.html</a>
+</p>
+
+<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> file-path citations in this doc (e.g. <code>networks.py:457</code>) predate PR #145 — the Flax encoder now lives at <code>modules/r2dreamer/world_model/encoders.py:61</code>. Apply the suggestions there.</p>
+
+<div class="tldr">
+<strong>TL;DR.</strong> The current pipeline does mean-pool <em>before</em> the replay buffer plus a single <code>nn.Dense(1024)</code> <em>after</em> it. The r2dreamer MLP pattern (3 Linear layers + RMSNorm + SiLU, with <code>symlog</code> on the input) is what DreamerV3 itself uses on vector observations &mdash; so the highest-leverage, lowest-risk change is to apply it to the agent-side encoder (Suggestion #1). Suggestions #3 and #4 alter <em>what</em> gets pooled (richer signals into the buffer); Suggestion #5 trains the pool end-to-end. Anything that changes the adapter <em>before</em> the buffer is bounded by storage &mdash; you can't store all 1374 tokens for 5000 frames (≈28 GB).
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+  <li><a href="#sug-1">Suggestion 1 &mdash; Drop-in: keep mean-pool, replace the Dense with full r2dreamer MLP+symlog</a></li>
+  <li><a href="#sug-2">Suggestion 2 &mdash; Minimal: just add <code>symlog</code> in front of the existing Dense</a></li>
+  <li><a href="#sug-3">Suggestion 3 &mdash; Multi-statistic pool (mean + max + std) &rarr; r2dreamer MLP</a></li>
+  <li><a href="#sug-4">Suggestion 4 &mdash; Special-token bypass: drop patch noise, keep the 5 special tokens</a></li>
+  <li><a href="#sug-5">Suggestion 5 &mdash; Learned attention-pool: train the aggregator end-to-end</a></li>
+  <li><a href="#path">Recommended ordering &amp; ablation matrix</a></li>
+</ol>
+</div>
+
+<!-- ===================================================== -->
+<div class="sug t1" id="sug-1">
+  <div class="sug-head">
+    <span class="sug-num">SUG 1 &nbsp;·&nbsp; RECOMMENDED FIRST DROP-IN</span>
+    <h2 class="sug-title" style="border:0; padding:0; margin:0;">Replace the single <code>Dense(1024)</code> with r2dreamer&rsquo;s 3-layer MLP&nbsp;+&nbsp;symlog</h2>
+  </div>
+
+  <p>Keeps mean-pool unchanged &mdash; only the Flax encoder body changes. This is exactly the MLP r2dreamer uses for proprioceptive vector inputs (3 Linear blocks, RMSNorm, SiLU, optional <code>symlog</code>). See diagram in <a href="../research/dreamer-vector-input-research.html#sec-mlp-diagram">dreamer-vector-input-research.html&#x2009;§4</a>.</p>
+
+  <div class="sug-meta">
+    <div class="k">Touch</div><div class="v"><code>modules/r2dreamer/networks.py:457-478</code></div>
+    <div class="k">Replay buffer</div><div class="v">unchanged &mdash; still <code>(1024,)</code> per frame</div>
+    <div class="k">Cost</div><div class="v"><span class="tag cost-low">params&nbsp;+6M</span><span class="tag cost-low">latency&nbsp;~0</span><span class="tag risk-low">risk low</span></div>
+    <div class="k">Expected gain</div><div class="v">Non-linear capacity + correctly-scaled inputs before RSSM &mdash; brings you <em>into</em> the architectural regime DreamerV3 was tuned for.</div>
+  </div>
+
+<pre><span class="ln">1</span> <span class="kw">class</span> VGGTAggregatorMLPEncoder(nn.Module):
+<span class="ln">2</span>     embed_dim: <span class="kw">int</span> = <span class="num">1024</span>
+<span class="ln">3</span>     layers: <span class="kw">int</span> = <span class="num">3</span>
+<span class="ln">4</span>     symlog_inputs: <span class="kw">bool</span> = <span class="kw">True</span>
+<span class="ln">5</span>
+<span class="ln">6</span>     <span class="kw">def</span> setup(self):
+<span class="ln">7</span>         self.fc   = [nn.Dense(self.embed_dim) <span class="kw">for</span> _ <span class="kw">in</span> range(self.layers)]
+<span class="ln">8</span>         self.norm = [nn.RMSNorm(epsilon=<span class="num">1e-4</span>) <span class="kw">for</span> _ <span class="kw">in</span> range(self.layers)]
+<span class="ln">9</span>
+<span class="ln">10</span>     <span class="kw">def</span> __call__(self, x):                          <span class="com"># (B, T, 1024) or (B, 1024)</span>
+<span class="ln">11</span>         <span class="kw">if</span> self.symlog_inputs:
+<span class="ln">12</span>             x = jnp.sign(x) * jnp.log1p(jnp.abs(x)) <span class="com"># symlog</span>
+<span class="ln">13</span>         <span class="kw">for</span> fc, norm <span class="kw">in</span> zip(self.fc, self.norm):
+<span class="ln">14</span>             x = jax.nn.silu(norm(fc(x)))
+<span class="ln">15</span>         <span class="kw">return</span> x                                    <span class="com"># (B, T, 1024)</span>
+</pre>
+
+  <div class="warn" style="margin-top: 12px;">
+    <strong>Why this is the right place to start.</strong> A single <code>Dense</code> with no norm on un-symlogged VGGT activations very likely produces scale mismatches with the RSSM&rsquo;s <code>deter+stoch</code> concatenation. So #1 fixes a problem you may not have realized you had &mdash; before you start architecting fancier pools.
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<div class="sug t1" id="sug-2">
+  <div class="sug-head">
+    <span class="sug-num">SUG 2 &nbsp;·&nbsp; ABLATION CONTROL</span>
+    <h2 class="sug-title" style="border:0; padding:0; margin:0;">Just add <code>symlog</code> &mdash; smallest possible change</h2>
+  </div>
+
+  <p>Wrap the existing single <code>Dense(1024)</code> input in <code>symlog</code>. Tests the <em>&ldquo;were the inputs simply miscalibrated?&rdquo;</em> hypothesis in isolation, separately from the MLP-depth change.</p>
+
+  <div class="sug-meta">
+    <div class="k">Touch</div><div class="v"><code>modules/r2dreamer/networks.py:457</code> &mdash; one line</div>
+    <div class="k">Replay buffer</div><div class="v">unchanged</div>
+    <div class="k">Cost</div><div class="v"><span class="tag cost-low">params&nbsp;+0</span><span class="tag cost-low">latency&nbsp;~0</span><span class="tag risk-low">risk minimal</span></div>
+    <div class="k">Expected gain</div><div class="v">Compresses unbounded VGGT activations (e.g. 1000&nbsp;&rarr;&nbsp;6.9) without losing sign or zero-region resolution. DreamerV3 ablations attribute meaningful gains to symlog alone on proprio envs.</div>
+  </div>
+
+<pre><span class="ln">1</span> <span class="kw">def</span> __call__(self, x):
+<span class="ln">2</span>     x = jnp.sign(x) * jnp.log1p(jnp.abs(x))   <span class="com"># &lt;-- only new line</span>
+<span class="ln">3</span>     <span class="kw">return</span> nn.Dense(self.embed_dim)(x)
+</pre>
+
+  <p><strong>Use this as the &ldquo;control&rdquo;</strong> for Suggestion 1. If #2 alone explains most of the gain, you know the issue was input scale, not non-linear capacity.</p>
+</div>
+
+<!-- ===================================================== -->
+<div class="sug t2" id="sug-3">
+  <div class="sug-head">
+    <span class="sug-num">SUG 3 &nbsp;·&nbsp; RICHER POOL, CHEAP STORAGE</span>
+    <h2 class="sug-title" style="border:0; padding:0; margin:0;">Multi-statistic pool: mean + max + std &rarr; r2dreamer MLP</h2>
+  </div>
+
+  <p>Mean alone throws away most of the token distribution. Compute <code>mean</code>, <code>max</code>, <code>std</code> across the 1374 tokens at adapter time, concatenate to <code>(3072,)</code>, then run the 3-layer MLP+symlog on the agent side. Buffer grows only 3&times;.</p>
+
+  <div class="sug-meta">
+    <div class="k">Touch</div>
+    <div class="v">
+      <ul style="margin: 0; padding-left: 18px;">
+        <li><code>vggt_adapter.py:38</code> &mdash; replace <code>tokens.mean(0)</code></li>
+        <li><code>networks.py:457</code> &mdash; input dim 3072, output 1024 (use the 3-layer MLP from Sug&nbsp;1)</li>
+        <li><code>EncoderSpec.obs_shape</code> &mdash; <code>(3072,)</code></li>
+      </ul>
+    </div>
+    <div class="k">Replay buffer</div><div class="v">5000&nbsp;&times;&nbsp;3072&nbsp;&times;&nbsp;4&nbsp;B&nbsp;&asymp;&nbsp;60&nbsp;MB &mdash; negligible</div>
+    <div class="k">Cost</div><div class="v"><span class="tag cost-low">buffer&nbsp;3&times;</span><span class="tag cost-low">acting&nbsp;~µs</span><span class="tag risk-low">risk low</span></div>
+    <div class="k">Expected gain</div><div class="v">Mean is blind to <em>which</em> patches carry salient activations vs uniform background; max captures peak responses, std captures spread. Classic fix for &ldquo;pooled representation lost too much information.&rdquo;</div>
+  </div>
+
+<pre><span class="ln">1</span> <span class="com"># vggt_adapter.py</span>
+<span class="ln">2</span> mean = tokens.mean(axis=<span class="num">0</span>)              <span class="com"># (1024,)</span>
+<span class="ln">3</span> mx   = tokens.max(axis=<span class="num">0</span>)               <span class="com"># (1024,)</span>
+<span class="ln">4</span> std  = tokens.std(axis=<span class="num">0</span>)               <span class="com"># (1024,)</span>
+<span class="ln">5</span> features = jnp.concatenate([mean, mx, std], axis=-<span class="num">1</span>)  <span class="com"># (3072,)</span>
+</pre>
+</div>
+
+<!-- ===================================================== -->
+<div class="sug t2" id="sug-4">
+  <div class="sug-head">
+    <span class="sug-num">SUG 4 &nbsp;·&nbsp; SEMANTICALLY-AWARE POOL</span>
+    <h2 class="sug-title" style="border:0; padding:0; margin:0;">Special-token bypass: drop patch noise, keep the 5 special tokens</h2>
+  </div>
+
+  <p>Of the 1374 tokens, only the first <strong>5 are special</strong> (1 camera + 4 register). VGGT&rsquo;s global-attention blocks are <em>trained</em> to write summary scene state into these. Mean-pooling all 1374 dilutes them 274&times; with patch noise.</p>
+
+  <div class="sug-meta">
+    <div class="k">Touch</div>
+    <div class="v">
+      <ul style="margin: 0; padding-left: 18px;">
+        <li><code>vggt_adapter.py</code> &mdash; <code>tokens[:5]</code>, flatten to <code>(5120,)</code>; optionally add a single mean-pool of the patch tokens too &rarr; <code>(6144,)</code></li>
+        <li><code>networks.py</code> &mdash; 3-layer MLP+symlog with input 5120 or 6144</li>
+      </ul>
+    </div>
+    <div class="k">Replay buffer</div><div class="v">5&times;&ndash;6&times; larger &mdash; ~100 MB total; tiny in absolute terms</div>
+    <div class="k">Cost</div><div class="v"><span class="tag cost-low">buffer&nbsp;~5&times;</span><span class="tag cost-low">acting&nbsp;~0</span><span class="tag risk-med">risk low&ndash;med</span></div>
+    <div class="k">Expected gain</div><div class="v">Strongest semantic pool &mdash; uses tokens VGGT itself uses as scene summaries. The MLP+symlog then learns how to combine them for Dreamer&rsquo;s objectives.</div>
+  </div>
+
+<pre><span class="ln">1</span> <span class="com"># vggt_adapter.py</span>
+<span class="ln">2</span> special = tokens[:<span class="num">5</span>].reshape(-<span class="num">1</span>)        <span class="com"># (5*1024,) = (5120,)</span>
+<span class="ln">3</span> patch_mean = tokens[<span class="num">5</span>:].mean(axis=<span class="num">0</span>)     <span class="com"># (1024,) — optional</span>
+<span class="ln">4</span> features = jnp.concatenate([special, patch_mean], axis=-<span class="num">1</span>)  <span class="com"># (6144,)</span>
+</pre>
+
+  <div class="warn">
+    <strong>Caveat.</strong> The semantic meaning of the 4 register tokens depends on the VGGT checkpoint &mdash; some are dominated by camera-pose-related signals; others encode global geometry. Worth probing them once with a quick PCA / cosine-sim viz before betting heavily on this variant.
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<div class="sug t3" id="sug-5">
+  <div class="sug-head">
+    <span class="sug-num">SUG 5 &nbsp;·&nbsp; AMBITIOUS / RESERVE</span>
+    <h2 class="sug-title" style="border:0; padding:0; margin:0;">Learned attention-pool: train the aggregator end-to-end with the world model</h2>
+  </div>
+
+  <p>Sub-sample the 1374 tokens to a small fixed set (e.g.&nbsp;~37: 5 special + 32 strided patch tokens), store those in the buffer, then on the agent side run a learned <em>attention-pool</em> (single query, multi-head attention) &rarr; <code>(1024,)</code> &rarr; 3-layer MLP+symlog. The pool itself is now trained jointly with the RSSM and value/reward heads.</p>
+
+  <div class="sug-meta">
+    <div class="k">Touch</div>
+    <div class="v">
+      <ul style="margin: 0; padding-left: 18px;">
+        <li><code>vggt_adapter.py</code> &mdash; <code>tokens[::43]</code> &cup; <code>tokens[:5]</code> &rarr; <code>(37, 1024)</code></li>
+        <li><code>networks.py</code> &mdash; new <code>AttentionPool(num_queries=1, num_heads=4, embed_dim=1024)</code> &rarr; 3-layer MLP+symlog</li>
+        <li><code>EncoderSpec.obs_shape</code> &mdash; <code>(37, 1024)</code> (2-D spec; r2dreamer flattens for MLP routing per <code>networks.py:108-109</code>)</li>
+      </ul>
+    </div>
+    <div class="k">Replay buffer</div><div class="v">5000&nbsp;&times;&nbsp;37&nbsp;&times;&nbsp;1024&nbsp;&times;&nbsp;4&nbsp;B&nbsp;&asymp;&nbsp;760&nbsp;MB &mdash; fits H100 host RAM but check</div>
+    <div class="k">Cost</div><div class="v"><span class="tag cost-med">buffer&nbsp;~37&times;</span><span class="tag cost-med">params&nbsp;+5&ndash;10M</span><span class="tag risk-high">risk med&ndash;high</span></div>
+    <div class="k">Expected gain</div><div class="v">Highest ceiling &mdash; lets gradients shape <em>which</em> tokens matter for prediction loss. Biggest engineering surface; saves for after Sug&nbsp;1&ndash;3 have been baselined so attribution is clean.</div>
+  </div>
+
+  <div class="warn">
+    <strong>Don&rsquo;t start here.</strong> If you jump directly to attention-pool, any improvement is confounded with the missing MLP capacity (Sug&nbsp;1) and the missing input compression (Sug&nbsp;2). Run those first; otherwise you cannot tell what is actually contributing the gain.
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="path">Recommended ordering &amp; ablation matrix</h2>
+
+<p>Each row is independently testable against your <code>size12M</code> smoke-run baseline. <code>vggt_aggregator_mlp</code> stays as the encoder-spec name across all of them &mdash; only the Flax module body and (for Sug&nbsp;3&ndash;5) the adapter <code>transform()</code> change.</p>
+
+<table>
+  <thead>
+  <tr>
+    <th>Order</th><th>Variant</th><th>What you isolate</th><th>If gain &gt; 0 vs baseline, conclude&hellip;</th>
+  </tr>
+  </thead>
+  <tbody>
+  <tr>
+    <td>1</td>
+    <td><a href="#sug-2">Sug 2 &mdash; symlog only</a></td>
+    <td>Input scale</td>
+    <td>VGGT activations were miscalibrated for an unnormalised Dense.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><a href="#sug-1">Sug 1 &mdash; full r2dreamer MLP+symlog</a></td>
+    <td>+ Non-linear capacity</td>
+    <td>The encoder needs more than one linear projection to feed the RSSM well.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><a href="#sug-3">Sug 3 &mdash; multi-stat pool + MLP</a></td>
+    <td>+ Richer pooled signals</td>
+    <td>Mean alone was discarding distributional information VGGT tokens carry.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><a href="#sug-4">Sug 4 &mdash; special-token pool + MLP</a></td>
+    <td>+ Semantic-aware pooling</td>
+    <td>Patch tokens were noise; VGGT&rsquo;s 5 special tokens carry the useful summary.</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td><a href="#sug-5">Sug 5 &mdash; learned attention-pool</a></td>
+    <td>+ End-to-end training of the pool</td>
+    <td>Static pooling is a real ceiling &mdash; world-model gradients should reshape it.</td>
+  </tr>
+  </tbody>
+</table>
+
+<p>Register the change as a config flag (<code>encoder.mlp.layers</code>, <code>encoder.mlp.symlog_inputs</code>, <code>encoder.pool: mean | multistat | special | attention</code>) instead of hard-coding, so each prior step remains a one-line-diff ablation.</p>
+
+<hr>
+
+<p style="font-size: 12px; color: var(--muted);">
+Cross-refs: r2dreamer MLP forward-pass diagram &mdash; <a href="../research/dreamer-vector-input-research.html#sec-mlp-diagram">dreamer-vector-input-research.html&nbsp;§4</a>. Current pipeline &mdash; <a href="../onboarding/onboarding-mlp-encoder.html">onboarding-mlp-encoder.html</a>.
+</p>
+
+</div>
+</body>
+</html>
