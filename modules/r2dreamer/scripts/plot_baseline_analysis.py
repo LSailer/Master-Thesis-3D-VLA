@@ -126,7 +126,7 @@ def plot_world_model_losses(metrics: dict, out_dir: Path):
         ("loss/dyn", "KL / Dynamics Loss", "tab:blue", axes[0, 0]),
         ("loss/rew", "Reward Prediction Loss", "tab:orange", axes[0, 1]),
         ("total_loss", "Total Loss", "tab:red", axes[1, 0]),
-        ("latent/kl_divergence", "KL Divergence", "tab:purple", axes[1, 1]),
+        ("loss/rep", "Representation KL Loss", "tab:purple", axes[1, 1]),
     ]
 
     for metric_name, title, color, ax in loss_configs:

@@ -190,6 +190,87 @@ class TestWriteHeadSafety:
         assert batch["obs"].shape == (4, seq_len, 2)
 
 
+class TestEpisodeBoundaries:
+    """Document how ReplayBuffer exposes episode boundaries to the RSSM."""
+
+    def test_done_boundary_sets_following_is_first(self):
+        cfg = BufferConfig(capacity=20, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+        for episode in range(3):
+            for step in range(4):
+                buf.add(
+                    np.array([episode, step], dtype=np.float32),
+                    action=episode,
+                    reward=float(episode * 10 + step),
+                    done=(step == 3),
+                )
+
+        np.random.seed(0)
+        for _ in range(50):
+            batch = buf.sample(batch_size=4, seq_len=5)
+            obs = np.array(batch["obs"])
+            dones = np.array(batch["dones"])
+            is_first = np.array(batch["is_first"])
+
+            assert np.all(is_first[:, 0] == 1.0)
+            for b in range(obs.shape[0]):
+                for t in range(1, obs.shape[1]):
+                    episode_changed = obs[b, t, 0] != obs[b, t - 1, 0]
+                    if episode_changed:
+                        assert dones[b, t - 1] == 1.0
+                        assert is_first[b, t] == 1.0
+
+    def test_terminal_flag_survives_successful_episode_end(self):
+        cfg = BufferConfig(capacity=12, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+        for step in range(6):
+            buf.add(
+                np.array([0, step], dtype=np.float32),
+                action=0,
+                reward=float(step),
+                done=(step == 2 or step == 5),
+                terminal=(step == 2),
+            )
+
+        np.random.seed(1)
+        batch = buf.sample(batch_size=8, seq_len=3)
+        dones = np.array(batch["dones"])
+        terminals = np.array(batch["terminals"])
+
+        assert np.any(terminals == 1.0)
+        assert np.all(terminals <= dones)
+        assert np.any((dones == 1.0) & (terminals == 0.0))
+
+    def test_wraparound_episode_change_has_reset_marker(self):
+        cfg = BufferConfig(capacity=10, obs_shape=(2,),
+                           obs_dtype="float32", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+        for i in range(16):
+            episode, step = divmod(i, 4)
+            buf.add(
+                np.array([episode, step], dtype=np.float32),
+                action=0,
+                reward=float(i),
+                done=(step == 3),
+                terminal=(episode == 2 and step == 3),
+            )
+
+        assert buf.size == cfg.capacity
+        np.random.seed(2)
+        for _ in range(100):
+            batch = buf.sample(batch_size=6, seq_len=4)
+            obs = np.array(batch["obs"])
+            dones = np.array(batch["dones"])
+            is_first = np.array(batch["is_first"])
+            for b in range(obs.shape[0]):
+                for t in range(1, obs.shape[1]):
+                    if obs[b, t, 0] != obs[b, t - 1, 0]:
+                        assert dones[b, t - 1] == 1.0
+                        assert is_first[b, t] == 1.0
+
+
 class TestValReplayDataset:
     """Test ValReplayDataset normalization behavior."""
 
