@@ -30,6 +30,61 @@ def make_batch(cfg, B=4, T=16):
     }
 
 
+def make_deterministic_cfg():
+    return R2DreamerConfig(
+        obs_shape=(3, 16, 16),
+        num_actions=5,
+        deter_size=32,
+        hidden_size=16,
+        stoch_classes=4,
+        stoch_discrete=4,
+        blocks=4,
+        encoder_depth=8,
+        encoder_kernel=3,
+        encoder_mults=(1, 1),
+        mlp_units=16,
+        mlp_layers_reward=1,
+        mlp_layers_cont=1,
+        mlp_layers_actor=1,
+        mlp_layers_critic=1,
+        twohot_bins=21,
+        imagination_horizon=3,
+        horizon=20,
+        lr=1e-3,
+        warmup_steps=0,
+    )
+
+
+def make_deterministic_batch(cfg, B=2, T=4):
+    obs_size = B * T * np.prod(cfg.obs_shape)
+    obs = jnp.linspace(0.0, 1.0, obs_size, dtype=jnp.float32).reshape(
+        B, T, *cfg.obs_shape
+    )
+    action_ids = jnp.arange(B * T).reshape(B, T) % cfg.num_actions
+    rewards = jnp.linspace(-1.0, 1.0, B * T, dtype=jnp.float32).reshape(B, T)
+    is_first = jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0)
+    is_last = jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0)
+    is_terminal = jnp.zeros((B, T), dtype=jnp.float32).at[0, -1].set(1.0)
+    return {
+        "obs": obs,
+        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        "rewards": rewards,
+        "is_first": is_first,
+        "is_last": is_last,
+        "is_terminal": is_terminal,
+    }
+
+
+def tree_allclose(left, right, *, atol=1e-6):
+    pairs = zip(jax.tree_util.tree_leaves(left), jax.tree_util.tree_leaves(right))
+    return all(np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in pairs)
+
+
+def tree_any_changed(before, after, *, atol=1e-7):
+    pairs = zip(jax.tree_util.tree_leaves(before), jax.tree_util.tree_leaves(after))
+    return any(not np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in pairs)
+
+
 class TestR2DreamerAgent:
     def test_init(self, agent):
         assert agent is not None
@@ -60,3 +115,39 @@ class TestR2DreamerAgent:
             losses.append(m["total_loss"])
         # Should not be NaN or explode
         assert all(np.isfinite(l) for l in losses)
+
+    def test_train_step_is_deterministic_updates_params_and_composes_total_loss(self):
+        cfg = make_deterministic_cfg()
+        batch = make_deterministic_batch(cfg)
+        init_rng = jax.random.PRNGKey(7)
+        train_rng = jax.random.PRNGKey(11)
+        agent_a = R2DreamerAgent(cfg, init_rng)
+        agent_b = R2DreamerAgent(cfg, init_rng)
+        before = jax.tree.map(jnp.copy, agent_a.params)
+
+        metrics_a = agent_a.train_step(batch, train_rng)
+        metrics_b = agent_b.train_step(batch, train_rng)
+
+        assert metrics_a.keys() == metrics_b.keys()
+        for key in metrics_a:
+            assert metrics_a[key] == pytest.approx(metrics_b[key], abs=1e-6)
+        assert tree_allclose(agent_a.params, agent_b.params)
+
+        assert metrics_a["nan_skipped"] == 0.0
+        changed_subtrees = [
+            name for name, params in agent_a.params.items()
+            if tree_any_changed(before[name], params)
+        ]
+        assert changed_subtrees
+
+        expected_total = (
+            cfg.scale_dyn * metrics_a["loss/dyn"]
+            + cfg.scale_rep * metrics_a["loss/rep"]
+            + cfg.scale_barlow * metrics_a["loss/barlow"]
+            + cfg.scale_rew * metrics_a["loss/rew"]
+            + cfg.scale_con * metrics_a["loss/con"]
+            + cfg.scale_policy * metrics_a["loss/policy"]
+            + cfg.scale_value * metrics_a["loss/value"]
+            + cfg.scale_repval * metrics_a["loss/repval"]
+        )
+        assert metrics_a["total_loss"] == pytest.approx(expected_total, rel=1e-6)
