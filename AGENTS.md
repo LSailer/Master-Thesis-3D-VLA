@@ -2,6 +2,16 @@
 
 This repo is worked on by coding agents on bwUniCluster. Follow these rules for Linear issue implementation and review.
 
+## Worktree Setup
+
+When working in a `git worktree` (any directory under `worktrees/`), run once per fresh worktree before any training or eval command:
+
+```
+./scripts/setup_worktree.sh
+```
+
+This symlinks the shared `data/` and `.venv/` from the main checkout into the worktree. Habitat and other scripts resolve dataset paths relative to CWD, so a worktree without these links fails fast with `FileNotFoundError: data/datasets/...`. The script is idempotent and is a no-op in the main checkout.
+
 ## Default Workflow
 
 Before editing:

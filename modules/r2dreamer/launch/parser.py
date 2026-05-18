@@ -27,6 +27,10 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
+    p.add_argument("--video_log_every", type=int, default=25_000,
+                   help="Log one Habitat episode video every N train steps")
+    p.add_argument("--video_log_episodes", type=int, default=1,
+                   help="Number of Habitat train episodes to record per interval")
     p.add_argument("--act_entropy", type=float, default=3e-2,
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
                         "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
@@ -88,4 +92,9 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")
     p.add_argument("--render_topdown", action="store_true")
+    p.add_argument("--log_video_episodes", type=int, default=3,
+                   help="Number of eval episodes to log as W&B videos")
+    p.add_argument("--wandb_project", type=str, default=None,
+                   help="W&B project for eval video logging")
+    p.add_argument("--wandb_name", type=str, default=None)
     return p
