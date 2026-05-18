@@ -30,17 +30,18 @@ def _as_hwc_uint8(frame: np.ndarray) -> np.ndarray:
     return arr
 
 
-def _resize_panel(frame: np.ndarray, max_size: int = MAX_PANEL_SIZE) -> np.ndarray:
+def _resize_panel(frame: np.ndarray, target_size: int = MAX_PANEL_SIZE) -> np.ndarray:
     h, w = frame.shape[:2]
-    scale = min(max_size / max(h, 1), max_size / max(w, 1), 1.0)
+    scale = target_size / max(h, w, 1)
     size = (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
     if size != (w, h):
-        frame = np.asarray(Image.fromarray(frame).resize(size, Image.BILINEAR))
+        resample = Image.NEAREST if scale > 1 else Image.BILINEAR
+        frame = np.asarray(Image.fromarray(frame).resize(size, resample))
     return frame
 
 
 def compose_frame(rgb: np.ndarray, topdown: np.ndarray) -> np.ndarray:
-    """Return a side-by-side RGB frame with both panels capped at 256px."""
+    """Return a side-by-side RGB frame with both panels fit to 256px."""
     left = _resize_panel(_as_hwc_uint8(rgb))
     right = _resize_panel(_as_hwc_uint8(topdown))
     height = max(left.shape[0], right.shape[0])
