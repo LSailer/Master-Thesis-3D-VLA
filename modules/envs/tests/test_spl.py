@@ -10,11 +10,15 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../.."))
 
 import numpy as np
+import pytest
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 from modules.shared.configs import DreamerConfig
 from modules.envs.habitat import HabitatObjectNavEnv, GOAL_RADIUS
 
 
+@pytest.mark.gpu
+@pytest.mark.habitat_sim
+@pytest.mark.integration
 def test_spl_with_shortest_path():
     config = DreamerConfig(
         obs_shape=(3, 64, 64),

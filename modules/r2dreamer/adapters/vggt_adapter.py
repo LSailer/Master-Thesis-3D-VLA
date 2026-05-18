@@ -22,12 +22,18 @@ def _flatten_vggt(out: dict) -> jnp.ndarray:
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
-def _vggt_aggregator_features(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
-    """Return mean-pooled final pre-head VGGT aggregator features.
+_PATCH_START_IDX = 5  # 1 camera token + 4 register tokens, then patches
 
-    The extractor exposes all global aggregator tokens as ``(N, D)``.  For the
-    replay buffer we store only the token-mean ``(D,)`` in float32 to avoid
-    uploading enormous ``(batch, seq, N, D)`` tensors during every train step.
+
+def _vggt_aggregator_features(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Return three pre-head pools concatenated as a single (3*D,) vector.
+
+    Layout matches the aggregator's ``[camera, register, patches]`` ordering
+    (see ``modules/vggt/jax/aggregator.py``): the camera token at index 0 is
+    the embedding VGGT's own ``camera_head`` reads to predict pose, so we keep
+    it unmixed. Register tokens (1:5) are attention sinks and dropped. Patches
+    (5:) are reduced with both mean (smooth global) and max (salient features)
+    so the encoder sees signals at different scales.
     """
     features = out["aggregator_features"]
     if features.shape != expected_shape:
@@ -35,7 +41,12 @@ def _vggt_aggregator_features(out: dict, expected_shape: tuple[int, ...]) -> jnp
             f"expected aggregator_features shape {expected_shape}, "
             f"got {features.shape}"
         )
-    return features.astype(jnp.float32).mean(axis=0)
+    features = features.astype(jnp.float32)
+    cam = features[0]
+    patches = features[_PATCH_START_IDX:]
+    mean_p = patches.mean(axis=0)
+    max_p = patches.max(axis=0)
+    return jnp.concatenate([cam, mean_p, max_p], axis=0)
 
 
 class VGGTObsAdapter(ObsAdapter):
@@ -46,7 +57,8 @@ class VGGTObsAdapter(ObsAdapter):
             buffer_shape = (VGGT_FEATURE_DIM,)
             buffer_dtype = "float32"
         elif feature_kind == "aggregator":
-            buffer_shape = (int(extractor.aggregator_feature_shape[-1]),)
+            embed_dim = int(extractor.aggregator_feature_shape[-1])
+            buffer_shape = (3 * embed_dim,)  # [cam | mean_patches | max_patches]
             buffer_dtype = "float32"
         else:
             raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")

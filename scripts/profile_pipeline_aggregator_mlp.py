@@ -11,7 +11,7 @@ Phases:
   vggt_extract      adapter._extractor.extract(image)    full VGGT fwd (aggregator + camera + point heads)
     vggt_forward      (internal phase_times)             transformer block forwards
     vggt_wrapper      (internal phase_times)             head wrap + reshape
-  adapter_post      mean-pool + np.asarray + cast        on-device pool + host copy
+  adapter_post      cam/mean/max pools + np.asarray      on-device pool + host copy
   buffer_add        np ring-buffer write                 host-side, microseconds
   buffer_sample     numpy index + jnp.array upload       host→device per train step
   train_step        agent.train_step(batch, key)         encoder + WM + actor + critic + opt

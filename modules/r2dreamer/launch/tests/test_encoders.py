@@ -110,9 +110,10 @@ class TestVGGTEncoderConfiguration:
         adapter = enc.make_adapter()
         spec = enc.spec()
 
-        assert adapter.buffer_shape == (128,)
+        # Adapter stores [cam | mean_patches | max_patches] flat: 3 * embed_dim.
+        assert adapter.buffer_shape == (3 * 128,)
         assert adapter.buffer_dtype == "float32"
-        assert spec.obs_shape == (128,)
+        assert spec.obs_shape == (3 * 128,)
         assert spec.env_render_resolution == 256
         assert spec.encoder_type == "vggt_aggregator_mlp"
         assert spec.agent_overrides == {
@@ -121,27 +122,34 @@ class TestVGGTEncoderConfiguration:
             "seq_len": 32,
             "train_ratio": 128,
         }
-        assert "mean-pooled" in spec.design_notes
+        assert "camera token" in spec.design_notes
 
-    def test_aggregator_adapter_mean_pools_tokens_to_float32_replay_and_agent(self):
+    def test_aggregator_adapter_emits_cam_mean_max_pools(self):
+        # Fake extractor with 1 cam + 4 register + 5 patch tokens, D = 4.
+        # tokens = arange(40).reshape(10, 4); patches = tokens[5:].
         class FakeExtractor:
-            aggregator_feature_shape = (6, 4)
+            aggregator_feature_shape = (10, 4)
 
             def reset(self):
                 pass
 
             def extract(self, image):
                 import jax.numpy as jnp
-                return {"aggregator_features": jnp.arange(24, dtype=jnp.float32).reshape(6, 4)}
+                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform({"image": np.zeros((3, 4, 4), dtype=np.uint8)})
 
-        expected = np.arange(24, dtype=np.float32).reshape(6, 4).mean(axis=0)
-        assert replay_features.shape == (4,)
+        tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
+        expected_cam = tokens[0]
+        expected_mean = tokens[5:].mean(axis=0)
+        expected_max = tokens[5:].max(axis=0)
+        expected = np.concatenate([expected_cam, expected_mean, expected_max])
+
+        assert replay_features.shape == (3 * 4,)
         assert replay_features.dtype == np.float32
         np.testing.assert_allclose(replay_features, expected)
-        assert agent_obs["features"].shape == (4,)
+        assert agent_obs["features"].shape == (3 * 4,)
         assert agent_obs["features"].dtype.name == "float32"
 
 

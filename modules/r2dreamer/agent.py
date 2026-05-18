@@ -24,7 +24,11 @@ import optax
 
 from .config import R2DreamerConfig
 from .world_model.rssm import R2RSSM
-from .world_model.encoders import ConvEncoder
+from .world_model.encoders import (
+    ConvEncoder,
+    VGGTEncoder as WMVGGTEncoder,
+    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
+)
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
 from .behavior.return_ema import ReturnEMA
@@ -59,7 +63,18 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
 
 
 def _make_encoder(cfg: R2DreamerConfig):
+    # Launcher-created configs pass EncoderSpec.module_cls explicitly. Unit tests
+    # and direct R2DreamerConfig() construction rely on encoder_type, so map the
+    # documented names to their Flax modules when no class is supplied.
     cls = cfg.encoder_module_cls
+    if cls is None:
+        cls = {
+            "cnn": ConvEncoder,
+            "vggt": WMVGGTEncoder,
+            "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+        }.get(cfg.encoder_type)
+        if cls is None:
+            raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
     if cls is ConvEncoder:
         return cls(
             depth=cfg.encoder_depth,

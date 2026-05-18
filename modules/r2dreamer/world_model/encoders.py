@@ -59,24 +59,30 @@ class VGGTEncoder(nn.Module):
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):
-    """Variant 1 encoder for VGGT aggregator features.
+    """Encoder for the adapter's pre-pooled VGGT aggregator features.
 
-    The fast training path stores mean-pooled pre-head aggregator features in
-    replay as ``(B, D)`` and projects them to ``embed_dim``.  The module still
-    accepts the legacy ``(B, N, D)`` all-token shape for tests/debugging by
-    applying the same Dense layer tokenwise and then mean-pooling tokens.
+    Input layout is ``[cam | mean_patches | max_patches]`` flat, i.e. shape
+    ``(B, 3 * pool_dim)``. The camera-token slice carries the same pose-aware
+    embedding ``camera_head`` reads (see ``aggregator.py``), the mean is a
+    smooth global summary, and the max picks out salient patches; each is
+    normalised separately so the mean/max scale mismatch does not bleed into
+    the projection.
     """
     embed_dim: int = 1024
-    channels: int = 64
+    pool_dim: int = 1024
     hidden: int = 1024
 
     @nn.compact
     def __call__(self, obs):
-        # obs: (B, D) mean-pooled features in the training path, or legacy
-        # (B, N, D) all-token features for isolated token-path checks.
-        if obs.ndim == 2:
-            return nn.Dense(self.embed_dim, name="proj")(obs)
-        if obs.ndim == 3:
-            tokens = nn.Dense(self.embed_dim, name="proj")(obs)
-            return tokens.mean(axis=1)
-        raise ValueError(f"expected (B, D) or (B, N, D) VGGT features, got {obs.shape}")
+        if obs.ndim != 2 or obs.shape[-1] != 3 * self.pool_dim:
+            raise ValueError(
+                f"expected (B, {3 * self.pool_dim}) VGGT pooled features, got {obs.shape}"
+            )
+        cam, mean_p, max_p = jnp.split(obs, 3, axis=-1)
+        cam = RMSNorm(name="norm_cam")(cam)
+        mean_p = RMSNorm(name="norm_mean")(mean_p)
+        max_p = RMSNorm(name="norm_max")(max_p)
+        x = jnp.concatenate([cam, mean_p, max_p], axis=-1)
+        x = nn.Dense(self.hidden, name="hidden")(x)
+        x = nn.silu(x)
+        return nn.Dense(self.embed_dim, name="proj")(x)

@@ -11,46 +11,49 @@ from modules.shared.replay_buffer import VGGTReplayBuffer
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
-AGGREGATOR_TOKEN_SHAPE = (1374, 1024)  # 5 special tokens + 37*37 patch tokens
+POOL_DIM = 1024
+POOLED_FEATURE_DIM = 3 * POOL_DIM  # [cam | mean_patches | max_patches]
 
 
 class TestVGGTAggregatorMLPEncoder:
-    """Test Variant 1 all-token VGGT aggregator encoder."""
+    """Test Variant 1 VGGT aggregator encoder over adapter-pooled features."""
 
     def test_output_shape(self):
         enc = VGGTAggregatorMLPEncoder(embed_dim=1024)
         rng = jax.random.PRNGKey(0)
-        dummy = jnp.zeros((2, *AGGREGATOR_TOKEN_SHAPE))
+        dummy = jnp.zeros((2, POOLED_FEATURE_DIM))
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (2, 1024)
         assert jnp.isfinite(out).all()
 
-    def test_custom_dims(self):
+    def test_custom_embed_dim(self):
         enc = VGGTAggregatorMLPEncoder(embed_dim=512)
         rng = jax.random.PRNGKey(0)
-        dummy = jnp.ones((1, *AGGREGATOR_TOKEN_SHAPE), dtype=jnp.float32)
+        dummy = jnp.ones((1, POOLED_FEATURE_DIM), dtype=jnp.float32)
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (1, 512)
 
-    def test_pooled_feature_input_shape(self):
-        enc = VGGTAggregatorMLPEncoder(embed_dim=512)
-        rng = jax.random.PRNGKey(0)
-        dummy = jnp.ones((3, 1024), dtype=jnp.float32)
-        params = enc.init(rng, dummy)
-        out = enc.apply(params, dummy)
-        assert out.shape == (3, 512)
-
-    def test_uses_all_tokens_not_spatial_cnn_params(self):
+    def test_rejects_unpooled_tokens(self):
+        """The encoder no longer accepts (B, N, D) all-token input."""
         enc = VGGTAggregatorMLPEncoder(embed_dim=32)
         rng = jax.random.PRNGKey(0)
-        dummy = jnp.arange(2 * 6 * 8, dtype=jnp.float32).reshape(2, 6, 8)
+        dummy = jnp.zeros((2, 1374, 1024), dtype=jnp.float32)
+        with pytest.raises(ValueError, match="VGGT pooled features"):
+            enc.init(rng, dummy)
+
+    def test_per_pool_norms_and_mlp_params(self):
+        enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.arange(2 * 24, dtype=jnp.float32).reshape(2, 24)
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
 
         assert out.shape == (2, 32)
-        assert set(params["params"].keys()) == {"proj"}
+        assert set(params["params"].keys()) == {
+            "norm_cam", "norm_mean", "norm_max", "hidden", "proj",
+        }
 
 
 class TestVGGTEncoder:
@@ -164,14 +167,14 @@ class TestVGGTAgentInit:
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_aggregator_mlp",
-            obs_shape=(1024,),
+            obs_shape=(POOLED_FEATURE_DIM,),
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
         agent = R2DreamerAgent(cfg, rng)
 
         obs_dict = {
-            "features": np.random.randn(1024).astype(np.float32),
+            "features": np.random.randn(POOLED_FEATURE_DIM).astype(np.float32),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
@@ -211,10 +214,9 @@ class TestVGGTAgentInit:
     def test_agent_train_step_vggt_aggregator_mlp(self):
         from modules.r2dreamer.agent import R2DreamerAgent
 
-        pooled_dim = 1024
         cfg = R2DreamerConfig(
             encoder_type="vggt_aggregator_mlp",
-            obs_shape=(pooled_dim,),
+            obs_shape=(POOLED_FEATURE_DIM,),
             num_actions=4,
             batch_size=2,
             seq_len=8,
@@ -225,7 +227,7 @@ class TestVGGTAgentInit:
 
         B, T = cfg.batch_size, cfg.seq_len
         batch = {
-            "obs": jnp.zeros((B, T, pooled_dim)),
+            "obs": jnp.zeros((B, T, POOLED_FEATURE_DIM)),
             "actions": jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),

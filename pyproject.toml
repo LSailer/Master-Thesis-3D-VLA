@@ -55,6 +55,8 @@ testpaths = [
 ]
 markers = [
     "gpu: tests that require GPU (real VGGT model loading)",
+    "habitat_sim: tests that instantiate Habitat-Sim environments",
+    "integration: tests that exercise external simulators or datasets",
 ]
 
 [tool.uv]

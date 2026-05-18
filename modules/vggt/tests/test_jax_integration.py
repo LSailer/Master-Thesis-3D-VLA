@@ -21,7 +21,10 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
 
-HAS_CUDA_JAX = bool(jax.devices("gpu"))
+try:
+    HAS_CUDA_JAX = bool(jax.devices("gpu"))
+except RuntimeError:
+    HAS_CUDA_JAX = False
 try:
     import torch
 

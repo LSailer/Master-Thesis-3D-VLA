@@ -46,18 +46,6 @@ This is the **global** config — applies to all projects on this machine.
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "huggingface-skills@claude-plugins-official": true
-  },
   "effortLevel": "high",
   "statusLine": {
     "type": "command",
@@ -73,7 +61,6 @@ This is the **global** config — applies to all projects on this machine.
 | `allow` | `Bash(*)` auto-approves all shell commands; built-in tools listed individually |
 | `deny` | Blocks reading secrets (`.env`, SSH keys, PEM files) |
 | `ask` | Forces confirmation on destructive commands (`rm -rf`, `git push --force`, etc.) |
-| `enabledPlugins` | Pre-installed plugin set (see Plugins section below) |
 | `effortLevel` | `"high"` = deeper thinking on complex tasks |
 | `statusLine` | Custom PS1-style status bar showing user@host, model, context usage |
 
@@ -160,37 +147,7 @@ To add more (optional):
 }
 ```
 
-## 5. Plugins
-
-Plugins are declared in user settings (`enabledPlugins`). On first launch, Claude Code downloads them automatically.
-
-| Plugin | Purpose |
-|--------|---------|
-| `superpowers` | TDD, systematic debugging, plan execution, brainstorming, code review workflows |
-| `context7` | Live documentation lookup for libraries |
-| `code-simplifier` | Auto-simplify code for clarity |
-| `feature-dev` | Architecture analysis and guided feature development |
-| `playwright` | Browser automation / testing |
-| `pr-review-toolkit` | PR review with specialized agents |
-| `pyright-lsp` | Python type checking and navigation |
-| `claude-code-setup` | Automation recommendations |
-| `explanatory-output-style` | Educational insights in responses |
-| `huggingface-skills` | HuggingFace training, tracking, datasets |
-
-## 6. Custom Skills (`.claude/skills/`)
-
-Already in the repo under `.claude/skills/`. Available skills:
-
-| Skill | Invoke with | Purpose |
-|-------|-------------|---------|
-| `grill-me` | `/grill-me` | Stress-test a plan or design with relentless questioning |
-| `tdd` | `/tdd` | Test-driven development workflow |
-| `slurm-submit` | `/slurm-submit` Write a product requirements document |
-| `prd-to-issues` | `/prd-to-issues` | Convert PRD into GitHub issues |
-| `qa-review` | `/qa-review` | Quality assurance review |
-| `ralph-loop` | `/ralph-loop` | Autonomous task execution loop |
-
-## 7. Environment Variables (optional)
+## 5. Environment Variables (optional)
 
 Add to user settings under `"env"` if desired:
 
@@ -254,18 +211,6 @@ cat > ~/.claude/settings.json << 'EOF'
     ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledPlugins": {
-    "superpowers@claude-plugins-official": true,
-    "context7@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "playwright@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "pyright-lsp@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
-    "explanatory-output-style@claude-plugins-official": true,
-    "huggingface-skills@claude-plugins-official": true
-  },
   "effortLevel": "high",
   "statusLine": {
     "type": "command",
@@ -293,13 +238,12 @@ printf "%s" "$status"
 SCRIPT
 chmod +x ~/.claude/statusline-command.sh
 
-# 4. Done — project settings, skills, and MCP are already in the repo
+# 4. Done — project settings and MCP are already in the repo
 echo "Setup complete. Run 'claude' in the project directory."
 ```
 
 ## Notes
 
-- **Project-level configs** (`.claude/settings.json`, `.claude/skills/`, `.mcp.json`, `CLAUDE.md`) travel with the repo — no action needed after `git clone`.
+- **Project-level configs** (`.claude/settings.json`, `.mcp.json`, `CLAUDE.md`) travel with the repo — no action needed after `git clone`.
 - **User-level configs** (`~/.claude/settings.json`, `~/.claude/statusline-command.sh`) must be set up per machine — use the quick setup script above.
 - **`additionalDirectories`** in user settings are machine-specific paths — remove or update them for your laptop.
-- Plugins download automatically on first `claude` launch.

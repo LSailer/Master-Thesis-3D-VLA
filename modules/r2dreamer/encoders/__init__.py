@@ -150,11 +150,17 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
         "train_ratio": 128,
     }
     design_notes = (
-        "Variant 1 encoder: VGGT final pre-head all-token global aggregator features "
-        "(1374x1024 = 5 camera/register special tokens + 37x37 patch tokens) "
-        "-> mean-pooled to 1024-dim float32 before replay storage -> linear projection; "
-        "excludes VGGT world-points and camera-pose heads. This preserves the global "
-        "aggregator-token signal while avoiding huge all-token replay batches."
+        "Variant 1 encoder: VGGT final pre-head global aggregator tokens "
+        "(1374x1024 = 1 camera token + 4 register tokens + 37x37 patch tokens) "
+        "are pooled adapter-side into three 1024-dim vectors before replay: "
+        "(a) the camera token (idx 0) is kept unmixed because VGGT's own "
+        "camera_head reads it for pose; (b) mean over patch tokens (idx 5:) "
+        "is a smooth global summary; (c) max over the same patches surfaces "
+        "salient features. The three are concatenated to a flat (3072,) "
+        "vector, stored as float32 in replay, and the encoder applies a "
+        "per-slice RMSNorm followed by a 2-layer MLP -> embed_dim. The "
+        "camera-pose head is skipped (vggt_compute_heads=False) since the "
+        "camera-token embedding itself already carries pose information."
     )
 
 
