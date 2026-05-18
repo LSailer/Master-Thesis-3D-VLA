@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
+from modules.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from modules.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from modules.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
@@ -107,6 +108,8 @@ class TrainerConfig:
     wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
     # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
     wandb_id: str | None = None
+    video_log_every: int = 25_000
+    video_log_episodes: int = 1
 
     # Validation (None = disabled)
     val_data: str | None = None
@@ -366,6 +369,8 @@ class Trainer:
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
+        video_next_step = start_step
+        video_recording = self._start_video_recording(obs) if self._should_record_video(start_step, video_next_step) else None
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -379,6 +384,8 @@ class Trainer:
             action_counts[action] += 1
             episode_reward += next_obs["reward"]
             episode_steps += 1
+            if video_recording is not None:
+                self._append_video_frame(video_recording, next_obs)
 
             if next_obs["done"]:
                 episode_count += 1
@@ -386,6 +393,15 @@ class Trainer:
                     next_obs, episode_reward, episode_steps,
                     action_counts, step, writer, f,
                 )
+                if video_recording is not None:
+                    log_episode_video(
+                        self._wandb,
+                        "train/episode_video",
+                        video_recording["frames"],
+                        step,
+                    )
+                    video_recording = None
+                    video_next_step = step + max(1, tcfg.video_log_every)
                 episode_reward = 0.0
                 episode_steps = 0
                 action_counts = np.zeros(acfg.num_actions, dtype=int)
@@ -393,6 +409,8 @@ class Trainer:
                 if self.obs_adapter.on_episode_reset:
                     self.obs_adapter.on_episode_reset()
                 buffer_obs, agent_obs = self.obs_adapter.transform(obs)
+                if self._should_record_video(step + 1, video_next_step):
+                    video_recording = self._start_video_recording(obs)
             else:
                 obs = next_obs
                 buffer_obs = next_buffer_obs
@@ -422,6 +440,47 @@ class Trainer:
                 save_checkpoint(self.agent, step + 1, tcfg.output_dir)
 
         return rng_key
+
+    def _should_record_video(self, step: int, next_video_step: int) -> bool:
+        return (
+            self._wandb is not None
+            and self.tcfg.video_log_every > 0
+            and self.tcfg.video_log_episodes > 0
+            and step >= next_video_step
+            and hasattr(self.env, "_env")
+        )
+
+    def _goal_positions(self) -> list[list[float]]:
+        positions = []
+        for goal in self.env._env.current_episode.goals:
+            if goal.view_points:
+                pos = goal.view_points[0].agent_state.position
+            else:
+                pos = goal.position
+            positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
+        return positions
+
+    def _agent_position(self) -> list[float]:
+        pos = self.env._env.sim.get_agent_state().position
+        return pos.tolist() if hasattr(pos, "tolist") else list(pos)
+
+    def _start_video_recording(self, obs: dict) -> dict[str, Any]:
+        recording = {
+            "trajectory": [self._agent_position()],
+            "goals": self._goal_positions(),
+            "frames": [],
+        }
+        self._append_video_frame(recording, obs)
+        return recording
+
+    def _append_video_frame(self, recording: dict[str, Any], obs: dict) -> None:
+        if "image" not in obs:
+            return
+        if recording["frames"]:
+            recording["trajectory"].append(self._agent_position())
+        topdown = render_topdown_frame(
+            self.env, recording["trajectory"], recording["goals"])
+        recording["frames"].append(compose_frame(obs["image"], topdown))
 
     # ------------------------------------------------------------------
     # Overfit-one-batch diagnostic loop (Karpathy step 3)

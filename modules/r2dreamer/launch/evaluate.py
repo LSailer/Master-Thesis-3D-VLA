@@ -10,6 +10,7 @@ import sys
 import jax
 import jax.numpy as jnp
 import numpy as np
+from PIL import Image
 from scipy.spatial.transform import Rotation
 
 from modules.r2dreamer.launch.parser import _build_parser_eval
@@ -17,38 +18,33 @@ from modules.r2dreamer.launch.registries import env_registry
 from modules.r2dreamer.launch.curricula import CURRICULA
 from modules.r2dreamer.agent import R2DreamerAgent
 from modules.r2dreamer.config import R2DreamerConfig
-from modules.envs.habitat import sample_navmesh
+from modules.shared.video_utils import (
+    compose_frame,
+    log_episode_video,
+    render_topdown_frame,
+)
 
 
 def _render_topdown(env, trajectory, goal_positions, output_path):
     """Render a top-down map with navmesh, trajectory, and goal."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    frame = render_topdown_frame(env, trajectory, goal_positions)
+    Image.fromarray(frame).save(output_path)
 
-    nav = sample_navmesh(env._env, resolution=0.1)
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
 
-    extent = [nav["x_min"], nav["x_max"], nav["z_max"], nav["z_min"]]
-    ax.imshow(nav["grid"], extent=extent, cmap="Greys_r", alpha=0.3)
-
-    traj = np.array(trajectory)
-    ax.plot(traj[:, 0], traj[:, 2], "b-", linewidth=1.5, alpha=0.7)
-    ax.plot(traj[0, 0], traj[0, 2], "go", markersize=10, label="Start")
-    ax.plot(traj[-1, 0], traj[-1, 2], "rs", markersize=10, label="End")
-
-    for i, gp in enumerate(goal_positions):
-        ax.plot(gp[0], gp[2], "m*", markersize=15,
-                label="Goal" if i == 0 else None)
-
-    ax.set_xlabel("x (m)")
-    ax.set_ylabel("z (m)")
-    ax.set_aspect("equal")
-    ax.legend(loc="upper right")
-    ax.set_title(os.path.basename(output_path).replace(".png", ""))
-
-    fig.savefig(output_path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
+def _extract_goal_positions(env):
+    goal_positions = []
+    for goal in env._env.current_episode.goals:
+        if goal.view_points:
+            for vp in goal.view_points:
+                pos = vp.agent_state.position
+                goal_positions.append(
+                    pos.tolist() if hasattr(pos, "tolist") else list(pos))
+                break
+        else:
+            pos = goal.position
+            goal_positions.append(
+                pos.tolist() if hasattr(pos, "tolist") else list(pos))
+    return goal_positions
 
 
 def _get_agent_heading(env):
@@ -112,6 +108,12 @@ def evaluate(
 
     os.makedirs(eff_output_dir, exist_ok=True)
     output_path = os.path.join(eff_output_dir, "eval_results.json")
+
+    wandb_module = None
+    if args.wandb_project is not None and args.log_video_episodes > 0:
+        import wandb
+        wandb_module = wandb
+        wandb.init(project=args.wandb_project, name=args.wandb_name)
 
     # --- Build env ---
     if env not in env_registry:
@@ -187,23 +189,17 @@ def evaluate(
         headings = []
 
         start_pos = env_instance._env.sim.get_agent_state().position.tolist()
-        goal_positions = []
-        for goal in env_instance._env.current_episode.goals:
-            if goal.view_points:
-                for vp in goal.view_points:
-                    pos = vp.agent_state.position
-                    goal_positions.append(
-                        pos.tolist() if hasattr(pos, "tolist") else list(pos))
-                    break
-            else:
-                pos = goal.position
-                goal_positions.append(
-                    pos.tolist() if hasattr(pos, "tolist") else list(pos))
+        goal_positions = _extract_goal_positions(env_instance)
         scene_id = env_instance._env.current_episode.scene_id
         object_category = env_instance._env.current_episode.object_category
 
         trajectory.append(start_pos)
         headings.append(_get_agent_heading(env_instance))
+        video_frames = []
+        record_video = wandb_module is not None and ep_idx < args.log_video_episodes
+        if record_video:
+            topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
+            video_frames.append(compose_frame(obs["image"], topdown))
 
         for _step in range(500):
             if agent is not None:
@@ -220,6 +216,9 @@ def evaluate(
             pos = env_instance._env.sim.get_agent_state().position.tolist()
             trajectory.append(pos)
             headings.append(_get_agent_heading(env_instance))
+            if record_video:
+                topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
+                video_frames.append(compose_frame(next_obs["image"], topdown))
 
             if next_obs["done"]:
                 obs = next_obs
@@ -252,6 +251,9 @@ def evaluate(
             os.makedirs(topdown_dir, exist_ok=True)
             topdown_path = os.path.join(topdown_dir, f"episode_{ep_idx:03d}.png")
             _render_topdown(env_instance, trajectory, goal_positions, topdown_path)
+        if record_video:
+            log_episode_video(
+                wandb_module, f"eval/episode_video_{ep_idx}", video_frames, ep_idx)
 
         print(
             f"Episode {ep_idx}: steps={len(actions_taken):3d}  "
@@ -272,5 +274,7 @@ def evaluate(
         json.dump(output, f, indent=2)
     print(f"Results saved to {output_path}")
 
+    if wandb_module is not None:
+        wandb_module.finish()
     env_instance.close()
     return output
