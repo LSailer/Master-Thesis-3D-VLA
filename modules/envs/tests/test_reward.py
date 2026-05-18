@@ -5,8 +5,13 @@ with only the fields _compute_reward() depends on.
 """
 
 import pytest
+import numpy as np
 from modules.shared.configs import DreamerConfig
-from modules.envs.habitat import HabitatObjectNavEnv
+from modules.envs.habitat import (
+    GOAL_RADIUS,
+    HabitatObjectNavEnv,
+    _is_success_distance,
+)
 
 
 class _RewardTestEnv:
@@ -18,6 +23,51 @@ class _RewardTestEnv:
 
     def _compute_reward(self, dist: float) -> float:
         return HabitatObjectNavEnv._compute_reward(self, dist)
+
+
+class _FakeAgentState:
+    def __init__(self, position):
+        self.position = position
+
+
+class _FakeSim:
+    def __init__(self, position):
+        self._position = position
+
+    def get_agent_state(self):
+        return _FakeAgentState(self._position)
+
+
+class _FakeHabitatEnv:
+    def __init__(self, distance):
+        self._distance = distance
+        self.sim = _FakeSim([0.1, 0.0, 0.0])
+
+    def step(self, action):
+        assert action == 1
+        return {"rgb": np.zeros((1, 1, 3), dtype=np.uint8)}
+
+    def get_metrics(self):
+        return {"distance_to_goal": self._distance}
+
+
+def _make_step_test_env(distance: float) -> HabitatObjectNavEnv:
+    env = object.__new__(HabitatObjectNavEnv)
+    env._cfg = DreamerConfig(
+        obs_shape=(3, 1, 1),
+        max_episode_steps=10,
+        reward_type="geodesic_delta",
+        step_penalty=0.0,
+        success_bonus=1.0,
+    )
+    env._env = _FakeHabitatEnv(distance)
+    env._last_obs = {"rgb": np.zeros((1, 1, 3), dtype=np.uint8)}
+    env._prev_dist = 1.0
+    env._start_geodesic = 1.0
+    env._step_count = 0
+    env._path_length = 0.0
+    env._prev_position = [0.0, 0.0, 0.0]
+    return env
 
 
 def test_config_defaults():
@@ -107,3 +157,55 @@ def test_sparse_reward_failure():
     env = _RewardTestEnv(cfg)
     reward = env._compute_reward(5.0)  # far from goal
     assert reward == pytest.approx(cfg.step_penalty)
+
+
+@pytest.mark.parametrize(
+    ("dist", "expected"),
+    [
+        (GOAL_RADIUS, False),
+        (GOAL_RADIUS - 1e-6, True),
+        (GOAL_RADIUS + 1e-6, False),
+    ],
+)
+def test_success_boundary_is_strictly_inside_goal_radius(dist, expected):
+    assert _is_success_distance(dist) is expected
+
+
+@pytest.mark.parametrize("dist", [None, float("nan"), float("inf"), -0.01])
+def test_invalid_goal_distances_raise_clear_error(dist):
+    cfg = DreamerConfig(reward_type="geodesic_delta")
+    env = _RewardTestEnv(cfg)
+    with pytest.raises(ValueError, match="distance_to_goal"):
+        env._compute_reward(dist)
+
+
+def test_invalid_distance_does_not_update_prev_dist():
+    cfg = DreamerConfig(reward_type="geodesic_delta")
+    env = _RewardTestEnv(cfg)
+    env._prev_dist = 5.0
+    with pytest.raises(ValueError):
+        env._compute_reward(float("nan"))
+    assert env._prev_dist == 5.0
+
+
+def test_unknown_reward_type_raises_explicit_error():
+    cfg = DreamerConfig(reward_type="dense-but-misspelled")
+    env = _RewardTestEnv(cfg)
+    with pytest.raises(ValueError, match="Unknown reward_type"):
+        env._compute_reward(5.0)
+
+
+def test_step_marks_success_distance_as_done():
+    env = _make_step_test_env(GOAL_RADIUS - 1e-6)
+    obs = env.step(1)
+    assert obs["success"] == 1.0
+    assert obs["done"] is True
+    assert obs["spl"] > 0.0
+
+
+def test_step_does_not_end_episode_at_exact_goal_radius():
+    env = _make_step_test_env(GOAL_RADIUS)
+    obs = env.step(1)
+    assert obs["success"] == 0.0
+    assert obs["done"] is False
+    assert obs["spl"] == 0.0

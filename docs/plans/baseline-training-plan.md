@@ -60,7 +60,8 @@ The no-goal R2Dreamer baseline is validated when **all four** hold:
 **4. Latent diagnostics logging**
 - Modify: `modules/r2dreamer/agent.py` (train_step return dict)
 - Add to training metrics:
-  - `latent/prior_entropy`, `latent/posterior_entropy`, `latent/kl_divergence`
+  - `latent/prior_entropy`, `latent/posterior_entropy`
+  - Use `loss/dyn` for the logged dynamics KL scalar
 - Shows whether RSSM is learning meaningful dynamics vs outputting uniform noise
 
 ### Phase 3 -- Evaluation Pipeline

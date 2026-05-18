@@ -97,6 +97,5 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         jnp.sum(prior_probs * jnp.log(prior_probs + 1e-8), axis=-1))
     metrics["latent/posterior_entropy"] = -jnp.mean(
         jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1))
-    metrics["latent/kl_divergence"] = jnp.mean(dyn_loss)
 
     return losses, metrics

@@ -23,6 +23,22 @@ DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 GOAL_RADIUS = 0.2
 
 
+def _validate_goal_distance(dist: float) -> float:
+    if dist is None:
+        raise ValueError("distance_to_goal must be a finite non-negative value, got None")
+    dist = float(dist)
+    if not np.isfinite(dist) or dist < 0.0:
+        raise ValueError(
+            "distance_to_goal must be a finite non-negative value, "
+            f"got {dist!r}"
+        )
+    return dist
+
+
+def _is_success_distance(dist: float) -> bool:
+    return _validate_goal_distance(dist) < GOAL_RADIUS
+
+
 def find_nearest_viewpoint(env):
     """Find nearest viewpoint across all goal instances of a habitat.Env.
 
@@ -220,9 +236,9 @@ class HabitatObjectNavEnv:
         self._path_length += np.linalg.norm(current_position - self._prev_position)
         self._prev_position = current_position
 
-        dist = metrics.get("distance_to_goal", float("inf"))
+        dist = _validate_goal_distance(metrics.get("distance_to_goal", float("inf")))
         reward = self._compute_reward(dist)
-        success = 1.0 if dist < GOAL_RADIUS else 0.0
+        success = 1.0 if _is_success_distance(dist) else 0.0
         done = success > 0 or self._step_count >= self._cfg.max_episode_steps
 
         spl = 0.0
@@ -254,15 +270,19 @@ class HabitatObjectNavEnv:
         return np.transpose(rgb, (2, 0, 1))  # (3, H, W)
 
     def _compute_reward(self, dist: float) -> float:
+        dist = _validate_goal_distance(dist)
         if self._cfg.reward_type == "sparse":
-            bonus = self._cfg.success_bonus if dist < GOAL_RADIUS else 0.0
+            bonus = self._cfg.success_bonus if _is_success_distance(dist) else 0.0
             return bonus + self._cfg.step_penalty
 
-        reward = self._prev_dist - dist  # geodesic delta
-        self._prev_dist = dist
-        if dist < GOAL_RADIUS:
-            reward += self._cfg.success_bonus
-        return reward + self._cfg.step_penalty
+        if self._cfg.reward_type == "geodesic_delta":
+            reward = self._prev_dist - dist
+            self._prev_dist = dist
+            if _is_success_distance(dist):
+                reward += self._cfg.success_bonus
+            return reward + self._cfg.step_penalty
+
+        raise ValueError(f"Unknown reward_type: {self._cfg.reward_type!r}")
 
     def close(self):
         self._env.close()

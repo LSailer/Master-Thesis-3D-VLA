@@ -130,7 +130,7 @@ def plot_world_model_losses(df: pd.DataFrame, out_path: str):
 def plot_policy_and_kl(df: pd.DataFrame, out_path: str):
     policy = load_metric(df, "loss/policy", rolling=50)
     value = load_metric(df, "loss/value", rolling=50)
-    kl = load_metric(df, "latent/kl_divergence", rolling=50)
+    kl = load_metric(df, "loss/dyn", rolling=50)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -147,7 +147,7 @@ def plot_policy_and_kl(df: pd.DataFrame, out_path: str):
 
     # KL divergence
     ax = axes[1]
-    ax.plot(kl["step"] / 1e6, kl["smooth"], color=AMBER, linewidth=2, label="KL divergence")
+    ax.plot(kl["step"] / 1e6, kl["smooth"], color=AMBER, linewidth=2, label="Dynamics KL")
     ax.set_xlabel("Environment Steps (M)")
     ax.set_ylabel("KL (nats)")
     ax.set_title("Latent KL Divergence", fontweight="bold", fontsize=13)
