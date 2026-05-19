@@ -540,7 +540,7 @@
 <tr><td>Default <code>B / T</code></td><td>16 / 64 (Dreamer-v3 paper defaults)</td><td>16 / 64 (configs.yaml:17-18)</td></tr>
 </table>
 
-<p>The big practical difference for your variant: in r2dreamer your encoder method sees <code>(B, T, D)</code> directly. In vanilla dreamerv3 your encoder method sees <code>(B*T, D)</code> after the reshape on rssm.py:220. Since the user&rsquo;s <code>VGGTAggregatorMLPEncoder</code> (modules/r2dreamer/networks.py:457-478) is JAX/Flax-style and branches on <code>obs.ndim == 2</code> vs <code>obs.ndim == 3</code>, it implicitly assumes the dreamerv3 reshape convention (mean-pooled <code>(B, D)</code>, or all-token <code>(B, N, D)</code>). That matches a dreamerv3-style codepath, not r2dreamer&rsquo;s upstream PyTorch <code>MultiEncoder</code>.</p>
+<p>The big practical difference for your variant: in r2dreamer your encoder method sees <code>(B, T, D)</code> directly. In vanilla dreamerv3 your encoder method sees <code>(B*T, D)</code> after the reshape on rssm.py:220. Since the user&rsquo;s <code>VGGTAggregatorMLPEncoder</code> (src/r2dreamer/networks.py:457-478) is JAX/Flax-style and branches on <code>obs.ndim == 2</code> vs <code>obs.ndim == 3</code>, it implicitly assumes the dreamerv3 reshape convention (mean-pooled <code>(B, D)</code>, or all-token <code>(B, N, D)</code>). That matches a dreamerv3-style codepath, not r2dreamer&rsquo;s upstream PyTorch <code>MultiEncoder</code>.</p>
 
 <!-- ====================================================== -->
 <h2 id="sec-recos">8. Recommendations for the <code>feat/variant-1-aggregator-mlp</code> branch</h2>
@@ -571,7 +571,7 @@ decoder:
 <pre><span class="com"># r2dreamer / PyTorch contract (matches networks.py MLP):</span>
 <span class="kw">def</span> forward(self, x):       <span class="com"># x: (B, T, D)</span>
     <span class="kw">return</span> self.proj(x)      <span class="com"># -&gt; (B, T, embed_dim)</span></pre>
-<p>The user&rsquo;s current JAX implementation (modules/r2dreamer/networks.py:469-478) branches on <code>obs.ndim == 2</code> and <code>obs.ndim == 3</code>. That matches the vanilla dreamerv3 contract (post-reshape, <code>(B*T, D)</code> is 2-D). If the calling code in <code>modules/r2dreamer/agent.py</code> indeed reshapes to <code>(B*T, D)</code> before calling, that is fine; otherwise the encoder should also handle 3-D input <code>(B, T, D)</code> &mdash; you can add a branch:</p>
+<p>The user&rsquo;s current JAX implementation (src/r2dreamer/networks.py:469-478) branches on <code>obs.ndim == 2</code> and <code>obs.ndim == 3</code>. That matches the vanilla dreamerv3 contract (post-reshape, <code>(B*T, D)</code> is 2-D). If the calling code in <code>src/r2dreamer/agent.py</code> indeed reshapes to <code>(B*T, D)</code> before calling, that is fine; otherwise the encoder should also handle 3-D input <code>(B, T, D)</code> &mdash; you can add a branch:</p>
 <pre><span class="kw">if</span> obs.ndim == <span class="num">3</span> <span class="kw">and</span> obs.shape[-<span class="num">1</span>] == self.feat_in:
     <span class="com"># (B, T, D) -&gt; pass straight to Dense, no mean</span>
     <span class="kw">return</span> nn.Dense(self.embed_dim, name=<span class="str">"proj"</span>)(obs)</pre>
@@ -596,7 +596,7 @@ decoder:
 <p>The shape rule <code>len(v) in (1, 2)</code> means a 2-D per-step space <code>(N, D)</code> <em>is</em> allowed, and the replay will deliver <code>(B, T, N, D)</code>. But the concat-then-MLP path computes <code>inp_dim = sum((N, D)) = N + D</code>, which is almost certainly not what you want. Two safe options:</p>
 <ol>
   <li><strong>Mean-pool in the env wrapper</strong> so the obs key is flat <code>(D,)</code> per step (this is what your &ldquo;fast path&rdquo; already does &mdash; keep it).</li>
-  <li><strong>Bypass <code>MultiEncoder</code></strong>: keep a custom encoder module that handles <code>(B, T, N, D)</code> directly, and skip the regex/heuristic. Your <code>modules/r2dreamer/agent.py</code> conditional on <code>encoder_type == "vggt_aggregator_mlp"</code> already does this.</li>
+  <li><strong>Bypass <code>MultiEncoder</code></strong>: keep a custom encoder module that handles <code>(B, T, N, D)</code> directly, and skip the regex/heuristic. Your <code>src/r2dreamer/agent.py</code> conditional on <code>encoder_type == "vggt_aggregator_mlp"</code> already does this.</li>
 </ol>
 
 <hr />

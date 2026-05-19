@@ -21,5 +21,5 @@ echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || ec
 uv run python -c "import jax; print(f'JAX devices: {jax.devices()}')"
 
 # Training (placeholder — separate issue)
-# uv run python src/train.py "$@"
+# uv run python -m src.main train "$@"
 echo "Training script not yet implemented — see issue."

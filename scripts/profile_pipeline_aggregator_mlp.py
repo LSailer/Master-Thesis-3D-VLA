@@ -34,14 +34,14 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from modules.r2dreamer.adapters.vggt_adapter import _vggt_aggregator_features
-from modules.r2dreamer.agent import R2DreamerAgent
-from modules.r2dreamer.config import R2DreamerConfig
-from modules.r2dreamer.launch.curricula import CURRICULA
-from modules.r2dreamer.encoders import VGGTAggregatorMLPEncoder
-from modules.r2dreamer.launch.habitat_setup import make_habitat_env
-from modules.r2dreamer.trainer import convert_batch
-from modules.shared.replay_buffer import BufferConfig, ReplayBuffer
+from src.r2dreamer.adapters.vggt_adapter import _vggt_aggregator_features
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.launch.curricula import CURRICULA
+from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
+from src.r2dreamer.launch.habitat_setup import make_habitat_env
+from src.r2dreamer.trainer import convert_batch
+from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 
 
 def pct(xs, q):
@@ -121,7 +121,7 @@ def setup(args):
 def transform_timed(adapter, obs_dict):
     """Manual reimplementation of VGGTObsAdapter.transform that exposes timings.
 
-    Mirrors modules/r2dreamer/adapters/vggt_adapter.py:63-78 for the
+    Mirrors src/r2dreamer/adapters/vggt_adapter.py:63-78 for the
     feature_kind="aggregator" branch. Returns the same (replay_features,
     agent_obs) tuple plus a timings dict.
     """

@@ -32,7 +32,7 @@ echo "============================================"
 # ------------------------------------------------------------------
 echo ""
 echo "=== Step 1/4: Collect val replay data ==="
-uv run python modules/envs/scripts/collect_val_data.py \
+uv run python scripts/environments/collect_val_data.py \
     --episodes 5 \
     --split val \
     --max_geodesic 5.0 \
@@ -52,7 +52,7 @@ echo "[PASS] Val data collected"
 echo ""
 echo "=== Step 2/4: R2-Dreamer training with val loss ==="
 TRAIN_DIR="${OUTDIR}/train"
-uv run python modules/r2dreamer/scripts/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run_jax_habitat.py \
     --steps 500 \
     --prefill 200 \
     --output_dir "$TRAIN_DIR" \
@@ -87,7 +87,7 @@ echo ""
 echo "=== Step 3/4: Checkpoint evaluation (semantic + topdown) ==="
 CHECKPOINT=$(ls -t "${TRAIN_DIR}/checkpoints/"*.pkl | head -1)
 EVAL_OUTPUT="${OUTDIR}/eval_results.json"
-uv run python modules/r2dreamer/scripts/eval_habitat.py \
+uv run python scripts/r2dreamer/eval_habitat.py \
     --checkpoint "$CHECKPOINT" \
     --episodes 2 \
     --split val \

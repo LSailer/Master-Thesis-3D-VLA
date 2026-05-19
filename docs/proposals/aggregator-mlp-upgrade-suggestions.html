@@ -15,7 +15,7 @@ Branch context: <code>feat/variant-1-aggregator-mlp</code> · 2026-05-16<br>
 Source reports: <a href="../onboarding/onboarding-mlp-encoder.html">onboarding-mlp-encoder.html</a> · <a href="../research/dreamer-vector-input-research.html">dreamer-vector-input-research.html</a>
 </p>
 
-<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> file-path citations in this doc (e.g. <code>networks.py:457</code>) predate PR #145 — the Flax encoder now lives at <code>modules/r2dreamer/world_model/encoders.py:61</code>. Apply the suggestions there.</p>
+<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> file-path citations in this doc (e.g. <code>networks.py:457</code>) predate PR #145 — the Flax encoder now lives at <code>src/r2dreamer/world_model/encoders.py:61</code>. Apply the suggestions there.</p>
 
 <div class="tldr">
 <strong>TL;DR.</strong> The current pipeline does mean-pool <em>before</em> the replay buffer plus a single <code>nn.Dense(1024)</code> <em>after</em> it. The r2dreamer MLP pattern (3 Linear layers + RMSNorm + SiLU, with <code>symlog</code> on the input) is what DreamerV3 itself uses on vector observations &mdash; so the highest-leverage, lowest-risk change is to apply it to the agent-side encoder (Suggestion #1). Suggestions #3 and #4 alter <em>what</em> gets pooled (richer signals into the buffer); Suggestion #5 trains the pool end-to-end. Anything that changes the adapter <em>before</em> the buffer is bounded by storage &mdash; you can't store all 1374 tokens for 5000 frames (≈28 GB).
@@ -43,7 +43,7 @@ Source reports: <a href="../onboarding/onboarding-mlp-encoder.html">onboarding-m
   <p>Keeps mean-pool unchanged &mdash; only the Flax encoder body changes. This is exactly the MLP r2dreamer uses for proprioceptive vector inputs (3 Linear blocks, RMSNorm, SiLU, optional <code>symlog</code>). See diagram in <a href="../research/dreamer-vector-input-research.html#sec-mlp-diagram">dreamer-vector-input-research.html&#x2009;§4</a>.</p>
 
   <div class="sug-meta">
-    <div class="k">Touch</div><div class="v"><code>modules/r2dreamer/networks.py:457-478</code></div>
+    <div class="k">Touch</div><div class="v"><code>src/r2dreamer/networks.py:457-478</code></div>
     <div class="k">Replay buffer</div><div class="v">unchanged &mdash; still <code>(1024,)</code> per frame</div>
     <div class="k">Cost</div><div class="v"><span class="tag cost-low">params&nbsp;+6M</span><span class="tag cost-low">latency&nbsp;~0</span><span class="tag risk-low">risk low</span></div>
     <div class="k">Expected gain</div><div class="v">Non-linear capacity + correctly-scaled inputs before RSSM &mdash; brings you <em>into</em> the architectural regime DreamerV3 was tuned for.</div>
@@ -81,7 +81,7 @@ Source reports: <a href="../onboarding/onboarding-mlp-encoder.html">onboarding-m
   <p>Wrap the existing single <code>Dense(1024)</code> input in <code>symlog</code>. Tests the <em>&ldquo;were the inputs simply miscalibrated?&rdquo;</em> hypothesis in isolation, separately from the MLP-depth change.</p>
 
   <div class="sug-meta">
-    <div class="k">Touch</div><div class="v"><code>modules/r2dreamer/networks.py:457</code> &mdash; one line</div>
+    <div class="k">Touch</div><div class="v"><code>src/r2dreamer/networks.py:457</code> &mdash; one line</div>
     <div class="k">Replay buffer</div><div class="v">unchanged</div>
     <div class="k">Cost</div><div class="v"><span class="tag cost-low">params&nbsp;+0</span><span class="tag cost-low">latency&nbsp;~0</span><span class="tag risk-low">risk minimal</span></div>
     <div class="k">Expected gain</div><div class="v">Compresses unbounded VGGT activations (e.g. 1000&nbsp;&rarr;&nbsp;6.9) without losing sign or zero-region resolution. DreamerV3 ablations attribute meaningful gains to symlog alone on proprio envs.</div>

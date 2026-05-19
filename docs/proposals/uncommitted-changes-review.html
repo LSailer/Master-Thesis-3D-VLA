@@ -61,7 +61,7 @@ Several path citations now point at lines that no longer exist. One file is also
 <tr>
   <td><span class="file">docs/ddd-refactor-suggestions.html</span></td>
   <td>22 KB</td>
-  <td>5 domain-driven refactors of <code>modules/</code></td>
+  <td>5 domain-driven refactors of <code>src/</code></td>
   <td><span class="pill hist">Re-frame: partially fulfilled</span></td>
 </tr>
 <tr>
@@ -86,16 +86,16 @@ world_model/behavior/representation packages.&rdquo; That refactor moved code <e
   <div class="col">
     <h4>What the docs cite</h4>
     <ul>
-      <li><code>modules/r2dreamer/networks.py:457&ndash;478</code> &mdash; Flax <code>VGGTAggregatorMLPEncoder</code></li>
-      <li><code>modules/r2dreamer/networks.py:108&ndash;109</code> &mdash; MLP routing for 2-D specs</li>
-      <li><code>modules/r2dreamer/agent.py:425</code> &mdash; <code>stop_gradient</code> on encoder embedding inside Barlow loss</li>
+      <li><code>src/r2dreamer/networks.py:457&ndash;478</code> &mdash; Flax <code>VGGTAggregatorMLPEncoder</code></li>
+      <li><code>src/r2dreamer/networks.py:108&ndash;109</code> &mdash; MLP routing for 2-D specs</li>
+      <li><code>src/r2dreamer/agent.py:425</code> &mdash; <code>stop_gradient</code> on encoder embedding inside Barlow loss</li>
       <li>30 KB <code>agent.py</code>, 19 KB <code>networks.py</code></li>
     </ul>
   </div>
   <div class="col">
     <h4>What main now has</h4>
     <ul>
-      <li><code>modules/r2dreamer/world_model/encoders.py:61</code> &mdash; Flax <code>VGGTAggregatorMLPEncoder</code></li>
+      <li><code>src/r2dreamer/world_model/encoders.py:61</code> &mdash; Flax <code>VGGTAggregatorMLPEncoder</code></li>
       <li><code>networks.py</code> is now <strong>875 bytes</strong> (effectively gutted)</li>
       <li><code>stop_gradient</code> calls live in <code>behavior/loss.py</code> (lines 42, 45, 56, 57, 63, 67, 71, 106) and <code>behavior/imagination.py</code> (36, 37)</li>
       <li><code>agent.py</code> is 17.8 KB; <code>trainer.py</code> 21 KB (still matches)</li>
@@ -116,7 +116,7 @@ world_model/behavior/representation packages.&rdquo; That refactor moved code <e
   networks.py:457&ndash;478              &rarr; world_model/encoders.py:61&ndash;78  (verify range)
 
 aggregator-mlp-upgrade-suggestions.html:
-  modules/r2dreamer/networks.py:457 &rarr; modules/r2dreamer/world_model/encoders.py:61
+  src/r2dreamer/networks.py:457 &rarr; src/r2dreamer/world_model/encoders.py:61
   networks.py:108&ndash;109               &rarr; (re-locate MLP routing logic post-refactor)</pre>
 
 <p>
@@ -135,7 +135,7 @@ Its Suggestion&nbsp;2 (&ldquo;Carve <code>r2dreamer/</code> into bounded subdoma
 The current tree:
 </p>
 
-<pre>modules/r2dreamer/
+<pre>src/r2dreamer/
   world_model/      &mdash; encoders.py, heads.py, loss.py, rssm.py
   behavior/         &mdash; imagination.py, loss.py, return_ema.py
   representation/   &mdash; barlow.py, loss.py, repvalue.py
@@ -168,7 +168,7 @@ work that has already shipped.
 <p>
 <code>overfit_one_batch_aggregator_mlp.html</code> opens with a strong claim:
 &ldquo;<em>agent.py:425 applies <code>jax.lax.stop_gradient</code> to the encoder embedding inside the Barlow loss.</em>&rdquo;
-But after PR&nbsp;#145, the Barlow loss now lives in <code>modules/r2dreamer/representation/</code>, and the
+But after PR&nbsp;#145, the Barlow loss now lives in <code>src/r2dreamer/representation/</code>, and the
 <code>stop_gradient</code> calls I located are in <code>behavior/loss.py</code> (around the imagined-rollout boundary,
 which is normal and expected) and <code>behavior/imagination.py</code>. None of those obviously sit inside the
 representation/Barlow path on the encoder embedding.

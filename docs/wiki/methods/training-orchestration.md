@@ -13,7 +13,7 @@ Three training scripts (`run_jax_crafter.py`, `run_jax_habitat.py`, `run_jax_hab
 
 ## What Changed
 
-### Unified ReplayBuffer (`modules/dreamerv3/replay_buffer.py`)
+### Unified ReplayBuffer (`src/dreamerv3/replay_buffer.py`)
 
 `ReplayBuffer` + `VGGTReplayBuffer` merged into one class parameterized by `BufferConfig`:
 - `obs_dtype="uint8"` + `normalize_obs=True` = old image buffer behavior
@@ -21,7 +21,7 @@ Three training scripts (`run_jax_crafter.py`, `run_jax_habitat.py`, `run_jax_hab
 
 Backward-compat shim accepts `DreamerConfig`/`R2DreamerConfig` directly.
 
-### Trainer Module (`modules/r2dreamer/trainer.py`)
+### Trainer Module (`src/r2dreamer/trainer.py`)
 
 | Component | Purpose |
 |---|---|

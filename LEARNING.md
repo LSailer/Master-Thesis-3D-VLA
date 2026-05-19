@@ -6,12 +6,12 @@
   - Why: The architecture is locked to pre-head aggregator tokens, and the user constrained changes to the new encoder plus minimum plumbing. `git diff origin/main..origin/feat/vggt-film-encoder-109` showed the expected style: dataclass config fields, registry entry, RMSNorm+SiLU Flax module, and a thin launcher class.
 
 - 2026-05-09T04:27:47Z
-  - Tried: Traced `JAXVGGTFeatureExtractor.extract()` through `modules/vggt/jax/aggregator.py` and `modules/vggt/jax/heads/dpt_head.py`.
+  - Tried: Traced `JAXVGGTFeatureExtractor.extract()` through `src/vggt/jax/aggregator.py` and `src/vggt/jax/heads/dpt_head.py`.
   - Chose: Export patch tokens from the last aggregator block before camera/point heads, not the existing world-points + camera-pose output. The local JAX aggregator returns per-layer tensors shaped `(B, S, P, 2048)` because it concatenates frame and global streams; the DPT head consumes those as pre-head tokens. For the locked `(B, 37, 37, 1024)` variant, use the final global half (`[..., 1024:]`) after removing the 5 special tokens.
   - Why: The user explicitly rejected WP+CP and specified pre-head aggregator features. The final global stream is the contextualized aggregator representation immediately before downstream heads, while the first half is the frame-local stream.
 
 - 2026-05-09T04:32:49Z
-  - Tried: Ran `uv run pytest modules/r2dreamer/tests/test_vggt_encoder.py modules/r2dreamer/launch/tests/test_registries.py -q` in the clean worktree.
+  - Tried: Ran `uv run pytest tests/r2dreamer/test_vggt_encoder.py tests/r2dreamer/launch/test_registries.py -q` in the clean worktree.
   - Chose: Treat the first attempt as an environment fork and switch to a Python version compatible with Open3D before re-running tests.
   - Why: `uv` selected CPython 3.13 for the new worktree, but `open3d==0.19.0` publishes wheels only for cp310/cp311/cp312. The failure occurred before project tests executed.
 
@@ -43,7 +43,7 @@
 - 2026-05-09T05:18:00Z
   - Tried: Re-ran focused structural tests after memory-feasibility changes.
   - Chose: Keep the Variant 1-specific replay/batch defaults and proceed to PR/SLURM wiring.
-  - Why: `uv run --python 3.11 pytest modules/r2dreamer/launch/tests/test_registries.py modules/r2dreamer/tests/test_vggt_encoder.py -q` passed with 20 tests.
+  - Why: `uv run --python 3.11 pytest tests/r2dreamer/launch/test_registries.py tests/r2dreamer/test_vggt_encoder.py -q` passed with 20 tests.
 
 - 2026-05-09T05:23:00Z
   - Tried: Ran a 10k-step local smoke with W&B enabled using `variant-1-aggregator-mlp-smoke-local-b4`.

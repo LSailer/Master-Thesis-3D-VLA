@@ -17,7 +17,7 @@ In the L1 CNN smoke run (100k steps), this caused `latent/posterior_entropy` to 
 
 ## Patch
 
-`modules/r2dreamer/agent.py:645-683` — remove the per-group sum *before* the clamp:
+`src/r2dreamer/agent.py:645-683` — remove the per-group sum *before* the clamp:
 
 ```diff
 -    kl_dyn = jnp.sum(_kl(sg_post_probs, sg_post_log, prior_log), axis=-1)
@@ -50,7 +50,7 @@ The only divergence is `stoch_discrete=16` vs upstream `32`, tracked separately 
 
 ## Canonical R2-Dreamer comparison
 
-The JAX agent `modules/r2dreamer/` was ported from `external/r2dreamer/` (Bansal et al., the R2-Dreamer paper source). Re-checked the 6 KL dimensions against that source — the picture is **not the same as DreamerV3**.
+The JAX agent `src/r2dreamer/` was ported from `external/r2dreamer/` (Bansal et al., the R2-Dreamer paper source). Re-checked the 6 KL dimensions against that source — the picture is **not the same as DreamerV3**.
 
 | # | Dimension | R2-Dreamer JAX (patched) | Canonical R2-Dreamer (PyTorch) | Status |
 |---|---|---|---|---|
@@ -109,8 +109,8 @@ Two qualitative changes confirm the fix is active:
 
 ## Files
 
-- Patch site: `modules/r2dreamer/agent.py:645-683` (worktree `worktree-agent-a7b6ae2626d4d3d43`)
-- Config: `modules/r2dreamer/config.py:62-71` (`kl_free=1.0`, `scale_dyn=1.0`, `scale_rep=0.1`)
+- Patch site: `src/r2dreamer/agent.py:645-683` (worktree `worktree-agent-a7b6ae2626d4d3d43`)
+- Config: `src/r2dreamer/config.py:62-71` (`kl_free=1.0`, `scale_dyn=1.0`, `scale_rep=0.1`)
 - Mini-smoke data: `/tmp/posterior_fix_minismoke/metrics.csv`
 - Upstream reference: `danijar/dreamerv3` `dreamerv3/rssm.py:100-113`, `dreamerv3/agent.py:187-189`
 - Canonical R2-Dreamer (ported-from) reference: `external/r2dreamer/rssm.py:222-230` (KL site), `external/r2dreamer/dreamer.py:372-374` (loss site), `external/r2dreamer/configs/model/_base_.yaml:2,21-31` (defaults)

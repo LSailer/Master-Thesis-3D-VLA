@@ -21,7 +21,7 @@ Establishes the random-chance performance floor for the L1 curriculum (1 house: 
 
 ## Changes
 
-New standalone module `modules/baselines/random_agent.py` — no model, pure random actions. Also added configurable reward parameters (`step_penalty`, `success_bonus`) to `DreamerConfig` and `R2DreamerConfig`.
+New standalone module `src/baselines/random_agent.py` — no model, pure random actions. Also added configurable reward parameters (`step_penalty`, `success_bonus`) to `DreamerConfig` and `R2DreamerConfig`.
 
 ## Results
 

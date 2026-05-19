@@ -9,7 +9,7 @@ status: verified
 
 ## Question
 
-A smoke audit of `modules/r2dreamer/agent.py` flagged that the three logged
+A smoke audit of `src/r2dreamer/agent.py` flagged that the three logged
 KL metrics `loss/dyn`, `loss/rep`, and `latent/kl_divergence` are bit-equal
 in the metrics CSV across every recent run. Is this a bug (broken
 bookkeeping that hides one of the losses) or a property of how
@@ -17,7 +17,7 @@ bookkeeping that hides one of the losses) or a property of how
 
 ## Code under test
 
-`modules/r2dreamer/agent.py:404-409` — both losses are scalar means of the
+`src/r2dreamer/agent.py:404-409` — both losses are scalar means of the
 two arrays returned by `_kl_loss`:
 
 ```python
@@ -96,7 +96,7 @@ zero/nonzero structure, (iii) scale routing inside `total_loss`.
 ```python
 """Synthetic proof that loss/dyn ≡ loss/rep is cosmetic.
 
-Mirrors `_kl_loss` in modules/r2dreamer/agent.py:645-681.
+Mirrors `_kl_loss` in src/r2dreamer/agent.py:645-681.
 """
 
 import jax
@@ -259,9 +259,9 @@ Sources audited:
 - `external/dreamerv3-torch/networks.py:272-290` (NM512 PyTorch port)
 - `external/dreamerv3-torch/configs.yaml:57-59`
 - `external/r2dreamer/rssm.py:222-230` (Bansal et al., the actual
-  port-base for `modules/r2dreamer/`)
-- `modules/r2dreamer/agent.py:404-409, 609-611, 645-681`,
-  `modules/r2dreamer/config.py:60-75`
+  port-base for `src/r2dreamer/`)
+- `src/r2dreamer/agent.py:404-409, 609-611, 645-681`,
+  `src/r2dreamer/config.py:60-75`
 
 | # | Question | Verdict | Evidence |
 |---|----------|---------|----------|
@@ -317,7 +317,7 @@ Both halves of the original claim survive scrutiny:
 
 ## Related
 
-- Smoke audit that surfaced the question: `modules/r2dreamer/agent.py:404-409, 621-622, 631, 645-681`.
+- Smoke audit that surfaced the question: `src/r2dreamer/agent.py:404-409, 621-622, 631, 645-681`.
 - Active posterior-collapse fix (separate finding from the same audit, tracked independently — not addressed here).
 - Companion divergence audit (different question, different mechanism):
   [`kl-free-per-group-fix.md`](kl-free-per-group-fix.md).

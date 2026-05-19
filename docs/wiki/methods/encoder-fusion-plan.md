@@ -7,8 +7,8 @@ Status: **draft** | Branch: `feat/encoder-fusion-ablation` | Target: H100 cluste
 **The thesis claim under test.** R2Dreamer should perform better with 3D (VGGT) features than with 2D (CNN) features on HM3D ObjectNav. The current 75% SR baseline (commit `ab89a0a`, act_entropy=3e-2) uses a fusion path that *destroys both inputs the thesis depends on*:
 
 1. The VGGT extractor emits a structured `world_points (37, 37, 3)` grid + a 9-D `camera_pose` embedding.
-2. The adapter [vggt_adapter.py:14](../../../modules/r2dreamer/adapters/vggt_adapter.py#L14) flattens both into a 4116-D vector.
-3. The encoder [networks.py:414](../../../modules/r2dreamer/networks.py#L414) is a single `Dense(4116 → 1024)` layer.
+2. The adapter [vggt_adapter.py:14](../../../src/r2dreamer/adapters/vggt_adapter.py#L14) flattens both into a 4116-D vector.
+3. The encoder [networks.py:414](../../../src/r2dreamer/networks.py#L414) is a single `Dense(4116 → 1024)` layer.
 
 This produces three known confounders for the 3D-vs-2D claim (issues #87, #88, #89 documented at [vggt-r2dreamer-callchain.md:103](vggt-r2dreamer-callchain.md#L103)):
 
@@ -31,7 +31,7 @@ User decisions guiding this plan:
 
 ## Approach overview
 
-All four variants reuse the existing `ConvEncoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) as a shared CNN backbone, treating `world_points` as a 3-channel image at 37×37. They differ only in **how camera pose enters**, which is precisely the variable we want to ablate.
+All four variants reuse the existing `ConvEncoder` ([networks.py:362](../../../src/r2dreamer/networks.py#L362)) as a shared CNN backbone, treating `world_points` as a 3-channel image at 37×37. They differ only in **how camera pose enters**, which is precisely the variable we want to ablate.
 
 | Variant | Pose injection | Backbone | Expected role |
 |---|---|---|---|
@@ -63,7 +63,7 @@ Plus the existing baseline `vggt` (flatten+linear) stays in the registry as the 
 
 **Why first.** Cross-attention needs DINOv2 patch tokens. Doing this before any encoder work means all variants see the same buffer schema and we don't ship two adapter changes.
 
-**Buffer budget — corrected.** Current buffer is ~16.5 GB (4116 floats × 1M cap × 4 bytes), memory-resident at [replay_buffer.py:42](../../../modules/shared/replay_buffer.py#L42). New schema with 91732 floats/step is **~367 GB**. The "halve patch tokens to 32 channels" mitigation only saves ~84 GB → still ~283 GB. Before Phase 1 lands, the team must choose ONE of:
+**Buffer budget — corrected.** Current buffer is ~16.5 GB (4116 floats × 1M cap × 4 bytes), memory-resident at [replay_buffer.py:42](../../../src/buffer/replay_buffer.py#L42). New schema with 91732 floats/step is **~367 GB**. The "halve patch tokens to 32 channels" mitigation only saves ~84 GB → still ~283 GB. Before Phase 1 lands, the team must choose ONE of:
 - (a) cap buffer at 250k steps (~92 GB at 91732 floats);
 - (b) implement a disk-backed wrapper (HDF5 or memmap) — touches `replay_buffer.py` substantially;
 - (c) compress patch tokens harder than 64 dims (e.g., 16 dims → 22k floats/step → ~88 GB at 1M cap).
@@ -78,22 +78,22 @@ The downstream Phase 1 design assumes 64-dim tokens; if option (c) is chosen, al
 
 - **Step 0 — verify `aggregated_tokens` shape. RESOLVED via [scripts/verify_aggregated_tokens.py](../../../scripts/verify_aggregated_tokens.py).** `aggregated_tokens` is a **list of 24 layer outputs** (one per aggregator block), each shape `(B, S, 1374, 2048)` float32. The first `patch_start_idx = 5` tokens are CLS + register prefix; tokens `5..1373` are the 1369 patch tokens (37×37 grid). Channel dim is **2048**, not 1024 as originally assumed. Downstream design: pick the last layer (`aggregated_tokens[-1]`), slice `[:, :, 5:, :]`, reshape to `(37, 37, 2048)`, then project. The fixed projection is therefore **2048→K** (32× compression at K=64, two orders below the JL bound — see M1 caveats). Recommended K = 128 or 256 to compensate for the larger source dim, not 64.
 
-- **[modules/envs/habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py)** — extend obs dict
+- **[src/environments/habitat_r2dreamer.py](../../../src/environments/habitat_r2dreamer.py)** — extend obs dict
   - Currently returns only `{image, reward, is_first, is_last, is_terminal, success, spl}`. The Plücker variant (Phase 2c) needs Habitat extrinsics + intrinsics; without this, Plücker is broken-by-default.
   - Add `agent_state`: 4×4 extrinsics + 3×3 intrinsics (or a flat 25-D representation) to the obs dict.
-  - Update [vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) to also pack `agent_state` into the buffer flat layout.
+  - Update [vggt_adapter.py](../../../src/r2dreamer/adapters/vggt_adapter.py) to also pack `agent_state` into the buffer flat layout.
   - Validate Habitat's coordinate frame matches VGGT's `world_points` frame visually before training (one paired plot of rays + world_points).
 
-- **[modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py)** (~line 83)
+- **[src/vggt/feature_extractor.py](../../../src/vggt/feature_extractor.py)** (~line 83)
   - In `extract()`, also pull the DINOv2 patch tokens from `aggregated_tokens` (the layer before the DPT head — this is what VGGT calls "patch tokens"; verify the exact slice and shape per Step 0 above). Reshape to (37, 37, 1024) if the layout permits.
   - Apply a fixed projection: `tokens_compressed = tokens @ self._proj` where `self._proj` is a frozen `(1024, 64)` matrix initialized once with `torch.randn` × `1/sqrt(1024)` and stored on the module. Result: (37, 37, 64).
   - Return dict now includes `"patch_tokens": (37, 37, 64) float32`.
 
-- **[modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py)**
+- **[src/r2dreamer/adapters/vggt_adapter.py](../../../src/r2dreamer/adapters/vggt_adapter.py)**
   - Update `VGGT_FEATURE_DIM` and `_flatten_vggt`: pack `[world_points.flatten() (4107), patch_tokens.flatten() (87616), camera_pose (9)]` → 91732 floats.
   - Keep the flat byte layout (don't switch to a dict) so `ReplayBuffer` doesn't need touching. Encoders unpack on the JAX side via known offsets.
 
-- **[modules/r2dreamer/config.py:27](../../../modules/r2dreamer/config.py#L27)**
+- **[src/r2dreamer/config.py:27](../../../src/r2dreamer/config.py#L27)**
   - Update `vggt_feature_dim`. Add new config fields per encoder variant (FiLM hidden dim, x-attn heads, etc.).
 
 ### Verification (Phase 1)
@@ -106,7 +106,7 @@ The downstream Phase 1 design assumes 64-dim tokens; if option (c) is chosen, al
 
 ## Phase 2 — Encoder registry expansion
 
-All encoders go in [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) (Flax). The registry lives in [modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) — one entry per variant.
+All encoders go in [src/r2dreamer/networks.py](../../../src/r2dreamer/networks.py) (Flax). The registry lives in [src/r2dreamer/launch/registries.py:15](../../../src/r2dreamer/launch/registries.py#L15) — one entry per variant.
 
 Each encoder takes the flat 91732-D obs and unpacks internally to:
 - `wp` reshaped to (B, 3, 37, 37)
@@ -143,7 +143,7 @@ class FiLMEncoder(nn.Module):
         return ConvEncoderFiLM(gammas, betas)(wp)
 ```
 
-`ConvEncoderFiLM` is a parameterized variant of `ConvEncoder`. The "small kwarg add" framing understates the refactor: ConvEncoder's conv loop ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)) is tight (Conv → max_pool → RMSNorm → SiLU); branching on `film_params` leaks abstraction. A cleaner alternative is a separate `ConvEncoderFiLM` wrapper class that calls ConvEncoder internally. Pick one and document the choice; either is acceptable but the diff will be larger than a single kwarg.
+`ConvEncoderFiLM` is a parameterized variant of `ConvEncoder`. The "small kwarg add" framing understates the refactor: ConvEncoder's conv loop ([networks.py:377-383](../../../src/r2dreamer/networks.py#L377-L383)) is tight (Conv → max_pool → RMSNorm → SiLU); branching on `film_params` leaks abstraction. A cleaner alternative is a separate `ConvEncoderFiLM` wrapper class that calls ConvEncoder internally. Pick one and document the choice; either is acceptable but the diff will be larger than a single kwarg.
 
 ### 2c. `PluckerEncoder`
 
@@ -185,7 +185,7 @@ Note: this is the only variant that does **not** use ConvEncoder. It uses the pa
 
 ### Registry update
 
-[modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15):
+[src/r2dreamer/launch/registries.py:15](../../../src/r2dreamer/launch/registries.py#L15):
 
 ```python
 encoder_registry = {
@@ -213,7 +213,7 @@ Goal: directly measure "does pose actually influence the latent `z`," beyond jus
 
 ### 3a. Gradient-norm probe (training-time)
 
-In [modules/r2dreamer/agent.py:299](../../../modules/r2dreamer/agent.py#L299) (`_loss_fn`), after the forward pass, compute and log:
+In [src/r2dreamer/agent.py:299](../../../src/r2dreamer/agent.py#L299) (`_loss_fn`), after the forward pass, compute and log:
 
 ```python
 grad_z_wrt_pose = jax.grad(lambda p: stoch_logits(... pose=p ...).sum())(pose)
@@ -226,7 +226,7 @@ Cheap (one extra grad call on a scalar reduction). Expected behavior: rises duri
 
 ### 3b. Pose-ablation eval (eval-time only, expensive)
 
-Add a `--ablate-pose` flag to [modules/r2dreamer/launch/evaluate.py:72](../../../modules/r2dreamer/launch/evaluate.py#L72) (there is no `eval/` directory; the entry point is `evaluate.py`) that, at every acting step, replaces the real pose with **a permutation across the batch** (primary mode, breaks pose-image correspondence cleanly), with **zero-pose** as a secondary mode. Then run a full HM3D evaluation. **SR drop = causal contribution of pose.** Note: zero-pose is NOT equivalent to "no pose" once FiLM γ,β are trained — it produces a different (β-only) deterministic input. Permutation is the cleaner test.
+Add a `--ablate-pose` flag to [src/r2dreamer/launch/evaluate.py:72](../../../src/r2dreamer/launch/evaluate.py#L72) (there is no `eval/` directory; the entry point is `evaluate.py`) that, at every acting step, replaces the real pose with **a permutation across the batch** (primary mode, breaks pose-image correspondence cleanly), with **zero-pose** as a secondary mode. Then run a full HM3D evaluation. **SR drop = causal contribution of pose.** Note: zero-pose is NOT equivalent to "no pose" once FiLM γ,β are trained — it produces a different (β-only) deterministic input. Permutation is the cleaner test.
 
 Expected ranking:
 - Baseline `vggt`: SR drop ≈ 0% (pose was never used).
@@ -245,7 +245,7 @@ This is the **money diagnostic** for the thesis claim: "3D features only help if
 
 ## Phase 4 — Experiment matrix (15 runs, H100 cluster)
 
-SLURM scripts go in [modules/r2dreamer/scripts/slurm/](../../../modules/r2dreamer/scripts/slurm/) following the [train_curriculum_l1.sbatch](../../../modules/r2dreamer/scripts/slurm/train_curriculum_l1.sbatch) pattern (the precedent for the `ab89a0a` baseline). Each run uses the same hyperparameters as the 75% SR baseline (act_entropy=3e-2, fixed VGGT) — only the `--encoder` flag changes. Each script must emit `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, start/end timestamps) per the project's data-layout discipline; the reporter skill creates `_blessed/encoder-fusion-ablation/<variant>` aliases after the matrix completes so the wiki-audit skill can cross-check the result table.
+SLURM scripts go in [scripts/r2dreamer/slurm/](../../../scripts/r2dreamer/slurm/) following the [train_curriculum_l1.sbatch](../../../scripts/r2dreamer/slurm/train_curriculum_l1.sbatch) pattern (the precedent for the `ab89a0a` baseline). Each run uses the same hyperparameters as the 75% SR baseline (act_entropy=3e-2, fixed VGGT) — only the `--encoder` flag changes. Each script must emit `MANIFEST.json` (git_sha, config, wandb_id, slurm_id, start/end timestamps) per the project's data-layout discipline; the reporter skill creates `_blessed/encoder-fusion-ablation/<variant>` aliases after the matrix completes so the wiki-audit skill can cross-check the result table.
 
 **Cluster targeting.** All 15 runs go directly to the H100 cluster — skip local debug runs beyond Phase 1/2 unit tests. The phase-2 smoke trains (5k steps each) are the only local steps; if they don't NaN, push to SLURM. H100 capacity means we can launch the matrix as parallel jobs rather than sequential.
 
@@ -285,25 +285,25 @@ Before declaring the experiment shipped:
 
 | Path | Change |
 |---|---|
-| [modules/envs/habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py) | Surface Habitat `agent_state` (4×4 extrinsics + 3×3 intrinsics) in obs dict — required by Plücker. |
-| [modules/vggt/feature_extractor.py](../../../modules/vggt/feature_extractor.py) | Expose patch tokens with seeded fixed 1024→K projection (K = 64 default; consider 512). Verify `aggregated_tokens` shape first. |
-| [modules/r2dreamer/adapters/vggt_adapter.py](../../../modules/r2dreamer/adapters/vggt_adapter.py) | New flat layout; also pack Habitat extrinsics+intrinsics for Plücker; pose ×100 path for `vggt_pose_scaled`. |
-| [modules/shared/replay_buffer.py](../../../modules/shared/replay_buffer.py) | Touched only if option (b) disk-backed wrapper is chosen for the buffer-budget mitigation. |
-| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `ConvEncoder` with optional FiLM hooks (or add `ConvEncoderFiLM` wrapper). |
-| [modules/r2dreamer/config.py](../../../modules/r2dreamer/config.py) | New `vggt_feature_dim`, per-variant config fields. |
-| [modules/r2dreamer/launch/registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) | Register five new encoder names (incl. `vggt_pose_scaled`). |
-| [modules/r2dreamer/agent.py:299](../../../modules/r2dreamer/agent.py#L299) | Add `pose_grad_norm` logging in `_loss_fn` (gated on encoder restructure — see Phase 3a). |
-| [modules/r2dreamer/launch/evaluate.py:72](../../../modules/r2dreamer/launch/evaluate.py#L72) | Add `--ablate-pose` flag (permutation primary, zero secondary). |
-| [modules/r2dreamer/scripts/slurm/](../../../modules/r2dreamer/scripts/slurm/) | 15 SLURM scripts (5 encoders × 3 seeds), H100 partition, modeled on `train_curriculum_l1.sbatch`. Each emits MANIFEST.json. |
+| [src/environments/habitat_r2dreamer.py](../../../src/environments/habitat_r2dreamer.py) | Surface Habitat `agent_state` (4×4 extrinsics + 3×3 intrinsics) in obs dict — required by Plücker. |
+| [src/vggt/feature_extractor.py](../../../src/vggt/feature_extractor.py) | Expose patch tokens with seeded fixed 1024→K projection (K = 64 default; consider 512). Verify `aggregated_tokens` shape first. |
+| [src/r2dreamer/adapters/vggt_adapter.py](../../../src/r2dreamer/adapters/vggt_adapter.py) | New flat layout; also pack Habitat extrinsics+intrinsics for Plücker; pose ×100 path for `vggt_pose_scaled`. |
+| [src/buffer/replay_buffer.py](../../../src/buffer/replay_buffer.py) | Touched only if option (b) disk-backed wrapper is chosen for the buffer-budget mitigation. |
+| [src/r2dreamer/networks.py](../../../src/r2dreamer/networks.py) | Add `TileEncoder`, `FiLMEncoder`, `PluckerEncoder`, `CrossAttnEncoder`; extend `ConvEncoder` with optional FiLM hooks (or add `ConvEncoderFiLM` wrapper). |
+| [src/r2dreamer/config.py](../../../src/r2dreamer/config.py) | New `vggt_feature_dim`, per-variant config fields. |
+| [src/r2dreamer/launch/registries.py:15](../../../src/r2dreamer/launch/registries.py#L15) | Register five new encoder names (incl. `vggt_pose_scaled`). |
+| [src/r2dreamer/agent.py:299](../../../src/r2dreamer/agent.py#L299) | Add `pose_grad_norm` logging in `_loss_fn` (gated on encoder restructure — see Phase 3a). |
+| [src/r2dreamer/launch/evaluate.py:72](../../../src/r2dreamer/launch/evaluate.py#L72) | Add `--ablate-pose` flag (permutation primary, zero secondary). |
+| [scripts/r2dreamer/slurm/](../../../scripts/r2dreamer/slurm/) | 15 SLURM scripts (5 encoders × 3 seeds), H100 partition, modeled on `train_curriculum_l1.sbatch`. Each emits MANIFEST.json. |
 | [encoder-fusion-ablation.md](encoder-fusion-ablation.md) | Results writeup at the end. |
 | [../index.md](../index.md) | Wiki index entry pointing at this plan. |
 
 ## Reused functions (no rewriting needed)
 
-- `ConvEncoder` ([networks.py:362](../../../modules/r2dreamer/networks.py#L362)) — backbone for tile/film/plucker variants.
-- `RMSNorm`, `R2MLP` ([networks.py:389](../../../modules/r2dreamer/networks.py#L389)) — building blocks.
-- `VGGTFeatureExtractor.extract` and KV-cache machinery ([feature_extractor.py:83](../../../modules/vggt/feature_extractor.py#L83)) — only adds an output, doesn't change call-shape.
-- `R2RSSM.__call__` ([networks.py:229](../../../modules/r2dreamer/networks.py#L229)) — untouched. The encoder contract (`obs → embed (B, 1024)`) is preserved by all variants, so the RSSM posterior head sees the same input shape.
+- `ConvEncoder` ([networks.py:362](../../../src/r2dreamer/networks.py#L362)) — backbone for tile/film/plucker variants.
+- `RMSNorm`, `R2MLP` ([networks.py:389](../../../src/r2dreamer/networks.py#L389)) — building blocks.
+- `VGGTFeatureExtractor.extract` and KV-cache machinery ([feature_extractor.py:83](../../../src/vggt/feature_extractor.py#L83)) — only adds an output, doesn't change call-shape.
+- `R2RSSM.__call__` ([networks.py:229](../../../src/r2dreamer/networks.py#L229)) — untouched. The encoder contract (`obs → embed (B, 1024)`) is preserved by all variants, so the RSSM posterior head sees the same input shape.
 
 ---
 

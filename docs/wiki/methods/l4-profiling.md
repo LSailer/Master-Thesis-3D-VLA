@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-20
 **Source PRD**: [#74](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/74)
-**Script**: `modules/r2dreamer/scripts/profile_training.py`
+**Script**: `scripts/r2dreamer/profile_training.py`
 **Plan**: [`docs/plans/l4-profiling.md`](../../plans/l4-profiling.md)
 
 ## Motivation
@@ -173,11 +173,11 @@ CNN `wm_training` p50 went from 60.41 → 67.57 ms (+12%). Outside noise but unr
 
 ### JAX comparison (autoresearch harness)
 
-Three different harnesses report three different PyTorch baselines — direct cross-harness comparison is unreliable. The only apples-to-apples line is `modules/vggt/autoresearch/bench_fast.py` (synthetic input, seq_len=50, fp32):
+Three different harnesses report three different PyTorch baselines — direct cross-harness comparison is unreliable. The only apples-to-apples line is `src/vggt/autoresearch/bench_fast.py` (synthetic input, seq_len=50, fp32):
 
 | Backend | Config | ms / forward | Source |
 |---|---|--:|---|
-| PyTorch | fp32, seq_len=50 | 72.2 | `modules/vggt/autoresearch/.pt_baseline.json` |
+| PyTorch | fp32, seq_len=50 | 72.2 | `src/vggt/autoresearch/.pt_baseline.json` |
 | JAX (eager) | baseline | 4698.5 | `results.tsv` |
 | JAX (jit camera_head + padded KV) | promoted `90e123d` | 137.6 | `results.tsv` |
 
@@ -187,13 +187,13 @@ JAX is currently **1.9× slower than PT-fp32** on the apples-to-apples bench, de
 
 1. **#88 closed as won't-fix.** wrapper + jax_upload = 0.69 ms / forward 148 ms = 0.47% of the bottleneck. Both the original (2026-04-20) and re-verified (2026-04-25) data agree.
 2. **JAX port reframed.** Speedup-vs-PT is no longer the primary motivation; **codebase uniformity + trainable heads** (e.g. semantic head #8) is. New parity threshold is "within 1.5× of PT-compile", not "must be faster". Tracked in a new issue (supersedes #72 stub).
-3. **Frame-skip is the throughput lever.** 5.9 FPS today × 72 h = 1.53 M steps; 2.4 M target needs 9.3 FPS = ~1.6× more. K=2 frame-skip projects 2× and ships in ~5 LOC at `modules/r2dreamer/adapters/vggt_adapter.py:33-36`. Filed as a new issue.
+3. **Frame-skip is the throughput lever.** 5.9 FPS today × 72 h = 1.53 M steps; 2.4 M target needs 9.3 FPS = ~1.6× more. K=2 frame-skip projects 2× and ships in ~5 LOC at `src/r2dreamer/adapters/vggt_adapter.py:33-36`. Filed as a new issue.
 
 ## Update 2026-05-04 — `torch.compile` mode sweep
 
 Frame-skip was rejected as thesis-unsafe (the agent must see every step). The next zero-method-change lever is to try non-default `torch.compile` modes on the same PyTorch path. Extended `VGGTFeatureExtractor.__init__` with a `compile_mode: str | None = None` argument, plumbed through `profile_training.py --compile-mode` and `benchmark_streaming.py --pt-compile-mode`. `None` = torch's default mode (preserves the 2026-04-20 behaviour).
 
-Bench harness: `modules/vggt/jax/benchmark_streaming.py --backends pytorch --seq-lens 10 50 100`, run as **four separate `uv run` invocations** (one per mode) on the local H100 to avoid compile-cache pollution. Each invocation: 3 warmup frames + n measured frames per `seq_len` with a fresh extractor.
+Bench harness: `src/vggt/jax/benchmark_streaming.py --backends pytorch --seq-lens 10 50 100`, run as **four separate `uv run` invocations** (one per mode) on the local H100 to avoid compile-cache pollution. Each invocation: 3 warmup frames + n measured frames per `seq_len` with a fresh extractor.
 
 Selection rule: pick winner on **n=100 median** (closest to a steady-state production run; n=10 / n=50 are warmup-dominated for compiled paths because torch.compile takes the first frames to trace).
 
@@ -236,6 +236,6 @@ L4 cycle target: ~4 d → ~3 d. With **only** `--compile` (default mode), projec
 
 ### Files touched
 
-- `modules/vggt/feature_extractor.py:34-43,52-58,92-111` — added `compile_mode` arg, validated against `{None, "default", "reduce-overhead", "max-autotune"}`, forwarded as `mode=` to all three `torch.compile` calls when not `None`.
-- `modules/r2dreamer/scripts/profile_training.py` — new `--compile-mode` CLI option on the existing `--compile` flag (no new compile flag introduced).
-- `modules/vggt/jax/benchmark_streaming.py` — new `--pt-compile-mode {default,reduce-overhead,max-autotune}` CLI option; CSV `config` column records the resolved mode (e.g. `bf16-autocast+compile-default`).
+- `src/vggt/feature_extractor.py:34-43,52-58,92-111` — added `compile_mode` arg, validated against `{None, "default", "reduce-overhead", "max-autotune"}`, forwarded as `mode=` to all three `torch.compile` calls when not `None`.
+- `scripts/r2dreamer/profile_training.py` — new `--compile-mode` CLI option on the existing `--compile` flag (no new compile flag introduced).
+- `src/vggt/jax/benchmark_streaming.py` — new `--pt-compile-mode {default,reduce-overhead,max-autotune}` CLI option; CSV `config` column records the resolved mode (e.g. `bf16-autocast+compile-default`).

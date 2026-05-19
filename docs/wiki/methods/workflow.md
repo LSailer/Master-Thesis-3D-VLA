@@ -15,7 +15,7 @@ gh issue edit N --add-label ready --add-label AFK
    → dispatches .github/workflows/ralph.yml  # self-hosted BWUniCluster runner
        → Claude Code: worktree → TDD → smoke (srun dev_gpu_h100) → PR
    ↓ (you review PR, merge)
-sbatch modules/r2dreamer/scripts/slurm/<variant>.sbatch     # manual today
+sbatch scripts/r2dreamer/slurm/<variant>.sbatch     # manual today
    → train.sbatch → verify.sbatch → report.sbatch  (deferred wiring)
 ```
 
@@ -39,7 +39,7 @@ Three sources inform this workflow:
 | `/reporter` | Wiki page + plot scripts + HTML slides | After experiments produce results |
 | `/triage-issue` | Investigate bug → GitHub issue with fix plan | When a bug is reported or SLURM job fails |
 | `/wiki` | Ingest, query, lint the knowledge base | Anytime — meeting notes, papers, questions |
-| `/slurm-submit` | (planned, **not yet implemented**) Trigger GPU jobs via GitHub Actions | Today: hand-submit via `sbatch modules/r2dreamer/scripts/slurm/<variant>.sbatch` |
+| `/slurm-submit` | (planned, **not yet implemented**) Trigger GPU jobs via GitHub Actions | Today: hand-submit via `sbatch scripts/r2dreamer/slurm/<variant>.sbatch` |
 
 ## Pipelines
 
@@ -52,8 +52,8 @@ Three sources inform this workflow:
 1. **`/plan`** — Three phases: grill (interview relentlessly), document (PRD as GitHub issue), slice (vertical phases saved to `docs/plans/`). Always runs all three.
 2. **`/engineer`** — Implements phase by phase. Uses TDD (test-first) for infrastructure code (env wrappers, networks, replay buffer, preprocessing). Implements experiment code (training loops, configs) directly.
 3. **`/review`** — Two-pass: find bugs/logic errors, then simplify. Runs pytest.
-4. **Submit training** — today, manual: `sbatch modules/r2dreamer/scripts/slurm/<variant>.sbatch`. (`/slurm-submit` skill is planned, not built.) Wait for results.
-5. **`/reporter`** — Creates three deliverables: plot scripts in `modules/*/scripts/`, wiki experiment page in `docs/wiki/experiments/`, HTML slides in `docs/`. Updates wiki index and log.
+4. **Submit training** — today, manual: `sbatch scripts/r2dreamer/slurm/<variant>.sbatch`. (`/slurm-submit` skill is planned, not built.) Wait for results.
+5. **`/reporter`** — Creates three deliverables: plot scripts in `src/*/scripts/`, wiki experiment page in `docs/wiki/experiments/`, HTML slides in `docs/`. Updates wiki index and log.
 6. **Human chat review** — Read the slides, ask questions. Claude answers from wiki and output data. Unresolved questions become GitHub issues via `gh issue create`.
 
 ### Fix track (bugs, small changes)

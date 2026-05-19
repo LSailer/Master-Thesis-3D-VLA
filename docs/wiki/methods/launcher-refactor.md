@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-25
 **Closes (planned)**: [#85](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/85), [#52](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/52) (subsumed)
-**Touch points**: `modules/r2dreamer/launch/` (new), `modules/r2dreamer/adapters/` (new), `modules/r2dreamer/scripts/run_jax_*.py` (rewritten as shims), `modules/r2dreamer/scripts/slurm/*.sbatch` (path edits), `archiv/r2dreamer-pytorch-20260425/` (new)
+**Touch points**: `src/r2dreamer/launch/` (new), `src/r2dreamer/adapters/` (new), `scripts/r2dreamer/run_jax_*.py` (rewritten as shims), `scripts/r2dreamer/slurm/*.sbatch` (path edits), `archiv/r2dreamer-pytorch-20260425/` (new)
 
 ## Motivation
 
@@ -10,7 +10,7 @@ The three r2dreamer training entrypoints (`run_jax_habitat`, `run_jax_habitat_vg
 
 A 2026-04-25 design grill (this document) extended #85's original RFC by:
 
-1. Auditing #52's table against the post-archive (`modules/dreamerv3/`) reality and confirming PyTorch scripts are dormant.
+1. Auditing #52's table against the post-archive (`src/dreamerv3/`) reality and confirming PyTorch scripts are dormant.
 2. Replacing the RFC's `Curriculum` dataclass with a `dict[str, Path]` because curriculum JSON files at `data/curriculum/level{1-4}_*.json` are already the source of truth.
 3. Replacing the RFC's `(factory, adapter_class)` tuple registry with an `Encoder` ABC + inheritance because CNN (encoder lives in agent) and VGGT (encoder is external) are structurally asymmetric.
 4. Replacing the RFC's "either per-level scripts or `--curriculum` flag" punt with a hard call for **per-level shims**, because each sbatch already couples `(encoder, level, output_dir, wandb_name)` and putting that coupling in code prevents wrong-directory drift.
@@ -27,16 +27,16 @@ A 2026-04-25 design grill (this document) extended #85's original RFC by:
 | 5 | `default_steps` location | **(5b) CLI default 2_400_000** | All 9 sbatch files pass `--steps` explicitly. The current default `10_000_000` is dead code. JSON migration adds nothing because sbatch always overrides. |
 | 6 | Encoder abstraction | **(6α) `Encoder` ABC + inheritance** | CNN's encoder lives inside the agent (passthrough adapter); VGGT's encoder is an external `VGGTFeatureExtractor` that the adapter wraps. The asymmetry hides cleanly inside subclasses; `train()` just calls `encoder.make_adapter()`. Type-checker enforces every subclass implements the contract. |
 | 7 | Test pyramid | **L1 + L2 + L3 + L4**, with **(A1) real GPU** + **(B1) hardcoded `PRESETS` list** | L1 structural / L2 construction / L3 adapter behavior / L4 preset-matrix-reaches-Trainer-init. GPU loading is fine because sessions run on H100. Hardcoded preset list (vs sbatch-parsing) avoids fragile shell parsing. |
-| 8 | Test fixture source | **(8c) Recycle from `output/vggt/parity/`** | `input_frames_l1.npz` (10 frames @ 518×518×3) + `pt_outputs.npz` (validated VGGT outputs) already exist from #81's parity work. Copy to `modules/r2dreamer/launch/tests/fixtures/` and commit (~3.4 MB). |
+| 8 | Test fixture source | **(8c) Recycle from `output/vggt/parity/`** | `input_frames_l1.npz` (10 frames @ 518×518×3) + `pt_outputs.npz` (validated VGGT outputs) already exist from #81's parity work. Copy to `tests/r2dreamer/launch/fixtures/` and commit (~3.4 MB). |
 | 9 | Per-level scripts vs `--curriculum` flag | **(9a) Per-level shim per `(encoder, level)`** | Each sbatch today couples `(encoder, level, output_dir, wandb_name)` manually. Putting the coupling in the shim's `train()` call prevents wrong-directory drift (production safety). Scaling to 28 shims with #82 is acceptable; each is 7 homogeneous lines. |
-| 10 | Eval signature | **(10a) Symmetric to `train()`** — `evaluate(env, encoder, curriculum, ...)` | `modules/envs/habitat.py` already supports `curriculum_mode="train"\|"eval"`. Held-out-house eval (#76) becomes a new JSON in `data/curriculum/` + a registry entry, not a different code path. |
+| 10 | Eval signature | **(10a) Symmetric to `train()`** — `evaluate(env, encoder, curriculum, ...)` | `src/environments/habitat.py` already supports `curriculum_mode="train"\|"eval"`. Held-out-house eval (#76) becomes a new JSON in `data/curriculum/` + a registry entry, not a different code path. |
 | 11 | Migration | **3 phases, 1 issue with checkboxes** | Phase 1 Foundation → Phase 2 Train+Eval (sharing plumbing, hence merged) → Phase 3 Parity+Archive. Each phase keeps green tests + working sbatch smokes. |
 | 12 | Persistence | **(12c) Wiki page + Issue update** | This page is the design rationale; #85 carries the spec + checkboxes; #52 closes when Phase 3 lands. |
 
 ## Final folder structure
 
 ```
-modules/r2dreamer/
+src/r2dreamer/
   adapters/                              ← NEW (Phase 1)
     __init__.py
     obs_adapter.py                        # base ObsAdapter (moved from trainer.py)
@@ -83,11 +83,11 @@ archiv/r2dreamer-pytorch-20260425/       ← NEW (Phase 3)
 ## Encoder ABC sketch
 
 ```python
-# modules/r2dreamer/launch/encoders.py
+# src/r2dreamer/launch/encoders.py
 from abc import ABC, abstractmethod
-from modules.r2dreamer.adapters.obs_adapter import ObsAdapter
-from modules.r2dreamer.adapters.vggt_adapter import VGGTObsAdapter
-from modules.vggt.feature_extractor import VGGTFeatureExtractor
+from src.r2dreamer.adapters.obs_adapter import ObsAdapter
+from src.r2dreamer.adapters.vggt_adapter import VGGTObsAdapter
+from src.vggt.feature_extractor import VGGTFeatureExtractor
 
 
 class Encoder(ABC):
@@ -125,13 +125,13 @@ encoder_registry: dict[str, type[Encoder]] = {
 ## Per-level shim convention
 
 ```python
-# modules/r2dreamer/scripts/run_jax_habitat_vggt_l2.py — 11 lines
+# scripts/r2dreamer/run_jax_habitat_vggt_l2.py — 11 lines
 """L2 VGGT shim — habitat, vggt, L2."""
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-from modules.r2dreamer.launch.train import train
+from src.r2dreamer.launch.train import train
 
 if __name__ == "__main__":
     train(
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     )
 ```
 
-The `sys.path.insert(...)` boilerplate is required because invoking `python script.py` directly only puts `script.py`'s directory on `sys.path`, not the repo root — `from modules.r2dreamer.launch.train import train` would fail otherwise. Pytest hides this issue (it configures `sys.path` via `[tool.pytest.ini_options]`), so unit tests pass even when shims are broken; only end-to-end smoke (`python script.py --steps 1000`) catches it.
+The `sys.path.insert(...)` boilerplate is required because invoking `python script.py` directly only puts `script.py`'s directory on `sys.path`, not the repo root — `from src.r2dreamer.launch.train import train` would fail otherwise. Pytest hides this issue (it configures `sys.path` via `[tool.pytest.ini_options]`), so unit tests pass even when shims are broken; only end-to-end smoke (`python script.py --steps 1000`) catches it.
 
 CLI flags `--steps`, `--prefill`, `--output_dir`, `--wandb_name`, `--wandb_tags` remain available as overrides. Sbatch files become minimal:
 
@@ -150,7 +150,7 @@ CLI flags `--steps`, `--prefill`, `--output_dir`, `--wandb_name`, `--wandb_tags`
 #SBATCH --output=output/r2dreamer-curriculum-l2-vggt/slurm-%j.out
 mkdir -p output/r2dreamer-curriculum-l2-vggt
 
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_l2.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_l2.py \
     --steps 2400000 --prefill 5000
 ```
 
@@ -174,14 +174,14 @@ GPU-marked tests register the `gpu` marker in `pyproject.toml` so `pytest -m "no
 ### Phase 1 — Foundation
 
 **Scope:**
-- Create `modules/r2dreamer/adapters/` package with `obs_adapter.py` (moved from `trainer.py`) + `vggt_adapter.py` (moved from `run_jax_habitat_vggt.py`).
-- Create `modules/r2dreamer/launch/` skeleton: `encoders.py`, `registries.py`, `curricula.py`, `habitat_setup.py`.
+- Create `src/r2dreamer/adapters/` package with `obs_adapter.py` (moved from `trainer.py`) + `vggt_adapter.py` (moved from `run_jax_habitat_vggt.py`).
+- Create `src/r2dreamer/launch/` skeleton: `encoders.py`, `registries.py`, `curricula.py`, `habitat_setup.py`.
 - Copy `output/vggt/parity/{input_frames_l1,pt_outputs}.npz` to `tests/fixtures/`.
 - Create L1 + L2 + L3 tests in `tests/`.
 
 **Non-changes:** Existing scripts (`run_jax_habitat.py`, etc.) stay untouched. They keep working via direct imports. No sbatch edits.
 
-**Exit gate:** All new tests green. Existing `pytest modules/r2dreamer/tests/` still green (the move of `ObsAdapter` and `VGGTObsAdapter` requires updating the existing imports — `trainer.py`, `run_jax_habitat_vggt.py` — but their behavior is unchanged).
+**Exit gate:** All new tests green. Existing `pytest tests/r2dreamer/` still green (the move of `ObsAdapter` and `VGGTObsAdapter` requires updating the existing imports — `trainer.py`, `run_jax_habitat_vggt.py` — but their behavior is unchanged).
 
 ### Phase 2 — Train + Eval
 
@@ -193,7 +193,7 @@ GPU-marked tests register the `gpu` marker in `pyproject.toml` so `pytest -m "no
 - Edit 9 sbatch files: replace `--curriculum_path data/curriculum/level{N}_*.json` with `--curriculum L{N}`, change script paths to per-level shims.
 - Add L4 preset-matrix tests.
 
-**Non-changes:** Pytorch scripts still in `modules/r2dreamer/scripts/` (not yet archived). Parity scripts (`run_parity_training.py`, `run_benchmark.py`) untouched.
+**Non-changes:** Pytorch scripts still in `scripts/r2dreamer/` (not yet archived). Parity scripts (`run_parity_training.py`, `run_benchmark.py`) untouched.
 
 **Exit gate:** All new tests green. **Smoke each of the 9 active sbatch jobs with `--steps 1000`**; each must reach the training loop and write 1 checkpoint without crash. Bench against the L1 baseline metrics from #81 (within ±5%).
 

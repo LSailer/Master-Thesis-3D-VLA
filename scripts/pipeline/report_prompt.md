@@ -63,5 +63,5 @@ Print the PR URL and exit 0.
 ## Hard rules
 
 - **No emojis** anywhere — neither in HTML, wiki, nor PR body. The user does not want them.
-- **Do not modify code under `modules/` or `scripts/`** — your scope is reports, wiki, PR. Code changes belong to engineer-team.
+- **Do not modify code under `src/` or `scripts/`** — your scope is reports, wiki, PR. Code changes belong to engineer-team.
 - **Be terse in printed output** — actual deliverables are the files and the PR, not chat prose.

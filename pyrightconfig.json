@@ -1,12 +1,12 @@
 {
-  "include": ["modules/r2dreamer"],
+  "include": ["src"],
   "exclude": [
     "**/__pycache__",
     "external",
     "output",
     "wandb",
-    "modules/r2dreamer/tests",
-    "modules/r2dreamer/launch/tests"
+    "tests/r2dreamer",
+    "tests/r2dreamer/launch"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": "none",

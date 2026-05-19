@@ -36,7 +36,7 @@ the policy from collapsing to near-deterministic navigation before the world mod
 | Max episode steps | 1000 | 1000 |
 
 Everything else is identical. The `--act_entropy 3e-2` flag is now explicit in the sbatch script
-(`modules/r2dreamer/scripts/slurm/train_curriculum_l1.sbatch`) so the setting is reproducible
+(`scripts/r2dreamer/slurm/train_curriculum_l1.sbatch`) so the setting is reproducible
 independent of the config default.
 
 ## Configuration

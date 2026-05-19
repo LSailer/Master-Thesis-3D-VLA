@@ -12,7 +12,7 @@ User wants an automated pipeline that walks a research idea through four phases 
 Pre-existing assets that constrain the design:
 - `/grill-me`, `/engineer`, `/review`, `/reporter`, `/plan`, `/loop`, `/schedule` skills already exist
 - `docs/wiki/{methods,experiments,meetings,research}/` is the established knowledge base
-- `modules/vggt/autoresearch/run_autoresearch.sbatch` already calls `claude -p --dangerously-skip-permissions` from a SLURM compute node (proves outbound API works on cluster)
+- `src/vggt/autoresearch/run_autoresearch.sbatch` already calls `claude -p --dangerously-skip-permissions` from a SLURM compute node (proves outbound API works on cluster)
 - `scripts/slurm/train.sbatch` exists as a reusable template
 - Phased Orchestration Pattern (`docs/wiki/methods/phase-orchestration.md`) already codifies the orchestrator+sub-agents recipe
 

@@ -22,7 +22,7 @@ echo "Branch: $(git branch --show-current)"
 echo "Commit: $(git rev-parse --short HEAD)"
 echo ""
 
-uv run python modules/r2dreamer/scripts/run_parity_training.py --train-steps 100000 --jax-only
+uv run python scripts/r2dreamer/run_parity_training.py --train-steps 100000 --jax-only
 
 echo ""
 echo "=== Done at $(date) ==="

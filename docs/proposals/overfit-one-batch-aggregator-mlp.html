@@ -11,7 +11,7 @@
 <p class="sub">A 30-minute sanity protocol after run <code>hxetkde1</code> wasted 42&nbsp;h with flat losses.<br>
 Branch <code>feat/variant-1-aggregator-mlp</code> · 2026-05-16</p>
 
-<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> the smoking-gun citation <code>agent.py:425</code> predates PR #145, which moved Barlow loss into <code>modules/r2dreamer/representation/</code>. Re-locate the offending <code>stop_gradient</code> there before treating this as the diagnostic.</p>
+<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> the smoking-gun citation <code>agent.py:425</code> predates PR #145, which moved Barlow loss into <code>src/r2dreamer/representation/</code>. Re-locate the offending <code>stop_gradient</code> there before treating this as the diagnostic.</p>
 
 <div class="nav">
   <a href="#tldr">TL;DR</a>
@@ -40,7 +40,7 @@ batch of 1, no production run will save it.
 
 <div class="smoking-gun">
 <p><strong>(a) Encoder is detached from the Barlow loss.</strong></p>
-<pre><code># modules/r2dreamer/agent.py:421-436  (loss/barlow)
+<pre><code># src/r2dreamer/agent.py:421-436  (loss/barlow)
 x1 = self.proj_mod.apply(params["projector"], feat_flat)       # from RSSM feat
 x2 = jax.lax.stop_gradient(embed.reshape(B * T, -1))           #  ← STOPS HERE
 loss_barlow = barlow_twins(x1, x2)</code></pre>
@@ -58,11 +58,11 @@ encoder. The aggregator MLP only sees gradients via the world-model prediction l
 <tr><td><code>train_ratio</code></td><td>512</td><td><strong>128</strong></td><td>Fewer grad steps per env step ⇒ slower fitting.</td></tr>
 <tr><td><code>lr</code></td><td>4e-5</td><td>4e-5</td><td><span class="warn">Not scaled</span> despite 4× smaller batch.</td></tr>
 </table>
-<p class="ref">Source: <code>modules/r2dreamer/launch/encoders.py</code> (variant overrides), <code>modules/r2dreamer/config.py:48-83</code>.</p>
+<p class="ref">Source: <code>src/r2dreamer/launch/encoders.py</code> (variant overrides), <code>src/r2dreamer/config.py:48-83</code>.</p>
 
 <h3>(c) Mean-pooling 1374 → 1 token may discard the spatial signal</h3>
 <p><code>VGGTObsAdapter._vggt_aggregator_features()</code> averages all 1374 aggregator tokens to a
-single 1024-d vector before storage (<code>modules/r2dreamer/adapters/vggt_adapter.py:25-38</code>).
+single 1024-d vector before storage (<code>src/r2dreamer/adapters/vggt_adapter.py:25-38</code>).
 The MLP encoder then does a 1024→1024 linear projection (<code>networks.py:457-478</code>). That is
 the <em>entire</em> learnable adapter on the visual side. If the pooled vector lacks goal-relevant
 geometry, the MLP can't recover it.</p>
@@ -148,7 +148,7 @@ self-supervised pattern.</li>
 is isolated to the mean-pool + linear-projection design choice, not to VGGT or to your
 training infra.</li>
 <li><strong>Implementation:</strong> Three sbatch launches; the launch script
-<code>modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py</code> already accepts an
+<code>scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py</code> already accepts an
 <code>encoder=</code> argument.</li>
 </ul>
 
@@ -186,8 +186,8 @@ the resolution.</p>
 <details open><summary>Protocol A — synthetic batch (sketch)</summary>
 <pre><code># scripts/sanity/overfit_synthetic.py
 import jax, jax.numpy as jnp
-from modules.r2dreamer.agent import R2DreamerAgent
-from modules.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.config import R2DreamerConfig
 
 cfg = R2DreamerConfig(encoder_type="vggt_aggregator_mlp",
                       batch_size=1, seq_len=8, lr=1e-3)   # bump LR for sanity
@@ -209,8 +209,8 @@ for step in range(500):
 </details>
 
 <details><summary>Protocol B — prefill then repeat (CLI sketch)</summary>
-<pre><code># Requires adding --overfit_one_batch flag in modules/r2dreamer/trainer.py:_train_loop
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+<pre><code># Requires adding --overfit_one_batch flag in src/r2dreamer/trainer.py:_train_loop
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
   --prefill 5000 \
   --steps 1000 \
   --batch_size 1 --seq_len 8 \
@@ -225,7 +225,7 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
 <details><summary>Protocol E — three-encoder ablation</summary>
 <pre><code># Same prefill + seed across all three
 for enc in cnn vggt vggt_aggregator_mlp; do
-  uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+  uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     --encoder $enc --steps 200 --prefill 1000 --seed 42 \
     --log_every 1 --output_dir output/smoke/ablation-$enc-$(date +%s) &
 done

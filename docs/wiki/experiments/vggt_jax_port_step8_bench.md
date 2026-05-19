@@ -7,7 +7,7 @@ status: blessed
 
 # VGGT JAX port — Step 8 initial benchmark
 
-`modules/vggt/jax/benchmark_streaming.py`, 10-frame episode on H100, synthetic uint8 frames.
+`src/vggt/jax/benchmark_streaming.py`, 10-frame episode on H100, synthetic uint8 frames.
 
 | Backend | Config | Mean ms/frame | Median ms/frame | Peak mem |
 |---|---|---|---|---|
@@ -29,5 +29,5 @@ To meet the plan's "not slower than PyTorch compile + bf16" latency floor, follo
 The benchmark CSV lives at `output/comparison/` (gitignored). Re-run with:
 
 ```bash
-uv run python -m modules.vggt.jax.benchmark_streaming --seq-lens 10 50 100
+uv run python -m src.vggt.jax.benchmark_streaming --seq-lens 10 50 100
 ```

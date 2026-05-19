@@ -13,4 +13,4 @@ Together the targets define the Barlow Twins criterion: each feature dimension i
 
 ## Use in this codebase
 
-This is *not* used as a contrastive loss between augmented views. In `modules/r2dreamer/agent.py:418–433`, `x1 = projector(rssm_feat)` and `x2 = stop_gradient(VGGT_embed)` — so the cross-correlation matrix regularizes the **RSSM-projected feature to align dimension-wise with the (frozen) VGGT 3D encoder embedding**. It functions as a distillation regularizer, not as self-supervised representation learning.
+This is *not* used as a contrastive loss between augmented views. In `src/r2dreamer/agent.py:418–433`, `x1 = projector(rssm_feat)` and `x2 = stop_gradient(VGGT_embed)` — so the cross-correlation matrix regularizes the **RSSM-projected feature to align dimension-wise with the (frozen) VGGT 3D encoder embedding**. It functions as a distillation regularizer, not as self-supervised representation learning.

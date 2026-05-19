@@ -77,7 +77,7 @@
   Branch: <code>feat/variant-1-aggregator-mlp</code> · Last updated: 2026-05-16</p>
 </header>
 
-<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> PR #145 (commit <code>613b5c6</code>) moved <code>VGGTAggregatorMLPEncoder</code> from <code>networks.py:457</code> to <code>world_model/encoders.py:61</code> after this snapshot was taken — file/line citations below predate that refactor. For drift, prefer <code>git log -- modules/r2dreamer/world_model/encoders.py modules/r2dreamer/adapters/vggt_adapter.py</code>.</p>
+<p class="valid-as-of"><strong>Valid as of:</strong> commit <code>34f8c05</code> · 2026-05-16 · branch <code>feat/variant-1-aggregator-mlp</code>. <em>Heads up:</em> PR #145 (commit <code>613b5c6</code>) moved <code>VGGTAggregatorMLPEncoder</code> from <code>networks.py:457</code> to <code>world_model/encoders.py:61</code> after this snapshot was taken — file/line citations below predate that refactor. For drift, prefer <code>git log -- src/r2dreamer/world_model/encoders.py src/r2dreamer/adapters/vggt_adapter.py</code>.</p>
 
 <!-- ====================================================== -->
 <h2>1. What is "Variant 1"?</h2>
@@ -216,7 +216,7 @@ B = batch, S = stream length (1 in acting), T = sequence length (32 in training)
 <tbody>
 <tr>
   <td><span class="tag o">spec</span><code>VGGTAggregatorMLPEncoder</code></td>
-  <td><code>modules/r2dreamer/launch/encoders.py</code> (line 96)</td>
+  <td><code>src/r2dreamer/launch/encoders.py</code> (line 96)</td>
   <td>
     Encoder <em>registry entry</em>. Subclasses <code>VGGTEncoder</code>. Sets
     <code>feature_kind="aggregator"</code>, disables VGGT heads, and exposes the
@@ -225,7 +225,7 @@ B = batch, S = stream length (1 in acting), T = sequence length (32 in training)
 </tr>
 <tr>
   <td><span class="tag b">flax</span><code>VGGTAggregatorMLPEncoder</code></td>
-  <td><code>modules/r2dreamer/networks.py</code> (line 457)</td>
+  <td><code>src/r2dreamer/networks.py</code> (line 457)</td>
   <td>
     Flax <code>nn.Module</code>. The <em>forward pass</em> — a single <code>nn.Dense(1024)</code>.
     Accepts both <code>(B, D)</code> (fast path) and legacy <code>(B, N, D)</code> (tests).
@@ -260,35 +260,35 @@ reflects the fact that we are <em>recomputing</em> rich features rather than cac
 
 <div class="files">
   <div class="file">
-    <span class="file-path">modules/r2dreamer/launch/encoders.py</span>
+    <span class="file-path">src/r2dreamer/launch/encoders.py</span>
     <span class="file-desc">Encoder registry. <code>VGGTAggregatorMLPEncoder.spec()</code> is the entry point for Variant 1's config.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/networks.py</span>
+    <span class="file-path">src/r2dreamer/networks.py</span>
     <span class="file-desc">Flax modules: <code>VGGTAggregatorMLPEncoder</code> (line 457), <code>R2Encoder</code>, <code>R2RSSM</code>, world-model heads.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/adapters/vggt_adapter.py</span>
+    <span class="file-path">src/r2dreamer/adapters/vggt_adapter.py</span>
     <span class="file-desc">The 79-line file that does the actual mean-pooling. Read this first to understand the (1374,1024) → (1024,) step.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/vggt/jax/aggregator.py</span>
+    <span class="file-path">src/vggt/jax/aggregator.py</span>
     <span class="file-desc">24-block alternating frame/global attention transformer. Where the 1374-token shape comes from.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/vggt/jax/feature_extractor.py</span>
+    <span class="file-path">src/vggt/jax/feature_extractor.py</span>
     <span class="file-desc">JAX streaming VGGT extractor. Defines <code>aggregator_feature_shape</code> and the KV cache layout.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/agent.py</span>
+    <span class="file-path">src/r2dreamer/agent.py</span>
     <span class="file-desc">Agent setup. <code>_make_encoder()</code> dispatches on <code>encoder_type</code>.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/config.py</span>
+    <span class="file-path">src/r2dreamer/config.py</span>
     <span class="file-desc"><code>R2DreamerConfig</code>: <code>encoder_type</code>, <code>vggt_embed_dim</code>, training hyper-parameters.</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py</span>
+    <span class="file-path">scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py</span>
     <span class="file-desc">Training entry point — what you run locally.</span>
   </div>
   <div class="file">
@@ -296,7 +296,7 @@ reflects the fact that we are <em>recomputing</em> rich features rather than cac
     <span class="file-desc">42-hour H100 SLURM job for the production run (<code>agg-mlp-prod-v1</code>).</span>
   </div>
   <div class="file">
-    <span class="file-path">modules/r2dreamer/tests/test_vggt_encoder.py</span>
+    <span class="file-path">tests/r2dreamer/test_vggt_encoder.py</span>
     <span class="file-desc">Unit tests asserting encoder I/O shapes — your sanity check after any change.</span>
   </div>
 </div>
@@ -305,7 +305,7 @@ reflects the fact that we are <em>recomputing</em> rich features rather than cac
 <h2>7. How to run it</h2>
 
 <h3>Local smoke test</h3>
-<pre><code>uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+<pre><code>uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     --steps 2000000 \
     --prefill 5000 \
     --seed 42 \
@@ -317,7 +317,7 @@ reflects the fact that we are <em>recomputing</em> rich features rather than cac
 <pre><code>sbatch scripts/prod_aggregator_mlp_v1.sbatch</code></pre>
 
 <h3>Run the test suite for this encoder</h3>
-<pre><code>uv run pytest modules/r2dreamer/tests/test_vggt_encoder.py -v</code></pre>
+<pre><code>uv run pytest tests/r2dreamer/test_vggt_encoder.py -v</code></pre>
 
 <!-- ====================================================== -->
 <h2>8. Mental model — one paragraph</h2>
@@ -333,7 +333,7 @@ after is CPU-resident until the train step pulls a small (4, 32, 1024) batch bac
 
 <footer>
 Generated 2026-05-16 from branch <code>feat/variant-1-aggregator-mlp</code> at commit <code>34f8c05</code>.
-For implementation details that drift after this date, prefer <code>git log -- modules/r2dreamer/launch/encoders.py modules/r2dreamer/networks.py modules/r2dreamer/adapters/vggt_adapter.py</code> over this document.
+For implementation details that drift after this date, prefer <code>git log -- src/r2dreamer/launch/encoders.py src/r2dreamer/networks.py src/r2dreamer/adapters/vggt_adapter.py</code> over this document.
 </footer>
 
 </div>

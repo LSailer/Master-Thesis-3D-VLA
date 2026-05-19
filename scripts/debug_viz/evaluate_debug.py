@@ -1,6 +1,6 @@
 """Per-step instrumented L1 VGGT R2Dreamer eval — dumps npz artifacts.
 
-Forks modules.r2dreamer.launch.evaluate.evaluate() but adds per-step
+Forks src.r2dreamer.launch.evaluate.evaluate() but adds per-step
 artifact dumping for downstream visualization. Captures RGB, raw VGGT
 outputs (world_points + camera_pose), RSSM latents (stoch, deter, feat),
 agent pose, action, reward, and is_first/is_terminal flags.
@@ -27,7 +27,7 @@ import sys
 import time
 from pathlib import Path
 
-# Make modules.* importable regardless of cwd.
+# Make src.* importable regardless of cwd.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
@@ -36,13 +36,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from modules.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
-from modules.r2dreamer.adapters import VGGT_FEATURE_DIM
-from modules.r2dreamer.adapters.vggt_adapter import _flatten_vggt
-from modules.r2dreamer.agent import R2DreamerAgent
-from modules.r2dreamer.config import R2DreamerConfig
-from modules.shared.configs import DreamerConfig
-from modules.envs.habitat import HabitatObjectNavEnv
+from src.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
+from src.r2dreamer.adapters import VGGT_FEATURE_DIM
+from src.r2dreamer.adapters.vggt_adapter import _flatten_vggt
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.config import R2DreamerConfig
+from src.shared.configs import DreamerConfig
+from src.environments.habitat import HabitatObjectNavEnv
 
 
 def _build_parser() -> argparse.ArgumentParser:

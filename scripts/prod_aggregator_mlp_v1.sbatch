@@ -29,7 +29,7 @@ echo "Dirty: $(git status --porcelain | wc -l) files"
 echo "Run name: ${RUN_NAME}"
 echo ""
 
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     --steps 2000000 \
     --prefill 5000 \
     --seed 42 \

@@ -19,6 +19,7 @@ Before editing:
 - Identify the acceptance criteria and non-goals.
 - Check current implementation patterns before adding new ones.
 - Inspect current git status so unrelated work is not disturbed.
+- If Linear write tools are available, add a short issue comment that work has started and note the intended verification. If Linear write tools are not available, say so in the final response.
 
 While editing:
 - Implement only the stated acceptance criteria.
@@ -32,6 +33,7 @@ Before opening a PR:
 - Run the relevant checks for the files touched.
 - Review the diff for unrelated changes.
 - Confirm the PR description follows `.github/pull_request_template.md` when that template exists.
+- Add a Linear issue comment summarizing what changed, acceptance criteria checked, verification run, known blockers, and anything intentionally not done. If the implementation cannot satisfy an acceptance criterion because of local hardware, credentials, or missing dependencies, state that explicitly in the comment.
 
 ## PR Standard
 

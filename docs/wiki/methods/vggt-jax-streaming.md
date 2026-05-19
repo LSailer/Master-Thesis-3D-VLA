@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-24
 **Closes**: [#81](https://github.com/LSailer/Master-Thesis-3D-VLA/issues/81), builds on [#80](https://github.com/LSailer/Master-Thesis-3D-VLA/pull/80) (aggregator jit)
-**Touch points**: `modules/vggt/jax/feature_extractor.py`, `modules/vggt/jax/attention.py`, `modules/vggt/jax/heads/camera_head.py`, `modules/vggt/jax/aggregator.py`
+**Touch points**: `src/vggt/jax/feature_extractor.py`, `src/vggt/jax/attention.py`, `src/vggt/jax/heads/camera_head.py`, `src/vggt/jax/aggregator.py`
 
 ## Motivation
 
@@ -55,18 +55,18 @@ The existing test matrix covers this pattern thoroughly:
 
 Recommended targeted regression check after any aggregator/camera-head change:
 ```
-pytest modules/vggt/tests/test_jax_integration.py \
-       modules/vggt/tests/test_jax_parity.py::TestLevel2CameraHead \
-       modules/vggt/tests/test_jax_parity.py::TestLevel3CameraHeadCache \
-       modules/vggt/tests/test_jax_parity.py::TestLevel3CameraHeadPaddedParity \
-       modules/vggt/tests/test_jax_parity.py::TestLevel3PaddedCacheParity \
+pytest tests/vggt/test_jax_integration.py \
+       tests/vggt/test_jax_parity.py::TestLevel2CameraHead \
+       tests/vggt/test_jax_parity.py::TestLevel3CameraHeadCache \
+       tests/vggt/test_jax_parity.py::TestLevel3CameraHeadPaddedParity \
+       tests/vggt/test_jax_parity.py::TestLevel3PaddedCacheParity \
        -v --tb=short
 ```
 ~7 min on H100.
 
 ## Deferred / known gaps
 
-- **Phase 2: shared helper.** The padded-cache bookkeeping is duplicated between aggregator and camera_head (`_new_padded_cache_entry` / `_new_padded_camera_entry`, `_to_padded`, `_MAX` / `_CAM_MAX`). Extracting a `modules/vggt/jax/padded_cache.py` helper is a clean refactor but was deferred from #81 to keep the perf change small.
+- **Phase 2: shared helper.** The padded-cache bookkeeping is duplicated between aggregator and camera_head (`_new_padded_cache_entry` / `_new_padded_camera_entry`, `_to_padded`, `_MAX` / `_CAM_MAX`). Extracting a `src/vggt/jax/padded_cache.py` helper is a clean refactor but was deferred from #81 to keep the perf change small.
 - **point_head jit** — already <1% of extract (2.7 ms). Low ROI.
 - **bf16 parity tolerance tightening** — current L1 dump shows maxabs 1.1e-2 (rel_err 5e-3) PT↔JAX, which is the bf16 streaming-attention precision band. If a downstream metric turns out to be sensitive to <1e-2 drift, revisit.
 

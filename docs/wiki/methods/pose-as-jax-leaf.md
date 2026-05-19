@@ -9,9 +9,9 @@ The [encoder-fusion plan](encoder-fusion-plan.md) Phase 3a wants to log a `pose_
 ## Current data flow
 
 1. The Habitat wrapper produces `obs["image"]` plus the new `obs["agent_state"]` (after B2).
-2. The VGGT acting path packs `world_points (4107) + camera_pose (9)` into a flat 4116-D vector via [_flatten_vggt at vggt_adapter.py:14](../../../modules/r2dreamer/adapters/vggt_adapter.py#L14). This array goes into the replay buffer as `obs`.
-3. The trainer samples a batch and calls [_loss_fn at agent.py:359](../../../modules/r2dreamer/agent.py#L359). At line 373 it reshapes `batch["obs"]` to `(B*T, 4116)` and passes it to the encoder: `embed = self.encoder_mod.apply(params["encoder"], obs_flat)`.
-4. Inside [VGGTEncoder.__call__ at networks.py:414](../../../modules/r2dreamer/networks.py#L414): `out = nn.Dense(self.embed_dim, name="proj")(obs)`. Pose enters as the last 9 dims of the flat input. There is no separable handle to it for `jax.grad`.
+2. The VGGT acting path packs `world_points (4107) + camera_pose (9)` into a flat 4116-D vector via [_flatten_vggt at vggt_adapter.py:14](../../../src/r2dreamer/adapters/vggt_adapter.py#L14). This array goes into the replay buffer as `obs`.
+3. The trainer samples a batch and calls [_loss_fn at agent.py:359](../../../src/r2dreamer/agent.py#L359). At line 373 it reshapes `batch["obs"]` to `(B*T, 4116)` and passes it to the encoder: `embed = self.encoder_mod.apply(params["encoder"], obs_flat)`.
+4. Inside [VGGTEncoder.__call__ at networks.py:414](../../../src/r2dreamer/networks.py#L414): `out = nn.Dense(self.embed_dim, name="proj")(obs)`. Pose enters as the last 9 dims of the flat input. There is no separable handle to it for `jax.grad`.
 
 ## Proposed restructure
 
@@ -19,7 +19,7 @@ Make `pose` (and any other encoder-relevant non-image input) a **named JAX argum
 
 ### API change
 
-Replace the call site in [_loss_fn at agent.py:374](../../../modules/r2dreamer/agent.py#L374):
+Replace the call site in [_loss_fn at agent.py:374](../../../src/r2dreamer/agent.py#L374):
 
 ```python
 # before
@@ -79,7 +79,7 @@ The results page must report `pose_grad_norm` per variant **and** as a ratio to 
 
 What breaks:
 - Every encoder unit test that calls `encoder(obs)` directly.
-- The smoke train hook in [registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) (encoder dispatch — needs the new arg).
+- The smoke train hook in [registries.py:15](../../../src/r2dreamer/launch/registries.py#L15) (encoder dispatch — needs the new arg).
 - Any standalone parity script that exercises the encoder.
 
 What stays:
@@ -92,9 +92,9 @@ What stays:
 
 | Files | LOC (net) |
 |---|---|
-| [modules/r2dreamer/agent.py](../../../modules/r2dreamer/agent.py) — add `_split_obs_pose`, update call site | +30 |
-| [modules/r2dreamer/networks.py](../../../modules/r2dreamer/networks.py) — update existing `VGGTEncoder` + `ConvEncoder` signatures | +15 |
-| [modules/r2dreamer/launch/registries.py](../../../modules/r2dreamer/launch/registries.py) — none (registry is just class refs) | 0 |
+| [src/r2dreamer/agent.py](../../../src/r2dreamer/agent.py) — add `_split_obs_pose`, update call site | +30 |
+| [src/r2dreamer/networks.py](../../../src/r2dreamer/networks.py) — update existing `VGGTEncoder` + `ConvEncoder` signatures | +15 |
+| [src/r2dreamer/launch/registries.py](../../../src/r2dreamer/launch/registries.py) — none (registry is just class refs) | 0 |
 | `tests/` — new encoder-API tests + parity check that baseline `vggt` is bit-identical before/after | +60 |
 | **Total** | **~100 LOC** across 3 files + 1 new test file |
 

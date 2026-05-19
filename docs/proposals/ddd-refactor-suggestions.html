@@ -11,7 +11,7 @@
 
 <header class="title">
   <div class="kicker">Architecture Memo · 2026-05-16</div>
-  <h1>Five domain-driven refactors for <code>modules/</code></h1>
+  <h1>Five domain-driven refactors for <code>src/</code></h1>
   <p class="lede">
     The top-level split into <code>r2dreamer / vggt / envs / shared / baselines</code> is sound &mdash;
     there are no cyclic dependencies and the dependency direction (r2dreamer &rarr; vggt, envs) is correct.
@@ -25,7 +25,7 @@
 <nav class="toc" aria-label="Table of contents">
   <div class="toc-label">In this memo</div>
   <ol>
-    <li><a href="#s1">Demote <code>modules/shared/</code> to a true generic kernel</a></li>
+    <li><a href="#s1">Demote <code>src/shared/</code> to a true generic kernel</a></li>
     <li><a href="#s2">Carve <code>r2dreamer/</code> into bounded subdomains</a></li>
     <li><a href="#s3">Define explicit ports at every seam</a></li>
     <li><a href="#s4">Split <code>Trainer</code> into an application layer</a></li>
@@ -37,14 +37,14 @@
 <section class="suggestion" id="s1">
   <span class="badge">Suggestion 1</span>
   <span class="effort low">Effort · Low</span>
-  <h2>Demote <code>modules/shared/</code> to a true generic kernel</h2>
+  <h2>Demote <code>src/shared/</code> to a true generic kernel</h2>
   <div class="h2-sub">
     A shared kernel must not know about its callers. Today, <code>shared/</code> branches on Dreamer types.
   </div>
 
   <blockquote class="symptom">
     <strong>Symptom</strong>
-    <code>modules/shared/replay_buffer.py:33&ndash;39</code> accepts either a <code>BufferConfig</code> <em>or</em> a
+    <code>src/buffer/replay_buffer.py:33&ndash;39</code> accepts either a <code>BufferConfig</code> <em>or</em> a
     <code>DreamerConfig</code>/<code>R2DreamerConfig</code> and reaches into <code>buffer_capacity</code> /
     <code>obs_shape</code> fields. <code>shared/configs.py</code> defines only <code>DreamerConfig</code>
     with ObjectNav-specific knobs (<code>num_actions=4</code>, <code>reward_type="geodesic_delta"</code>,
@@ -56,7 +56,7 @@
   <div class="grid">
     <div class="col before">
       <div class="col-header">Before</div>
-<pre><code>modules/shared/
+<pre><code>src/shared/
   replay_buffer.py   # knows DreamerConfig
   configs.py         # only DreamerConfig
   optim.py           # truly generic
@@ -64,14 +64,14 @@
     </div>
     <div class="col after">
       <div class="col-header">After</div>
-<pre><code>modules/kernel/                # truly generic
+<pre><code>src/kernel/                # truly generic
   optim.py                     # laprop, agc
   logging/wandb_utils.py       # init_run, EpisodeTracker
   replay/                      # schema-agnostic ring buffer
     buffer.py                  # BufferConfig only
     val_dataset.py
 
-modules/r2dreamer/
+src/r2dreamer/
   replay/schema.py             # Dreamer obs/action/reward/cont
   replay/adapter.py            # DreamerConfig &rarr; BufferConfig
   config.py                    # owns DreamerConfig now</code></pre>
@@ -103,7 +103,7 @@ modules/r2dreamer/
 
   <blockquote class="symptom">
     <strong>Symptom</strong>
-    <code>modules/r2dreamer/agent.py</code> (30 KB) holds a single <code>_loss_fn()</code> &asymp; 200 LOC
+    <code>src/r2dreamer/agent.py</code> (30 KB) holds a single <code>_loss_fn()</code> &asymp; 200 LOC
     that simultaneously computes world-model KL, Barlow-Twins representation loss, reward &amp; continue
     heads, imagination rollout, actor-critic gradients, <em>and</em> replay-based value learning. Every
     derivative flows through one <code>jax.grad()</code>, so isolating &ldquo;just the world model&rdquo;
@@ -120,7 +120,7 @@ modules/r2dreamer/
   <div class="grid">
     <div class="col before">
       <div class="col-header">Before</div>
-<pre><code>modules/r2dreamer/
+<pre><code>src/r2dreamer/
   agent.py        # 30 KB, all losses
   networks.py     # 19 KB, every nn.Module
   trainer.py      # 21 KB
@@ -128,7 +128,7 @@ modules/r2dreamer/
     </div>
     <div class="col after">
       <div class="col-header">After</div>
-<pre><code>modules/r2dreamer/
+<pre><code>src/r2dreamer/
   world_model/
     rssm.py          # R2RSSM, Deter, BlockLinear
     encoders.py      # R2Encoder, VGGTEncoder, ...
@@ -178,26 +178,26 @@ modules/r2dreamer/
 
   <blockquote class="symptom">
     <strong>Symptom</strong>
-    <code>modules/r2dreamer/adapters/vggt_adapter.py:11</code> imports the concrete
-    <code>JAXVGGTFeatureExtractor</code>. <code>modules/vggt/feature_extractor.py</code> (PyTorch) and
-    <code>modules/vggt/jax/feature_extractor.py</code> (JAX) are two divergent codebases with no shared
+    <code>src/r2dreamer/adapters/vggt_adapter.py:11</code> imports the concrete
+    <code>JAXVGGTFeatureExtractor</code>. <code>src/vggt/feature_extractor.py</code> (PyTorch) and
+    <code>src/vggt/jax/feature_extractor.py</code> (JAX) are two divergent codebases with no shared
     interface &mdash; the only thing that &ldquo;unites&rdquo; them is a benchmark script in <code>jax/benchmark_streaming.py:52</code>.
     Result: r2dreamer is permanently wedded to the JAX path; the PyTorch path is research-only and rotting.
   </blockquote>
 
   <h3>Introduce a <code>ports/</code> layer</h3>
-<pre><code>modules/r2dreamer/ports/
+<pre><code>src/r2dreamer/ports/
   perception.py        # PerceptionPort Protocol: features = port(frames)
   env.py               # EnvPort: reset/step typed contract
   replay.py            # ReplayPort: write/sample
   checkpoint.py        # CheckpointPort: save/load(state) -&gt; bytes</code></pre>
 
   <h3>Adapters that <em>implement</em> the ports</h3>
-<pre><code>modules/vggt/adapters/
+<pre><code>src/vggt/adapters/
   jax_perception_port.py    # JAXVGGTFeatureExtractor &rarr; PerceptionPort
   torch_perception_port.py  # vggt/feature_extractor.py &rarr; PerceptionPort
 
-modules/envs/adapters/
+src/environments/adapters/
   habitat_port.py           # HabitatObjectNavEnv &rarr; EnvPort
   crafter_port.py           # CrafterEnv &rarr; EnvPort</code></pre>
 
@@ -237,7 +237,7 @@ class PerceptionPort(Protocol):
 
   <blockquote class="symptom">
     <strong>Symptom</strong>
-    <code>modules/r2dreamer/trainer.py</code> (21 KB) couples: env stepping, replay buffer management,
+    <code>src/r2dreamer/trainer.py</code> (21 KB) couples: env stepping, replay buffer management,
     WandB logging, CSV metric writing, checkpoint pickling, validation rollouts, prefill, and the
     train-loop schedule. <code>_train_loop</code> and <code>_prefill</code> both stuff env-step logic
     next to data-flow logic next to logging side effects. Changing the checkpoint format means editing
@@ -245,14 +245,14 @@ class PerceptionPort(Protocol):
   </blockquote>
 
   <h3>Layered split</h3>
-<pre><code>modules/r2dreamer/application/
+<pre><code>src/r2dreamer/application/
   trainer.py              # ~120 LOC orchestrator. Knows nothing about wandb/pickle/csv.
   actor_loop.py           # env_step + replay.write (uses EnvPort, ReplayPort)
   learner_loop.py         # sample &rarr; agent.update &rarr; metrics
   prefill.py
   validation.py
 
-modules/r2dreamer/infrastructure/
+src/r2dreamer/infrastructure/
   checkpoint_pickle.py    # CheckpointPort impl
   metrics_wandb.py        # MetricsSink impl
   metrics_csv.py          # MetricsSink impl
@@ -293,7 +293,7 @@ trainer.run(steps=N)</code></pre>
 
   <blockquote class="symptom">
     <strong>Symptom</strong>
-    <code>R2DreamerConfig</code> in <code>modules/r2dreamer/config.py</code> mixes RSSM dims, encoder
+    <code>R2DreamerConfig</code> in <code>src/r2dreamer/config.py</code> mixes RSSM dims, encoder
     choice, MLP widths, optimizer hyperparams, loss scale weights, and behavior-policy knobs in one
     flat dataclass. Adding a new behavior hyperparameter requires touching the same file that owns
     the encoder choice. Readers have to memorize prefixes (<code>rssm_*</code>, <code>actor_*</code>,
@@ -330,7 +330,7 @@ class R2DreamerConfig:
 
   <div class="payoff">
     <strong>Payoff</strong>
-    CLI parsers (<code>modules/r2dreamer/launch/parser.py</code>) can mirror the structure with
+    CLI parsers (<code>src/r2dreamer/launch/parser.py</code>) can mirror the structure with
     <code>--world-model.deter-size 512</code>-style grouping. Sweep configs in
     <code>scripts/slurm</code> become readable: a sweep over behavior LR doesn&rsquo;t touch the
     world-model config block.
@@ -351,7 +351,7 @@ class R2DreamerConfig:
 
 <footer>
   Generated by Claude (Opus 4.7) after a parallel-subagent audit of
-  <code>modules/{r2dreamer,vggt,envs,shared,baselines}</code>.
+  <code>src/{r2dreamer,vggt,envs,shared,baselines}</code>.
   Findings grounded in: <code>r2dreamer/agent.py</code>, <code>r2dreamer/trainer.py</code>,
   <code>r2dreamer/adapters/vggt_adapter.py:11</code>, <code>shared/replay_buffer.py:33&ndash;39</code>,
   <code>shared/configs.py</code>, <code>vggt/jax/benchmark_streaming.py:52</code>.

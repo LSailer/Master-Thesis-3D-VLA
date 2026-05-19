@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-04
 **Bench artifacts**: `output/methods/vggt-jax-latency/`
-**Touch points**: `modules/vggt/jax/feature_extractor.py:215-225,343-356`, `modules/vggt/jax/aggregator.py:77-92,160-176`
+**Touch points**: `src/vggt/jax/feature_extractor.py:215-225,343-356`, `src/vggt/jax/aggregator.py:77-92,160-176`
 
 ## Finding
 
@@ -86,12 +86,12 @@ Option 3 is the proper fix and matches the deferred work in `vggt-jax-streaming.
 
 Why the issue did not appear in existing unit tests:
 
-- `modules/r2dreamer/launch/tests/test_encoders.py` only checked that `VGGTEncoder` constructs an adapter; it did not inspect extractor construction kwargs.
-- `modules/r2dreamer/launch/tests/test_encoders.py::test_vggt_adapter_behavior` uses 10 frames, below the eviction threshold (~36 frames), so the changing-budget path never executes.
-- `modules/vggt/tests/test_jax_integration.py` also uses 5-frame contract/parity rollouts, again below eviction onset.
+- `tests/r2dreamer/launch/test_encoders.py` only checked that `VGGTEncoder` constructs an adapter; it did not inspect extractor construction kwargs.
+- `tests/r2dreamer/launch/test_encoders.py::test_vggt_adapter_behavior` uses 10 frames, below the eviction threshold (~36 frames), so the changing-budget path never executes.
+- `tests/vggt/test_jax_integration.py` also uses 5-frame contract/parity rollouts, again below eviction onset.
 - Most R2Dreamer agent/replay tests use synthetic 4116-dim features and therefore do not run the real VGGT extractor or its KV-cache eviction.
 
-A cheap config regression is now required: instantiate `modules.r2dreamer.launch.encoders.VGGTEncoder` with the extractor monkeypatched and assert it passes:
+A cheap config regression is now required: instantiate `src.r2dreamer.launch.encoders.VGGTEncoder` with the extractor monkeypatched and assert it passes:
 
 ```python
 {
@@ -100,7 +100,7 @@ A cheap config regression is now required: instantiate `modules.r2dreamer.launch
 }
 ```
 
-For the real recompile cliff, `modules/vggt/tests/test_jax_integration.py` can drive multi-frame rollouts. Add/run a GPU slow test when changing the extractor internals:
+For the real recompile cliff, `tests/vggt/test_jax_integration.py` can drive multi-frame rollouts. Add/run a GPU slow test when changing the extractor internals:
 
 ```python
 def test_no_post_eviction_recompile_cliff():
@@ -126,7 +126,7 @@ Full-pipeline smoke to run before `sbatch` relaunch:
 
 ```bash
 WANDB_MODE=disabled XLA_PYTHON_CLIENT_PREALLOCATE=false \
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt.py \
   --steps 60 \
   --prefill 50 \
   --checkpoint_every 60 \
@@ -142,7 +142,7 @@ This is intentionally a smoke, not a statistical experiment. It should verify th
 - the log progresses past `Prefilling 50 steps...` into `Training from step...`;
 - no frame around 38 takes ~43 seconds;
 - the run directory contains `MANIFEST.json` and at least the expected smoke artifacts/checkpoint for the configured interval;
-- if a tiny run cannot collect enough samples for a real gradient update, pair it with the synthetic `modules/r2dreamer/tests/test_vggt_encoder.py::TestVGGTAgentInit::test_agent_train_step_vggt` train-step smoke.
+- if a tiny run cannot collect enough samples for a real gradient update, pair it with the synthetic `tests/r2dreamer/test_vggt_encoder.py::TestVGGTAgentInit::test_agent_train_step_vggt` train-step smoke.
 
 ## Verification — Option 1 override (2026-05-04)
 
@@ -176,11 +176,11 @@ The proper Option 3 fix (runtime budget arg + `top_k(k=MAX) + mask`, preserving 
 Sub-agent landed Option 3 in worktree `.claude/worktrees/agent-a17820b10c561756e/`. Diff stat vs main:
 
 ```
-modules/vggt/jax/aggregator.py      | 34 ++++++++-----
-modules/vggt/jax/attention.py       | 63 +++++++++++++++----------
-modules/vggt/jax/feature_extractor.py | 60 ++++++++++++-----------
-modules/vggt/jax/profile_streaming.py |  5 +-
-modules/vggt/tests/test_jax_integration.py | +36 (new regression test)
+src/vggt/jax/aggregator.py      | 34 ++++++++-----
+src/vggt/jax/attention.py       | 63 +++++++++++++++----------
+src/vggt/jax/feature_extractor.py | 60 ++++++++++++-----------
+src/vggt/jax/profile_streaming.py |  5 +-
+tests/vggt/test_jax_integration.py | +36 (new regression test)
 ```
 
 Core change: `current_budgets` removed from `static_argnums=(3,4,6,7)` of `_aggregator_apply`; passed as a `jnp.int32` array instead. `_padded_evict` uses `jax.lax.top_k(scores, k=MAX-anchor)` (static k) plus a runtime mask `keep_pos < n_keep` that zeroes out indices beyond the dynamic budget. cuDNN's `key_value_seq_lengths=valid_len` then bounds attention to the actually-valid region. The dynamic-budget *formula* `softmax(2·(1-last_scores)) · total_budget` is preserved inside the jitted graph.

@@ -15,34 +15,34 @@ This audit was run by 3 parallel Explore agents in two rounds (pre-checkout via 
 ## Blockers — must resolve before Phase 1 starts
 
 ### B1. Pose-gradient probe is not implementable as written
-- `_loss_fn` lives in [agent.py:299](../../../modules/r2dreamer/agent.py#L299), **not** `trainer.py`. Signature passes `batch` (a flat dict); pose is **bundled inside `batch["obs"]`** by the time JAX sees it.
+- `_loss_fn` lives in [agent.py:299](../../../src/r2dreamer/agent.py#L299), **not** `trainer.py`. Signature passes `batch` (a flat dict); pose is **bundled inside `batch["obs"]`** by the time JAX sees it.
 - `jax.grad(lambda p: stoch_logits(... pose=p ...).sum())(pose)` cannot run as written — there is no `pose=...` kwarg path through the encoder/RSSM.
 - For Tile/Plücker the gradient *is* well-defined (pose enters as concat'd channels), but the meaning differs across variants — image-space gradient flux for Tile, modulation-weight sensitivity for FiLM. **The diagnostic is not directly comparable across encoder types.**
 - **Fix:** restructure encoder call signatures to accept `pose` as a separable JAX leaf, or accept the cross-variant interpretation gap and document it.
 
 ### B2. Habitat extrinsics + intrinsics are NOT in the obs dict
 - The plan claims `obs_dict["sensor_pose"]` will source Plücker rays. The Habitat R2Dreamer wrapper returns only `{image, reward, is_first, is_last, is_terminal, success, spl}`. **No agent_state, no sensor_pose at all.**
-- **Fix:** extend [habitat_r2dreamer.py](../../../modules/envs/habitat_r2dreamer.py) to surface `agent_state` (4×4 extrinsics + intrinsics) AND extend the buffer schema in the same change. Plan's Phase 1 must include this, not defer it to Phase 2.
+- **Fix:** extend [habitat_r2dreamer.py](../../../src/environments/habitat_r2dreamer.py) to surface `agent_state` (4×4 extrinsics + intrinsics) AND extend the buffer schema in the same change. Plan's Phase 1 must include this, not defer it to Phase 2.
 - Validate Habitat's coordinate frame matches VGGT's `world_points` frame visually before training.
 
 ### B3. ReplayBuffer is memory-resident — 22× growth lands in RAM
-- [replay_buffer.py:42](../../../modules/shared/replay_buffer.py#L42): `self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)`. No disk backing.
+- [replay_buffer.py:42](../../../src/buffer/replay_buffer.py#L42): `self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)`. No disk backing.
 - Current footprint: ~16.5 GB (4116 floats × 1M cap × 4 bytes). New schema (91732 floats): **~367 GB**.
 - The "halve patch tokens to 32 channels" mitigation only saves ~84 GB → still ~283 GB.
 - **Fix:** before Phase 1, choose one of: (a) cap buffer at 250k, (b) disk-backed wrapper (HDF5 / memmap), (c) compress patch tokens harder than 64 dims. Measure first.
 
 ### B4. `aggregated_tokens` is not returned by `extract()` and shape is unverified
-- [feature_extractor.py:129](../../../modules/vggt/feature_extractor.py#L129) computes `aggregated_tokens` but only uses it internally for `camera_head` and `point_head`. `extract()` returns only `world_points` and `camera_pose`.
+- [feature_extractor.py:129](../../../src/vggt/feature_extractor.py#L129) computes `aggregated_tokens` but only uses it internally for `camera_head` and `point_head`. `extract()` returns only `world_points` and `camera_pose`.
 - The plan's "37×37×1024" assumption for patch tokens is unverified — the variable shape at line 129 may be `(B, T_agg, C_agg)`, not the spatial 37×37 grid the plan needs.
 - **Fix:** Phase 1 step 1 = print/assert the shape before designing the projection.
 
 ### B5. Cited paths are wrong in 4 places — fix the plan first
 | Plan cites | Actual location |
 |---|---|
-| `train.py:67` (encoder registry) | [registries.py:15](../../../modules/r2dreamer/launch/registries.py#L15) |
-| `trainer.py` (`_loss_fn`) | [agent.py:299](../../../modules/r2dreamer/agent.py#L299) |
-| `modules/r2dreamer/eval/` | does not exist; entry is [evaluate.py:72](../../../modules/r2dreamer/launch/evaluate.py#L72) |
-| `slurm/l1/` | does not exist; precedent is [train_curriculum_l1.sbatch](../../../modules/r2dreamer/scripts/slurm/train_curriculum_l1.sbatch) |
+| `train.py:67` (encoder registry) | [registries.py:15](../../../src/r2dreamer/launch/registries.py#L15) |
+| `trainer.py` (`_loss_fn`) | [agent.py:299](../../../src/r2dreamer/agent.py#L299) |
+| `src/r2dreamer/eval/` | does not exist; entry is [evaluate.py:72](../../../src/r2dreamer/launch/evaluate.py#L72) |
+| `slurm/l1/` | does not exist; precedent is [train_curriculum_l1.sbatch](../../../scripts/r2dreamer/slurm/train_curriculum_l1.sbatch) |
 
 ---
 
@@ -66,7 +66,7 @@ This audit was run by 3 parallel Explore agents in two rounds (pre-checkout via 
 - **Fix:** add `vggt_pose_scaled` (pose × 100, existing Dense) as a 5th variant or 2-run diagnostic. Cheap; large interpretability gain.
 
 ### M4. FiLM "small diff" claim understates the refactor
-- ConvEncoder's conv loop is tight ([networks.py:377-383](../../../modules/r2dreamer/networks.py#L377-L383)): Conv → max_pool → RMSNorm → SiLU.
+- ConvEncoder's conv loop is tight ([networks.py:377-383](../../../src/r2dreamer/networks.py#L377-L383)): Conv → max_pool → RMSNorm → SiLU.
 - Adding `film_params` kwarg makes ConvEncoder branch on FiLM presence — leaks abstraction. Cleaner: `ConvEncoderFiLM` wrapper.
 - Not a blocker, but the diff will be larger than "small kwarg add."
 

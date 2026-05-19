@@ -11,7 +11,7 @@ baseline under the same held-out eval config.
 Generate the eval curriculum:
 
 ```bash
-python modules/r2dreamer/scripts/build_l3_heldout_curriculum.py
+python scripts/r2dreamer/build_l3_heldout_curriculum.py
 ```
 
 Default output:
@@ -44,7 +44,7 @@ Choose one explicitly in the eval artifact note; do not mix checkpoint results.
 ## Eval Command
 
 ```bash
-python modules/r2dreamer/scripts/eval_habitat.py \
+python scripts/r2dreamer/eval_habitat.py \
   --checkpoint output/r2dreamer-curriculum-l3/run-4194045/checkpoints/step_002400000.pkl \
   --encoder cnn \
   --episodes 2000 \
@@ -62,7 +62,7 @@ comes from disjoint scene IDs, not the Habitat `val` split.
 Use the same held-out curriculum and episode count for the baseline:
 
 ```bash
-python modules/r2dreamer/scripts/eval_habitat.py \
+python scripts/r2dreamer/eval_habitat.py \
   --random \
   --encoder cnn \
   --episodes 2000 \

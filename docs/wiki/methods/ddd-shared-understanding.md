@@ -45,9 +45,9 @@ Owns the task semantics: episode, ObjectNav goal, action, reward, termination, s
 
 Current code/docs:
 
-- `modules/envs/habitat.py`
-- `modules/envs/habitat_r2dreamer.py`
-- `modules/r2dreamer/launch/habitat_setup.py`
+- `src/environments/habitat.py`
+- `src/environments/habitat_r2dreamer.py`
+- `src/r2dreamer/launch/habitat_setup.py`
 - `data/curriculum/level*.json`
 - `docs/wiki/experiments/*.md`
 
@@ -76,10 +76,10 @@ Owns conversion from environment observation to agent-consumable representation.
 
 Current code/docs:
 
-- `modules/r2dreamer/adapters/obs_adapter.py`
-- `modules/r2dreamer/adapters/vggt_adapter.py`
-- `modules/r2dreamer/launch/encoders.py`
-- `modules/vggt/`
+- `src/r2dreamer/adapters/obs_adapter.py`
+- `src/r2dreamer/adapters/vggt_adapter.py`
+- `src/r2dreamer/launch/encoders.py`
+- `src/vggt/`
 - `docs/wiki/methods/vggt-r2dreamer-callchain.md`
 - `docs/wiki/methods/vggt-jax-streaming.md`
 - `docs/wiki/methods/vggt-jax-eviction-recompile.md`
@@ -120,8 +120,8 @@ Possible DDD interpretation:
 Naming risk:
 
 - The term `VGGTEncoder` currently exists in two contexts:
-  - `modules/r2dreamer/launch/encoders.py::VGGTEncoder`: external perception extractor wiring.
-  - `modules/r2dreamer/networks.py::VGGTEncoder`: trainable projection from precomputed VGGT feature vector to RSSM embedding.
+  - `src/r2dreamer/launch/encoders.py::VGGTEncoder`: external perception extractor wiring.
+  - `src/r2dreamer/networks.py::VGGTEncoder`: trainable projection from precomputed VGGT feature vector to RSSM embedding.
 - A DDD refactor should disambiguate these names before moving behavior.
 
 ### 3. World-Model Agent Context
@@ -130,10 +130,10 @@ Owns the learning agent itself: latent state, dynamics, representation, imaginat
 
 Current code/docs:
 
-- `modules/r2dreamer/agent.py`
-- `modules/r2dreamer/networks.py`
-- `modules/r2dreamer/config.py`
-- `modules/shared/optim.py`
+- `src/r2dreamer/agent.py`
+- `src/r2dreamer/networks.py`
+- `src/r2dreamer/config.py`
+- `src/shared/optim.py`
 - `docs/wiki/methods/world-model-training-loop.md`
 - `docs/wiki/methods/shape-debugging.md`
 - `docs/wiki/methods/cross-correlation-matrix.md`
@@ -182,9 +182,9 @@ Owns storage and sampling of agent experience.
 
 Current code/docs:
 
-- `modules/shared/replay_buffer.py`
-- `modules/r2dreamer/trainer.py::convert_batch`
-- `modules/r2dreamer/launch/parity/batch_utils.py`
+- `src/buffer/replay_buffer.py`
+- `src/r2dreamer/trainer.py::convert_batch`
+- `src/r2dreamer/launch/parity/batch_utils.py`
 - `docs/wiki/methods/world-model-training-loop.md`
 - `docs/wiki/methods/training-orchestration.md`
 
@@ -221,10 +221,10 @@ Owns the training run lifecycle.
 
 Current code/docs:
 
-- `modules/r2dreamer/trainer.py`
-- `modules/r2dreamer/launch/train.py`
-- `modules/r2dreamer/launch/evaluate.py`
-- `modules/r2dreamer/manifest.py`
+- `src/r2dreamer/trainer.py`
+- `src/r2dreamer/launch/train.py`
+- `src/r2dreamer/launch/evaluate.py`
+- `src/r2dreamer/manifest.py`
 - `docs/wiki/methods/training-orchestration.md`
 - `docs/wiki/methods/launcher-refactor.md`
 
@@ -394,8 +394,8 @@ Why first:
 Minimum tests before/after:
 
 ```bash
-uv run pytest modules/r2dreamer/launch/tests/test_registries.py modules/r2dreamer/launch/tests/test_encoders.py -m "not gpu" -q
-uv run pytest modules/r2dreamer/tests/test_agent.py modules/r2dreamer/tests/test_vggt_encoder.py -q
+uv run pytest tests/r2dreamer/launch/test_registries.py tests/r2dreamer/launch/test_encoders.py -m "not gpu" -q
+uv run pytest tests/r2dreamer/test_agent.py tests/r2dreamer/test_vggt_encoder.py -q
 ```
 
 On the HPC, GPU tests/runs should be launched through `srun` on the `dev_gpu_h100` partition/name; direct JAX CUDA initialization on the login node is expected to fail.

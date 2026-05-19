@@ -4,11 +4,11 @@ Reference for tracing tensor dimensions through R2-Dreamer / DreamerV3 forward p
 
 ## Where dimension constants live
 
-- `modules/dreamerv3/configs.py` — DreamerV3 dims (`obs_shape`, `hidden_size`, `latent_classes`, `latent_dims`)
-- `modules/r2dreamer/config.py` — R2-Dreamer dims (`deter_size`, `stoch_classes`, `stoch_discrete`, `vggt_embed_dim`)
-- `modules/dreamerv3/networks.py` — JAX/Flax encoder, decoder, RSSM, heads
-- `modules/r2dreamer/networks.py` — R2-Dreamer JAX networks (extends DreamerV3)
-- `modules/vggt/` — VGGT feature extractor (output dim feeds encoder fusion points)
+- `src/dreamerv3/configs.py` — DreamerV3 dims (`obs_shape`, `hidden_size`, `latent_classes`, `latent_dims`)
+- `src/r2dreamer/config.py` — R2-Dreamer dims (`deter_size`, `stoch_classes`, `stoch_discrete`, `vggt_embed_dim`)
+- `src/dreamerv3/networks.py` — JAX/Flax encoder, decoder, RSSM, heads
+- `src/r2dreamer/networks.py` — R2-Dreamer JAX networks (extends DreamerV3)
+- `src/vggt/` — VGGT feature extractor (output dim feeds encoder fusion points)
 
 ## Tracing pattern
 
