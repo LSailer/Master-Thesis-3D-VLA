@@ -95,7 +95,7 @@ class HabitatObjectNavEnv:
     def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
                  step_counts_path: str | None = None, semantic: bool = False,
                  curriculum_path: str | None = None,
-                 curriculum_mode: str = "train"):
+                 curriculum_mode: str = "train", seed: int | None = None):
         import habitat
         from omegaconf import OmegaConf
 
@@ -116,6 +116,8 @@ class HabitatObjectNavEnv:
         )
         with habitat.config.read_write(hab_cfg):
             hab_cfg.habitat.dataset.split = split
+            if seed is not None:
+                hab_cfg.habitat.seed = int(seed)
             hab_cfg.habitat.dataset.data_path = str(
                 DATA_DIR / "{split}" / "{split}.json.gz"
             )
@@ -136,6 +138,8 @@ class HabitatObjectNavEnv:
             OmegaConf.set_struct(hab_cfg.habitat.simulator, True)
 
         self._env = habitat.Env(config=hab_cfg)
+        if seed is not None and hasattr(self._env, "seed"):
+            self._env.seed(int(seed))
 
         if curriculum is not None:
 
