@@ -15,7 +15,7 @@ VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9
 VGGTFeatureKind = Literal["wp_cp", "aggregator"]
 
 
-def _flatten_vggt(out: dict) -> jnp.ndarray:
+def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
     """Flatten VGGT outputs into a single feature vector (JAX)."""
     wp = out["world_points"].reshape(-1)  # (4107,)
     cp = out["camera_pose"]              # (9,)
@@ -25,7 +25,7 @@ def _flatten_vggt(out: dict) -> jnp.ndarray:
 _PATCH_START_IDX = 5  # 1 camera token + 4 register tokens, then patches
 
 
-def _vggt_aggregator_features(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+def pool_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
     """Return three pre-head pools concatenated as a single (3*D,) vector.
 
     Layout matches the aggregator's ``[camera, register, patches]`` ordering
@@ -75,9 +75,9 @@ class VGGTObsAdapter(ObsAdapter):
     def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
         out = self._extractor.extract(obs_dict["image"])
         if self._feature_kind == "aggregator":
-            features_jax = _vggt_aggregator_features(out, self._aggregator_feature_shape)
+            features_jax = pool_aggregator_tokens(out, self._aggregator_feature_shape)
         else:
-            features_jax = _flatten_vggt(out)
+            features_jax = flatten_world_points_camera_pose(out)
 
         # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
         # float32 features so it can feed the JIT-compiled agent directly.

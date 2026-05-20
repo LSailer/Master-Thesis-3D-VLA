@@ -19,7 +19,6 @@ import argparse
 import hashlib
 import json
 import os
-import pickle
 import random
 import subprocess
 import sys
@@ -30,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -41,7 +39,6 @@ RGB_SIZE = 518
 CNN_SIZE = 64
 WP_CP_DIM = 4116
 AGGREGATOR_DIM = 3072
-PATCH_START_IDX = 5
 INTEGRITY_SAMPLE_SIZE = 1000
 
 
@@ -63,51 +60,6 @@ def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
                 break
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _resize_chw_uint8(image: np.ndarray, size: int) -> np.ndarray:
-    if image.shape[0] != 3:
-        raise ValueError(f"expected CHW RGB image, got shape {image.shape}")
-    hwc = np.transpose(image, (1, 2, 0))
-    resized = Image.fromarray(hwc).resize((size, size), Image.Resampling.BILINEAR)
-    return np.transpose(np.asarray(resized, dtype=np.uint8), (2, 0, 1))
-
-
-def flatten_wp_cp(vggt_out: dict[str, Any]) -> np.ndarray:
-    """Flatten VGGT world-points + camera-pose into the canonical 4116 vector."""
-    world_points = np.asarray(vggt_out["world_points"], dtype=np.float32).reshape(-1)
-    camera_pose = np.asarray(vggt_out["camera_pose"], dtype=np.float32).reshape(-1)
-    out = np.concatenate([world_points, camera_pose], axis=0)
-    if out.shape != (WP_CP_DIM,):
-        raise ValueError(f"expected WP/CP shape ({WP_CP_DIM},), got {out.shape}")
-    return out
-
-
-def pool_aggregator(vggt_out: dict[str, Any]) -> np.ndarray:
-    """Pool VGGT pre-head aggregator tokens into [camera | mean patches | max patches]."""
-    features = np.asarray(vggt_out["aggregator_features"], dtype=np.float32)
-    if features.ndim != 2 or features.shape[0] <= PATCH_START_IDX:
-        raise ValueError(
-            "expected aggregator_features with shape "
-            f"(tokens>{PATCH_START_IDX}, dim), got {features.shape}"
-        )
-    cam = features[0]
-    patches = features[PATCH_START_IDX:]
-    out = np.concatenate([cam, patches.mean(axis=0), patches.max(axis=0)], axis=0)
-    if out.shape != (AGGREGATOR_DIM,):
-        raise ValueError(
-            f"expected aggregator pooled shape ({AGGREGATOR_DIM},), got {out.shape}"
-        )
-    return out.astype(np.float32, copy=False)
-
-
-def extract_dual_readouts(
-    extractor: Any,
-    image: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute both issue-required readouts from a single VGGT extractor call."""
-    out = extractor.extract(image)
-    return flatten_wp_cp(out), pool_aggregator(out)
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
@@ -179,62 +131,6 @@ class StreamingNpzArray:
             self._zip.close()
 
 
-class StepTimer:
-    """Accumulate per-component wall-clock timings during the collection loop.
-
-    The first ``warmup`` steps are dropped from the means so JAX compile, the
-    first habitat scene swap, and other one-shot costs don't dominate.
-    """
-
-    PHASES = (
-        "vggt_extract",
-        "fp16_cast",
-        "npz_append",
-        "resize",
-        "agent_act",
-        "env_step",
-        "bookkeeping",
-    )
-
-    def __init__(self, warmup: int = 100) -> None:
-        self.warmup = warmup
-        self.sums = {p: 0.0 for p in self.PHASES}
-        self.step = 0
-        self._t: float | None = None
-
-    def start(self) -> None:
-        self._t = time.perf_counter()
-
-    def lap(self, phase: str) -> None:
-        if self._t is None:
-            raise RuntimeError("StepTimer.start() not called")
-        now = time.perf_counter()
-        if self.step >= self.warmup:
-            self.sums[phase] += now - self._t
-        self._t = now
-
-    def end_step(self) -> None:
-        self.step += 1
-
-    def summary(self) -> dict[str, Any]:
-        active = max(self.step - self.warmup, 0)
-        if active <= 0:
-            return {"active_steps": 0, "warmup_steps": self.warmup}
-        total = sum(self.sums.values())
-        components_ms = {p: 1000.0 * self.sums[p] / active for p in self.PHASES}
-        components_pct = {
-            p: (100.0 * self.sums[p] / total) if total > 0 else 0.0
-            for p in self.PHASES
-        }
-        return {
-            "warmup_steps": self.warmup,
-            "active_steps": active,
-            "per_step_ms": 1000.0 * total / active,
-            "components_ms": components_ms,
-            "components_pct": components_pct,
-        }
-
-
 @dataclass
 class IntegrityAccumulator:
     sample_indices: set[int]
@@ -294,39 +190,6 @@ def _directory_size_bytes(path: Path) -> int:
         for name in files:
             total += (Path(root) / name).stat().st_size
     return total
-
-
-def _missing_pickle_class(module: str, name: str) -> type:
-    class MissingPickleClass:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
-        def __setstate__(self, state):
-            self.state = state
-
-    MissingPickleClass.__name__ = name
-    MissingPickleClass.__module__ = module
-    return MissingPickleClass
-
-
-class _CheckpointUnpickler(pickle.Unpickler):
-    """Load old checkpoints even when unused optimizer-state classes moved."""
-
-    def find_class(self, module: str, name: str):
-        try:
-            return super().find_class(module, name)
-        except (AttributeError, ModuleNotFoundError):
-            return _missing_pickle_class(module, name)
-
-
-def load_policy_checkpoint(path: Path) -> dict[str, Any]:
-    with path.open("rb") as f:
-        ckpt = _CheckpointUnpickler(f).load()
-    missing = {"params", "slow_critic_params"} - set(ckpt)
-    if missing:
-        raise KeyError(f"checkpoint {path} is missing required keys: {sorted(missing)}")
-    return ckpt
 
 
 def verify_offline_buffer(
@@ -418,49 +281,24 @@ def verify_offline_buffer(
     }
 
 
-def _build_agent(checkpoint_path: Path, seed: int) -> tuple[Any, dict[str, Any]]:
-    import jax
-    import jax.numpy as jnp
-
-    from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
-
-    cfg = R2DreamerConfig(obs_shape=(3, CNN_SIZE, CNN_SIZE), num_actions=4)
-    rng = jax.random.PRNGKey(seed)
-    rng, init_key = jax.random.split(rng)
-    agent = R2DreamerAgent(cfg, init_key)
-    ckpt = load_policy_checkpoint(checkpoint_path)
-    agent.params = jax.tree.map(jnp.asarray, ckpt["params"])
-    agent.slow_critic_params = jax.tree.map(jnp.asarray, ckpt["slow_critic_params"])
-    return agent, ckpt
-
-
 def _seed_env(env: Any, seed: int) -> None:
     raw = getattr(env, "_env", None)
     if raw is not None and hasattr(raw, "seed"):
         raw.seed(seed)
 
 
-def _open_wandb(args: argparse.Namespace, metadata: dict[str, Any]):
-    if args.wandb_project is None:
-        return None, None
-    import wandb
-
-    run = wandb.init(
-        project=args.wandb_project,
-        name=args.wandb_name,
-        tags=[t.strip() for t in args.wandb_tags.split(",") if t.strip()],
-        config=metadata,
-        settings=wandb.Settings(init_timeout=args.wandb_init_timeout),
-    )
-    return wandb, run
-
-
 def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
     import jax
 
-    from src.environments.habitat import HabitatObjectNavEnv
-    from src.shared.configs import DreamerConfig
+    from src.environments.habitat import build_habitat_env
+    from src.r2dreamer.adapters.vggt_adapter import (
+        flatten_world_points_camera_pose,
+        pool_aggregator_tokens,
+    )
+    from src.r2dreamer.agent import R2DreamerAgent
+    from src.shared.profiling import StepTimer
+    from src.shared.video_utils import resize_chw_uint8
+    from src.shared.wandb_utils import init_run
     from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
     out_dir = Path(args.out_dir)
@@ -492,7 +330,7 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         "started_at_unix": time.time(),
     }
 
-    wandb_module, wandb_run = _open_wandb(args, metadata)
+    wandb_module, wandb_run = init_run(args, metadata)
     if wandb_run is not None:
         metadata["wandb_run_id"] = wandb_run.id
         metadata["wandb_run_url"] = getattr(wandb_run, "url", None)
@@ -500,20 +338,21 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         metadata["wandb_run_id"] = None
         metadata["wandb_run_url"] = None
 
-    agent, ckpt = _build_agent(checkpoint_path, args.collect_seed)
-    metadata["checkpoint_step"] = int(ckpt.get("step", -1))
+    agent = R2DreamerAgent.from_checkpoint(
+        checkpoint_path,
+        obs_shape=(3, CNN_SIZE, CNN_SIZE),
+        num_actions=4,
+        seed=args.collect_seed,
+    )
+    metadata["checkpoint_step"] = agent.checkpoint_step
 
-    env_cfg = DreamerConfig(
+    env = build_habitat_env(
         obs_shape=(3, RGB_SIZE, RGB_SIZE),
         max_episode_steps=args.max_episode_steps,
         split=args.split,
-        reward_type="geodesic_delta",
-    )
-    env = HabitatObjectNavEnv(
-        env_cfg,
-        semantic=args.semantic,
         curriculum_path=args.curriculum_path,
         curriculum_mode=args.curriculum_mode,
+        semantic=args.semantic,
         seed=args.collect_seed,
     )
     _seed_env(env, args.collect_seed)
@@ -561,7 +400,14 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
                 if timer is not None:
                     timer.start()
                 rgb = obs["image"]
-                wp_fp32, agg_fp32 = extract_dual_readouts(extractor, rgb)
+                vggt_out = extractor.extract(rgb)
+                wp_fp32 = np.asarray(
+                    flatten_world_points_camera_pose(vggt_out), dtype=np.float32,
+                )
+                agg_fp32 = np.asarray(
+                    pool_aggregator_tokens(vggt_out, extractor.aggregator_feature_shape),
+                    dtype=np.float32,
+                )
                 if timer is not None:
                     timer.lap("vggt_extract")
                 wp_fp16 = wp_fp32.astype(np.float16)
@@ -575,7 +421,7 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
                     timer.lap("npz_append")
 
                 cnn_obs = {
-                    "image": _resize_chw_uint8(rgb, CNN_SIZE),
+                    "image": resize_chw_uint8(rgb, CNN_SIZE),
                     "is_first": bool(obs.get("is_first", False)),
                 }
                 if timer is not None:

@@ -1,10 +1,14 @@
 """Collect observations from random-action rollouts in Habitat ObjectNav."""
 
 import argparse
+import os
 import random
+import sys
 from pathlib import Path
 
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 try:
     import habitat_sim
@@ -12,6 +16,8 @@ except ImportError:
     raise ImportError("habitat-sim required — install via uv sync")
 
 import wandb
+
+from src.shared.wandb_utils import init_run
 
 
 NUM_ACTIONS = 6  # STOP=0, MOVE_FORWARD=1, TURN_LEFT=2, TURN_RIGHT=3, LOOK_UP=4, LOOK_DOWN=5
@@ -118,10 +124,10 @@ def main():
     scenes = get_scene_paths(args.scene_dataset)
     print(f"Found {len(scenes)} scenes in {args.scene_dataset}")
 
-    run = wandb.init(
-        project=args.wandb_project,
-        config=vars(args),
-        tags=["random-rollout", "observation-collection"],
+    _, run = init_run(
+        args,
+        vars(args),
+        default_tags=["random-rollout", "observation-collection"],
     )
 
     # Wandb table for per-episode summary

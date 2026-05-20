@@ -38,11 +38,10 @@ import numpy as np
 
 from src.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
 from src.r2dreamer.adapters import VGGT_FEATURE_DIM
-from src.r2dreamer.adapters.vggt_adapter import _flatten_vggt
+from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
-from src.shared.configs import DreamerConfig
-from src.environments.habitat import HabitatObjectNavEnv
+from src.environments.habitat import build_habitat_env
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -108,14 +107,9 @@ def main(argv: list[str] | None = None) -> dict:
     render_resolution = args.render_resolution
 
     # --- env ---
-    hab_config = DreamerConfig(
+    env_instance = build_habitat_env(
         obs_shape=(3, render_resolution, render_resolution),
-        max_episode_steps=500,
         split=args.split,
-        reward_type="geodesic_delta",
-    )
-    env_instance = HabitatObjectNavEnv(
-        hab_config,
         semantic=args.semantic,
         curriculum_path=curriculum_path,
         curriculum_mode="eval",
@@ -168,7 +162,7 @@ def main(argv: list[str] | None = None) -> dict:
         # First-frame VGGT extract — reuse the dict for both agent input and dump.
         rgb0 = obs["image"]
         vggt_out0 = extractor.extract(rgb0)
-        feat_vec0 = _flatten_vggt(vggt_out0)
+        feat_vec0 = flatten_world_points_camera_pose(vggt_out0)
         agent_obs = {"features": feat_vec0, "is_first": obs.get("is_first", True)}
 
         actions_taken: list[int] = []
@@ -254,7 +248,7 @@ def main(argv: list[str] | None = None) -> dict:
             # --- prep next step ---
             cur_rgb = next_obs["image"]
             cur_vggt = extractor.extract(cur_rgb)
-            feat_vec_next = _flatten_vggt(cur_vggt)
+            feat_vec_next = flatten_world_points_camera_pose(cur_vggt)
             agent_obs = {
                 "features": feat_vec_next,
                 "is_first": next_obs.get("is_first", False),

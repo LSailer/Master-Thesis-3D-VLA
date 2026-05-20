@@ -2,21 +2,49 @@
 
 from __future__ import annotations
 
+import argparse
 from collections import defaultdict, deque
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import wandb
 
 
 def init_run(
-    project: str = "3d-vla-objectnav",
-    config: dict[str, Any] | None = None,
-    tags: list[str] | None = None,
-    group: str | None = None,
-) -> wandb.sdk.wandb_run.Run:
-    """Init wandb run with standard project defaults."""
-    return wandb.init(project=project, config=config, tags=tags, group=group)
+    args: argparse.Namespace,
+    metadata: dict[str, Any] | None = None,
+    *,
+    default_tags: Iterable[str] | None = None,
+) -> tuple[Any | None, Any | None]:
+    """Init a W&B run from ``argparse`` args + a metadata dict.
+
+    Returns ``(wandb_module, run)``. If ``args.wandb_project`` is ``None``,
+    returns ``(None, None)`` so callers can short-circuit without a wrapper.
+    Recognised attrs: ``wandb_project``, ``wandb_name``, ``wandb_tags``
+    (comma-separated string or iterable), ``wandb_init_timeout``.
+    """
+    if getattr(args, "wandb_project", None) is None:
+        return None, None
+
+    raw_tags = getattr(args, "wandb_tags", None)
+    if isinstance(raw_tags, str):
+        tags: list[str] | None = [t.strip() for t in raw_tags.split(",") if t.strip()]
+    elif raw_tags is None:
+        tags = list(default_tags) if default_tags is not None else None
+    else:
+        tags = list(raw_tags)
+
+    init_kwargs: dict[str, Any] = {
+        "project": args.wandb_project,
+        "name": getattr(args, "wandb_name", None),
+        "tags": tags,
+        "config": metadata,
+    }
+    timeout = getattr(args, "wandb_init_timeout", None)
+    if timeout is not None:
+        init_kwargs["settings"] = wandb.Settings(init_timeout=timeout)
+    run = wandb.init(**init_kwargs)
+    return wandb, run
 
 
 class EpisodeTracker:

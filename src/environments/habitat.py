@@ -290,3 +290,36 @@ class HabitatObjectNavEnv:
 
     def close(self):
         self._env.close()
+
+
+def build_habitat_env(
+    obs_shape: tuple[int, int, int],
+    *,
+    max_episode_steps: int = 500,
+    split: str = "train",
+    curriculum_path: str | None = None,
+    curriculum_mode: str = "train",
+    semantic: bool = False,
+    seed: int | None = None,
+    reward_type: str = "geodesic_delta",
+    max_geodesic: float | None = None,
+) -> "HabitatObjectNavEnv":
+    """Build a ``HabitatObjectNavEnv`` with a ``DreamerConfig`` derived from ``obs_shape``.
+
+    Consolidates the boilerplate ``DreamerConfig(...) + HabitatObjectNavEnv(...)``
+    pair that several callers duplicate.
+    """
+    config = DreamerConfig(
+        obs_shape=obs_shape,
+        max_episode_steps=max_episode_steps,
+        split=split,
+        reward_type=reward_type,
+    )
+    return HabitatObjectNavEnv(
+        config,
+        semantic=semantic,
+        curriculum_path=curriculum_path,
+        curriculum_mode=curriculum_mode,
+        seed=seed,
+        max_geodesic=max_geodesic,
+    )

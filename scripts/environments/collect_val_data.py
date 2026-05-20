@@ -13,8 +13,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from src.shared.configs import DreamerConfig
-from src.environments.habitat import HabitatObjectNavEnv
+from src.environments.habitat import build_habitat_env
 
 
 def main():
@@ -27,13 +26,12 @@ def main():
     parser.add_argument("--obs_size", type=int, default=64)
     args = parser.parse_args()
 
-    config = DreamerConfig(
+    env = build_habitat_env(
         obs_shape=(3, args.obs_size, args.obs_size),
         max_episode_steps=args.max_episode_steps,
         split=args.split,
-        reward_type="geodesic_delta",
+        max_geodesic=args.max_geodesic,
     )
-    env = HabitatObjectNavEnv(config, max_geodesic=args.max_geodesic)
 
     all_obs, all_actions, all_rewards, all_dones, all_terminals = [], [], [], [], []
 

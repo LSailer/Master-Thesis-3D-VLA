@@ -8,9 +8,11 @@ from scripts.r2dreamer.collect_offline_buffer import (
     AGGREGATOR_DIM,
     WP_CP_DIM,
     StreamingNpzArray,
-    flatten_wp_cp,
-    pool_aggregator,
     verify_offline_buffer,
+)
+from src.r2dreamer.adapters.vggt_adapter import (
+    flatten_world_points_camera_pose,
+    pool_aggregator_tokens,
 )
 
 
@@ -20,7 +22,7 @@ def test_flatten_wp_cp_shape_and_dtype():
         "camera_pose": np.arange(9, dtype=np.float32),
     }
 
-    got = flatten_wp_cp(out)
+    got = np.asarray(flatten_world_points_camera_pose(out), dtype=np.float32)
 
     assert got.shape == (WP_CP_DIM,)
     assert got.dtype == np.float32
@@ -33,7 +35,12 @@ def test_pool_aggregator_keeps_camera_and_pools_patches():
     features[5] = 2.0
     features[6] = 4.0
 
-    got = pool_aggregator({"aggregator_features": features})
+    got = np.asarray(
+        pool_aggregator_tokens(
+            {"aggregator_features": features}, expected_shape=features.shape,
+        ),
+        dtype=np.float32,
+    )
 
     assert got.shape == (AGGREGATOR_DIM,)
     np.testing.assert_array_equal(got[:1024], np.ones(1024, dtype=np.float32))
