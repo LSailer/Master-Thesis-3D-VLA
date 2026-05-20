@@ -3,11 +3,9 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
 
 from scripts.r2dreamer.collect_offline_buffer import (
     AGGREGATOR_DIM,
-    RGB_SIZE,
     WP_CP_DIM,
     StreamingNpzArray,
     flatten_wp_cp,
@@ -58,12 +56,6 @@ def test_streaming_npz_array_writes_loadable_npz(tmp_path: Path):
 
 def test_verify_offline_buffer_accepts_valid_tiny_buffer(tmp_path: Path):
     n = 2
-    rgb_dir = tmp_path / "rgb_frames"
-    rgb_dir.mkdir()
-    for i in range(n):
-        Image.fromarray(np.zeros((RGB_SIZE, RGB_SIZE, 3), dtype=np.uint8)).save(
-            rgb_dir / f"{i:06d}.png"
-        )
     np.savez(
         tmp_path / "trajectory_skeleton.npz",
         action=np.array([1, 2], dtype=np.int32),
@@ -107,5 +99,5 @@ def test_verify_offline_buffer_accepts_valid_tiny_buffer(tmp_path: Path):
     result = verify_offline_buffer(tmp_path, expected_n_steps=n)
 
     assert result["n_steps"] == n
-    assert result["rgb_frames"] == n
     assert result["episodes"] == 1
+    assert "rgb_frames" not in result

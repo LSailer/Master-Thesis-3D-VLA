@@ -1,8 +1,10 @@
 """Collect the canonical offline replay buffer for the VGGT readout ablation.
 
 The collector rolls out a CNN-policy checkpoint, stores the canonical
-trajectory skeleton and RGB frames, and computes both VGGT readouts from one
-VGGT extractor call per transition:
+trajectory skeleton, and computes both VGGT readouts from one VGGT extractor
+call per transition. RGB frames are not persisted — PNG encoding dominated the
+hot path (~36 % of per-step time) and the downstream ablation only needs the
+fp16 readouts.
 
     python scripts/r2dreamer/collect_offline_buffer.py \
         --checkpoint output/.../step_001000000.pkl \
@@ -69,12 +71,6 @@ def _resize_chw_uint8(image: np.ndarray, size: int) -> np.ndarray:
     hwc = np.transpose(image, (1, 2, 0))
     resized = Image.fromarray(hwc).resize((size, size), Image.Resampling.BILINEAR)
     return np.transpose(np.asarray(resized, dtype=np.uint8), (2, 0, 1))
-
-
-def _save_rgb_png(image: np.ndarray, path: Path) -> None:
-    if image.shape != (3, RGB_SIZE, RGB_SIZE):
-        raise ValueError(f"expected RGB frame shape (3, 518, 518), got {image.shape}")
-    Image.fromarray(np.transpose(image, (1, 2, 0))).save(path)
 
 
 def flatten_wp_cp(vggt_out: dict[str, Any]) -> np.ndarray:
@@ -183,6 +179,62 @@ class StreamingNpzArray:
             self._zip.close()
 
 
+class StepTimer:
+    """Accumulate per-component wall-clock timings during the collection loop.
+
+    The first ``warmup`` steps are dropped from the means so JAX compile, the
+    first habitat scene swap, and other one-shot costs don't dominate.
+    """
+
+    PHASES = (
+        "vggt_extract",
+        "fp16_cast",
+        "npz_append",
+        "resize",
+        "agent_act",
+        "env_step",
+        "bookkeeping",
+    )
+
+    def __init__(self, warmup: int = 100) -> None:
+        self.warmup = warmup
+        self.sums = {p: 0.0 for p in self.PHASES}
+        self.step = 0
+        self._t: float | None = None
+
+    def start(self) -> None:
+        self._t = time.perf_counter()
+
+    def lap(self, phase: str) -> None:
+        if self._t is None:
+            raise RuntimeError("StepTimer.start() not called")
+        now = time.perf_counter()
+        if self.step >= self.warmup:
+            self.sums[phase] += now - self._t
+        self._t = now
+
+    def end_step(self) -> None:
+        self.step += 1
+
+    def summary(self) -> dict[str, Any]:
+        active = max(self.step - self.warmup, 0)
+        if active <= 0:
+            return {"active_steps": 0, "warmup_steps": self.warmup}
+        total = sum(self.sums.values())
+        components_ms = {p: 1000.0 * self.sums[p] / active for p in self.PHASES}
+        components_pct = {
+            p: (100.0 * self.sums[p] / total) if total > 0 else 0.0
+            for p in self.PHASES
+        }
+        return {
+            "warmup_steps": self.warmup,
+            "active_steps": active,
+            "per_step_ms": 1000.0 * total / active,
+            "components_ms": components_ms,
+            "components_pct": components_pct,
+        }
+
+
 @dataclass
 class IntegrityAccumulator:
     sample_indices: set[int]
@@ -236,10 +288,6 @@ def _load_npz_array(path: Path) -> np.ndarray:
         data.close()
 
 
-def _count_rgb_frames(rgb_dir: Path) -> int:
-    return sum(1 for p in rgb_dir.iterdir() if p.suffix.lower() == ".png")
-
-
 def _directory_size_bytes(path: Path) -> int:
     total = 0
     for root, _dirs, files in os.walk(path):
@@ -287,11 +335,10 @@ def verify_offline_buffer(
     expected_n_steps: int | None = None,
     min_cosine: float = 0.999,
 ) -> dict[str, Any]:
-    """Verify row counts, dtypes, episode boundaries, image count, and cosine stats."""
+    """Verify row counts, dtypes, episode boundaries, and cosine stats."""
     skeleton_path = out_dir / "trajectory_skeleton.npz"
     wp_path = out_dir / "z_wp_cp.npz"
     agg_path = out_dir / "z_aggregator.npz"
-    rgb_dir = out_dir / "rgb_frames"
     metadata_path = out_dir / "collection_metadata.json"
     rollout_log_path = out_dir / "rollout_log.jsonl"
 
@@ -329,19 +376,6 @@ def verify_offline_buffer(
     if agg.dtype != np.float16:
         raise AssertionError(f"z_aggregator dtype is {agg.dtype}, expected float16")
 
-    rgb_count = _count_rgb_frames(rgb_dir)
-    if rgb_count != n:
-        raise AssertionError(f"rgb_frames contains {rgb_count} PNGs, expected {n}")
-
-    first_frame = rgb_dir / "000000.png"
-    last_frame = rgb_dir / f"{n - 1:06d}.png"
-    for frame in (first_frame, last_frame):
-        if not frame.exists():
-            raise AssertionError(f"missing RGB frame {frame}")
-        with Image.open(frame) as image:
-            if image.size != (RGB_SIZE, RGB_SIZE):
-                raise AssertionError(f"{frame} size is {image.size}, expected 518x518")
-
     with metadata_path.open() as f:
         metadata = json.load(f)
     integrity = metadata.get("integrity", {})
@@ -374,7 +408,6 @@ def verify_offline_buffer(
     total_size = _directory_size_bytes(out_dir)
     return {
         "n_steps": n,
-        "rgb_frames": rgb_count,
         "z_wp_cp_shape": list(wp.shape),
         "z_aggregator_shape": list(agg.shape),
         "total_size_bytes": total_size,
@@ -431,9 +464,7 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
     from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
     out_dir = Path(args.out_dir)
-    rgb_dir = out_dir / "rgb_frames"
     out_dir.mkdir(parents=True, exist_ok=True)
-    rgb_dir.mkdir(parents=True, exist_ok=True)
 
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.exists():
@@ -521,26 +552,41 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         dtype=np.float16,
     )
 
+    timer = StepTimer(warmup=args.profile_warmup) if args.profile else None
+
     completed_writes = False
     try:
         with rollout_log_path.open("w") as rollout_log:
             for step in range(args.n_steps):
+                if timer is not None:
+                    timer.start()
                 rgb = obs["image"]
                 wp_fp32, agg_fp32 = extract_dual_readouts(extractor, rgb)
+                if timer is not None:
+                    timer.lap("vggt_extract")
                 wp_fp16 = wp_fp32.astype(np.float16)
                 agg_fp16 = agg_fp32.astype(np.float16)
                 integrity.maybe_record(step, wp_fp32, agg_fp32, wp_fp16, agg_fp16)
+                if timer is not None:
+                    timer.lap("fp16_cast")
                 wp_writer.append(wp_fp16)
                 agg_writer.append(agg_fp16)
-                _save_rgb_png(rgb, rgb_dir / f"{step:06d}.png")
+                if timer is not None:
+                    timer.lap("npz_append")
 
                 cnn_obs = {
                     "image": _resize_chw_uint8(rgb, CNN_SIZE),
                     "is_first": bool(obs.get("is_first", False)),
                 }
+                if timer is not None:
+                    timer.lap("resize")
                 rng_key, act_key = jax.random.split(rng_key)
                 action = int(agent.act(cnn_obs, act_key, training=False))
+                if timer is not None:
+                    timer.lap("agent_act")
                 next_obs = env.step(action)
+                if timer is not None:
+                    timer.lap("env_step")
 
                 reward = float(next_obs["reward"])
                 done = bool(next_obs["done"])
@@ -587,6 +633,10 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
                         f"(episode {episode_id}, current_ep_steps={episode_steps})",
                         flush=True,
                     )
+
+                if timer is not None:
+                    timer.lap("bookkeeping")
+                    timer.end_step()
 
             if episode_steps > 0:
                 rollout_log.write(
@@ -636,6 +686,10 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
             "integrity": integrity.summary(),
         }
     )
+    if timer is not None:
+        profile = timer.summary()
+        metadata["profile"] = profile
+        print("profile=" + json.dumps(profile, indent=2), flush=True)
     (out_dir / "collection_metadata.json").write_text(json.dumps(metadata, indent=2))
 
     verification = verify_offline_buffer(out_dir, expected_n_steps=args.n_steps)
@@ -670,6 +724,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wandb-init-timeout", type=int, default=600)
     parser.add_argument("--vggt-total-budget", type=int, default=200_000)
     parser.add_argument("--vggt-static-budget", type=int, default=8333)
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Time each loop component (vggt/png/env/...) and report a per-step breakdown.",
+    )
+    parser.add_argument(
+        "--profile-warmup",
+        type=int,
+        default=100,
+        help="Drop this many initial steps from the profile means (JAX compile, first scene swap).",
+    )
     return parser
 
 
