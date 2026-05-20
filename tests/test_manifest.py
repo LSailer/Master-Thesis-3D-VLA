@@ -1,11 +1,11 @@
-"""Unit tests for modules.r2dreamer.manifest."""
+"""Unit tests for src.r2dreamer.manifest."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from modules.r2dreamer.manifest import write_manifest_end, write_manifest_start
+from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
 def test_write_manifest_start(tmp_path: Path) -> None:

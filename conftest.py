@@ -33,5 +33,5 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_gpu)
 
         path = Path(str(item.fspath)).as_posix()
-        if path.endswith("modules/vggt/tests/test_jax_parity.py") and not run_vggt_parity:
+        if path.endswith("tests/vggt/test_jax_parity.py") and not run_vggt_parity:
             item.add_marker(skip_vggt_parity)

@@ -690,7 +690,7 @@ y = self.c_proj(y)</code></pre>
   <h2>2. JAX / Flax — Composing the Same Block</h2>
   <p class="section-tagline">
     The transformer-encoder vocabulary in JAX-land, and what the §1 patterns look like when
-    written in Flax (the library your <code>modules/r2dreamer/networks.py</code> already uses).
+    written in Flax (the library your <code>src/r2dreamer/networks.py</code> already uses).
   </p>
 
   <h3 id="jax-landscape"><span class="num">2.1</span>The library landscape</h3>
@@ -795,7 +795,7 @@ y = self.c_proj(y)</code></pre>
 
   <h3 id="jax-vs-yours"><span class="num">2.5</span>Mapping to your existing <code>VGGTAggregatorMLPEncoder</code></h3>
   <p>
-    Your variant-1 encoder, distilled (<code>modules/r2dreamer/networks.py:457–478</code>):
+    Your variant-1 encoder, distilled (<code>src/r2dreamer/networks.py:457–478</code>):
   </p>
 
 <pre><code><span class="cm"># Current — networks.py:474–477</span>

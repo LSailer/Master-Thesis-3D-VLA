@@ -64,7 +64,7 @@ COMMON=(
 # ------------------------------------------------------------------ Run 1
 RUN1="${TAG}-stopgrad-${TIMESTAMP}"
 echo "--- Run 1/2: default stop_gradient (current behaviour) ---"
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     "${COMMON[@]}" \
     --output_dir "output/diag/${RUN1}" \
     --wandb_name "${RUN1}" \
@@ -74,7 +74,7 @@ uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
 RUN2="${TAG}-bargrad-${TIMESTAMP}"
 echo ""
 echo "--- Run 2/2: Barlow gradient reaches encoder (Protocol D) ---"
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     "${COMMON[@]}" \
     --barlow_grad_to_encoder \
     --output_dir "output/diag/${RUN2}" \

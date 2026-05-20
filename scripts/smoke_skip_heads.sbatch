@@ -32,8 +32,8 @@ echo ""
 # ----- Step 1: validate compute_heads=False semantically (GPU unit tests) -----
 echo "=== [1/3] Unit tests: compute_heads=False semantics ==="
 .venv/bin/pytest -q -x \
-    "modules/vggt/tests/test_jax_integration.py::TestJAXFeatureExtractorContract::test_compute_heads_false_returns_only_aggregator" \
-    "modules/vggt/tests/test_jax_integration.py::TestJAXFeatureExtractorContract::test_compute_heads_false_aggregator_matches_full"
+    "tests/vggt/test_jax_integration.py::TestJAXFeatureExtractorContract::test_compute_heads_false_returns_only_aggregator" \
+    "tests/vggt/test_jax_integration.py::TestJAXFeatureExtractorContract::test_compute_heads_false_aggregator_matches_full"
 
 # ----- Step 2: pipeline profile with new code -----
 echo ""
@@ -47,7 +47,7 @@ uv run python scripts/profile_pipeline_aggregator_mlp.py \
 # ----- Step 3: real end-to-end training smoke ~20 min -----
 echo ""
 echo "=== [3/3] End-to-end training smoke ==="
-uv run python modules/r2dreamer/scripts/run_jax_habitat_vggt_aggregator_mlp.py \
+uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
     --steps 6000 \
     --prefill 200 \
     --seed 42 \
