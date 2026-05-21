@@ -85,6 +85,7 @@ def train(
 
     # --- Build env ---
     env_fn = env_registry[env]
+    val_env_instance = None
     if env == "habitat":
         env_instance = env_fn(
             curriculum_path=curriculum_path,
@@ -92,6 +93,15 @@ def train(
             seed=args.seed,
             render_resolution=encoder_spec.env_render_resolution,
         )
+        # Val env: same curriculum JSON, eval-key set. Skip when val is off
+        # or the user is in train-of-train mode (curriculum_mode != "train").
+        if args.val_every > 0 and args.curriculum_mode == "train":
+            val_env_instance = env_fn(
+                curriculum_path=curriculum_path,
+                curriculum_mode="eval",
+                seed=args.seed,
+                render_resolution=encoder_spec.env_render_resolution,
+            )
         num_actions = 4
     else:
         env_instance = env_fn(seed=args.seed)
@@ -150,6 +160,10 @@ def train(
         video_log_episodes=args.video_log_episodes,
         val_data=args.val_data,
         val_loss_every=args.val_loss_every,
+        val_every=args.val_every,
+        val_episodes=args.val_episodes,
+        val_video_episodes=args.val_video_episodes,
+        val_max_episode_steps=args.val_max_episode_steps,
         resume_from=args.resume_from,
         overfit_one_batch=args.overfit_one_batch,
         overfit_steps=args.overfit_steps,
@@ -161,6 +175,18 @@ def train(
     # --- Build trainer ---
     if env == "habitat":
         hab = habitat_defaults(env_instance)
+        val_kwargs: dict[str, object] = {}
+        if val_env_instance is not None:
+            # Val-Episode-Loop (3D-36) wiring: own adapter so the train
+            # VGGT video buffer isn't disturbed; own tracker so val
+            # rolling means stay independent of train rollouts.
+            val_adapter = enc.make_adapter()
+            val_hab = habitat_defaults(val_env_instance, track_collision_rate=True)
+            val_kwargs = {
+                "val_env": val_env_instance,
+                "val_obs_adapter": val_adapter,
+                "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
+            }
         trainer = Trainer(
             agent=agent,
             env=env_instance,
@@ -168,6 +194,7 @@ def train(
             trainer_config=trainer_config,
             obs_adapter=adapter,
             episode_metrics_fn=hab["episode_metrics_fn"],
+            **val_kwargs,
         )
     else:
         trainer = Trainer(

@@ -115,6 +115,13 @@ class TrainerConfig:
     val_data: str | None = None
     val_loss_every: int = 10_000
 
+    # Deterministic Val-Episode-Loop (separate from offline val_loss above).
+    # val_every=0 disables. Requires a val_env to be passed to Trainer.
+    val_every: int = 50_000
+    val_episodes: int = 50
+    val_video_episodes: int = 1
+    val_max_episode_steps: int = 500
+
     # Resume from checkpoint (.pkl produced by save_checkpoint). When set,
     # restores agent.{params, opt_state, slow_critic_params, ema_state} and
     # offsets the train loop to start at the checkpoint's step.
@@ -139,13 +146,16 @@ class TrainerConfig:
 EpisodeMetricsFn = Callable[..., dict[str, Any]]
 
 
-def habitat_defaults(env: Any) -> dict[str, Any]:
+def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[str, Any]:
     """Pre-configured ObsAdapter and episode_metrics_fn for Habitat+CNN.
 
     Returns dict with keys "obs_adapter" and "episode_metrics_fn".
+
+    Pass track_collision_rate=True for the val-loop tracker; train rollouts
+    leave it False so the dashboard isn't doubly-noisy.
     """
     from src.shared.wandb_utils import EpisodeTracker
-    tracker = EpisodeTracker(window=100)
+    tracker = EpisodeTracker(window=100, track_collision_rate=track_collision_rate)
     action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
 
     def episode_metrics_fn(
@@ -212,6 +222,9 @@ class Trainer:
         trainer_config: TrainerConfig,
         obs_adapter: ObsAdapter | None = None,
         episode_metrics_fn: EpisodeMetricsFn | None = None,
+        val_env: Env | None = None,
+        val_obs_adapter: ObsAdapter | None = None,
+        val_episode_metrics_fn: EpisodeMetricsFn | None = None,
     ) -> None:
         self.agent = agent
         self.env = env
@@ -219,6 +232,11 @@ class Trainer:
         self.tcfg = trainer_config
         self.obs_adapter = obs_adapter or ObsAdapter()
         self.episode_metrics_fn = episode_metrics_fn
+        # Val-Episode-Loop wiring (3D-36). All three must be non-None for the
+        # loop to run; the launcher constructs them together when val is on.
+        self.val_env = val_env
+        self.val_obs_adapter = val_obs_adapter
+        self.val_episode_metrics_fn = val_episode_metrics_fn
 
         # Build buffer from adapter settings
         self.buffer = ReplayBuffer(BufferConfig(
@@ -319,6 +337,8 @@ class Trainer:
             if self._wandb is not None:
                 self._wandb.finish()
             self.env.close()
+            if self.val_env is not None:
+                self.val_env.close()
 
     # ------------------------------------------------------------------
     # Prefill
@@ -438,6 +458,13 @@ class Trainer:
                     and (step + 1) % tcfg.val_loss_every == 0):
                 rng_key, val_key = jax.random.split(rng_key)
                 self._log_val_loss(val_key, step, writer, f)
+
+            # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
+            if (self.val_env is not None
+                    and tcfg.val_every > 0
+                    and (step + 1) % tcfg.val_every == 0):
+                rng_key, val_key = jax.random.split(rng_key)
+                self._run_val_loop(val_key, step, writer, f)
 
             # --- Checkpoint ---
             if (step + 1) % tcfg.checkpoint_every == 0:
@@ -626,3 +653,79 @@ class Trainer:
             f"dyn={val_logged.get('val/loss/dyn', 0):.3f} "
             f"rew={val_logged.get('val/loss/rew', 0):.3f}"
         )
+
+    def _run_val_loop(
+        self, rng_key: jnp.ndarray, step: int, writer: Any, f: Any,
+    ) -> None:
+        """Deterministic Val-Episode-Loop (3D-36).
+
+        Runs `val_episodes` greedy rollouts in the pinned eval env and logs
+        rolling val/* metrics. Video recording is handled by 3D-41.
+        """
+        tcfg = self.tcfg
+        if (self.val_env is None or self.val_obs_adapter is None
+                or self.val_episode_metrics_fn is None):
+            return
+
+        val_adapter = self.val_obs_adapter
+        last_val_metrics: dict[str, Any] = {}
+        val_t0 = time.time()
+
+        for ep_idx in range(tcfg.val_episodes):
+            obs = self.val_env.reset()
+            if val_adapter.on_episode_reset:
+                val_adapter.on_episode_reset()
+            _, agent_obs = val_adapter.transform(obs)
+
+            episode_reward = 0.0
+            episode_steps = 0
+            action_counts = np.zeros(self.acfg.num_actions, dtype=int)
+
+            for _ in range(tcfg.val_max_episode_steps):
+                rng_key, act_key = jax.random.split(rng_key)
+                action = self.agent.act(agent_obs, act_key, training=False)
+                next_obs = self.val_env.step(action)
+                _, next_agent_obs = val_adapter.transform(next_obs)
+
+                action_counts[action] += 1
+                episode_reward += next_obs["reward"]
+                episode_steps += 1
+
+                if next_obs["done"]:
+                    obs = next_obs
+                    break
+                obs = next_obs
+                agent_obs = next_agent_obs
+
+            last_val_metrics = self.val_episode_metrics_fn(
+                self.val_env, obs, episode_reward, episode_steps, action_counts,
+            )
+
+        # Prefix the final episode's tracker snapshot with `val/`. The
+        # rolling-mean fields already reflect the whole val loop (since the
+        # tracker is shared across episodes within this run).
+        val_logged = {
+            f"val/{k}" if not k.startswith("val/") else k: v
+            for k, v in last_val_metrics.items()
+        }
+        for k, v in val_logged.items():
+            writer.writerow([step, k, v])
+        f.flush()
+        if self._wandb is not None:
+            self._wandb.log(val_logged, step=step)
+
+        elapsed = time.time() - val_t0
+        sr = val_logged.get("val/metrics/sr", 0.0)
+        spl = val_logged.get("val/metrics/spl", 0.0)
+        softspl = val_logged.get("val/metrics/softspl", 0.0)
+        dtg = val_logged.get("val/metrics/dtg", 0.0)
+        sr_str = f"{sr:.3f}" if isinstance(sr, float) else str(sr)
+        spl_str = f"{spl:.3f}" if isinstance(spl, float) else str(spl)
+        soft_str = f"{softspl:.3f}" if isinstance(softspl, float) else str(softspl)
+        dtg_str = f"{dtg:.3f}" if isinstance(dtg, float) else str(dtg)
+        print(
+            f"[step {step:>8d}] VAL-LOOP "
+            f"sr={sr_str} spl={spl_str} softspl={soft_str} dtg={dtg_str}m "
+            f"({tcfg.val_episodes} eps in {elapsed:.1f}s)"
+        )
+

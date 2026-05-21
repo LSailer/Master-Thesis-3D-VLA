@@ -24,6 +24,16 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Render resolution for VGGT encoder")
     p.add_argument("--val_data", type=str, default=None)
     p.add_argument("--val_loss_every", type=int, default=10_000)
+    # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
+    # checkpoint cadence so val signals land alongside checkpoints.
+    p.add_argument("--val_every", type=int, default=50_000,
+                   help="Run a deterministic val-episode loop every N steps (0 disables)")
+    p.add_argument("--val_episodes", type=int, default=50,
+                   help="Episodes per val-loop trigger")
+    p.add_argument("--val_video_episodes", type=int, default=1,
+                   help="Number of val episodes to record as W&B videos per trigger")
+    p.add_argument("--val_max_episode_steps", type=int, default=500,
+                   help="Per-episode step cap inside the val loop")
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
