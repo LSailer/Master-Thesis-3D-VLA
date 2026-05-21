@@ -27,6 +27,8 @@ class EpisodeTracker:
         self._rewards: deque[float] = deque(maxlen=window)
         self._successes: deque[float] = deque(maxlen=window)
         self._spls: deque[float] = deque(maxlen=window)
+        self._softspls: deque[float] = deque(maxlen=window)
+        self._dtgs: deque[float] = deque(maxlen=window)
         self._cat_successes: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=window)
         )
@@ -42,12 +44,16 @@ class EpisodeTracker:
         spl: float,
         category: str,
         scene_id: str,
+        softspl: float = 0.0,
+        dtg: float = 0.0,
     ) -> dict[str, Any]:
         """Record a completed episode, return dict of all metrics to log."""
         self._episode_count += 1
         self._rewards.append(reward)
         self._successes.append(success)
         self._spls.append(spl)
+        self._softspls.append(softspl)
+        self._dtgs.append(dtg)
         self._cat_successes[category].append(success)
         self._cat_rewards[category].append(reward)
 
@@ -57,11 +63,15 @@ class EpisodeTracker:
             "episode/reward": reward,
             "episode/success": success,
             "episode/spl": spl,
+            "episode/softspl": softspl,
+            "episode/dtg": dtg,
             "episode/count": self._episode_count,
             "episode/goal": category,
             "episode/scene": scene,
             "metrics/sr": float(np.mean(self._successes)),
             "metrics/spl": float(np.mean(self._spls)),
+            "metrics/softspl": float(np.mean(self._softspls)),
+            "metrics/dtg": float(np.mean(self._dtgs)),
             "metrics/reward": float(np.mean(self._rewards)),
         }
         for cat, succ_deque in self._cat_successes.items():

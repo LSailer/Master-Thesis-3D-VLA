@@ -218,6 +218,20 @@ class HabitatObjectNavEnv:
             self._step_count += 1
             image = self._obs_to_image(self._last_obs)
             done = self._step_count >= self._cfg.max_episode_steps
+            # If the timeout fires on STOP, the agent ended at _prev_dist
+            # with the current path_length — surface SoftSPL/DTG accordingly.
+            shortest = self._start_geodesic
+            length_ratio = (
+                shortest / max(shortest, self._path_length)
+                if shortest > 0 else 0.0
+            )
+            softspl = 0.0
+            dtg = 0.0
+            if done:
+                dist = self._prev_dist
+                if shortest > 0:
+                    softspl = max(0.0, 1.0 - dist / shortest) * length_ratio
+                dtg = dist
             return {
                 "image": image,
                 "reward": self._cfg.step_penalty,
@@ -225,6 +239,8 @@ class HabitatObjectNavEnv:
                 "is_first": False,
                 "success": 0.0,
                 "spl": 0.0,
+                "softspl": softspl,
+                "dtg": dtg,
             }
 
         obs = self._env.step(action=action)
@@ -241,10 +257,23 @@ class HabitatObjectNavEnv:
         success = 1.0 if _is_success_distance(dist) else 0.0
         done = success > 0 or self._step_count >= self._cfg.max_episode_steps
 
+        shortest = self._start_geodesic
+        length_ratio = shortest / max(shortest, self._path_length) if shortest > 0 else 0.0
+
         spl = 0.0
         if done and success > 0:
-            shortest = self._start_geodesic
-            spl = shortest / max(shortest, self._path_length) if shortest > 0 else 0.0
+            spl = length_ratio
+
+        # SoftSPL: progress toward goal × path-length efficiency (habitat-lab convention,
+        # progress clipped at 0 so moving away from the goal floors SoftSPL at 0, not below).
+        # Computed every step but only meaningful at episode end (when path_length is final).
+        softspl = 0.0
+        if done and shortest > 0:
+            progress = max(0.0, 1.0 - dist / shortest)
+            softspl = progress * length_ratio
+
+        # DTG: distance-to-goal at episode end (absolute, complements SoftSPL).
+        dtg = dist if done else 0.0
 
         image = self._obs_to_image(obs)
 
@@ -255,6 +284,8 @@ class HabitatObjectNavEnv:
             "is_first": False,
             "success": success,
             "spl": spl,
+            "softspl": softspl,
+            "dtg": dtg,
         }
 
     def find_nearest_viewpoint(self):
