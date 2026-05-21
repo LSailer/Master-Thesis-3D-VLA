@@ -381,7 +381,7 @@ class Trainer:
         train_credit = 0.0
         metrics: dict[str, Any] = {}
         video_next_step = start_step
-        video_recording = self._start_video_recording(obs) if self._should_record_video(start_step, video_next_step) else None
+        video_recording = self._start_video_recording(self.env, obs) if self._should_record_video(start_step, video_next_step) else None
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -396,7 +396,7 @@ class Trainer:
             episode_reward += next_obs["reward"]
             episode_steps += 1
             if video_recording is not None:
-                self._append_video_frame(video_recording, next_obs)
+                self._append_video_frame(self.env, video_recording, next_obs)
 
             if next_obs["done"]:
                 episode_count += 1
@@ -421,7 +421,7 @@ class Trainer:
                     self.obs_adapter.on_episode_reset()
                 buffer_obs, agent_obs = self.obs_adapter.transform(obs)
                 if self._should_record_video(step + 1, video_next_step):
-                    video_recording = self._start_video_recording(obs)
+                    video_recording = self._start_video_recording(self.env, obs)
             else:
                 obs = next_obs
                 buffer_obs = next_buffer_obs
@@ -462,9 +462,9 @@ class Trainer:
             and hasattr(self.env, "_env")
         )
 
-    def _goal_positions(self) -> list[list[float]]:
+    def _goal_positions(self, env: Env) -> list[list[float]]:
         positions = []
-        for goal in self.env._env.current_episode.goals:
+        for goal in env._env.current_episode.goals:
             if goal.view_points:
                 pos = goal.view_points[0].agent_state.position
             else:
@@ -472,26 +472,26 @@ class Trainer:
             positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
         return positions
 
-    def _agent_position(self) -> list[float]:
-        pos = self.env._env.sim.get_agent_state().position
+    def _agent_position(self, env: Env) -> list[float]:
+        pos = env._env.sim.get_agent_state().position
         return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 
-    def _start_video_recording(self, obs: dict) -> dict[str, Any]:
+    def _start_video_recording(self, env: Env, obs: dict) -> dict[str, Any]:
         recording = {
-            "trajectory": [self._agent_position()],
-            "goals": self._goal_positions(),
+            "trajectory": [self._agent_position(env)],
+            "goals": self._goal_positions(env),
             "frames": [],
         }
-        self._append_video_frame(recording, obs)
+        self._append_video_frame(env, recording, obs)
         return recording
 
-    def _append_video_frame(self, recording: dict[str, Any], obs: dict) -> None:
+    def _append_video_frame(self, env: Env, recording: dict[str, Any], obs: dict) -> None:
         if "image" not in obs:
             return
         if recording["frames"]:
-            recording["trajectory"].append(self._agent_position())
+            recording["trajectory"].append(self._agent_position(env))
         topdown = render_topdown_frame(
-            self.env, recording["trajectory"], recording["goals"])
+            env, recording["trajectory"], recording["goals"])
         recording["frames"].append(compose_frame(obs["image"], topdown))
 
     # ------------------------------------------------------------------
@@ -647,7 +647,7 @@ class Trainer:
 
             recording = None
             if videos_recorded < tcfg.val_video_episodes and self._wandb is not None:
-                recording = self._start_val_video_recording(obs)
+                recording = self._start_video_recording(self.val_env, obs)
 
             for _ in range(tcfg.val_max_episode_steps):
                 rng_key, act_key = jax.random.split(rng_key)
@@ -659,7 +659,7 @@ class Trainer:
                 episode_reward += next_obs["reward"]
                 episode_steps += 1
                 if recording is not None:
-                    self._append_val_video_frame(recording, next_obs)
+                    self._append_video_frame(self.val_env, recording, next_obs)
 
                 if next_obs["done"]:
                     obs = next_obs
@@ -704,41 +704,4 @@ class Trainer:
             f"sr={sr_str} spl={spl_str} softspl={soft_str} dtg={dtg_str}m "
             f"({tcfg.val_episodes} eps in {elapsed:.1f}s)"
         )
-
-    # ------------------------------------------------------------------
-    # Val-episode video helpers (3D-41) — mirror the train video helpers
-    # but bound to self.val_env so the train env isn't disturbed.
-    # ------------------------------------------------------------------
-
-    def _start_val_video_recording(self, obs: dict) -> dict[str, Any]:
-        recording = {
-            "trajectory": [self._val_agent_position()],
-            "goals": self._val_goal_positions(),
-            "frames": [],
-        }
-        self._append_val_video_frame(recording, obs)
-        return recording
-
-    def _append_val_video_frame(self, recording: dict[str, Any], obs: dict) -> None:
-        if "image" not in obs:
-            return
-        if recording["frames"]:
-            recording["trajectory"].append(self._val_agent_position())
-        topdown = render_topdown_frame(
-            self.val_env, recording["trajectory"], recording["goals"])
-        recording["frames"].append(compose_frame(obs["image"], topdown))
-
-    def _val_goal_positions(self) -> list[list[float]]:
-        positions = []
-        for goal in self.val_env._env.current_episode.goals:
-            if goal.view_points:
-                pos = goal.view_points[0].agent_state.position
-            else:
-                pos = goal.position
-            positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
-        return positions
-
-    def _val_agent_position(self) -> list[float]:
-        pos = self.val_env._env.sim.get_agent_state().position
-        return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 

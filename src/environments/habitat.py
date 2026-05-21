@@ -224,20 +224,6 @@ class HabitatObjectNavEnv:
             done = self._step_count >= self._cfg.max_episode_steps
             # If the timeout fires on STOP, the agent ended at _prev_dist
             # with the current path_length — surface SoftSPL/DTG accordingly.
-            shortest = self._start_geodesic
-            length_ratio = (
-                shortest / max(shortest, self._path_length)
-                if shortest > 0 else 0.0
-            )
-            softspl = 0.0
-            dtg = 0.0
-            collision_rate = 0.0
-            if done:
-                dist = self._prev_dist
-                if shortest > 0:
-                    softspl = max(0.0, 1.0 - dist / shortest) * length_ratio
-                dtg = dist
-                collision_rate = self._compute_collision_rate()
             return {
                 "image": image,
                 "reward": self._cfg.step_penalty,
@@ -245,9 +231,7 @@ class HabitatObjectNavEnv:
                 "is_first": False,
                 "success": 0.0,
                 "spl": 0.0,
-                "softspl": softspl,
-                "dtg": dtg,
-                "collision_rate": collision_rate,
+                **self._episode_end_metrics(self._prev_dist, done),
             }
 
         obs = self._env.step(action=action)
@@ -275,26 +259,7 @@ class HabitatObjectNavEnv:
         success = 1.0 if _is_success_distance(dist) else 0.0
         done = success > 0 or self._step_count >= self._cfg.max_episode_steps
 
-        shortest = self._start_geodesic
-        length_ratio = shortest / max(shortest, self._path_length) if shortest > 0 else 0.0
-
-        spl = 0.0
-        if done and success > 0:
-            spl = length_ratio
-
-        # SoftSPL: progress toward goal × path-length efficiency (habitat-lab convention,
-        # progress clipped at 0 so moving away from the goal floors SoftSPL at 0, not below).
-        # Computed every step but only meaningful at episode end (when path_length is final).
-        softspl = 0.0
-        if done and shortest > 0:
-            progress = max(0.0, 1.0 - dist / shortest)
-            softspl = progress * length_ratio
-
-        # DTG: distance-to-goal at episode end (absolute, complements SoftSPL).
-        dtg = dist if done else 0.0
-
-        # collision_rate is a per-episode ratio, only meaningful at episode end
-        collision_rate = self._compute_collision_rate() if done else 0.0
+        spl = self._length_ratio() if (done and success > 0) else 0.0
 
         image = self._obs_to_image(obs)
 
@@ -305,9 +270,27 @@ class HabitatObjectNavEnv:
             "is_first": False,
             "success": success,
             "spl": spl,
-            "softspl": softspl,
-            "dtg": dtg,
-            "collision_rate": collision_rate,
+            **self._episode_end_metrics(dist, done),
+        }
+
+    def _length_ratio(self) -> float:
+        """shortest_geodesic / max(shortest_geodesic, path_length). 0 if degenerate."""
+        shortest = self._start_geodesic
+        if shortest <= 0:
+            return 0.0
+        return shortest / max(shortest, self._path_length)
+
+    def _episode_end_metrics(self, dist: float, done: bool) -> dict[str, float]:
+        """SoftSPL / DTG / collision_rate. Zero mid-episode; only meaningful at done."""
+        if not done:
+            return {"softspl": 0.0, "dtg": 0.0, "collision_rate": 0.0}
+        shortest = self._start_geodesic
+        # Progress clipped at 0 — moving away from the goal floors SoftSPL at 0.
+        progress = max(0.0, 1.0 - dist / shortest) if shortest > 0 else 0.0
+        return {
+            "softspl": progress * self._length_ratio(),
+            "dtg": dist,
+            "collision_rate": self._compute_collision_rate(),
         }
 
     def _compute_collision_rate(self) -> float:
