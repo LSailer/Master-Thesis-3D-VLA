@@ -657,10 +657,12 @@ class Trainer:
     def _run_val_loop(
         self, rng_key: jnp.ndarray, step: int, writer: Any, f: Any,
     ) -> None:
-        """Deterministic Val-Episode-Loop (3D-36).
+        """Deterministic Val-Episode-Loop (3D-36) + video recording (3D-41).
 
         Runs `val_episodes` greedy rollouts in the pinned eval env and logs
-        rolling val/* metrics. Video recording is handled by 3D-41.
+        rolling val/* metrics. The first val_video_episodes are captured
+        as W&B videos (deterministic playback — same scene across runs
+        because the eval episode order is pinned by the curriculum JSON).
         """
         tcfg = self.tcfg
         if (self.val_env is None or self.val_obs_adapter is None
@@ -669,6 +671,7 @@ class Trainer:
 
         val_adapter = self.val_obs_adapter
         last_val_metrics: dict[str, Any] = {}
+        videos_recorded = 0
         val_t0 = time.time()
 
         for ep_idx in range(tcfg.val_episodes):
@@ -681,6 +684,10 @@ class Trainer:
             episode_steps = 0
             action_counts = np.zeros(self.acfg.num_actions, dtype=int)
 
+            recording = None
+            if videos_recorded < tcfg.val_video_episodes and self._wandb is not None:
+                recording = self._start_val_video_recording(obs)
+
             for _ in range(tcfg.val_max_episode_steps):
                 rng_key, act_key = jax.random.split(rng_key)
                 action = self.agent.act(agent_obs, act_key, training=False)
@@ -690,6 +697,8 @@ class Trainer:
                 action_counts[action] += 1
                 episode_reward += next_obs["reward"]
                 episode_steps += 1
+                if recording is not None:
+                    self._append_val_video_frame(recording, next_obs)
 
                 if next_obs["done"]:
                     obs = next_obs
@@ -700,6 +709,12 @@ class Trainer:
             last_val_metrics = self.val_episode_metrics_fn(
                 self.val_env, obs, episode_reward, episode_steps, action_counts,
             )
+            if recording is not None:
+                log_episode_video(
+                    self._wandb, "val/episode_video",
+                    recording["frames"], step,
+                )
+                videos_recorded += 1
 
         # Prefix the final episode's tracker snapshot with `val/`. The
         # rolling-mean fields already reflect the whole val loop (since the
@@ -728,4 +743,41 @@ class Trainer:
             f"sr={sr_str} spl={spl_str} softspl={soft_str} dtg={dtg_str}m "
             f"({tcfg.val_episodes} eps in {elapsed:.1f}s)"
         )
+
+    # ------------------------------------------------------------------
+    # Val-episode video helpers (3D-41) — mirror the train video helpers
+    # but bound to self.val_env so the train env isn't disturbed.
+    # ------------------------------------------------------------------
+
+    def _start_val_video_recording(self, obs: dict) -> dict[str, Any]:
+        recording = {
+            "trajectory": [self._val_agent_position()],
+            "goals": self._val_goal_positions(),
+            "frames": [],
+        }
+        self._append_val_video_frame(recording, obs)
+        return recording
+
+    def _append_val_video_frame(self, recording: dict[str, Any], obs: dict) -> None:
+        if "image" not in obs:
+            return
+        if recording["frames"]:
+            recording["trajectory"].append(self._val_agent_position())
+        topdown = render_topdown_frame(
+            self.val_env, recording["trajectory"], recording["goals"])
+        recording["frames"].append(compose_frame(obs["image"], topdown))
+
+    def _val_goal_positions(self) -> list[list[float]]:
+        positions = []
+        for goal in self.val_env._env.current_episode.goals:
+            if goal.view_points:
+                pos = goal.view_points[0].agent_state.position
+            else:
+                pos = goal.position
+            positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
+        return positions
+
+    def _val_agent_position(self) -> list[float]:
+        pos = self.val_env._env.sim.get_agent_state().position
+        return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 
