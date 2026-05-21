@@ -111,12 +111,8 @@ class TrainerConfig:
     video_log_every: int = 25_000
     video_log_episodes: int = 1
 
-    # Validation (None = disabled)
-    val_data: str | None = None
-    val_loss_every: int = 10_000
-
-    # Deterministic Val-Episode-Loop (separate from offline val_loss above).
-    # val_every=0 disables. Requires a val_env to be passed to Trainer.
+    # Deterministic Val-Episode-Loop. val_every=0 disables. Requires a
+    # val_env to be passed to Trainer.
     val_every: int = 50_000
     val_episodes: int = 50
     val_video_episodes: int = 1
@@ -283,15 +279,6 @@ class Trainer:
                 init_kwargs.update(id=trainer_config.wandb_id, resume="must")
             wandb.init(**init_kwargs)
 
-        # Optional val dataset
-        self._val_dataset = None
-        if trainer_config.val_data is not None:
-            from src.buffer.replay_buffer import ValReplayDataset
-            self._val_dataset = ValReplayDataset(
-                trainer_config.val_data,
-                normalize=self.obs_adapter.normalize_on_sample,
-            )
-
     def run(self) -> None:
         """Execute full training run: prefill + train loop + final checkpoint."""
         tcfg, acfg = self.tcfg, self.acfg
@@ -452,12 +439,6 @@ class Trainer:
 
                 if step % tcfg.log_every == 0 and metrics:
                     self._log_train_metrics(metrics, step, writer, f)
-
-            # --- Val loss ---
-            if (self._val_dataset is not None
-                    and (step + 1) % tcfg.val_loss_every == 0):
-                rng_key, val_key = jax.random.split(rng_key)
-                self._log_val_loss(val_key, step, writer, f)
 
             # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
             if (self.val_env is not None
@@ -632,26 +613,6 @@ class Trainer:
             f"rew={metrics.get('loss/rew', 0):.3f} "
             f"policy={metrics.get('loss/policy', 0):.3f} "
             f"fps={fps:.0f}"
-        )
-
-    def _log_val_loss(
-        self, val_key: jnp.ndarray, step: int, writer: Any, f: Any,
-    ) -> None:
-        val_batch = self._val_dataset.sample(
-            self.acfg.batch_size, self.acfg.seq_len)
-        val_batch = convert_batch(val_batch, self.acfg.num_actions)
-        val_metrics = self.agent.eval_loss(val_batch, val_key)
-        val_logged = {f"val/{k}": v for k, v in val_metrics.items()}
-        for k, v in val_logged.items():
-            writer.writerow([step, k, v])
-        f.flush()
-        if self._wandb is not None:
-            self._wandb.log(val_logged, step=step)
-        print(
-            f"[step {step:>8d}] VAL: "
-            f"total={val_logged.get('val/total_loss', 0):.3f} "
-            f"dyn={val_logged.get('val/loss/dyn', 0):.3f} "
-            f"rew={val_logged.get('val/loss/rew', 0):.3f}"
         )
 
     def _run_val_loop(

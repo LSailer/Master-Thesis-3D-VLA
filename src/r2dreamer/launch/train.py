@@ -158,8 +158,6 @@ def train(
         wandb_id=args.wandb_id,
         video_log_every=args.video_log_every,
         video_log_episodes=args.video_log_episodes,
-        val_data=args.val_data,
-        val_loss_every=args.val_loss_every,
         val_every=args.val_every,
         val_episodes=args.val_episodes,
         val_video_episodes=args.val_video_episodes,

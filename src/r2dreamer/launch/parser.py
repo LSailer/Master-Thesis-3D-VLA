@@ -22,8 +22,6 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument("--render_resolution", type=int, default=518,
                    help="Render resolution for VGGT encoder")
-    p.add_argument("--val_data", type=str, default=None)
-    p.add_argument("--val_loss_every", type=int, default=10_000)
     # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
     # checkpoint cadence so val signals land alongside checkpoints.
     p.add_argument("--val_every", type=int, default=50_000,
