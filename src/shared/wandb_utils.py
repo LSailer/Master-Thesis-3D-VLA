@@ -32,6 +32,9 @@ class EpisodeTracker:
         self._cat_successes: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=window)
         )
+        self._cat_spls: dict[str, deque[float]] = defaultdict(
+            lambda: deque(maxlen=window)
+        )
         self._cat_rewards: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=window)
         )
@@ -61,6 +64,7 @@ class EpisodeTracker:
         self._softspls.append(softspl)
         self._dtgs.append(dtg)
         self._cat_successes[category].append(success)
+        self._cat_spls[category].append(spl)
         self._cat_rewards[category].append(reward)
 
         scene = scene_id.split("/")[-1].replace(".basis.glb", "")
@@ -86,6 +90,8 @@ class EpisodeTracker:
             metrics["metrics/collision_rate"] = float(np.mean(self._collision_rates))
         for cat, succ_deque in self._cat_successes.items():
             metrics[f"goal/{cat}/sr"] = float(np.mean(succ_deque))
+        for cat, spl_deque in self._cat_spls.items():
+            metrics[f"goal/{cat}/spl"] = float(np.mean(spl_deque))
         for cat, rew_deque in self._cat_rewards.items():
             metrics[f"goal/{cat}/reward"] = float(np.mean(rew_deque))
         return metrics
