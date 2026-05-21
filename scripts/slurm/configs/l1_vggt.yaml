@@ -1,0 +1,19 @@
+extends: _base
+job_name: vggt_jax
+output_dir: output/r2dreamer-curriculum-l1-vggt
+script: scripts/r2dreamer/run_jax_habitat_vggt.py
+comments:
+  - "Level 1 with VGGT 3D encoder: 1 house (fK2vEV32Lag), chair only"
+  - "Replaces CNN with InfiniteVGGT streaming point cloud features"
+  - "2M steps, 48h wall time (VGGT adds ~100ms/step during acting)"
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/r2dreamer-curriculum-l1-vggt/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: vggt_jax-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,vggt_jax,jax,3d-encoder
+  render_resolution: 518
