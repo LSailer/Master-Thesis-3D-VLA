@@ -172,7 +172,13 @@ def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "pro
     ]
 
     if mode == "smoke":
-        lines.extend(["set -euo pipefail", ""])
+        lines.extend([
+            "set -euo pipefail",
+            "",
+            "export WANDB_MODE=offline",
+            "export PYTHONFAULTHANDLER=1",
+            "",
+        ])
 
     lines.extend([
         f"mkdir -p {output_dir}",
@@ -191,7 +197,8 @@ def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "pro
     for comment in config.comments:
         lines.append(f"# {comment}")
 
-    lines.append(f"uv run python {config.script} \\")
+    train_cmd = "uv run --no-sync python" if mode == "smoke" else "uv run python"
+    lines.append(f"{train_cmd} {config.script} \\")
     arg_lines = [_format_arg(name, args[name]) for name in ARG_ORDER]
     for line in arg_lines[:-1]:
         lines.append(f"{line} \\")

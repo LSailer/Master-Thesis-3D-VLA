@@ -15,6 +15,10 @@ EOF
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_root"
+python_bin="${PYTHON:-$repo_root/.venv/bin/python}"
+if [[ ! -x "$python_bin" ]]; then
+    python_bin="python"
+fi
 
 if [[ $# -lt 1 ]]; then
     usage
@@ -55,7 +59,7 @@ done
 
 render() {
     local render_mode="$1"
-    uv run python scripts/slurm/launch.py "$variant" --mode "$render_mode"
+    "$python_bin" scripts/slurm/launch.py "$variant" --mode "$render_mode"
 }
 
 submit() {
