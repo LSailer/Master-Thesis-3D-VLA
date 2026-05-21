@@ -200,6 +200,8 @@ class HabitatObjectNavEnv:
         self._start_geodesic = 0.0
         self._path_length = 0.0
         self._prev_position = None
+        self._collisions = 0
+        self._forward_steps = 0
 
     def reset(self) -> dict:
         obs = self._env.reset()
@@ -208,6 +210,8 @@ class HabitatObjectNavEnv:
         self._prev_position = np.array(self._env.sim.get_agent_state().position)
         self._path_length = 0.0
         self._step_count = 0
+        self._collisions = 0
+        self._forward_steps = 0
         image = self._obs_to_image(obs)
         self._last_obs = obs
         return {"image": image, "is_first": True, "reward": 0.0, "done": False}
@@ -227,11 +231,13 @@ class HabitatObjectNavEnv:
             )
             softspl = 0.0
             dtg = 0.0
+            collision_rate = 0.0
             if done:
                 dist = self._prev_dist
                 if shortest > 0:
                     softspl = max(0.0, 1.0 - dist / shortest) * length_ratio
                 dtg = dist
+                collision_rate = self._compute_collision_rate()
             return {
                 "image": image,
                 "reward": self._cfg.step_penalty,
@@ -241,6 +247,7 @@ class HabitatObjectNavEnv:
                 "spl": 0.0,
                 "softspl": softspl,
                 "dtg": dtg,
+                "collision_rate": collision_rate,
             }
 
         obs = self._env.step(action=action)
@@ -249,7 +256,18 @@ class HabitatObjectNavEnv:
         metrics = self._env.get_metrics()
 
         current_position = np.array(self._env.sim.get_agent_state().position)
-        self._path_length += np.linalg.norm(current_position - self._prev_position)
+        delta = float(np.linalg.norm(current_position - self._prev_position))
+        self._path_length += delta
+        # Habitat has no direct collision API. Workaround: a FORWARD step that
+        # moves the agent < 0.01 m is treated as a collision. Nominal forward
+        # step is 0.25 m, so genuine motion is ~25x above the threshold; this
+        # leaves headroom for sliding along walls without false positives.
+        # TURN_LEFT/TURN_RIGHT rotate without translating, so only action == 1
+        # counts toward forward_steps.
+        if action == 1:
+            self._forward_steps += 1
+            if delta < 0.01:
+                self._collisions += 1
         self._prev_position = current_position
 
         dist = _validate_goal_distance(metrics.get("distance_to_goal", float("inf")))
@@ -275,6 +293,9 @@ class HabitatObjectNavEnv:
         # DTG: distance-to-goal at episode end (absolute, complements SoftSPL).
         dtg = dist if done else 0.0
 
+        # collision_rate is a per-episode ratio, only meaningful at episode end
+        collision_rate = self._compute_collision_rate() if done else 0.0
+
         image = self._obs_to_image(obs)
 
         return {
@@ -286,7 +307,13 @@ class HabitatObjectNavEnv:
             "spl": spl,
             "softspl": softspl,
             "dtg": dtg,
+            "collision_rate": collision_rate,
         }
+
+    def _compute_collision_rate(self) -> float:
+        if self._forward_steps <= 0:
+            return 0.0
+        return self._collisions / self._forward_steps
 
     def find_nearest_viewpoint(self):
         """Find nearest viewpoint. Delegates to module-level function."""

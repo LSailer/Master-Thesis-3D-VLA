@@ -22,7 +22,7 @@ def init_run(
 class EpisodeTracker:
     """Track per-episode metrics with rolling averages and per-category breakdown."""
 
-    def __init__(self, window: int = 100):
+    def __init__(self, window: int = 100, track_collision_rate: bool = False):
         self._window = window
         self._rewards: deque[float] = deque(maxlen=window)
         self._successes: deque[float] = deque(maxlen=window)
@@ -35,6 +35,11 @@ class EpisodeTracker:
         self._cat_rewards: dict[str, deque[float]] = defaultdict(
             lambda: deque(maxlen=window)
         )
+        # Collision rate is val-only by default: train rollouts already log
+        # per-step action statistics, so a per-episode aggregate is more
+        # informative in the deterministic val setting.
+        self._track_collision_rate = track_collision_rate
+        self._collision_rates: deque[float] = deque(maxlen=window)
         self._episode_count = 0
 
     def record(
@@ -46,6 +51,7 @@ class EpisodeTracker:
         scene_id: str,
         softspl: float = 0.0,
         dtg: float = 0.0,
+        collision_rate: float = 0.0,
     ) -> dict[str, Any]:
         """Record a completed episode, return dict of all metrics to log."""
         self._episode_count += 1
@@ -74,6 +80,10 @@ class EpisodeTracker:
             "metrics/dtg": float(np.mean(self._dtgs)),
             "metrics/reward": float(np.mean(self._rewards)),
         }
+        if self._track_collision_rate:
+            self._collision_rates.append(collision_rate)
+            metrics["episode/collision_rate"] = collision_rate
+            metrics["metrics/collision_rate"] = float(np.mean(self._collision_rates))
         for cat, succ_deque in self._cat_successes.items():
             metrics[f"goal/{cat}/sr"] = float(np.mean(succ_deque))
         for cat, rew_deque in self._cat_rewards.items():

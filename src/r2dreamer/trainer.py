@@ -156,6 +156,7 @@ def habitat_defaults(env: Any) -> dict[str, Any]:
         spl = last_obs.get("spl", 0.0)
         softspl = last_obs.get("softspl", 0.0)
         dtg = last_obs.get("dtg", 0.0)
+        collision_rate = last_obs.get("collision_rate", 0.0)
         category = getattr(env._env.current_episode, "object_category", "unknown")
         scene_raw = getattr(env._env.current_episode, "scene_id", "")
         path_length = env._path_length
@@ -165,7 +166,7 @@ def habitat_defaults(env: Any) -> dict[str, Any]:
         tracked = tracker.record(
             reward=episode_reward, success=success, spl=spl,
             category=category, scene_id=scene_raw,
-            softspl=softspl, dtg=dtg,
+            softspl=softspl, dtg=dtg, collision_rate=collision_rate,
         )
 
         action_pcts = action_counts / max(episode_steps, 1)

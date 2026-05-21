@@ -57,6 +57,8 @@ def _make_env(distance: float, *, start_geodesic: float, path_length: float,
     env._step_count = max_steps - 1
     env._path_length = path_length
     env._prev_position = np.array(prev_position)
+    env._collisions = 0
+    env._forward_steps = 0
     return env
 
 
