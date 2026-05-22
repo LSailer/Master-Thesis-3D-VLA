@@ -46,7 +46,9 @@ case "${mode}" in
         ;;
     prod)
         partition=gpu_h100_il
-        time_limit=04:00:00
+        # Smoke at 27-29 fps -> ~5h for 500k steps; budget 8h for headroom +
+        # final heldout eval (compute_heldout_metrics is non-JIT and slow).
+        time_limit=08:00:00
         export STEPS="${STEPS:-500000}"
         export EXTRA_ARGS="${EXTRA_ARGS:-}"
         job_name="3d26-prod-${encoder}-s${seed}"
