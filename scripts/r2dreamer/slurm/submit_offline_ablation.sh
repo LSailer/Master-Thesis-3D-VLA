@@ -83,8 +83,13 @@ sbatch_args=(
     --time="${time_limit}"
     --job-name="${job_name}"
     --export=ALL
-    "${sbatch_file}"
 )
+# Optional dependency: launch only after this job ID completes successfully.
+# Useful for chaining behind the 3D-25 collection job.
+if [ -n "${WAIT_FOR:-}" ]; then
+    sbatch_args+=(--dependency="afterok:${WAIT_FOR}")
+fi
+sbatch_args+=("${sbatch_file}")
 sbatch --test-only "${sbatch_args[@]}"
 echo "Pre-flight OK."
 

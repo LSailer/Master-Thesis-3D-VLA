@@ -6,6 +6,9 @@
 #
 # Reads STEPS / BUFFER_DIR / WANDB_PROJECT / EXTRA_ARGS from the env and
 # passes them through to each underlying ./submit_offline_ablation.sh call.
+#
+# Optional env: WAIT_FOR=<jobid>  -- adds --dependency=afterok:<jobid> to every
+# submission, e.g. to chain behind the 3D-25 collection job.
 
 set -euo pipefail
 
