@@ -67,6 +67,8 @@ def _make_step_test_env(distance: float) -> HabitatObjectNavEnv:
     env._step_count = 0
     env._path_length = 0.0
     env._prev_position = [0.0, 0.0, 0.0]
+    env._collisions = 0
+    env._forward_steps = 0
     return env
 
 

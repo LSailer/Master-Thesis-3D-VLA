@@ -50,18 +50,27 @@ def init_run(
 class EpisodeTracker:
     """Track per-episode metrics with rolling averages and per-category breakdown."""
 
-    def __init__(self, window: int = 100):
+    # Per-category metric streams. Adding a new one is a one-line change here.
+    _PER_CAT_KEYS: tuple[str, ...] = ("success", "spl", "reward")
+
+    # Rename rule for output keys (`metrics/sr` / `goal/{cat}/sr` keep the
+    # historical "sr" label even though the internal stream is named "success").
+    _OUTPUT_RENAME: dict[str, str] = {"success": "sr"}
+
+    def __init__(self, window: int = 100, track_collision_rate: bool = False):
         self._window = window
-        self._rewards: deque[float] = deque(maxlen=window)
-        self._successes: deque[float] = deque(maxlen=window)
-        self._spls: deque[float] = deque(maxlen=window)
-        self._cat_successes: dict[str, deque[float]] = defaultdict(
-            lambda: deque(maxlen=window)
-        )
-        self._cat_rewards: dict[str, deque[float]] = defaultdict(
-            lambda: deque(maxlen=window)
+        # Collision rate is val-only by default: train rollouts already log
+        # per-step action statistics, so a per-episode aggregate is more
+        # informative in the deterministic val setting.
+        self._track_collision_rate = track_collision_rate
+        self._global: dict[str, deque[float]] = defaultdict(self._new_window)
+        self._per_cat: dict[str, dict[str, deque[float]]] = defaultdict(
+            lambda: defaultdict(self._new_window)
         )
         self._episode_count = 0
+
+    def _new_window(self) -> deque[float]:
+        return deque(maxlen=self._window)
 
     def record(
         self,
@@ -70,32 +79,42 @@ class EpisodeTracker:
         spl: float,
         category: str,
         scene_id: str,
+        softspl: float = 0.0,
+        dtg: float = 0.0,
+        collision_rate: float = 0.0,
     ) -> dict[str, Any]:
         """Record a completed episode, return dict of all metrics to log."""
         self._episode_count += 1
-        self._rewards.append(reward)
-        self._successes.append(success)
-        self._spls.append(spl)
-        self._cat_successes[category].append(success)
-        self._cat_rewards[category].append(reward)
+
+        samples: dict[str, float] = {
+            "reward": reward,
+            "success": success,
+            "spl": spl,
+            "softspl": softspl,
+            "dtg": dtg,
+        }
+        if self._track_collision_rate:
+            samples["collision_rate"] = collision_rate
+
+        for k, v in samples.items():
+            self._global[k].append(v)
+        for k in self._PER_CAT_KEYS:
+            self._per_cat[category][k].append(samples[k])
 
         scene = scene_id.split("/")[-1].replace(".basis.glb", "")
 
         metrics: dict[str, Any] = {
-            "episode/reward": reward,
-            "episode/success": success,
-            "episode/spl": spl,
             "episode/count": self._episode_count,
             "episode/goal": category,
             "episode/scene": scene,
-            "metrics/sr": float(np.mean(self._successes)),
-            "metrics/spl": float(np.mean(self._spls)),
-            "metrics/reward": float(np.mean(self._rewards)),
         }
-        for cat, succ_deque in self._cat_successes.items():
-            metrics[f"goal/{cat}/sr"] = float(np.mean(succ_deque))
-        for cat, rew_deque in self._cat_rewards.items():
-            metrics[f"goal/{cat}/reward"] = float(np.mean(rew_deque))
+        for k, v in samples.items():
+            metrics[f"episode/{k}"] = v
+        for k, dq in self._global.items():
+            metrics[f"metrics/{self._OUTPUT_RENAME.get(k, k)}"] = float(np.mean(dq))
+        for cat, per in self._per_cat.items():
+            for k, dq in per.items():
+                metrics[f"goal/{cat}/{self._OUTPUT_RENAME.get(k, k)}"] = float(np.mean(dq))
         return metrics
 
 
