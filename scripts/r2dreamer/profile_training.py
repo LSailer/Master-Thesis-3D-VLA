@@ -12,7 +12,6 @@ import json
 import os
 import sys
 import time
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -25,9 +24,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.shared.configs import DreamerConfig
+from src.shared.profiling import timed
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.environments.habitat import HabitatObjectNavEnv
+from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.adapters import ObsAdapter
@@ -54,20 +53,6 @@ def init_phase_times() -> dict[str, list[float]]:
     return {p: [] for p in ALL_PHASES}
 
 
-@contextmanager
-def timed(phase_times: dict[str, list[float]], phase: str):
-    """Wall-clock timer, records milliseconds.
-
-    agent.act returns a Python int (int() cast forces device->host sync) and
-    agent.train_step returns a dict of Python floats (same), so bracketing
-    them with perf_counter alone correctly captures execution time — no
-    explicit block_until_ready needed.
-    """
-    t0 = time.perf_counter()
-    yield
-    phase_times[phase].append((time.perf_counter() - t0) * 1000.0)
-
-
 @dataclass
 class RunResult:
     encoder: str
@@ -91,14 +76,8 @@ def _build_cnn(
         buffer_capacity=100_000,
         seed=seed,
     )
-    hab_cfg = DreamerConfig(
+    env = build_habitat_env(
         obs_shape=(3, 64, 64),
-        max_episode_steps=500,
-        split="train",
-        reward_type="geodesic_delta",
-    )
-    env = HabitatObjectNavEnv(
-        hab_cfg,
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
@@ -141,14 +120,8 @@ def _build_vggt(
         buffer_capacity=100_000,
         seed=seed,
     )
-    hab_cfg = DreamerConfig(
+    env = build_habitat_env(
         obs_shape=(3, render_resolution, render_resolution),
-        max_episode_steps=500,
-        split="train",
-        reward_type="geodesic_delta",
-    )
-    env = HabitatObjectNavEnv(
-        hab_cfg,
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )

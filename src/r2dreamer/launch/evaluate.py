@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import json
 import os
-import pickle
 import sys
 
 import jax
-import jax.numpy as jnp
 import numpy as np
 from PIL import Image
 from scipy.spatial.transform import Rotation
@@ -148,31 +146,30 @@ def evaluate(
     encoder_spec = enc.spec()
     if eff_encoder == "vggt":
         from src.r2dreamer.adapters import VGGT_FEATURE_DIM
-        config = R2DreamerConfig(
-            encoder_type="vggt",
-            encoder_module_cls=encoder_spec.module_cls,
-            obs_shape=(VGGT_FEATURE_DIM,),
-            num_actions=4,
-        )
+        agent_config_kwargs: dict = {
+            "encoder_type": "vggt",
+            "encoder_module_cls": encoder_spec.module_cls,
+            "obs_shape": (VGGT_FEATURE_DIM,),
+        }
     else:
-        config = R2DreamerConfig(
-            encoder_module_cls=encoder_spec.module_cls,
-            obs_shape=(3, 64, 64),
-            num_actions=4,
-        )
+        agent_config_kwargs = {
+            "encoder_module_cls": encoder_spec.module_cls,
+            "obs_shape": (3, 64, 64),
+        }
+    config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
     rng_key = jax.random.PRNGKey(args.seed)
 
     if args.random:
         agent = None
         print("Using random agent")
     else:
-        with open(eff_checkpoint, "rb") as f:
-            ckpt = pickle.load(f)
-        print(f"Loaded checkpoint from step {ckpt['step']}")
-        rng_key, init_key = jax.random.split(rng_key)
-        agent = R2DreamerAgent(config, init_key)
-        agent.params = jax.tree.map(jnp.array, ckpt["params"])
-        agent.slow_critic_params = jax.tree.map(jnp.array, ckpt["slow_critic_params"])
+        agent = R2DreamerAgent.from_checkpoint(
+            eff_checkpoint, num_actions=4, seed=args.seed, **agent_config_kwargs,
+        )
+        # Match the rng_key split the inline init_key used to consume so the
+        # downstream act_key chain stays identical.
+        rng_key, _ = jax.random.split(rng_key)
+        print(f"Loaded checkpoint from step {agent.checkpoint_step}")
 
     # --- Evaluate ---
     ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}

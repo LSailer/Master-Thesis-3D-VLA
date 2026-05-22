@@ -34,7 +34,8 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from src.r2dreamer.adapters.vggt_adapter import _vggt_aggregator_features
+from src.r2dreamer.adapters.vggt_adapter import pool_aggregator_tokens
+from src.shared.profiling import timed
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.launch.curricula import CURRICULA
@@ -128,7 +129,7 @@ def transform_timed(adapter, obs_dict):
     pt = {"vggt_forward": [], "vggt_wrapper": []}
     t_e0 = time.perf_counter()
     out = adapter._extractor.extract(obs_dict["image"], phase_times=pt)
-    features_jax = _vggt_aggregator_features(out, adapter._aggregator_feature_shape)
+    features_jax = pool_aggregator_tokens(out, adapter._aggregator_feature_shape)
     block_tree(features_jax)
     t_extract_ms = (time.perf_counter() - t_e0) * 1000
 
@@ -186,15 +187,13 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
 
         # act
         rng, act_key = jax.random.split(rng)
-        t0 = time.perf_counter()
-        action = agent.act(agent_obs, act_key)
-        block_tree(action)
-        accum["act"].append((time.perf_counter() - t0) * 1000)
+        with timed(accum, "act"):
+            action = agent.act(agent_obs, act_key)
+            block_tree(action)
 
         # env step
-        t0 = time.perf_counter()
-        next_obs = env.step(int(action))
-        accum["env_step"].append((time.perf_counter() - t0) * 1000)
+        with timed(accum, "env_step"):
+            next_obs = env.step(int(action))
 
         # adapter (vggt extract + post)
         next_buffer_obs, next_agent_obs, tx = transform_timed(adapter, next_obs)
@@ -205,9 +204,8 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
 
         # buffer.add
         success = next_obs.get("success", 0.0) > 0
-        t0 = time.perf_counter()
-        buffer.add(buffer_obs, int(action), next_obs["reward"], next_obs["done"], terminal=success)
-        accum["buffer_add"].append((time.perf_counter() - t0) * 1000)
+        with timed(accum, "buffer_add"):
+            buffer.add(buffer_obs, int(action), next_obs["reward"], next_obs["done"], terminal=success)
 
         if next_obs["done"]:
             obs = env.reset()
@@ -222,17 +220,15 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
         if buffer.size >= batch_steps:
             train_credit += cfg.train_ratio / batch_steps
             while train_credit >= 1.0:
-                t0 = time.perf_counter()
-                batch = buffer.sample(cfg.batch_size, cfg.seq_len)
-                block_tree(batch)
-                accum["buffer_sample"].append((time.perf_counter() - t0) * 1000)
+                with timed(accum, "buffer_sample"):
+                    batch = buffer.sample(cfg.batch_size, cfg.seq_len)
+                    block_tree(batch)
 
                 batch = convert_batch(batch, cfg.num_actions)
                 rng, tkey = jax.random.split(rng)
-                t0 = time.perf_counter()
-                metrics = agent.train_step(batch, tkey)
-                block_tree(metrics)
-                accum["train_step"].append((time.perf_counter() - t0) * 1000)
+                with timed(accum, "train_step"):
+                    metrics = agent.train_step(batch, tkey)
+                    block_tree(metrics)
                 train_credit -= 1.0
 
         accum["total_step"].append((time.perf_counter() - step_t0) * 1000)

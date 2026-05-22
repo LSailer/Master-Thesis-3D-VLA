@@ -15,6 +15,8 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
+import pickle
+from pathlib import Path
 from typing import Any, Dict
 
 import jax
@@ -39,7 +41,13 @@ from .representation.loss import representation_loss
 from src.shared.optim import laprop, agc
 
 # Re-export internal helpers so test_cross_framework.py keeps working.
-__all__ = ["R2DreamerAgent", "_kl_loss", "_lambda_return", "_imagine"]
+__all__ = [
+    "R2DreamerAgent",
+    "load_policy_checkpoint",
+    "_kl_loss",
+    "_lambda_return",
+    "_imagine",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +68,41 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
         img_layers=cfg.img_layers,
         unimix_ratio=cfg.unimix_ratio,
     )
+
+
+def _missing_pickle_class(module: str, name: str) -> type:
+    class MissingPickleClass:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def __setstate__(self, state):
+            self.state = state
+
+    MissingPickleClass.__name__ = name
+    MissingPickleClass.__module__ = module
+    return MissingPickleClass
+
+
+class _CheckpointUnpickler(pickle.Unpickler):
+    """Load old checkpoints even when unused optimizer-state classes moved."""
+
+    def find_class(self, module: str, name: str):
+        try:
+            return super().find_class(module, name)
+        except (AttributeError, ModuleNotFoundError):
+            return _missing_pickle_class(module, name)
+
+
+def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
+    """Load an R2DreamerAgent checkpoint, tolerating moved optimizer classes."""
+    path = Path(path)
+    with path.open("rb") as f:
+        ckpt = _CheckpointUnpickler(f).load()
+    missing = {"params", "slow_critic_params"} - set(ckpt)
+    if missing:
+        raise KeyError(f"checkpoint {path} is missing required keys: {sorted(missing)}")
+    return ckpt
 
 
 def _make_encoder(cfg: R2DreamerConfig):
@@ -97,6 +140,35 @@ class R2DreamerAgent:
     function (``_loss_fn``) that composes the world-model, behavior, and
     representation sub-losses.
     """
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        path: str | Path,
+        *,
+        obs_shape: tuple[int, ...],
+        num_actions: int,
+        seed: int,
+        **config_kwargs: Any,
+    ) -> "R2DreamerAgent":
+        """Build an agent and load ``params`` + ``slow_critic_params`` from disk.
+
+        Extra ``config_kwargs`` flow into :class:`R2DreamerConfig` so callers
+        that need ``encoder_type`` / ``encoder_module_cls`` (e.g. evaluate)
+        can pass them through. The loaded checkpoint's ``step`` is stashed on
+        the returned agent as ``checkpoint_step`` (``-1`` if absent).
+        """
+        config = R2DreamerConfig(
+            obs_shape=obs_shape, num_actions=num_actions, **config_kwargs,
+        )
+        rng_key = jax.random.PRNGKey(seed)
+        rng_key, init_key = jax.random.split(rng_key)
+        agent = cls(config, init_key)
+        ckpt = load_policy_checkpoint(path)
+        agent.params = jax.tree.map(jnp.asarray, ckpt["params"])
+        agent.slow_critic_params = jax.tree.map(jnp.asarray, ckpt["slow_critic_params"])
+        agent.checkpoint_step = int(ckpt.get("step", -1))
+        return agent
 
     def __init__(self, config: R2DreamerConfig, rng_key: jnp.ndarray):
         self.cfg = config
