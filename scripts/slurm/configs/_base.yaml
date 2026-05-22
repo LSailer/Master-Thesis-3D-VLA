@@ -1,0 +1,16 @@
+sbatch:
+  partition: gpu_h100
+  gres: gpu:1
+  ntasks: 1
+  cpus_per_task: 8
+  mem: 64G
+  time: "48:00:00"
+smoke:
+  partition: gpu_h100_short
+  time: "00:30:00"
+  args:
+    steps: 1500
+    prefill: 500
+    checkpoint_every: 1000000
+    seed: 42
+    log_every: 50

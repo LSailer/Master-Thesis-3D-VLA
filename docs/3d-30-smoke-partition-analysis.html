@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D-30 — Smoke Partition Analysis (gpu_h100 vs dev_gpu_h100)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --surface-2: #22222e;
+    --surface-3: #2d2d3d;
+    --accent: #6366f1;
+    --good: #34d399;
+    --bad: #f87171;
+    --warn: #fbbf24;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-dimmer: #64748b;
+    --border: #2d2d3d;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 48px 24px;
+    line-height: 1.55;
+  }
+
+  .container { max-width: 1000px; margin: 0 auto; }
+
+  header { margin-bottom: 32px; }
+  h1 { font-size: 1.85rem; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { color: var(--text-dim); font-size: 0.9rem; }
+  .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+    background: var(--surface-3); color: var(--text-dim);
+    margin-right: 6px;
+  }
+
+  h2 {
+    font-size: 1.15rem; font-weight: 600; margin: 36px 0 14px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  h3 { font-size: 1rem; font-weight: 600; margin: 14px 0 8px; }
+
+  .summary {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 6px;
+    padding: 16px 20px; margin-bottom: 8px;
+  }
+  .summary p + p { margin-top: 8px; }
+
+  code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; }
+  code {
+    background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
+    color: #c4b5fd;
+  }
+
+  pre {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 14px 16px;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;
+    overflow-x: auto; line-height: 1.5;
+  }
+  .diff-add { color: var(--good); }
+  .diff-del { color: var(--bad); }
+  .diff-meta { color: var(--text-dimmer); }
+
+  /* Crash timeline */
+  .timeline { position: relative; padding-left: 22px; margin: 8px 0; }
+  .timeline::before {
+    content: ''; position: absolute; left: 6px; top: 6px; bottom: 6px;
+    width: 2px; background: var(--border);
+  }
+  .ev { position: relative; padding: 6px 0 6px 16px; }
+  .ev::before {
+    content: ''; position: absolute; left: -22px; top: 12px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--surface-2); border: 2px solid var(--text-dimmer);
+  }
+  .ev.ok::before { border-color: var(--good); background: var(--good); }
+  .ev.warn::before { border-color: var(--warn); background: var(--warn); }
+  .ev.bad::before { border-color: var(--bad); background: var(--bad); }
+  .ev .t { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: var(--text-dim); }
+  .ev .d { font-size: 0.92rem; }
+
+  /* Partition comparison */
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .part {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 18px 20px;
+  }
+  .part.good { border-top: 3px solid var(--good); }
+  .part.bad { border-top: 3px solid var(--bad); }
+  .part h3 { display: flex; align-items: baseline; gap: 8px; margin-top: 0; }
+  .part h3 .badge {
+    font-size: 0.7rem; font-weight: 500; padding: 2px 7px; border-radius: 3px;
+    background: var(--surface-3); color: var(--text-dim);
+  }
+  .part.good h3 .badge { background: rgba(52,211,153,0.15); color: var(--good); }
+  .part.bad h3 .badge { background: rgba(248,113,113,0.15); color: var(--bad); }
+  .part dl { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; margin-top: 10px; font-size: 0.88rem; }
+  .part dt { color: var(--text-dim); }
+  .part dd { font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; }
+
+  /* Fix option cards */
+  .opt {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 20px 22px; margin-bottom: 14px;
+    transition: border-color 0.15s;
+  }
+  .opt[data-decision="approve"] { border-color: var(--good); }
+  .opt[data-decision="reject"] { border-color: var(--bad); }
+  .opt[data-decision="maybe"] { border-color: var(--warn); }
+  .opt header { display: flex; justify-content: space-between; align-items: center; margin: 0 0 8px; }
+  .opt h3 { margin: 0; }
+  .opt .recommended {
+    font-size: 0.7rem; padding: 2px 8px; border-radius: 3px;
+    background: rgba(99,102,241,0.18); color: var(--accent); font-weight: 600;
+  }
+  .opt .why { color: var(--text-dim); font-size: 0.92rem; margin-bottom: 12px; }
+  .pros-cons { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; font-size: 0.88rem; }
+  .pros-cons ul { list-style: none; padding: 0; }
+  .pros-cons li { padding: 3px 0 3px 16px; position: relative; }
+  .pros li::before { content: '+'; position: absolute; left: 0; color: var(--good); font-weight: 600; }
+  .cons li::before { content: '−'; position: absolute; left: 0; color: var(--bad); font-weight: 600; }
+
+  /* Decision controls */
+  .controls { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .dec-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .dec-row label { color: var(--text-dim); font-size: 0.85rem; margin-right: 4px; }
+  .dec-btn {
+    padding: 5px 12px; border-radius: 4px; cursor: pointer;
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); font-family: inherit; font-size: 0.82rem;
+    transition: all 0.15s;
+  }
+  .dec-btn:hover { background: var(--surface-3); }
+  .dec-btn.active[data-val="approve"] { background: rgba(52,211,153,0.18); border-color: var(--good); color: var(--good); }
+  .dec-btn.active[data-val="reject"]  { background: rgba(248,113,113,0.18); border-color: var(--bad);  color: var(--bad); }
+  .dec-btn.active[data-val="maybe"]   { background: rgba(251,191,36,0.18);  border-color: var(--warn); color: var(--warn); }
+
+  textarea {
+    width: 100%; min-height: 70px; margin-top: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); font-family: inherit; font-size: 0.88rem; resize: vertical;
+  }
+  textarea:focus { outline: none; border-color: var(--accent); }
+  textarea::placeholder { color: var(--text-dimmer); }
+  .saved-hint { font-size: 0.75rem; color: var(--text-dimmer); margin-top: 4px; }
+
+  /* Export panel */
+  .export {
+    margin-top: 32px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 20px 22px;
+  }
+  .export header { display: flex; justify-content: space-between; align-items: center; margin: 0 0 12px; }
+  .export-buttons { display: flex; gap: 8px; }
+  .btn {
+    padding: 8px 14px; border-radius: 4px; cursor: pointer;
+    background: var(--accent); border: none; color: white;
+    font-family: inherit; font-size: 0.85rem; font-weight: 500;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #5558d9; }
+  .btn.secondary { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+  .btn.secondary:hover { background: var(--surface-3); }
+
+  #export-out {
+    margin-top: 12px; min-height: 100px; max-height: 320px;
+    overflow-y: auto; display: none;
+  }
+  #export-out.visible { display: block; }
+
+  footer {
+    margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--border);
+    color: var(--text-dimmer); font-size: 0.8rem; text-align: center;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 700px) {
+    .cmp { grid-template-columns: 1fr; }
+    .pros-cons { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>3D-30 — Smoke partition analysis</h1>
+  <div class="subtitle">
+    <span class="tag">3D-30</span>
+    <span class="tag">job 4767178 FAILED (134)</span>
+    <span class="tag">habitat_sim SIGABRT</span>
+    Why <code>--smoke</code> aborted on <code>dev_gpu_h100</code>, and what to do about it.
+  </div>
+</header>
+
+<div class="summary">
+  <p><strong>TL;DR.</strong> The launcher itself is fine. The smoke job aborted because <code>_base.yaml</code> hardcodes <code>smoke.partition: dev_gpu_h100</code>, and that partition has a known habitat_sim OpenGL/EGL crash during prefill — the project already worked around it in <code>smoke_curriculum_vggt.sbatch</code> by running smoke on the production <code>gpu_h100</code> partition.</p>
+  <p>This page lays out the difference between the two partitions, the crash timeline, and three fix options. Click a decision button and leave a comment per option — your input is saved locally and exportable as Markdown for the PR.</p>
+</div>
+
+<h2>Crash timeline (job 4767178)</h2>
+<div class="timeline">
+  <div class="ev ok">
+    <div class="t">15:31:39</div>
+    <div class="d">habitat_sim initialised (HM3D scene loaded, no errors)</div>
+  </div>
+  <div class="ev ok">
+    <div class="t">15:31:41</div>
+    <div class="d">ObjectNav-v1 task initialised</div>
+  </div>
+  <div class="ev ok">
+    <div class="t">15:31:52</div>
+    <div class="d">wandb offline run started (config logged)</div>
+  </div>
+  <div class="ev warn">
+    <div class="t">15:32:32 – 15:32:35</div>
+    <div class="d">14× <code>cuda_timer.cc:86] Delay kernel timed out</code> warnings from XLA in 3s — JAX cannot get a measurement window on the GPU</div>
+  </div>
+  <div class="ev bad">
+    <div class="t">15:32:35</div>
+    <div class="d"><strong>SIGABRT</strong> in <code>habitat_sim.sensors.sensor_wrapper.get_observation</code> during <code>_prefill</code> step</div>
+  </div>
+  <div class="ev bad">
+    <div class="t">15:42:55</div>
+    <div class="d">Slurm marks job FAILED, exit 134. <code>metrics.csv</code> = 0 bytes. No training step ever executed.</div>
+  </div>
+</div>
+
+<h2>Partition comparison</h2>
+<div class="cmp">
+
+  <div class="part bad">
+    <h3>dev_gpu_h100 <span class="badge">crash partition</span></h3>
+    <p style="font-size: 0.88rem; color: var(--text-dim);">Where the launcher's <code>--smoke</code> currently runs.</p>
+    <dl>
+      <dt>Nodes</dt><dd>1 (<code>uc3n082</code>)</dd>
+      <dt>Total GPUs</dt><dd>4 × H100</dd>
+      <dt>MaxTime</dt><dd>00:30:00</dd>
+      <dt>QoS</dt><dd>dev</dd>
+      <dt>Purpose</dt><dd>Quick interactive / debug</dd>
+      <dt>Habitat smoke</dt><dd style="color: var(--bad);">aborts in prefill</dd>
+      <dt>JAX cuda_timer</dt><dd style="color: var(--warn);">14× timeout warnings before crash</dd>
+    </dl>
+  </div>
+
+  <div class="part good">
+    <h3>gpu_h100 <span class="badge">production / legacy smoke</span></h3>
+    <p style="font-size: 0.88rem; color: var(--text-dim);">Where <code>smoke_curriculum_vggt.sbatch</code> already runs smoke successfully.</p>
+    <dl>
+      <dt>Nodes</dt><dd>12 (<code>uc3n[071–081,103]</code>)</dd>
+      <dt>Total GPUs</dt><dd>48 × H100</dd>
+      <dt>MaxTime</dt><dd>3-00:00:00</dd>
+      <dt>QoS</dt><dd>(default)</dd>
+      <dt>Purpose</dt><dd>Production training</dd>
+      <dt>Habitat smoke</dt><dd style="color: var(--good);">works (1500-step run completes)</dd>
+      <dt>JAX cuda_timer</dt><dd style="color: var(--good);">no timeout warnings</dd>
+    </dl>
+  </div>
+
+</div>
+
+<h2>Why dev_gpu_h100 crashes (hypothesis)</h2>
+<p>habitat_sim renders observations using an EGL OpenGL context bound to the CUDA device. JAX then runs XLA kernels on the same GPU. The 14 successive <code>cuda_timer</code> warnings — JAX's delay kernels failing to get a clean measurement window — strongly suggest the H100 on <code>uc3n082</code> has a configuration (likely a MIG slice, driver mode, or shared multi-tenant policy) that prevents habitat's EGL context from coexisting with JAX's CUDA context. The legacy smoke script's comment confirms this is a known issue:</p>
+<pre># Smoke for the L1-L4 VGGT submission set, run on the SAME partition as
+# production (gpu_h100) to validate the actual deployment path. The prior
+# dev_gpu_h100 smoke aborted in habitat_sim's OpenGL renderer during
+# prefill — possibly partition-specific.</pre>
+
+<h2>Fix options</h2>
+<p style="margin-bottom: 14px; color: var(--text-dim); font-size: 0.92rem;">Set a decision and leave a comment for each option. Decisions are stored in your browser — export to share.</p>
+
+<div class="opt" data-id="A" data-decision="">
+  <header>
+    <h3>A. Switch smoke to <code>gpu_h100</code> in <code>_base.yaml</code></h3>
+    <span class="recommended">Recommended</span>
+  </header>
+  <p class="why">Match the proven-working legacy smoke. One commit, two lines.</p>
+<pre><span class="diff-meta">scripts/slurm/configs/_base.yaml</span>
+ smoke:
+<span class="diff-del">-  partition: dev_gpu_h100</span>
+<span class="diff-add">+  partition: gpu_h100</span>
+<span class="diff-del">-  time: "00:30:00"</span>
+<span class="diff-add">+  time: "00:45:00"</span>
+   args:
+     steps: 1500
+     prefill: 500
+     checkpoint_every: 1000000
+     seed: 42
+<span class="diff-add">+    log_every: 50</span></pre>
+  <div class="pros-cons">
+    <div class="pros"><strong>Pros</strong><ul>
+      <li>Aligns with legacy smoke that already works</li>
+      <li>Zero code risk, smallest diff</li>
+      <li>Smoke validates the same GPU class prod will use</li>
+    </ul></div>
+    <div class="cons"><strong>Cons</strong><ul>
+      <li>Smoke may queue longer (prod queue, not dev QoS)</li>
+      <li>Slightly more cluster time used</li>
+    </ul></div>
+  </div>
+  <div class="controls">
+    <div class="dec-row">
+      <label>Decision:</label>
+      <button class="dec-btn" data-val="approve">✓ Approve</button>
+      <button class="dec-btn" data-val="maybe">~ Maybe</button>
+      <button class="dec-btn" data-val="reject">✗ Reject</button>
+    </div>
+    <textarea placeholder="Comments on option A..."></textarea>
+    <div class="saved-hint">Auto-saved to your browser.</div>
+  </div>
+</div>
+
+<div class="opt" data-id="B" data-decision="">
+  <header><h3>B. Keep <code>dev_gpu_h100</code>, add JAX memory env vars</h3></header>
+  <p class="why">Try to reduce JAX/habitat CUDA contention by capping JAX's GPU memory and disabling preallocation.</p>
+<pre><span class="diff-meta">scripts/slurm/launch.py — render_sbatch() smoke branch</span>
+   if mode == "smoke":
+       lines.extend([
+           "set -euo pipefail",
+           "",
+           "export WANDB_MODE=offline",
+           "export PYTHONFAULTHANDLER=1",
+<span class="diff-add">+          "export XLA_PYTHON_CLIENT_PREALLOCATE=false",</span>
+<span class="diff-add">+          "export XLA_PYTHON_CLIENT_MEM_FRACTION=0.7",</span>
+           "",
+       ])</pre>
+  <div class="pros-cons">
+    <div class="pros"><strong>Pros</strong><ul>
+      <li>Keeps the fast dev queue if it works</li>
+      <li>Useful workaround for shared GPUs in general</li>
+    </ul></div>
+    <div class="cons"><strong>Cons</strong><ul>
+      <li>Doesn't actually fix EGL/driver-level issues</li>
+      <li>Adds env vars to <em>smoke only</em>, prod stays different</li>
+      <li>Costs another 30-min cycle to re-test</li>
+    </ul></div>
+  </div>
+  <div class="controls">
+    <div class="dec-row">
+      <label>Decision:</label>
+      <button class="dec-btn" data-val="approve">✓ Approve</button>
+      <button class="dec-btn" data-val="maybe">~ Maybe</button>
+      <button class="dec-btn" data-val="reject">✗ Reject</button>
+    </div>
+    <textarea placeholder="Comments on option B..."></textarea>
+    <div class="saved-hint">Auto-saved to your browser.</div>
+  </div>
+</div>
+
+<div class="opt" data-id="C" data-decision="">
+  <header><h3>C. Document the limitation, ship as-is</h3></header>
+  <p class="why">Keep <code>dev_gpu_h100</code> in the config but document that it doesn't work for VGGT+habitat workloads. Update README to recommend overriding to <code>gpu_h100</code> per-variant.</p>
+  <div class="pros-cons">
+    <div class="pros"><strong>Pros</strong><ul>
+      <li>No further iteration before merging</li>
+      <li>dev partition could still work for non-habitat scripts</li>
+    </ul></div>
+    <div class="cons"><strong>Cons</strong><ul>
+      <li>Default smoke command is broken for the only variant we have</li>
+      <li>Burdens the user with knowing the workaround</li>
+      <li>Will catch out future contributors</li>
+    </ul></div>
+  </div>
+  <div class="controls">
+    <div class="dec-row">
+      <label>Decision:</label>
+      <button class="dec-btn" data-val="approve">✓ Approve</button>
+      <button class="dec-btn" data-val="maybe">~ Maybe</button>
+      <button class="dec-btn" data-val="reject">✗ Reject</button>
+    </div>
+    <textarea placeholder="Comments on option C..."></textarea>
+    <div class="saved-hint">Auto-saved to your browser.</div>
+  </div>
+</div>
+
+<h2>Open questions</h2>
+<div class="opt" data-id="Q" data-decision="">
+  <p class="why">Anything else you want to capture — alternative fixes, blockers, follow-up issues to file.</p>
+  <textarea placeholder="Free-form notes..."></textarea>
+  <div class="saved-hint">Auto-saved to your browser.</div>
+</div>
+
+<div class="export">
+  <header>
+    <strong>Export decisions</strong>
+    <div class="export-buttons">
+      <button class="btn secondary" id="btn-clear">Clear all</button>
+      <button class="btn secondary" id="btn-copy">Copy Markdown</button>
+      <button class="btn" id="btn-show">Show summary</button>
+    </div>
+  </header>
+  <pre id="export-out"></pre>
+</div>
+
+<footer>
+  Generated for 3D-30 · See <code>scripts/slurm/README.md</code> and <code>scripts/slurm/launch.py</code>.
+</footer>
+
+</div>
+
+<script>
+(() => {
+  const KEY = 'threed30-smoke-partition-analysis';
+  const state = JSON.parse(localStorage.getItem(KEY) || '{}');
+
+  const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+
+  // Hydrate decisions + comments
+  document.querySelectorAll('.opt').forEach(opt => {
+    const id = opt.dataset.id;
+    state[id] ??= { decision: '', comment: '' };
+
+    // Decision buttons
+    opt.querySelectorAll('.dec-btn').forEach(btn => {
+      if (btn.dataset.val === state[id].decision) {
+        btn.classList.add('active');
+        opt.dataset.decision = state[id].decision;
+      }
+      btn.addEventListener('click', () => {
+        const val = btn.dataset.val;
+        const next = state[id].decision === val ? '' : val;
+        state[id].decision = next;
+        opt.dataset.decision = next;
+        opt.querySelectorAll('.dec-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.val === next);
+        });
+        save();
+      });
+    });
+
+    // Comment textarea
+    const ta = opt.querySelector('textarea');
+    if (ta) {
+      ta.value = state[id].comment || '';
+      ta.addEventListener('input', () => {
+        state[id].comment = ta.value;
+        save();
+      });
+    }
+  });
+
+  // Export markdown
+  const buildMarkdown = () => {
+    const opts = [
+      { id: 'A', title: 'A. Switch smoke to gpu_h100 in _base.yaml (Recommended)' },
+      { id: 'B', title: 'B. Keep dev_gpu_h100, add JAX memory env vars' },
+      { id: 'C', title: 'C. Document the limitation, ship as-is' },
+    ];
+    const lines = ['# 3D-30 smoke partition — decisions', ''];
+    opts.forEach(({ id, title }) => {
+      const s = state[id] || {};
+      const dec = s.decision ? s.decision.toUpperCase() : 'no decision';
+      lines.push(`## ${title}`);
+      lines.push(`**Decision:** ${dec}`);
+      if (s.comment?.trim()) {
+        lines.push('');
+        lines.push('> ' + s.comment.trim().split('\n').join('\n> '));
+      }
+      lines.push('');
+    });
+    if (state.Q?.comment?.trim()) {
+      lines.push('## Open questions / notes');
+      lines.push(state.Q.comment.trim());
+      lines.push('');
+    }
+    return lines.join('\n');
+  };
+
+  const out = document.getElementById('export-out');
+  document.getElementById('btn-show').addEventListener('click', () => {
+    out.textContent = buildMarkdown();
+    out.classList.add('visible');
+  });
+  document.getElementById('btn-copy').addEventListener('click', async () => {
+    const md = buildMarkdown();
+    try {
+      await navigator.clipboard.writeText(md);
+      const btn = document.getElementById('btn-copy');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = orig, 1500);
+    } catch {
+      out.textContent = md;
+      out.classList.add('visible');
+    }
+  });
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    if (!confirm('Clear all decisions and comments?')) return;
+    localStorage.removeItem(KEY);
+    location.reload();
+  });
+})();
+</script>
+</body>
+</html>
