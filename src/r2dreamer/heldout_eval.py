@@ -30,7 +30,6 @@ from typing import Any, Iterable
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 
 def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
