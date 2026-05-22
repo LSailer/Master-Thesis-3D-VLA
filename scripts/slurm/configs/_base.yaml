@@ -6,10 +6,11 @@ sbatch:
   mem: 64G
   time: "48:00:00"
 smoke:
-  partition: dev_gpu_h100
+  partition: gpu_h100_short
   time: "00:30:00"
   args:
     steps: 1500
     prefill: 500
     checkpoint_every: 1000000
     seed: 42
+    log_every: 50

@@ -21,17 +21,26 @@ it maps to `scripts/slurm/configs/<variant>.yaml`.
 
 ## Modes
 
-| Mode               | Partition       | Walltime | WandB    | Purpose                        |
-|--------------------|-----------------|----------|----------|--------------------------------|
-| `--prod` (default) | `gpu_h100`      | 48:00:00 | online   | Real training run              |
-| `--smoke`          | `dev_gpu_h100`  | 00:30:00 | offline  | Dev-cluster sanity check       |
-| `--smoke-then-prod`| both            | both     | both     | Prod runs only if smoke passes |
+| Mode               | Partition         | Walltime | WandB    | Purpose                        |
+|--------------------|-------------------|----------|----------|--------------------------------|
+| `--prod` (default) | `gpu_h100`        | 48:00:00 | online   | Real training run              |
+| `--smoke`          | `gpu_h100_short`  | 00:30:00 | offline  | Production-faithful sanity check |
+| `--smoke-then-prod`| both              | both     | both     | Prod runs only if smoke passes |
 
 Smoke jobs additionally:
 
 - run with `set -euo pipefail` and `uv run --no-sync` (no resync overhead)
+- export `XLA_PYTHON_CLIENT_PREALLOCATE=false` and `XLA_PYTHON_CLIENT_MEM_FRACTION=0.7` to reduce JAX/habitat CUDA contention
 - assert `metrics.csv` exists with ≥5 rows; exit non-zero otherwise
 - print `=== Smoke PASS ===` on success
+
+> **Note on partition choice.** `--smoke` uses `gpu_h100_short`, not `dev_gpu_h100`.
+> The `dev_gpu_h100` partition is a single node (`uc3n082`) where habitat_sim's
+> OpenGL renderer aborts during prefill — see
+> `docs/3d-30-smoke-partition-analysis.html` for the analysis.
+> `gpu_h100_short` runs on the same H100 GPU class as production
+> (`uc3n088-090, 104-107`) with a 30-min cap, so smoke validates the actual
+> deployment path.
 
 ## Config layout
 

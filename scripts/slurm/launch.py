@@ -177,6 +177,9 @@ def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "pro
             "",
             "export WANDB_MODE=offline",
             "export PYTHONFAULTHANDLER=1",
+            # Reduce JAX/habitat CUDA contention on short queues
+            "export XLA_PYTHON_CLIENT_PREALLOCATE=false",
+            "export XLA_PYTHON_CLIENT_MEM_FRACTION=0.7",
             "",
         ])
 
