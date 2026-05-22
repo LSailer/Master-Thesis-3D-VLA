@@ -353,13 +353,25 @@ def main(argv: list[str] | None = None) -> None:
     print(f"Final checkpoint: {final_ckpt}")
 
     if heldout_ds is not None:
+        from src.r2dreamer.heldout_eval import compute_heldout_metrics, metrics_table_row
+
         train_rng, eval_rng = jax.random.split(train_rng)
-        final_heldout = _aggregate_heldout(
-            agent, heldout_ds, agent_config.num_actions, eval_rng,
-            max_batches=max(args.heldout_eval_batches, 64),
+        # Full 3D-26 metric set: dyn KL + rep KL + reward MSE + k-step
+        # rollout error for k ∈ {1, 5, 15}. recon NLL is N/A (no decoder).
+        batches = list(
+            _convert_batch(b, num_actions=agent_config.num_actions)
+            for b in heldout_ds.iter_heldout_batches(
+                SHARED_AGENT_HYPERPARAMS["batch_size"],
+                SHARED_AGENT_HYPERPARAMS["seq_len"],
+                max_batches=max(args.heldout_eval_batches, 64),
+            )
         )
+        final_heldout = compute_heldout_metrics(agent, batches, rng_key=eval_rng)
         if final_heldout:
             (output_dir / "heldout_final.json").write_text(json.dumps(final_heldout, indent=2))
+            (output_dir / "heldout_table_row.json").write_text(
+                json.dumps(metrics_table_row(final_heldout), indent=2)
+            )
             _flush_csv(csv_path, [(args.steps, k, v) for k, v in final_heldout.items()])
             if wandb_module is not None:
                 wandb_module.log({f"final/{k}": v for k, v in final_heldout.items()}, step=args.steps)

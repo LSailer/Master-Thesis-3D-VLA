@@ -34,10 +34,14 @@ case "${seed}"    in 0|1|2)            ;; *) usage ;; esac
 
 case "${mode}" in
     dev|smoke)
-        partition=dev_gpu_h100
-        time_limit=00:30:00
+        # gpu_h100_short: 12 nodes, 30-min max. Best fit for smoke — fast queue,
+        # doesn't burn the prod gpu_h100_il queue. Avoid dev_gpu_h100: its
+        # single node (uc3n082) has been observed to throw
+        # CUDA_ERROR_LAUNCH_TIMEOUT during JAX random init for this codebase.
+        partition=gpu_h100_short
+        time_limit=00:25:00
         export STEPS="${STEPS:-200}"
-        export EXTRA_ARGS="${EXTRA_ARGS:---heldout-eval-every 0 --checkpoint-every 100}"
+        export EXTRA_ARGS="${EXTRA_ARGS:---heldout-eval-every 0 --checkpoint-every 100 --log-every 10}"
         job_name="3d26-${mode}-${encoder}-s${seed}"
         ;;
     prod)
