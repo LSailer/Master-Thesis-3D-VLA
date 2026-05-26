@@ -164,10 +164,35 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     )
 
 
+class VGGTAggregatorBothMLPEncoder(VGGTAggregatorMLPEncoder):
+    """VGGT extractor pooling the full frame ⊕ global aggregator token (3D-47).
+
+    Same pre-head, heads-skipped pipeline as the global-only Aggregator variant,
+    but the adapter keeps the aggregator's native 2048-d token (frame/local ⊕
+    global/contextual) instead of the global half alone, yielding a (6144,)
+    pooled vector. The only thing that differs from `vggt_aggregator_mlp` is the
+    token set fed to the encoder; this is the variable under test.
+    """
+
+    feature_kind = "aggregator_both"
+    encoder_type = "vggt_aggregator_both_mlp"
+    module_cls = wm_encoders.VGGTAggregatorBothMLPEncoder
+    design_notes = (
+        "3D-47 encoder: identical to vggt_aggregator_mlp but the adapter pools "
+        "the aggregator's native [frame_inter, global_inter] 2048-d token rather "
+        "than the 1024-d global stream alone, so the discarded per-frame/local "
+        "stream is included. Pooling is the same cam/mean/max recipe over the "
+        "wider token -> flat (6144,) float32 in replay; the encoder applies a "
+        "per-slice RMSNorm (3 x 2048) + 2-layer MLP -> embed_dim. Compared "
+        "head-to-head against the global-only readout under an identical buffer."
+    )
+
+
 __all__ = [
     "EncoderSpec",
     "Encoder",
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTAggregatorBothMLPEncoder",
 ]

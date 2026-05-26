@@ -30,7 +30,7 @@ import jax.numpy as jnp
 import numpy as np
 
 
-EncoderKind = Literal["wp_cp", "aggregator"]
+EncoderKind = Literal["wp_cp", "aggregator", "aggregator_both"]
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,8 @@ def _resolve_z_path(buffer_dir: Path, encoder_kind: EncoderKind) -> Path:
         return buffer_dir / "z_wp_cp.npz"
     if encoder_kind == "aggregator":
         return buffer_dir / "z_aggregator.npz"
+    if encoder_kind == "aggregator_both":
+        return buffer_dir / "z_aggregator_both.npz"
     raise ValueError(f"unknown encoder_kind: {encoder_kind!r}")
 
 

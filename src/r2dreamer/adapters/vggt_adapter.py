@@ -12,7 +12,7 @@ from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatur
 
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9
-VGGTFeatureKind = Literal["wp_cp", "aggregator"]
+VGGTFeatureKind = Literal["wp_cp", "aggregator", "aggregator_both"]
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
@@ -49,6 +49,32 @@ def pool_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.nd
     return jnp.concatenate([cam, mean_p, max_p], axis=0)
 
 
+def pool_aggregator_tokens_both(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Return three pre-head pools of the *full* aggregator token as ``(6*D,)``.
+
+    Same camera/mean/max recipe as :func:`pool_aggregator_tokens`, but it keeps
+    the aggregator's native ``[frame_inter, global_inter]`` token instead of the
+    global half alone (see ``src/vggt/jax/feature_extractor.py``). The frame and
+    global ``(P, D)`` halves are recombined in their native concat order into a
+    ``(P, 2*D)`` token before pooling, so the only thing that differs from the
+    global-only readout is the extra per-frame/local stream. ``expected_shape``
+    is the per-stream shape (i.e. ``extractor.aggregator_feature_shape``).
+    """
+    frame = out["aggregator_features_frame"]
+    glob = out["aggregator_features"]
+    if frame.shape != expected_shape or glob.shape != expected_shape:
+        raise ValueError(
+            f"expected per-stream aggregator_features shape {expected_shape}, "
+            f"got frame={frame.shape}, global={glob.shape}"
+        )
+    features = jnp.concatenate([frame, glob], axis=-1).astype(jnp.float32)  # (P, 2*D)
+    cam = features[0]
+    patches = features[_PATCH_START_IDX:]
+    mean_p = patches.mean(axis=0)
+    max_p = patches.max(axis=0)
+    return jnp.concatenate([cam, mean_p, max_p], axis=0)  # (6*D,)
+
+
 class VGGTObsAdapter(ObsAdapter):
     """Runs VGGT extraction, returns features for both buffer and agent."""
 
@@ -59,6 +85,11 @@ class VGGTObsAdapter(ObsAdapter):
         elif feature_kind == "aggregator":
             embed_dim = int(extractor.aggregator_feature_shape[-1])
             buffer_shape = (3 * embed_dim,)  # [cam | mean_patches | max_patches]
+            buffer_dtype = "float32"
+        elif feature_kind == "aggregator_both":
+            embed_dim = int(extractor.aggregator_feature_shape[-1])
+            # Full frame ⊕ global token is 2*embed_dim wide; 3 pools -> 6*embed_dim.
+            buffer_shape = (6 * embed_dim,)  # [cam | mean_patches | max_patches]
             buffer_dtype = "float32"
         else:
             raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
@@ -76,13 +107,15 @@ class VGGTObsAdapter(ObsAdapter):
         out = self._extractor.extract(obs_dict["image"])
         if self._feature_kind == "aggregator":
             features_jax = pool_aggregator_tokens(out, self._aggregator_feature_shape)
+        elif self._feature_kind == "aggregator_both":
+            features_jax = pool_aggregator_tokens_both(out, self._aggregator_feature_shape)
         else:
             features_jax = flatten_world_points_camera_pose(out)
 
         # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
         # float32 features so it can feed the JIT-compiled agent directly.
         replay_features = np.asarray(features_jax)
-        if self._feature_kind == "aggregator":
+        if self._feature_kind in ("aggregator", "aggregator_both"):
             replay_features = replay_features.astype(np.float32)
 
         agent_features = features_jax.astype(jnp.float32)

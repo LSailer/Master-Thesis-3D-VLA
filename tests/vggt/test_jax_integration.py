@@ -140,10 +140,15 @@ class TestJAXFeatureExtractorContract:
         ext = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
         ext.reset()
         out = ext.extract(_make_frame(seed=7))
-        assert set(out.keys()) == {"aggregator_features"}
+        # Both halves of the native aggregator token are exposed (3D-47): the
+        # global stream (default readout) and the frame stream it used to drop.
+        assert set(out.keys()) == {"aggregator_features", "aggregator_features_frame"}
         assert out["aggregator_features"].shape == (1374, 1024)
         assert out["aggregator_features"].dtype == np.float32
         assert not np.any(np.isnan(out["aggregator_features"]))
+        assert out["aggregator_features_frame"].shape == (1374, 1024)
+        assert out["aggregator_features_frame"].dtype == np.float32
+        assert not np.any(np.isnan(out["aggregator_features_frame"]))
 
     def test_compute_heads_false_aggregator_matches_full(self, extractor):
         """Skipping heads must not change the aggregator output values."""

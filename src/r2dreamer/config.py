@@ -20,7 +20,7 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # "cnn", "vggt", or "vggt_aggregator_mlp"
+    encoder_type: str = "cnn"  # "cnn", "vggt", "vggt_aggregator_mlp", or "vggt_aggregator_both_mlp"
     encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5

@@ -11,6 +11,7 @@ from src.r2dreamer.encoders import (
     EncoderSpec,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
+    VGGTAggregatorBothMLPEncoder,
 )
 
 
@@ -151,6 +152,67 @@ class TestVGGTEncoderConfiguration:
         np.testing.assert_allclose(replay_features, expected)
         assert agent_obs["features"].shape == (3 * 4,)
         assert agent_obs["features"].dtype.name == "float32"
+
+    def test_aggregator_both_encoder_spec_uses_doubled_feature_dim(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (86, 128)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = VGGTAggregatorBothMLPEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        # Full frame ⊕ global token is 2*embed_dim; 3 pools -> 6 * embed_dim.
+        assert adapter.buffer_shape == (6 * 128,)
+        assert adapter.buffer_dtype == "float32"
+        assert spec.obs_shape == (6 * 128,)
+        assert spec.encoder_type == "vggt_aggregator_both_mlp"
+        assert spec.module_cls.__name__ == "VGGTAggregatorBothMLPEncoder"
+
+    def test_aggregator_both_adapter_concatenates_frame_then_global(self):
+        # 1 cam + 4 register + 5 patch tokens, per-stream D = 4.
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+
+                glob = jnp.arange(40, dtype=jnp.float32).reshape(10, 4)
+                frame = glob + 100.0
+                return {
+                    "aggregator_features": glob,
+                    "aggregator_features_frame": frame,
+                }
+
+        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator_both")
+        replay_features, agent_obs = adapter.transform(
+            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        )
+
+        glob = np.arange(40, dtype=np.float32).reshape(10, 4)
+        frame = glob + 100.0
+        token = np.concatenate([frame, glob], axis=-1)  # native (10, 8) token
+        expected = np.concatenate(
+            [token[0], token[5:].mean(axis=0), token[5:].max(axis=0)]
+        )
+
+        assert replay_features.shape == (6 * 4,)
+        assert replay_features.dtype == np.float32
+        np.testing.assert_allclose(replay_features, expected)
+        assert agent_obs["features"].shape == (6 * 4,)
 
 
 @pytest.mark.gpu

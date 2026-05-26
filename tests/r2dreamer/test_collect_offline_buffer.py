@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from scripts.r2dreamer.collect_offline_buffer import (
+    AGGREGATOR_BOTH_DIM,
     AGGREGATOR_DIM,
     WP_CP_DIM,
     StreamingNpzArray,
@@ -16,6 +17,7 @@ from scripts.r2dreamer.collect_offline_buffer import (
 from src.r2dreamer.adapters.vggt_adapter import (
     flatten_world_points_camera_pose,
     pool_aggregator_tokens,
+    pool_aggregator_tokens_both,
 )
 
 
@@ -49,6 +51,49 @@ def test_pool_aggregator_keeps_camera_and_pools_patches():
     np.testing.assert_array_equal(got[:1024], np.ones(1024, dtype=np.float32))
     np.testing.assert_array_equal(got[1024:2048], np.full(1024, 3.0, dtype=np.float32))
     np.testing.assert_array_equal(got[2048:], np.full(1024, 4.0, dtype=np.float32))
+
+
+def test_pool_aggregator_both_concatenates_frame_then_global():
+    # Per-stream shape (5 cam+register + 2 patches, D=1024). The "both" pool
+    # keeps the native [frame_inter, global_inter] token order, so each pooled
+    # slice is 2*D wide with the frame half first.
+    frame = np.zeros((5 + 2, 1024), dtype=np.float32)
+    frame[0] = 10.0  # camera token
+    frame[5] = 20.0  # patch 0
+    frame[6] = 40.0  # patch 1
+    glob = np.zeros((5 + 2, 1024), dtype=np.float32)
+    glob[0] = 1.0
+    glob[5] = 2.0
+    glob[6] = 4.0
+
+    got = np.asarray(
+        pool_aggregator_tokens_both(
+            {"aggregator_features": glob, "aggregator_features_frame": frame},
+            expected_shape=frame.shape,
+        ),
+        dtype=np.float32,
+    )
+
+    assert got.shape == (AGGREGATOR_BOTH_DIM,)
+    # cam = [frame_cam | global_cam]
+    np.testing.assert_array_equal(got[0:1024], np.full(1024, 10.0, dtype=np.float32))
+    np.testing.assert_array_equal(got[1024:2048], np.full(1024, 1.0, dtype=np.float32))
+    # mean patch = [frame_mean(30) | global_mean(3)]
+    np.testing.assert_array_equal(got[2048:3072], np.full(1024, 30.0, dtype=np.float32))
+    np.testing.assert_array_equal(got[3072:4096], np.full(1024, 3.0, dtype=np.float32))
+    # max patch = [frame_max(40) | global_max(4)]
+    np.testing.assert_array_equal(got[4096:5120], np.full(1024, 40.0, dtype=np.float32))
+    np.testing.assert_array_equal(got[5120:6144], np.full(1024, 4.0, dtype=np.float32))
+
+
+def test_pool_aggregator_both_rejects_mismatched_stream_shape():
+    frame = np.zeros((7, 1024), dtype=np.float32)
+    glob = np.zeros((6, 1024), dtype=np.float32)  # wrong row count
+    with pytest.raises(ValueError, match="per-stream aggregator_features shape"):
+        pool_aggregator_tokens_both(
+            {"aggregator_features": glob, "aggregator_features_frame": frame},
+            expected_shape=(7, 1024),
+        )
 
 
 def test_streaming_npz_array_writes_loadable_npz(tmp_path: Path):

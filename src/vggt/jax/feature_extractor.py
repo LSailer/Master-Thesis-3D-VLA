@@ -431,12 +431,16 @@ class JAXVGGTFeatureExtractor:
 
         # Final pre-head aggregator tokens for encoder ablations. The JAX port
         # stores frame/local and global/contextual streams concatenated as
-        # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
-        # by Variant 1 before camera/point heads transform it into WP+CP. Keep
-        # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
+        # 2048-d tokens for DPT heads. Expose them as two 1024-d halves so a
+        # single forward feeds both readouts (3D-47): the global stream alone
+        # (3072-d pooled) or frame ⊕ global together (6144-d pooled). Keep all
+        # VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
         final_tokens = out_list[-1]
-        final_global = final_tokens[..., final_tokens.shape[-1] // 2:]
+        half = final_tokens.shape[-1] // 2
+        final_global = final_tokens[..., half:]
+        final_frame = final_tokens[..., :half]
         aggregator_features = final_global[0, 0].astype(jnp.float32)
+        aggregator_features_frame = final_frame[0, 0].astype(jnp.float32)
 
         self._frame_idx += 1
 
@@ -445,5 +449,9 @@ class JAXVGGTFeatureExtractor:
                 "world_points": world_points_out,
                 "camera_pose": camera_pose_out,
                 "aggregator_features": aggregator_features,
+                "aggregator_features_frame": aggregator_features_frame,
             }
-        return {"aggregator_features": aggregator_features}
+        return {
+            "aggregator_features": aggregator_features,
+            "aggregator_features_frame": aggregator_features_frame,
+        }

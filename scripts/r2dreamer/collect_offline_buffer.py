@@ -1,10 +1,14 @@
 """Collect the canonical offline replay buffer for the VGGT readout ablation.
 
 The collector rolls out a CNN-policy checkpoint, stores the canonical
-trajectory skeleton, and computes both VGGT readouts from one VGGT extractor
-call per transition. RGB frames are not persisted — PNG encoding dominated the
-hot path (~36 % of per-step time) and the downstream ablation only needs the
-fp16 readouts.
+trajectory skeleton, and computes all three VGGT readouts from one VGGT
+extractor call per transition: WP/CP (4116-d), aggregator global stream
+(3072-d), and aggregator frame ⊕ global (6144-d, 3D-47). RGB frames are not
+persisted — PNG encoding dominated the hot path (~36 % of per-step time) and
+the downstream ablation only needs the fp16 readouts. Because the rollout is
+deterministic in (collect_seed, checkpoint), re-running with the same args
+regenerates a byte-identical skeleton, so a readout added later is recovered by
+a deterministic re-run rather than replaying a (non-existent) RGB cache.
 
     python scripts/r2dreamer/collect_offline_buffer.py \
         --checkpoint output/.../step_001000000.pkl \
@@ -38,7 +42,8 @@ if str(REPO_ROOT) not in sys.path:
 RGB_SIZE = 518
 CNN_SIZE = 64
 WP_CP_DIM = 4116
-AGGREGATOR_DIM = 3072
+AGGREGATOR_DIM = 3072  # global stream only: [cam | mean | max] x 1024
+AGGREGATOR_BOTH_DIM = 6144  # frame ⊕ global: [cam | mean | max] x 2048 (3D-47)
 INTEGRITY_SAMPLE_SIZE = 1000
 
 
@@ -136,26 +141,34 @@ class IntegrityAccumulator:
     sample_indices: set[int]
     wp_cosines: list[float]
     agg_cosines: list[float]
+    agg_both_cosines: list[float]
 
     @classmethod
     def for_steps(cls, n_steps: int, seed: int) -> "IntegrityAccumulator":
         sample_n = min(INTEGRITY_SAMPLE_SIZE, n_steps)
         rng = np.random.default_rng(seed)
         indices = set(int(i) for i in rng.choice(n_steps, size=sample_n, replace=False))
-        return cls(sample_indices=indices, wp_cosines=[], agg_cosines=[])
+        return cls(
+            sample_indices=indices, wp_cosines=[], agg_cosines=[], agg_both_cosines=[],
+        )
 
     def maybe_record(
         self,
         step: int,
         wp_fp32: np.ndarray,
         agg_fp32: np.ndarray,
+        agg_both_fp32: np.ndarray,
         wp_fp16: np.ndarray,
         agg_fp16: np.ndarray,
+        agg_both_fp16: np.ndarray,
     ) -> None:
         if step not in self.sample_indices:
             return
         self.wp_cosines.append(cosine_similarity(wp_fp32, wp_fp16.astype(np.float32)))
         self.agg_cosines.append(cosine_similarity(agg_fp32, agg_fp16.astype(np.float32)))
+        self.agg_both_cosines.append(
+            cosine_similarity(agg_both_fp32, agg_both_fp16.astype(np.float32))
+        )
 
     def summary(self) -> dict[str, Any]:
         def stats(values: list[float]) -> dict[str, float | int | None]:
@@ -172,6 +185,7 @@ class IntegrityAccumulator:
             "sample_size": len(self.sample_indices),
             "wp_cp_fp32_vs_fp16_cosine": stats(self.wp_cosines),
             "aggregator_fp32_vs_fp16_cosine": stats(self.agg_cosines),
+            "aggregator_both_fp32_vs_fp16_cosine": stats(self.agg_both_cosines),
         }
 
 
@@ -242,6 +256,7 @@ def verify_offline_buffer(
     skeleton_path = out_dir / "trajectory_skeleton.npz"
     wp_path = out_dir / "z_wp_cp.npz"
     agg_path = out_dir / "z_aggregator.npz"
+    agg_both_path = out_dir / "z_aggregator_both.npz"
     metadata_path = out_dir / "collection_metadata.json"
     rollout_log_path = out_dir / "rollout_log.jsonl"
 
@@ -301,8 +316,32 @@ def verify_offline_buffer(
     if agg.dtype != np.float16:
         raise AssertionError(f"z_aggregator dtype is {agg.dtype}, expected float16")
 
+    # z_aggregator_both is the 3D-47 frame ⊕ global readout. It's optional so
+    # that --verify-only still passes on legacy buffers collected before it
+    # existed; when present it is checked exactly like the other readouts.
+    agg_both = _load_npz_array(agg_both_path) if agg_both_path.exists() else None
+    if agg_both is not None:
+        if status == "completed":
+            if agg_both.shape != (n, AGGREGATOR_BOTH_DIM):
+                raise AssertionError(
+                    f"z_aggregator_both shape is {agg_both.shape}, "
+                    f"expected {(n, AGGREGATOR_BOTH_DIM)}"
+                )
+        elif agg_both.shape[0] < n or agg_both.shape[1] != AGGREGATOR_BOTH_DIM:
+            raise AssertionError(
+                f"z_aggregator_both shape is {agg_both.shape}, "
+                f"expected ({n}+, {AGGREGATOR_BOTH_DIM})"
+            )
+        if agg_both.dtype != np.float16:
+            raise AssertionError(
+                f"z_aggregator_both dtype is {agg_both.dtype}, expected float16"
+            )
+
     integrity = metadata.get("integrity", {})
-    for key in ("wp_cp_fp32_vs_fp16_cosine", "aggregator_fp32_vs_fp16_cosine"):
+    integrity_keys = ["wp_cp_fp32_vs_fp16_cosine", "aggregator_fp32_vs_fp16_cosine"]
+    if agg_both is not None:
+        integrity_keys.append("aggregator_both_fp32_vs_fp16_cosine")
+    for key in integrity_keys:
         min_value = integrity.get(key, {}).get("min")
         if min_value is None:
             raise AssertionError(f"missing integrity cosine stats for {key}")
@@ -333,11 +372,16 @@ def verify_offline_buffer(
         "n_steps": n,
         "z_wp_cp_shape": list(wp.shape),
         "z_aggregator_shape": list(agg.shape),
+        "z_aggregator_both_shape": list(agg_both.shape) if agg_both is not None else None,
         "total_size_bytes": total_size,
         "total_size_gib": total_size / (1024 ** 3),
         "episodes": len(log_entries),
         "cosine_min_wp_cp": integrity["wp_cp_fp32_vs_fp16_cosine"]["min"],
         "cosine_min_aggregator": integrity["aggregator_fp32_vs_fp16_cosine"]["min"],
+        "cosine_min_aggregator_both": (
+            integrity["aggregator_both_fp32_vs_fp16_cosine"]["min"]
+            if agg_both is not None else None
+        ),
     }
 
 
@@ -354,6 +398,7 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
     from src.r2dreamer.adapters.vggt_adapter import (
         flatten_world_points_camera_pose,
         pool_aggregator_tokens,
+        pool_aggregator_tokens_both,
     )
     from src.r2dreamer.agent import R2DreamerAgent
     from src.shared.profiling import StepTimer
@@ -450,6 +495,12 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         shape=(args.n_steps, AGGREGATOR_DIM),
         dtype=np.float16,
     )
+    agg_both_writer = StreamingNpzArray(
+        out_dir / "z_aggregator_both.npz",
+        array_name="features",
+        shape=(args.n_steps, AGGREGATOR_BOTH_DIM),
+        dtype=np.float16,
+    )
 
     timer = StepTimer(warmup=args.profile_warmup) if args.profile else None
 
@@ -488,15 +539,24 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
                     pool_aggregator_tokens(vggt_out, extractor.aggregator_feature_shape),
                     dtype=np.float32,
                 )
+                agg_both_fp32 = np.asarray(
+                    pool_aggregator_tokens_both(vggt_out, extractor.aggregator_feature_shape),
+                    dtype=np.float32,
+                )
                 if timer is not None:
                     timer.lap("vggt_extract")
                 wp_fp16 = wp_fp32.astype(np.float16)
                 agg_fp16 = agg_fp32.astype(np.float16)
-                integrity.maybe_record(step, wp_fp32, agg_fp32, wp_fp16, agg_fp16)
+                agg_both_fp16 = agg_both_fp32.astype(np.float16)
+                integrity.maybe_record(
+                    step, wp_fp32, agg_fp32, agg_both_fp32,
+                    wp_fp16, agg_fp16, agg_both_fp16,
+                )
                 if timer is not None:
                     timer.lap("fp16_cast")
                 wp_writer.append(wp_fp16)
                 agg_writer.append(agg_fp16)
+                agg_both_writer.append(agg_both_fp16)
                 if timer is not None:
                     timer.lap("npz_append")
 
@@ -604,9 +664,11 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         if completed_writes:
             wp_writer.close()
             agg_writer.close()
+            agg_both_writer.close()
         else:
             wp_writer.abort()
             agg_writer.abort()
+            agg_both_writer.abort()
             # Always leave usable on-disk state for partial collections,
             # truncated to the last completed-episode boundary.
             if last_completed_step > 0:

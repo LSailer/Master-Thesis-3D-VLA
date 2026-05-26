@@ -76,6 +76,8 @@ SHARED = {
 ENCODER_SPECS = {
     "wp_cp": {"z_file": "z_wp_cp.npz", "obs_dim": 4116},
     "aggregator": {"z_file": "z_aggregator.npz", "obs_dim": 3072},
+    # 3D-47: frame ⊕ global aggregator token, 3 pools of 2048-d -> 6144-d.
+    "aggregator_both": {"z_file": "z_aggregator_both.npz", "obs_dim": 6144},
 }
 
 NUM_ACTIONS = 4  # Habitat objectnav: stop / forward / left / right

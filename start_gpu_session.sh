@@ -24,7 +24,7 @@ while [[ "$1" == --* ]]; do
 done
 
 SESSION="${1:-gpu-work}"
-PARTITION="${2:-gpu_h100}"
+PARTITION="${2:-gpu_h100_il}"
 TIME="${3:-24:00:00}"
 PROJECT_DIR="/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA"
 

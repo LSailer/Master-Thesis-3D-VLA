@@ -12,6 +12,8 @@ When working in a `git worktree` (any directory under `worktrees/`), run once pe
 
 This symlinks the shared `data/` and `.venv/` from the main checkout into the worktree. Habitat and other scripts resolve dataset paths relative to CWD, so a worktree without these links fails fast with `FileNotFoundError: data/datasets/...`. The script is idempotent and is a no-op in the main checkout.
 
+When creating or starting work in a worktree for a Linear issue, move the issue status from Backlog to In Progress before editing. If Linear write tools are not available, say so in the final response.
+
 ## Default Workflow
 
 Before editing:
@@ -43,6 +45,7 @@ Every PR should explain:
 - Linear issue
 - Acceptance criteria checked
 - Screenshots, Loom, or preview URL when relevant
+- W&B run link or run ID when training or eval was run
 - Risk
 - How to test
 - What was intentionally not done
@@ -73,5 +76,9 @@ Return review feedback in three groups:
 ## Verification
 
 Use the narrowest useful verification command for the task.
+
+Agents are allowed to confirm code with an interactive `srun` job on the dev H100 GPU for up to 30 minutes. Use this for short smoke tests, targeted training/eval checks, or debugging that needs GPU access.
+
+If verification needs more than 30 minutes, first confirm the code works with the short `srun` check, then submit the longer run with `sbatch`. Before creating a PR, include the `sbatch` job ID, the command/script submitted, the current or final job result, and the W&B run link or run ID in the PR notes.
 
 If a broad check is already known to have unrelated failures, say that plainly in the PR and include the targeted checks that passed.

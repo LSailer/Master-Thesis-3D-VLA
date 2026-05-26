@@ -86,3 +86,34 @@ class VGGTAggregatorMLPEncoder(nn.Module):
         x = nn.Dense(self.hidden, name="hidden")(x)
         x = nn.silu(x)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class VGGTAggregatorBothMLPEncoder(nn.Module):
+    """Encoder for the frame+global aggregator readout (3D-47).
+
+    Identical wiring to ``VGGTAggregatorMLPEncoder`` but each pooled slice is the
+    aggregator's native ``2 * D``-wide token (frame ⊕ global) rather than the
+    global stream alone — i.e. it keeps the per-frame/local stream the
+    global-only readout discards (see ``src/vggt/jax/feature_extractor.py``).
+    Input layout is ``[cam | mean_patches | max_patches]`` flat, shape
+    ``(B, 3 * pool_dim)`` with ``pool_dim = 2048``. Each slice is normalised
+    separately so the mean/max scale mismatch does not bleed into the projection.
+    """
+    embed_dim: int = 1024
+    pool_dim: int = 2048
+    hidden: int = 1024
+
+    @nn.compact
+    def __call__(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != 3 * self.pool_dim:
+            raise ValueError(
+                f"expected (B, {3 * self.pool_dim}) VGGT pooled features, got {obs.shape}"
+            )
+        cam, mean_p, max_p = jnp.split(obs, 3, axis=-1)
+        cam = RMSNorm(name="norm_cam")(cam)
+        mean_p = RMSNorm(name="norm_mean")(mean_p)
+        max_p = RMSNorm(name="norm_max")(max_p)
+        x = jnp.concatenate([cam, mean_p, max_p], axis=-1)
+        x = nn.Dense(self.hidden, name="hidden")(x)
+        x = nn.silu(x)
+        return nn.Dense(self.embed_dim, name="proj")(x)

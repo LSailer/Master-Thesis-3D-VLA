@@ -6,13 +6,19 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.world_model.encoders import VGGTEncoder, VGGTAggregatorMLPEncoder
+from src.r2dreamer.world_model.encoders import (
+    VGGTEncoder,
+    VGGTAggregatorMLPEncoder,
+    VGGTAggregatorBothMLPEncoder,
+)
 from src.buffer.replay_buffer import VGGTReplayBuffer
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
 POOL_DIM = 1024
 POOLED_FEATURE_DIM = 3 * POOL_DIM  # [cam | mean_patches | max_patches]
+POOL_DIM_BOTH = 2048  # frame ⊕ global token width
+POOLED_FEATURE_DIM_BOTH = 3 * POOL_DIM_BOTH  # 6144
 
 
 class TestVGGTAggregatorMLPEncoder:
@@ -45,6 +51,42 @@ class TestVGGTAggregatorMLPEncoder:
 
     def test_per_pool_norms_and_mlp_params(self):
         enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.arange(2 * 24, dtype=jnp.float32).reshape(2, 24)
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+
+        assert out.shape == (2, 32)
+        assert set(params["params"].keys()) == {
+            "norm_cam", "norm_mean", "norm_max", "hidden", "proj",
+        }
+
+
+class TestVGGTAggregatorBothMLPEncoder:
+    """3D-47 frame ⊕ global readout: same MLP, 2048-d pooled slices (6144 total)."""
+
+    def test_output_shape(self):
+        enc = VGGTAggregatorBothMLPEncoder(embed_dim=1024)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, POOLED_FEATURE_DIM_BOTH))
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 1024)
+        assert jnp.isfinite(out).all()
+
+    def test_default_pool_dim_is_2048(self):
+        assert VGGTAggregatorBothMLPEncoder().pool_dim == 2048
+
+    def test_rejects_global_only_width(self):
+        """A 3072-d (global-only) vector must not be silently accepted."""
+        enc = VGGTAggregatorBothMLPEncoder(embed_dim=32)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, POOLED_FEATURE_DIM), dtype=jnp.float32)  # 3072, wrong
+        with pytest.raises(ValueError, match="VGGT pooled features"):
+            enc.init(rng, dummy)
+
+    def test_per_pool_norms_and_mlp_params(self):
+        enc = VGGTAggregatorBothMLPEncoder(embed_dim=32, pool_dim=8, hidden=16)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.arange(2 * 24, dtype=jnp.float32).reshape(2, 24)
         params = enc.init(rng, dummy)
@@ -210,6 +252,55 @@ class TestVGGTAgentInit:
         metrics = agent.train_step(batch, train_key)
         assert "total_loss" in metrics
         assert np.isfinite(metrics["total_loss"])
+
+    def test_agent_train_step_vggt_aggregator_both_mlp(self):
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_aggregator_both_mlp",
+            obs_shape=(POOLED_FEATURE_DIM_BOTH,),
+            num_actions=4,
+            batch_size=2,
+            seq_len=8,
+            imagination_horizon=3,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        B, T = cfg.batch_size, cfg.seq_len
+        batch = {
+            "obs": jnp.zeros((B, T, POOLED_FEATURE_DIM_BOTH)),
+            "actions": jax.nn.one_hot(
+                jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
+            ),
+            "rewards": jnp.zeros((B, T)),
+            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
+            "is_last": jnp.zeros((B, T)),
+            "is_terminal": jnp.zeros((B, T)),
+        }
+        rng, train_key = jax.random.split(rng)
+        metrics = agent.train_step(batch, train_key)
+        assert "total_loss" in metrics
+        assert np.isfinite(metrics["total_loss"])
+
+    def test_agent_act_vggt_aggregator_both_mlp(self):
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_aggregator_both_mlp",
+            obs_shape=(POOLED_FEATURE_DIM_BOTH,),
+            num_actions=4,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        obs_dict = {
+            "features": np.random.randn(POOLED_FEATURE_DIM_BOTH).astype(np.float32),
+            "is_first": True,
+        }
+        rng, act_key = jax.random.split(rng)
+        action = agent.act(obs_dict, act_key)
+        assert 0 <= action < 4
 
     def test_agent_train_step_vggt_aggregator_mlp(self):
         from src.r2dreamer.agent import R2DreamerAgent

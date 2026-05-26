@@ -30,6 +30,7 @@ from .world_model.encoders import (
     ConvEncoder,
     VGGTEncoder as WMVGGTEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
+    VGGTAggregatorBothMLPEncoder as WMVGGTAggregatorBothMLPEncoder,
 )
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
@@ -115,6 +116,7 @@ def _make_encoder(cfg: R2DreamerConfig):
             "cnn": ConvEncoder,
             "vggt": WMVGGTEncoder,
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+            "vggt_aggregator_both_mlp": WMVGGTAggregatorBothMLPEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -298,7 +300,9 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp"):
+        if self.cfg.encoder_type in (
+            "vggt", "vggt_aggregator_mlp", "vggt_aggregator_both_mlp",
+        ):
             obs = jnp.asarray(obs_dict["features"])[None]
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0

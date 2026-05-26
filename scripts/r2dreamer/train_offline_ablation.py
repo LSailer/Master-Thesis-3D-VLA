@@ -66,8 +66,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--encoder",
         required=True,
-        choices=["wp_cp", "aggregator"],
-        help="Encoder kind. wp_cp -> z_wp_cp.npz (4116-d); aggregator -> z_aggregator.npz (3072-d).",
+        choices=["wp_cp", "aggregator", "aggregator_both"],
+        help=(
+            "Encoder kind. wp_cp -> z_wp_cp.npz (4116-d); "
+            "aggregator -> z_aggregator.npz (3072-d, global stream); "
+            "aggregator_both -> z_aggregator_both.npz (6144-d, frame ⊕ global)."
+        ),
     )
     p.add_argument("--seed", type=int, required=True, help="Training seed (one of {0,1,2}).")
     p.add_argument("--steps", type=int, default=500_000, help="Total grad steps.")
@@ -110,6 +114,12 @@ def _encoder_spec(encoder_kind: str) -> dict[str, Any]:
             "module_cls": wm_encoders.VGGTAggregatorMLPEncoder,
             "obs_shape": (3072,),
             "encoder_type": "vggt_aggregator_mlp",
+        }
+    if encoder_kind == "aggregator_both":
+        return {
+            "module_cls": wm_encoders.VGGTAggregatorBothMLPEncoder,
+            "obs_shape": (6144,),
+            "encoder_type": "vggt_aggregator_both_mlp",
         }
     raise ValueError(f"unknown encoder: {encoder_kind!r}")
 
