@@ -12,6 +12,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "scripts/slurm/configs"
+# Legacy sbatch scripts were archived in s5 (3D-34); they remain the frozen
+# golden references for the render-equivalence tests below.
+LEGACY_SBATCH = "archiv/slurm-legacy-sbatch"
 
 
 def _load_launch_module():
@@ -67,7 +70,7 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
     result = run_launch("l1_vggt", "--dry-run")
 
     assert result.returncode == 0, result.stderr
-    expected = (ROOT / "scripts/r2dreamer/slurm/train_curriculum_l1_vggt.sbatch").read_text()
+    expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
     assert result.stdout == expected
 
 
@@ -133,9 +136,9 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
 @pytest.mark.parametrize(
     "variant,legacy",
     [
-        ("l2_vggt", "scripts/r2dreamer/slurm/train_curriculum_l2_vggt.sbatch"),
-        ("l3_vggt", "scripts/r2dreamer/slurm/train_curriculum_l3_vggt.sbatch"),
-        ("l4_vggt", "scripts/r2dreamer/slurm/train_curriculum_l4_vggt.sbatch"),
+        ("l2_vggt", f"{LEGACY_SBATCH}/train_curriculum_l2_vggt.sbatch"),
+        ("l3_vggt", f"{LEGACY_SBATCH}/train_curriculum_l3_vggt.sbatch"),
+        ("l4_vggt", f"{LEGACY_SBATCH}/train_curriculum_l4_vggt.sbatch"),
     ],
 )
 def test_curriculum_variants_match_legacy_args(variant: str, legacy: str) -> None:
