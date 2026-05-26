@@ -1,0 +1,85 @@
+extends: _base
+job_name: 3d45-ext-wp-cp-s0
+output_dir: output/3d45-external-offline/wp_cp-seed0
+script: scripts/r2dreamer/train_external_offline.py
+sbatch:
+  partition: gpu_h100_il
+  mem: 160G
+  time: "08:00:00"
+smoke:
+  partition: gpu_h100_short
+  time: "00:25:00"
+  args:
+    steps: 100
+    buffer_dir: data/offline_buffer_smoke
+    output_dir: output/3d45-external-offline/wp_cp-seed0/smoke/run-${SLURM_JOB_ID}
+    batch_size: 4
+    seq_len: 16
+    log_every: 10
+    checkpoint_every: 1000
+    wandb: false
+comments:
+  - "3D-45/3D-46 external PyTorch R2Dreamer offline baseline"
+  - "WP/CP vector readout, seed 0; uses external/r2dreamer/.venv"
+setup_commands:
+  - './scripts/setup_worktree.sh'
+  - 'git_common_dir="$(git rev-parse --git-common-dir)"'
+  - 'main_root="$(realpath "${git_common_dir}/..")"'
+  - 'mkdir -p external'
+  - 'if [ ! -e external/r2dreamer ] && [ -e "${main_root}/external/r2dreamer" ]; then'
+  - '    ln -s "$(realpath --relative-to external "${main_root}/external/r2dreamer")" external/r2dreamer'
+  - 'fi'
+arg_order:
+  - encoder
+  - seed
+  - steps
+  - buffer_dir
+  - output_dir
+  - device
+  - model_size
+  - batch_size
+  - seq_len
+  - log_every
+  - checkpoint_every
+  - wandb
+  - wandb_project
+  - wandb_name
+  - wandb_tags
+quote_args:
+  - buffer_dir
+  - output_dir
+  - wandb_project
+  - wandb_name
+  - wandb_tags
+flag_args:
+  - wandb
+arg_name_style: kebab
+train_command: external/r2dreamer/.venv/bin/python
+smoke_train_command: external/r2dreamer/.venv/bin/python
+smoke_success_checks:
+  - 'if [ ! -f "output/3d45-external-offline/wp_cp-seed0/smoke/run-${SLURM_JOB_ID}/latest.pt" ]; then'
+  - '    echo "[FAIL] latest.pt missing in smoke output" >&2'
+  - '    exit 1'
+  - 'fi'
+  - 'if [ ! -f "output/3d45-external-offline/wp_cp-seed0/smoke/run-${SLURM_JOB_ID}/run_config.json" ]; then'
+  - '    echo "[FAIL] run_config.json missing in smoke output" >&2'
+  - '    exit 1'
+  - 'fi'
+  - 'echo "=== Smoke PASS ==="'
+  - 'echo "Output: output/3d45-external-offline/wp_cp-seed0/smoke/run-${SLURM_JOB_ID}"'
+args:
+  encoder: wp_cp
+  seed: 0
+  steps: 500000
+  buffer_dir: data/offline_buffer
+  output_dir: output/3d45-external-offline/wp_cp-seed0/run-${SLURM_JOB_ID}
+  device: cuda:0
+  model_size: size12M
+  batch_size: 16
+  seq_len: 64
+  log_every: 250
+  checkpoint_every: 50000
+  wandb: true
+  wandb_project: 3d-vla-objectnav-offline-ablation
+  wandb_name: ext-wp_cp-seed0-${SLURM_JOB_ID}
+  wandb_tags: offline-ablation,3d-45,3d-46,framework:pytorch-external

@@ -87,6 +87,31 @@ fields cause a non-zero exit **before** any `sbatch` call.
    bash scripts/slurm/launch.sh <name> --smoke
    ```
 
+## External PyTorch offline baselines (3D-45/3D-46)
+
+The external R2Dreamer WP/CP baseline uses the same YAML launcher rather than a
+bespoke sbatch file. One config exists per seed because `launch.sh` resolves a
+single variant YAML:
+
+```bash
+# Validate/render, no submission
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed0 --dry-run
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed0 --smoke --dry-run
+
+# 100-step smoke on gpu_h100_short, no W&B
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed0 --smoke
+
+# 500k-step production runs on gpu_h100_il with W&B
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed0 --prod
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed1 --prod
+bash scripts/slurm/launch.sh external_offline_wp_cp_seed2 --prod
+```
+
+Those configs render `external/r2dreamer/.venv/bin/python
+scripts/r2dreamer/train_external_offline.py` with kebab-case CLI flags. In a
+worktree, the rendered script runs `./scripts/setup_worktree.sh` and symlinks the
+shared `external/r2dreamer` checkout from the main worktree before launching.
+
 ## Tests
 
 ```bash
