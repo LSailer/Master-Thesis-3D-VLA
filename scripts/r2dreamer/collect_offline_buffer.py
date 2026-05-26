@@ -192,13 +192,53 @@ def _directory_size_bytes(path: Path) -> int:
     return total
 
 
+def _atomic_write_skeleton(
+    out_dir: Path,
+    actions: np.ndarray,
+    rewards: np.ndarray,
+    dones: np.ndarray,
+    episode_ids: np.ndarray,
+    n_completed: int,
+) -> None:
+    """Write trajectory_skeleton.npz truncated to the first n_completed rows.
+
+    Atomic: writes to .tmp then os.replace, so a crash mid-write never leaves
+    a torn file at the canonical path.
+    """
+    # numpy.savez auto-appends ".npz" to string paths that don't end in it,
+    # so pass a file object to keep the .tmp suffix intact.
+    tmp = out_dir / "trajectory_skeleton.npz.tmp"
+    with tmp.open("wb") as fp:
+        np.savez(
+            fp,
+            action=actions[:n_completed],
+            reward=rewards[:n_completed],
+            done=dones[:n_completed],
+            episode_id=episode_ids[:n_completed],
+        )
+    os.replace(tmp, out_dir / "trajectory_skeleton.npz")
+
+
+def _atomic_write_metadata(out_dir: Path, metadata: dict[str, Any]) -> None:
+    tmp = out_dir / "collection_metadata.json.tmp"
+    tmp.write_text(json.dumps(metadata, indent=2))
+    os.replace(tmp, out_dir / "collection_metadata.json")
+
+
 def verify_offline_buffer(
     out_dir: Path,
     *,
     expected_n_steps: int | None = None,
     min_cosine: float = 0.999,
 ) -> dict[str, Any]:
-    """Verify row counts, dtypes, episode boundaries, and cosine stats."""
+    """Verify row counts, dtypes, episode boundaries, and cosine stats.
+
+    Handles partial collections: if metadata.status == "partial", the skeleton
+    is treated as the source of truth for the number of valid rows, and z_*.npz
+    is allowed to have additional trailing rows beyond it (those rows are
+    pre-allocated by StreamingNpzArray and contain uninitialized data — the
+    reader slices to skeleton length on load).
+    """
     skeleton_path = out_dir / "trajectory_skeleton.npz"
     wp_path = out_dir / "z_wp_cp.npz"
     agg_path = out_dir / "z_aggregator.npz"
@@ -214,9 +254,19 @@ def verify_offline_buffer(
     finally:
         skeleton.close()
 
+    with metadata_path.open() as f:
+        metadata = json.load(f)
+    status = metadata.get("status", "completed")
+
     n = int(actions.shape[0])
-    if expected_n_steps is not None and n != expected_n_steps:
-        raise AssertionError(f"skeleton has {n} rows, expected {expected_n_steps}")
+    if status == "completed":
+        if expected_n_steps is not None and n != expected_n_steps:
+            raise AssertionError(f"skeleton has {n} rows, expected {expected_n_steps}")
+    else:
+        if expected_n_steps is not None and n > expected_n_steps:
+            raise AssertionError(
+                f"partial skeleton has {n} rows, more than target {expected_n_steps}"
+            )
     if actions.dtype != np.int32:
         raise AssertionError(f"action dtype is {actions.dtype}, expected int32")
     if rewards.dtype != np.float32:
@@ -228,19 +278,29 @@ def verify_offline_buffer(
 
     wp = _load_npz_array(wp_path)
     agg = _load_npz_array(agg_path)
-    if wp.shape != (n, WP_CP_DIM):
-        raise AssertionError(f"z_wp_cp shape is {wp.shape}, expected {(n, WP_CP_DIM)}")
-    if agg.shape != (n, AGGREGATOR_DIM):
-        raise AssertionError(
-            f"z_aggregator shape is {agg.shape}, expected {(n, AGGREGATOR_DIM)}"
-        )
+    # z_* may have more rows than skeleton for partial collections; trainer
+    # slices on load. For completed collections, shapes must match exactly.
+    if status == "completed":
+        if wp.shape != (n, WP_CP_DIM):
+            raise AssertionError(f"z_wp_cp shape is {wp.shape}, expected {(n, WP_CP_DIM)}")
+        if agg.shape != (n, AGGREGATOR_DIM):
+            raise AssertionError(
+                f"z_aggregator shape is {agg.shape}, expected {(n, AGGREGATOR_DIM)}"
+            )
+    else:
+        if wp.shape[0] < n or wp.shape[1] != WP_CP_DIM:
+            raise AssertionError(
+                f"z_wp_cp shape is {wp.shape}, expected ({n}+, {WP_CP_DIM})"
+            )
+        if agg.shape[0] < n or agg.shape[1] != AGGREGATOR_DIM:
+            raise AssertionError(
+                f"z_aggregator shape is {agg.shape}, expected ({n}+, {AGGREGATOR_DIM})"
+            )
     if wp.dtype != np.float16:
         raise AssertionError(f"z_wp_cp dtype is {wp.dtype}, expected float16")
     if agg.dtype != np.float16:
         raise AssertionError(f"z_aggregator dtype is {agg.dtype}, expected float16")
 
-    with metadata_path.open() as f:
-        metadata = json.load(f)
     integrity = metadata.get("integrity", {})
     for key in ("wp_cp_fp32_vs_fp16_cosine", "aggregator_fp32_vs_fp16_cosine"):
         min_value = integrity.get(key, {}).get("min")
@@ -393,6 +453,26 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
 
     timer = StepTimer(warmup=args.profile_warmup) if args.profile else None
 
+    # Track the last clean episode boundary so a crash mid-collection still
+    # leaves a usable (truncated) buffer on disk. Flush is throttled — writing
+    # the skeleton on every episode would re-write ~6 MB per episode for the
+    # full pre-allocated arrays.
+    last_completed_step = 0
+    last_skeleton_flush_step = 0
+    skeleton_flush_every = max(1, int(args.skeleton_flush_every))
+
+    def _build_partial_metadata(status: str, n_completed: int) -> dict[str, Any]:
+        snapshot = dict(metadata)
+        ep_count_so_far = int(episode_ids[:n_completed].max()) + 1 if n_completed > 0 else 0
+        snapshot.update(
+            {
+                "status": status,
+                "n_completed_steps": n_completed,
+                "num_episodes": ep_count_so_far,
+            }
+        )
+        return snapshot
+
     completed_writes = False
     try:
         with rollout_log_path.open("w") as rollout_log:
@@ -464,6 +544,27 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
                     }
                     rollout_log.write(json.dumps(entry) + "\n")
                     rollout_log.flush()
+                    last_completed_step = step + 1
+
+                    if last_completed_step - last_skeleton_flush_step >= skeleton_flush_every:
+                        try:
+                            _atomic_write_skeleton(
+                                out_dir, actions, rewards, dones, episode_ids,
+                                last_completed_step,
+                            )
+                            _atomic_write_metadata(
+                                out_dir,
+                                _build_partial_metadata("in_progress", last_completed_step),
+                            )
+                            last_skeleton_flush_step = last_completed_step
+                        except OSError as exc:
+                            # Don't crash the whole collection over a skeleton-flush
+                            # blip; the finally block will retry on exit.
+                            print(
+                                f"WARN: skeleton flush at step {last_completed_step} failed: {exc}",
+                                flush=True,
+                            )
+
                     episode_id += 1
                     episode_start_step = step + 1
                     episode_reward = 0.0
@@ -506,14 +607,30 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         else:
             wp_writer.abort()
             agg_writer.abort()
+            # Always leave usable on-disk state for partial collections,
+            # truncated to the last completed-episode boundary.
+            if last_completed_step > 0:
+                try:
+                    _atomic_write_skeleton(
+                        out_dir, actions, rewards, dones, episode_ids,
+                        last_completed_step,
+                    )
+                    _atomic_write_metadata(
+                        out_dir,
+                        _build_partial_metadata("partial", last_completed_step),
+                    )
+                    print(
+                        f"Wrote partial buffer: {last_completed_step} steps, "
+                        f"{int(episode_ids[:last_completed_step].max()) + 1} episodes",
+                        flush=True,
+                    )
+                except OSError as exc:
+                    print(f"ERROR: partial skeleton write failed: {exc}", flush=True)
         env.close()
 
-    np.savez(
-        out_dir / "trajectory_skeleton.npz",
-        action=actions,
-        reward=rewards,
-        done=dones,
-        episode_id=episode_ids,
+    n_completed = args.n_steps
+    _atomic_write_skeleton(
+        out_dir, actions, rewards, dones, episode_ids, n_completed,
     )
 
     num_episodes = int(episode_ids.max()) + 1 if len(episode_ids) else 0
@@ -521,6 +638,8 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
     heldout_start = max(0, num_episodes - heldout_count)
     metadata.update(
         {
+            "status": "completed",
+            "n_completed_steps": n_completed,
             "completed_at_unix": time.time(),
             "num_episodes": num_episodes,
             "heldout_split": {
@@ -536,11 +655,11 @@ def collect_offline_buffer(args: argparse.Namespace) -> dict[str, Any]:
         profile = timer.summary()
         metadata["profile"] = profile
         print("profile=" + json.dumps(profile, indent=2), flush=True)
-    (out_dir / "collection_metadata.json").write_text(json.dumps(metadata, indent=2))
+    _atomic_write_metadata(out_dir, metadata)
 
     verification = verify_offline_buffer(out_dir, expected_n_steps=args.n_steps)
     metadata["verification"] = verification
-    (out_dir / "collection_metadata.json").write_text(json.dumps(metadata, indent=2))
+    _atomic_write_metadata(out_dir, metadata)
 
     if wandb_module is not None:
         wandb_module.log({"collect/verification": verification})
@@ -570,6 +689,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--wandb-init-timeout", type=int, default=600)
     parser.add_argument("--vggt-total-budget", type=int, default=200_000)
     parser.add_argument("--vggt-static-budget", type=int, default=8333)
+    parser.add_argument(
+        "--skeleton-flush-every",
+        type=int,
+        default=10_000,
+        help=(
+            "Flush trajectory_skeleton.npz + collection_metadata.json at the "
+            "next episode boundary after this many steps. Lower = more crash-safe, "
+            "more write volume. 10k -> ~40 flushes for a 400k collection."
+        ),
+    )
     parser.add_argument(
         "--profile",
         action="store_true",

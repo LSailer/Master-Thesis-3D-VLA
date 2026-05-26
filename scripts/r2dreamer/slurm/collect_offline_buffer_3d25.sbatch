@@ -47,19 +47,22 @@ for name in InfiniteVGGT StreamVGGT VGGT; do
     fi
 done
 
+N_STEPS="${N_STEPS:-400000}"
+
 .venv/bin/python scripts/r2dreamer/collect_offline_buffer.py \
     --checkpoint "${CNN_CHECKPOINT}" \
-    --n-steps 500000 \
+    --n-steps "${N_STEPS}" \
     --collect-seed 42 \
     --out-dir data/offline_buffer \
     --curriculum-path data/curriculum/level1_1house_1goal.json \
     --curriculum-mode train \
     --wandb-project 3d-vla-objectnav \
     --wandb-name "3d25-offline-buffer-${SLURM_JOB_ID}" \
-    --wandb-tags "offline-buffer,3d-25,cnn-source,vggt-readouts" \
+    --wandb-tags "offline-buffer,3d-25,3d-26,cnn-source,vggt-readouts" \
     --wandb-init-timeout 600 \
     --log-every 1000 \
-    --wandb-log-every 1000
+    --wandb-log-every 1000 \
+    --skeleton-flush-every 10000
 
 echo "Done at $(date)"
 
