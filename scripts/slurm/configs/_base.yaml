@@ -8,6 +8,8 @@ sbatch:
 smoke:
   partition: gpu_h100_short
   time: "00:30:00"
+  assert_file: metrics.csv
+  assert_min_rows: 5
   args:
     steps: 1500
     prefill: 500
