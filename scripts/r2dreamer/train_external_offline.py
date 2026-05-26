@@ -99,6 +99,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seq-len", type=int, default=SHARED["seq_len"])
     p.add_argument("--log-every", type=int, default=250)
     p.add_argument("--checkpoint-every", type=int, default=50_000)
+    p.add_argument(
+        "--skip-heldout-eval", action="store_true",
+        help="Skip the final held-out WM metrics (smoke testing).",
+    )
+    p.add_argument(
+        "--heldout-eval-batches", type=int, default=64,
+        help="Max non-overlapping held-out batches averaged for the metrics.",
+    )
     # compile defaults to the model config (True); forced off on CPU.
     p.add_argument("--compile", dest="compile", action="store_true", default=None)
     p.add_argument("--no-compile", dest="compile", action="store_false")
@@ -303,6 +311,53 @@ class OfflineVectorBuffer:
     def count(self):
         return self.size
 
+    def iter_eval_batches(self, max_batches: int | None = None):
+        """Deterministic non-overlapping windows for held-out eval.
+
+        Mirrors `OfflineBufferDataset.iter_heldout_batches`: stride = seq_len, so
+        windows never overlap; chunked into groups of `batch_size`. Yields the
+        same TensorDict schema as `sample()` (no `initial` — the eval caller
+        rebuilds a zeroed initial per batch). The last chunk may be smaller.
+        """
+        torch = self._torch
+        from tensordict import TensorDict
+
+        dev = self.device
+        starts_all = np.arange(0, self.size - self.L + 1, self.L)
+        n_total = len(starts_all)
+        if max_batches is not None:
+            n_total = min(n_total, max_batches * self.B)
+        for chunk in range(0, n_total, self.B):
+            starts = starts_all[chunk : chunk + self.B]
+            if len(starts) == 0:
+                break
+            win = starts[:, None] + np.arange(self.L)[None, :]
+            b = win.shape[0]
+            obs = torch.as_tensor(self.obs[win].astype(np.float32), device=dev)
+            act_idx = torch.as_tensor(self.actions[win].astype(np.int64), device=dev)
+            action = torch.nn.functional.one_hot(act_idx, NUM_ACTIONS).to(torch.float32)
+            reward = torch.as_tensor(
+                self.rewards[win].astype(np.float32), device=dev
+            ).unsqueeze(-1)
+            dones = self.dones[win]
+            is_first = np.zeros_like(dones)
+            is_first[:, 0] = True
+            is_first[:, 1:] = dones[:, :-1]
+            is_first_t = torch.as_tensor(is_first, device=dev).unsqueeze(-1)
+            done_t = torch.as_tensor(dones.astype(np.float32), device=dev).unsqueeze(-1)
+            yield TensorDict(
+                {
+                    "vector": obs,
+                    "action": action,
+                    "reward": reward,
+                    "is_first": is_first_t,
+                    "is_last": done_t,
+                    "is_terminal": done_t,
+                },
+                batch_size=(b, self.L),
+                device=dev,
+            )
+
 
 def _load_metadata(buffer_dir: Path) -> dict:
     """Read collection_metadata.json; tolerate a missing file (all-train)."""
@@ -341,6 +396,87 @@ def _load_features(path: Path) -> np.ndarray:
         return data[key]
     finally:
         data.close()
+
+
+# ---------------------------------------------------------------------------
+# Held-out world-model metrics (mirrors src/r2dreamer/heldout_eval.py)
+# ---------------------------------------------------------------------------
+def compute_heldout_metrics(agent, buffer, *, max_batches=64, k_values=(1, 5, 15)):
+    """Held-out WM metrics with the SAME definitions as the JAX 3D-26 eval.
+
+    Per batch (no grad, full fp32):
+      * dynamics_kl / representation_kl = `rssm.kl_loss(post, prior, kl_free)`
+        means — identical free-bits clipping to training `loss/dyn` `loss/rep`.
+      * reward_mse = MSE of the twohot reward head's expected value
+        (`reward(feat).mode()`, in real reward space) vs the GT reward.
+      * k_step_rollout_mse[k] = start from the posterior at t=0, run
+        `rssm.img_step` with GT actions for k steps, MSE on `get_feat` vs the
+        GT posterior feature at step k.
+      * reconstruction_nll = NaN — decoder-free `rep_loss="r2dreamer"`, same as
+        the JAX side.
+    """
+    import torch
+
+    max_k = max(k_values)
+    if buffer.L < max_k + 1:
+        raise ValueError(f"seq_len {buffer.L} too short for max k_rollout {max_k}")
+
+    rssm = agent.rssm
+    sums = {"loss/dyn": 0.0, "loss/rep": 0.0, "reward_mse": 0.0}
+    rollout_sums = {k: 0.0 for k in k_values}
+    n = 0
+
+    agent.eval()
+    with torch.no_grad():
+        for data in buffer.iter_eval_batches(max_batches=max_batches):
+            b = int(data.batch_size[0])
+            initial = rssm.initial(b)
+            embed = agent.encoder(data)
+            post_stoch, post_deter, post_logit = rssm.observe(
+                embed, data["action"], initial, data["is_first"]
+            )
+            _, prior_logit = rssm.prior(post_deter)
+            dyn, rep = rssm.kl_loss(post_logit, prior_logit, agent.kl_free)
+            sums["loss/dyn"] += float(dyn.mean())
+            sums["loss/rep"] += float(rep.mean())
+
+            feat = rssm.get_feat(post_stoch, post_deter)
+            pred = agent.reward(feat).mode()  # (B, T, 1), expected reward
+            err = pred - data["reward"].to(pred.dtype)
+            sums["reward_mse"] += float(torch.mean(err * err))
+
+            stoch, deter = post_stoch[:, 0], post_deter[:, 0]
+            for step in range(1, max_k + 1):
+                stoch, deter = rssm.img_step(stoch, deter, data["action"][:, step - 1])
+                if step in k_values:
+                    feat_pred = rssm.get_feat(stoch, deter)
+                    feat_gt = rssm.get_feat(post_stoch[:, step], post_deter[:, step])
+                    d = feat_pred - feat_gt
+                    rollout_sums[step] += float(torch.mean(d * d))
+            n += 1
+    agent.train()
+
+    if n == 0:
+        return {}
+    out = {f"heldout/{k}": v / n for k, v in sums.items()}
+    for k, total in rollout_sums.items():
+        out[f"heldout/k_step_rollout_mse/k{k}"] = total / n
+    out["heldout/reconstruction_nll"] = float("nan")  # decoder-free, see docstring
+    out["heldout/num_batches"] = float(n)
+    return out
+
+
+def metrics_table_row(metrics: dict) -> dict:
+    """Translate held-out output into the 3D-26 comparison-table columns."""
+    return {
+        "reconstruction_nll": metrics.get("heldout/reconstruction_nll", float("nan")),
+        "dynamics_kl": metrics.get("heldout/loss/dyn", float("nan")),
+        "representation_kl": metrics.get("heldout/loss/rep", float("nan")),
+        "reward_mse": metrics.get("heldout/reward_mse", float("nan")),
+        "k_step_rollout_k1": metrics.get("heldout/k_step_rollout_mse/k1", float("nan")),
+        "k_step_rollout_k5": metrics.get("heldout/k_step_rollout_mse/k5", float("nan")),
+        "k_step_rollout_k15": metrics.get("heldout/k_step_rollout_mse/k15", float("nan")),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -554,6 +690,34 @@ def main(argv: list[str] | None = None) -> None:
         checkpoint_every=args.checkpoint_every,
         output_dir=output_dir,
     ).run()
+
+    # Final held-out world-model metrics (3D-46). Same definitions + columns as
+    # the JAX 3D-26 eval, so the two are directly comparable.
+    if not args.skip_heldout_eval:
+        heldout_buf = OfflineVectorBuffer(
+            buffer_dir,
+            args.encoder,
+            split="heldout",
+            batch_size=args.batch_size,
+            seq_len=args.seq_len,
+            device=device,
+            seed=args.seed,
+            deter_size=int(model_cfg.rssm.deter),
+            stoch_classes=int(model_cfg.rssm.stoch),
+            stoch_discrete=int(model_cfg.rssm.discrete),
+        )
+        heldout = compute_heldout_metrics(
+            agent, heldout_buf, max_batches=args.heldout_eval_batches
+        )
+        if heldout:
+            (output_dir / "heldout_final.json").write_text(json.dumps(heldout, indent=2))
+            table_row = metrics_table_row(heldout)
+            (output_dir / "heldout_table_row.json").write_text(json.dumps(table_row, indent=2))
+            if wandb_run is not None:
+                wandb_run.log({f"final/{k}": v for k, v in heldout.items()}, step=args.steps)
+            print("Final held-out metrics:")
+            for k, v in heldout.items():
+                print(f"  {k}={v:.6f}")
 
     if wandb_run is not None:
         wandb_run.finish()
