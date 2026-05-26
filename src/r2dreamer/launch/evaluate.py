@@ -70,7 +70,6 @@ def evaluate(
     Returns metrics dict with 'results' and 'meta' keys.
     """
     from src.r2dreamer.launch.registries import encoder_registry
-    from src.r2dreamer.adapters import VGGT_FEATURE_DIM
     from src.shared.configs import DreamerConfig
     from src.environments.habitat import HabitatObjectNavEnv
 
@@ -117,7 +116,7 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    if eff_encoder == "vggt":
+    if eff_encoder in {"vggt", "vggt_aggregator_mlp"}:
         render_resolution = args.render_resolution if args.render_resolution is not None else 518
     else:
         render_resolution = args.render_resolution if args.render_resolution is not None else 64
@@ -136,7 +135,7 @@ def evaluate(
 
     # --- Build encoder + adapter ---
     encoder_cls = encoder_registry[eff_encoder]
-    if eff_encoder == "vggt":
+    if eff_encoder in {"vggt", "vggt_aggregator_mlp"}:
         enc = encoder_cls(resolution=render_resolution)
     else:
         enc = encoder_cls()
@@ -144,18 +143,11 @@ def evaluate(
 
     # --- Build agent ---
     encoder_spec = enc.spec()
-    if eff_encoder == "vggt":
-        from src.r2dreamer.adapters import VGGT_FEATURE_DIM
-        agent_config_kwargs: dict = {
-            "encoder_type": "vggt",
-            "encoder_module_cls": encoder_spec.module_cls,
-            "obs_shape": (VGGT_FEATURE_DIM,),
-        }
-    else:
-        agent_config_kwargs = {
-            "encoder_module_cls": encoder_spec.module_cls,
-            "obs_shape": (3, 64, 64),
-        }
+    agent_config_kwargs: dict = {
+        "encoder_type": encoder_spec.encoder_type,
+        "encoder_module_cls": encoder_spec.module_cls,
+        "obs_shape": encoder_spec.obs_shape,
+    }
     config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
     rng_key = jax.random.PRNGKey(args.seed)
 
