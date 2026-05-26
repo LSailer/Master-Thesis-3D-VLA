@@ -1,10 +1,11 @@
 #!/bin/bash
 # Bootstrap a git worktree for ML runs.
 #
-# Symlinks the heavy, gitignored shared dirs (`data/`, `.venv/`) from the
-# main checkout into the current worktree so that CWD-relative paths
+# Symlinks the heavy, gitignored shared dirs (`data/`, `.venv/`, `output/`)
+# from the main checkout into the current worktree so that CWD-relative paths
 # (e.g. Habitat dataset configs) and the shared Python env work without
-# re-downloading or re-installing.
+# re-downloading or re-installing, and run artifacts written under `output/`
+# survive the worktree being removed (they live in the main checkout).
 #
 # Idempotent: re-running on an already-bootstrapped worktree is a no-op
 # that prints the current state of each link.
@@ -65,7 +66,7 @@ echo "Bootstrapping worktree: $worktree_root"
 echo "Main checkout:          $main_root"
 echo
 
-for name in data .venv; do
+for name in data .venv output; do
     link_shared "$name"
 done
 
