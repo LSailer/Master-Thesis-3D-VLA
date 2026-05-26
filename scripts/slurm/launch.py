@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""Render and validate YAML-backed Slurm launch configs."""
+"""Render and validate YAML-backed Slurm launch configs.
+
+One universal renderer turns a per-variant YAML config (optionally extending a
+base via ``extends:``) into a complete sbatch script. ``launch.sh`` pipes the
+rendered script to ``sbatch``. Validation is fail-fast: a malformed config
+raises *before* any job is submitted.
+
+The schema is intentionally job-family-agnostic. A config supplies a ``script``
+entrypoint plus a free-form ``args`` mapping; the renderer turns each ``args``
+entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted).
+Optional ``env``/``setup``/``curriculum_check`` blocks cover env vars, pre-run
+hooks, and the curriculum-generation guard used by the habitat training jobs.
+"""
 
 from __future__ import annotations
 
@@ -15,23 +27,12 @@ from ruamel.yaml import YAML
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT / "scripts" / "slurm" / "configs"
-ARG_ORDER = (
-    "steps",
-    "prefill",
-    "checkpoint_every",
-    "output_dir",
-    "seed",
-    "log_every",
-    "wandb_project",
-    "wandb_name",
-    "wandb_tags",
-    "render_resolution",
-)
-QUOTE_ARGS = {"output_dir", "seed", "wandb_name", "wandb_tags"}
+
+Mode = Literal["prod", "smoke"]
 
 
 class SbatchConfig(BaseModel):
-    """SBATCH directives shared by all modes."""
+    """#SBATCH resource directives shared by all modes."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -43,61 +44,63 @@ class SbatchConfig(BaseModel):
     time: str
 
 
-class ArgsConfig(BaseModel):
-    """Training arguments forwarded to the Python training entrypoint."""
-
-    model_config = ConfigDict(extra="allow")
-
-    steps: int = Field(..., gt=0)
-    prefill: int = Field(..., ge=0)
-    checkpoint_every: int = Field(..., gt=0)
-    output_dir: str
-    seed: str | int
-    log_every: int = Field(..., gt=0)
-    wandb_project: str
-    wandb_name: str
-    wandb_tags: str
-    render_resolution: int = Field(..., gt=0)
-
-
 class SmokeConfig(BaseModel):
-    """Mode-specific overrides for dev-cluster smoke submissions."""
+    """Mode-specific overrides for short dev-cluster smoke submissions."""
 
     model_config = ConfigDict(extra="forbid")
 
-    partition: str = "dev_gpu_h100"
+    partition: str = "gpu_h100_short"
     time: str = "00:30:00"
     args: dict[str, Any] = Field(default_factory=dict)
+    assert_file: str | None = None  # path under the run dir the smoke must produce
+    assert_min_rows: int | None = None  # minimum `wc -l` for assert_file (if a table)
 
 
 class LaunchConfig(BaseModel):
-    """Fully merged launch config."""
+    """Fully merged + validated launch config for one variant."""
 
     model_config = ConfigDict(extra="forbid")
 
     job_name: str
-    output_dir: str
-    script: str
+    output_dir: str  # directory for #SBATCH logs (the run dir lives in args)
+    script: str  # repo-relative python entrypoint
     sbatch: SbatchConfig
-    args: ArgsConfig
+
+    python: str = "uv run python"  # interpreter prefix (e.g. ".venv/bin/python")
+    arg_style: Literal["underscore", "hyphen"] = "underscore"
+    strict_bash: bool = False  # emit `set -euo pipefail` in prod too (always on for smoke)
+    curriculum_check: str | None = None  # json path; emits a generate-if-missing guard
+
+    args: dict[str, Any] = Field(default_factory=dict)
+    env: dict[str, str] = Field(default_factory=dict)
+    setup: list[str] = Field(default_factory=list)  # raw bash lines run before training
     comments: list[str] = Field(default_factory=list)
     smoke: SmokeConfig = Field(default_factory=SmokeConfig)
 
     @field_validator("script")
     @classmethod
-    def script_must_be_relative(cls, value: str) -> str:
+    def _script_relative(cls, value: str) -> str:
         if Path(value).is_absolute():
             raise ValueError("script must be repo-relative")
         return value
 
+    @field_validator("args")
+    @classmethod
+    def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for key, item in value.items():
+            if isinstance(item, (dict, list)):
+                raise ValueError(
+                    f"args.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
+                )
+        return value
+
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge ``overlay`` onto ``base`` (overlay wins; lists replace)."""
+
     merged = copy.deepcopy(base)
     for key, value in overlay.items():
-        if (
-            isinstance(value, dict)
-            and isinstance(merged.get(key), dict)
-        ):
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = _deep_merge(merged[key], value)
         else:
             merged[key] = copy.deepcopy(value)
@@ -113,19 +116,36 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
-def load_config(name: str) -> LaunchConfig:
-    """Load, merge, and validate a launch config by variant name."""
-
+def _config_path(name: str) -> Path:
     if "/" in name or name.startswith("."):
         raise ValueError(f"Invalid variant name: {name!r}")
+    if not name.endswith(".yaml"):
+        name = f"{name}.yaml"
+    return CONFIG_DIR / name
 
-    raw = _read_yaml(CONFIG_DIR / f"{name}.yaml")
+
+def _resolve_raw(name: str, _seen: tuple[str, ...] = ()) -> dict[str, Any]:
+    """Read a config and recursively merge its full ``extends:`` chain."""
+
+    if name in _seen:
+        chain = " -> ".join((*_seen, name))
+        raise ValueError(f"Circular extends chain: {chain}")
+    raw = _read_yaml(_config_path(name))
     parent = raw.pop("extends", None)
     if parent:
-        parent_name = str(parent)
-        if not parent_name.endswith(".yaml"):
-            parent_name = f"{parent_name}.yaml"
-        raw = _deep_merge(_read_yaml(CONFIG_DIR / parent_name), raw)
+        parent_raw = _resolve_raw(str(parent), (*_seen, name))
+        raw = _deep_merge(parent_raw, raw)
+    return raw
+
+
+def load_config(name: str, *, env_overrides: dict[str, str] | None = None) -> LaunchConfig:
+    """Load, merge, and validate a launch config by variant name."""
+
+    raw = _resolve_raw(name)
+    if env_overrides:
+        merged_env = dict(raw.get("env") or {})
+        merged_env.update(env_overrides)
+        raw["env"] = merged_env
 
     try:
         return LaunchConfig.model_validate(raw)
@@ -133,28 +153,51 @@ def load_config(name: str) -> LaunchConfig:
         raise ValueError(f"Invalid Slurm config for {name!r}:\n{exc}") from exc
 
 
-def _mode_config(config: LaunchConfig, mode: Literal["prod", "smoke"]) -> tuple[SbatchConfig, dict[str, Any]]:
+def _resolve_mode(config: LaunchConfig, mode: Mode) -> tuple[SbatchConfig, dict[str, Any]]:
     sbatch = config.sbatch.model_copy(deep=True)
-    args = dict(config.args.model_dump())
+    args = dict(config.args)
     if mode == "smoke":
         sbatch.partition = config.smoke.partition
         sbatch.time = config.smoke.time
-        args.update(config.smoke.args)
+        args.update(config.smoke.args)  # in-place for existing keys, preserving order
     return sbatch, args
 
 
-def _format_arg(name: str, value: Any) -> str:
+def _flag(name: str, arg_style: str) -> str:
+    if arg_style == "hyphen":
+        name = name.replace("_", "-")
+    return f"--{name}"
+
+
+def _needs_quote(value: str) -> bool:
+    """Quote shell-significant values (matches the hand-written sbatch convention)."""
+
+    return value == "" or any(ch in value for ch in " \t$,")
+
+
+def _format_arg(name: str, value: Any, arg_style: str) -> str:
     rendered = str(value)
-    if name in QUOTE_ARGS:
+    if _needs_quote(rendered):
         rendered = f'"{rendered}"'
-    return f"    --{name} {rendered}"
+    return f"    {_flag(name, arg_style)} {rendered}"
 
 
-def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "prod") -> str:
-    """Render an sbatch script."""
+def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
+    # Skip the (slow) dependency resync for the default uv interpreter on smokes.
+    if mode == "smoke" and config.python == "uv run python":
+        return "uv run --no-sync python"
+    return config.python
 
-    sbatch, args = _mode_config(config, mode)
-    output_dir = config.output_dir if mode == "prod" else f"{config.output_dir}/smoke"
+
+def _run_dir(args: dict[str, Any], config: LaunchConfig) -> str:
+    return str(args.get("output_dir") or args.get("out_dir") or config.output_dir)
+
+
+def render_sbatch(config: LaunchConfig, *, mode: Mode = "prod") -> str:
+    """Render a complete sbatch script for ``mode`` ("prod" or "smoke")."""
+
+    sbatch, args = _resolve_mode(config, mode)
+    log_dir = config.output_dir if mode == "prod" else f"{config.output_dir}/smoke"
     job_name = config.job_name if mode == "prod" else f"smoke-{config.job_name}"
 
     lines = [
@@ -166,15 +209,16 @@ def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "pro
         f"#SBATCH --cpus-per-task={sbatch.cpus_per_task}",
         f"#SBATCH --mem={sbatch.mem}",
         f"#SBATCH --time={sbatch.time}",
-        f"#SBATCH --output={output_dir}/slurm-%j.out",
-        f"#SBATCH --error={output_dir}/slurm-%j.err",
+        f"#SBATCH --output={log_dir}/slurm-%j.out",
+        f"#SBATCH --error={log_dir}/slurm-%j.err",
         "",
     ]
 
+    if config.strict_bash or mode == "smoke":
+        lines.extend(["set -euo pipefail", ""])
+
     if mode == "smoke":
         lines.extend([
-            "set -euo pipefail",
-            "",
             "export WANDB_MODE=offline",
             "export PYTHONFAULTHANDLER=1",
             # Reduce JAX/habitat CUDA contention on short queues
@@ -183,46 +227,70 @@ def render_sbatch(config: LaunchConfig, *, mode: Literal["prod", "smoke"] = "pro
             "",
         ])
 
+    lines.extend([f"mkdir -p {log_dir}", ""])
     lines.extend([
-        f"mkdir -p {output_dir}",
-        "",
         'echo "Job $SLURM_JOB_ID on $(hostname) at $(date)"',
-        'echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo \'N/A\')"',
-        "",
-        "# Generate curriculum configs if not present",
-        "if [ ! -f data/curriculum/level1_1house_1goal.json ]; then",
-        '    echo "Generating curriculum configs..."',
-        "    uv run python scripts/environments/generate_curriculum.py",
-        "fi",
+        "echo \"GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')\"",
         "",
     ])
 
-    for comment in config.comments:
-        lines.append(f"# {comment}")
+    # Define TIMESTAMP only when a rendered value references it.
+    referenced = [*args.values(), *config.env.values()]
+    if any("${TIMESTAMP}" in str(v) for v in referenced):
+        lines.extend(["TIMESTAMP=$(date +%Y%m%d-%H%M%S)", ""])
 
-    train_cmd = "uv run --no-sync python" if mode == "smoke" else "uv run python"
-    lines.append(f"{train_cmd} {config.script} \\")
-    arg_lines = [_format_arg(name, args[name]) for name in ARG_ORDER]
-    for line in arg_lines[:-1]:
-        lines.append(f"{line} \\")
-    lines.append(arg_lines[-1])
+    if config.env:
+        lines.extend(f'export {key}="{value}"' for key, value in config.env.items())
+        lines.append("")
 
-    if mode == "smoke":
-        smoke_output = args["output_dir"]
+    if config.setup:
+        lines.extend(config.setup)
+        lines.append("")
+
+    if config.curriculum_check:
+        lines.extend([
+            "# Generate curriculum configs if not present",
+            f"if [ ! -f {config.curriculum_check} ]; then",
+            '    echo "Generating curriculum configs..."',
+            "    uv run python scripts/environments/generate_curriculum.py",
+            "fi",
+            "",
+        ])
+
+    lines.extend(f"# {comment}" for comment in config.comments)
+
+    python_cmd = _python_cmd(config, mode)
+    arg_lines = [_format_arg(name, value, config.arg_style) for name, value in args.items()]
+    if arg_lines:
+        lines.append(f"{python_cmd} {config.script} \\")
+        lines.extend(f"{line} \\" for line in arg_lines[:-1])
+        lines.append(arg_lines[-1])
+    else:
+        lines.append(f"{python_cmd} {config.script}")
+
+    if mode == "smoke" and config.smoke.assert_file:
+        run_dir = _run_dir(args, config)
+        target = f"{run_dir}/{config.smoke.assert_file}"
         lines.extend([
             "",
-            f'if [ ! -f "{smoke_output}/metrics.csv" ]; then',
-            f'    echo "[FAIL] metrics.csv missing in {smoke_output}" >&2',
+            f'if [ ! -f "{target}" ]; then',
+            f'    echo "[FAIL] {config.smoke.assert_file} missing in {run_dir}" >&2',
             "    exit 1",
             "fi",
-            f'if [ "$(wc -l < "{smoke_output}/metrics.csv")" -lt 5 ]; then',
-            f'    echo "[FAIL] metrics.csv has fewer than 5 rows in {smoke_output}" >&2',
-            "    exit 1",
-            "fi",
+        ])
+        if config.smoke.assert_min_rows is not None:
+            lines.extend([
+                f'if [ "$(wc -l < "{target}")" -lt {config.smoke.assert_min_rows} ]; then',
+                f'    echo "[FAIL] {config.smoke.assert_file} has fewer than '
+                f'{config.smoke.assert_min_rows} rows in {run_dir}" >&2',
+                "    exit 1",
+                "fi",
+            ])
+        lines.extend([
             "",
             'echo "=== Smoke PASS ==="',
-            f'echo "metrics.csv lines: $(wc -l < "{smoke_output}/metrics.csv")"',
-            f'echo "Output: {smoke_output}"',
+            f'echo "{config.smoke.assert_file} lines: $(wc -l < "{target}")"',
+            f'echo "Output: {run_dir}"',
         ])
 
     return "\n".join(lines) + "\n"
@@ -232,15 +300,30 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("variant")
     parser.add_argument("--mode", choices=["prod", "smoke"], default="prod")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override an env var (repeatable); wins over the YAML default",
+    )
+    ns = parser.parse_args(argv)
+
+    env_overrides: dict[str, str] = {}
+    for item in ns.env:
+        if "=" not in item:
+            print(f"launch.py: --env expects KEY=VALUE, got {item!r}", file=sys.stderr)
+            return 2
+        key, value = item.split("=", 1)
+        env_overrides[key] = value
 
     try:
-        config = load_config(args.variant)
+        config = load_config(ns.variant, env_overrides=env_overrides)
     except Exception as exc:
         print(f"launch.py: {exc}", file=sys.stderr)
         return 2
 
-    print(render_sbatch(config, mode=args.mode), end="")
+    print(render_sbatch(config, mode=ns.mode), end="")
     return 0
 
 
