@@ -338,7 +338,7 @@ else:
 
 <h2>The fix</h2>
 
-<p>Add the L1 curriculum to the collection sbatch. The arg threading already exists end-to-end — <code>collect_offline_buffer.py:561</code> defines <code>--curriculum-path</code>, <code>:353</code> forwards it to <code>build_habitat_env</code>, and the env consumes it. Two lines in <a href="../scripts/r2dreamer/slurm/collect_offline_buffer_3d25.sbatch"><code>collect_offline_buffer_3d25.sbatch</code></a>:</p>
+<p>Add the L1 curriculum to the collection sbatch. The arg threading already exists end-to-end — <code>collect_offline_buffer.py:561</code> defines <code>--curriculum-path</code>, <code>:353</code> forwards it to <code>build_habitat_env</code>, and the env consumes it. Two lines in <a href="../archiv/slurm-legacy-sbatch/collect_offline_buffer_3d25.sbatch"><code>collect_offline_buffer_3d25.sbatch</code></a>:</p>
 
 <pre>.venv/bin/python scripts/r2dreamer/collect_offline_buffer.py \
     --checkpoint "${CNN_CHECKPOINT}" \

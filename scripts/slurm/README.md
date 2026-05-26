@@ -40,8 +40,10 @@ The first positional argument(s) are **variant names** — each maps to
 | `aggregator_mlp_v1`  | `run_jax_habitat_vggt_aggregator_mlp.py`    | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
 | `offline_buffer_3d25`| `collect_offline_buffer.py`                 | `collect_offline_buffer_3d25.sbatch`             |
 
-During the coexistence window the legacy `*.sbatch` files remain runnable; they
-are removed in slice s5 (3D-34).
+The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
+`archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
+(`*_actfix`, `*_rerun`, non-vggt levels, `*_resume*`, …) remain in their original
+locations pending separate evaluation.
 
 ## Modes
 
