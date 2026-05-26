@@ -54,7 +54,10 @@ case "${mode}" in
         job_name="3d46-${mode}-${encoder}-s${seed}"
         ;;
     prod)
-        partition=gpu_h100_il
+        # Multi-partition: Slurm starts on whichever H100 partition frees first.
+        # Keeps gpu_h100_il (5 nodes) and adds the larger gpu_h100 (12 nodes);
+        # both are H100, same account/billing — pure upside on queue time.
+        partition=gpu_h100_il,gpu_h100
         # ~29 steps/s on H100 -> ~5h for 500k; budget 8h for the final held-out
         # eval (non-compiled forward over up to 64 batches).
         time_limit=08:00:00

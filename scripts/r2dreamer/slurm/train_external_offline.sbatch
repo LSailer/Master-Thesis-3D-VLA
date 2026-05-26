@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=3d46-external-offline
-#SBATCH --partition=gpu_h100_il
+#SBATCH --partition=gpu_h100_il,gpu_h100
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
