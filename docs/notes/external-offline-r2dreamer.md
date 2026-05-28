@@ -90,15 +90,57 @@ W&B (when `--wandb`): project `3d-vla-objectnav-offline-ablation`, tags
 `run_config.json` (written to `--output-dir`) records both repo and
 `external/r2dreamer` code SHAs plus the buffer metadata for reproducibility.
 
-## Handoff to 3D-46
+## 3D-46 — the 3 baseline runs + comparison
 
-- Launch `--seed {0,1,2}`, `--steps 500000`, `--device cuda:0`, `--wandb`. Runs
-  are independent → parallelizable across nodes (mirror the SLURM pattern in
-  `scripts/slurm/`).
-- Held-out metrics: reuse the train/heldout split above; report dynamics KL,
-  representation KL, reward MSE, k-step rollout error (k ∈ {1,5,15}) — **not**
-  reconstruction NLL (decoder-free on both sides).
-- The only field that may differ across the 3 runs is `--seed`.
+### Held-out metrics (built into the training script)
+
+After training, the script computes held-out WM metrics on the last 10% of
+episodes and writes `heldout_final.json` + `heldout_table_row.json` to the
+output dir (and logs `final/heldout/*` to W&B). Definitions mirror the JAX
+`src/r2dreamer/heldout_eval.py` exactly:
+
+- **dynamics_kl / representation_kl** — `rssm.kl_loss(post, prior, kl_free)`
+  means (same free-bits clipping as training `loss/dyn` / `loss/rep`). The two
+  share a forward value — the `.detach()` only changes which side gets gradient.
+- **reward_mse** — MSE of the twohot reward head's expected value
+  (`reward(feat).mode()`, real reward space) vs the GT reward.
+- **k_step_rollout_mse[k]**, k ∈ {1,5,15} — from the posterior at t=0, run
+  `rssm.img_step` with GT actions for k steps, MSE on `get_feat` vs the GT
+  posterior feature at step k. (Needs `seq_len ≥ 16`.)
+- **reconstruction_nll = NaN** — decoder-free on both sides.
+
+Disable with `--skip-heldout-eval`; tune batches with `--heldout-eval-batches`
+(default 64, matching the JAX final eval).
+
+### Launching the runs (SLURM)
+
+```
+# smoke (gpu_h100_short, 200 steps, validates GPU + buffer + eval + W&B)
+scripts/r2dreamer/slurm/submit_external_offline.sh smoke 0
+
+# the 3 prod runs (gpu_h100_il, 500k steps, ~5 h each, parallelizable)
+for s in 0 1 2; do scripts/r2dreamer/slurm/submit_external_offline.sh prod "$s"; done
+```
+
+Only `--seed` differs across the 3 prod runs (verifiable from each
+`run_config.json`). Throughput ~29 steps/s on one H100 ⇒ ~5 h/seed.
+
+### Comparison table (after the runs finish)
+
+```
+python scripts/r2dreamer/build_offline_comparison.py \
+    --external-glob 'output/3d46-external-offline/wp_cp-seed*/run-*/heldout_table_row.json' \
+    --jax-glob      'output/3d26-offline-ablation/wp_cp-seed*/run-*/heldout_table_row.json' \
+    --out-md  docs/notes/offline-ablation-comparison.md \
+    --out-csv docs/notes/offline-ablation-comparison.csv
+```
+
+If the JAX 3D-26 output dirs aren't on disk, pass `--jax-wandb` instead — it
+reads each JAX run's `final/heldout/*` summary from the
+`3d-vla-objectnav-offline-ablation` W&B project (tags `3d-26,wp_cp`). The
+builder emits a markdown table (JAX vs PyTorch, mean ± std over 3 seeds) and a
+per-seed CSV; **reconstruction NLL is excluded** from the head-to-head (N/A on
+both sides).
 
 ## Tests
 
