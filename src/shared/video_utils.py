@@ -50,10 +50,11 @@ def _resize_panel(frame: np.ndarray, target_size: int = MAX_PANEL_SIZE) -> np.nd
     return frame
 
 
-def compose_frame(rgb: np.ndarray, topdown: np.ndarray) -> np.ndarray:
-    """Return a side-by-side RGB frame with both panels fit to 256px."""
-    left = _resize_panel(_as_hwc_uint8(rgb))
-    right = _resize_panel(_as_hwc_uint8(topdown))
+def compose_frame(rgb: np.ndarray, topdown: np.ndarray,
+                  panel_size: int = MAX_PANEL_SIZE) -> np.ndarray:
+    """Return a side-by-side RGB frame with both panels fit to ``panel_size``."""
+    left = _resize_panel(_as_hwc_uint8(rgb), panel_size)
+    right = _resize_panel(_as_hwc_uint8(topdown), panel_size)
     height = max(left.shape[0], right.shape[0])
 
     def pad(panel: np.ndarray) -> np.ndarray:
@@ -70,8 +71,9 @@ def render_topdown_frame(
     env: Any,
     trajectory_so_far: Sequence[Sequence[float]],
     goal_positions: Sequence[Sequence[float]],
+    size_px: int = 256,
 ) -> np.ndarray:
-    """Render a top-down Habitat map frame as ``(H, W, 3) uint8``."""
+    """Render a top-down Habitat map frame as ``(size_px, size_px, 3) uint8``."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -81,7 +83,8 @@ def render_topdown_frame(
     else:
         from src.environments.habitat import sample_navmesh
         nav = sample_navmesh(env._env, resolution=0.1)
-    fig, ax = plt.subplots(1, 1, figsize=(2.56, 2.56), dpi=100)
+    dpi = 100
+    fig, ax = plt.subplots(1, 1, figsize=(size_px / dpi, size_px / dpi), dpi=dpi)
 
     extent = [nav["x_min"], nav["x_max"], nav["z_max"], nav["z_min"]]
     ax.imshow(nav["grid"], extent=extent, cmap="Greys_r", alpha=0.3)
@@ -118,3 +121,29 @@ def log_episode_video(wandb_module: Any, key: str, frames: list[np.ndarray],
     wandb_video = wandb_module.Video(video, fps=fps, format="mp4")
     wandb_module.log({key: wandb_video}, step=step)
     return wandb_video
+
+
+def write_mp4_local(path: str, frames: list[np.ndarray], fps: int = 10) -> str | None:
+    """Write frames as an MP4 to ``path``. Caps frames to ``MAX_VIDEO_FRAMES``."""
+    if not frames:
+        return None
+    import imageio.v2 as imageio
+
+    stride = max(1, math.ceil(len(frames) / MAX_VIDEO_FRAMES))
+    frames = frames[::stride][:MAX_VIDEO_FRAMES]
+    hwc = [_as_hwc_uint8(f) for f in frames]
+    h, w = hwc[0].shape[:2]
+    # H.264 requires even pixel dimensions; pad bottom/right by 1 if needed.
+    if h % 2 or w % 2:
+        pad_h = h % 2
+        pad_w = w % 2
+        hwc = [np.pad(f, ((0, pad_h), (0, pad_w), (0, 0)), constant_values=0) for f in hwc]
+
+    writer = imageio.get_writer(path, fps=fps, codec="libx264", quality=8,
+                                macro_block_size=None)
+    try:
+        for frame in hwc:
+            writer.append_data(frame)
+    finally:
+        writer.close()
+    return path

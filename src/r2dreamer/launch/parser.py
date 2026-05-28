@@ -96,6 +96,13 @@ def _build_parser_eval() -> argparse.ArgumentParser:
                    help="Override shim curriculum path (escape hatch)")
     p.add_argument("--render_resolution", type=int, default=None,
                    help="Render resolution (default: 518 for vggt, 64 for cnn)")
+    p.add_argument("--video_render_resolution", type=int, default=None,
+                   help="If set, render env at this resolution for video frames "
+                        "and downsample to --render_resolution before the policy. "
+                        "Lets a CNN trained at 64x64 produce e.g. 512x512 video.")
+    p.add_argument("--save_video_path", type=str, default=None,
+                   help="Directory to write per-episode MP4 videos locally")
+    p.add_argument("--video_fps", type=int, default=10)
     p.add_argument("--split", type=str, default="val")
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")

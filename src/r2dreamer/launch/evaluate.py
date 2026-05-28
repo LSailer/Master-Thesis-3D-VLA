@@ -20,6 +20,8 @@ from src.shared.video_utils import (
     compose_frame,
     log_episode_video,
     render_topdown_frame,
+    resize_chw_uint8,
+    write_mp4_local,
 )
 
 
@@ -121,8 +123,21 @@ def evaluate(
         render_resolution = args.render_resolution if args.render_resolution is not None else 518
     else:
         render_resolution = args.render_resolution if args.render_resolution is not None else 64
+
+    # Decouple a (higher-fidelity) video render from the policy input. The env
+    # renders at video_render_resolution; we downsample to render_resolution
+    # before the policy sees it. None / equal-to-render_resolution disables.
+    video_render_resolution = args.video_render_resolution
+    if video_render_resolution is not None and video_render_resolution < render_resolution:
+        raise ValueError(
+            f"--video_render_resolution ({video_render_resolution}) must be "
+            f">= --render_resolution ({render_resolution})"
+        )
+    env_render_resolution = video_render_resolution or render_resolution
+    downsample_for_policy = env_render_resolution != render_resolution
+
     hab_config = DreamerConfig(
-        obs_shape=(3, render_resolution, render_resolution),
+        obs_shape=(3, env_render_resolution, env_render_resolution),
         max_episode_steps=500,
         split=args.split,
         reward_type="geodesic_delta",
@@ -175,11 +190,17 @@ def evaluate(
     ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
     results = []
 
+    def _policy_obs(env_obs: dict) -> dict:
+        """Downsample obs['image'] to policy render_resolution; passthrough otherwise."""
+        if not downsample_for_policy:
+            return env_obs
+        return {**env_obs, "image": resize_chw_uint8(env_obs["image"], render_resolution)}
+
     for ep_idx in range(args.episodes):
         obs = env_instance.reset()
         if adapter.on_episode_reset:
             adapter.on_episode_reset()
-        _, agent_obs = adapter.transform(obs)
+        _, agent_obs = adapter.transform(_policy_obs(obs))
         actions_taken = []
         rewards = []
         trajectory = []
@@ -193,10 +214,15 @@ def evaluate(
         trajectory.append(start_pos)
         headings.append(_get_agent_heading(env_instance))
         video_frames = []
-        record_video = wandb_module is not None and ep_idx < args.log_video_episodes
+        # Record video if either W&B logging or local MP4 output is requested.
+        record_video = ep_idx < args.log_video_episodes and (
+            wandb_module is not None or args.save_video_path is not None
+        )
         if record_video:
-            topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-            video_frames.append(compose_frame(obs["image"], topdown))
+            topdown = render_topdown_frame(
+                env_instance, trajectory, goal_positions, size_px=env_render_resolution)
+            video_frames.append(
+                compose_frame(obs["image"], topdown, panel_size=env_render_resolution))
 
         for _step in range(500):
             if agent is not None:
@@ -206,7 +232,7 @@ def evaluate(
                 action = np.random.randint(0, config.num_actions)
 
             next_obs = env_instance.step(action)
-            _, next_agent_obs = adapter.transform(next_obs)
+            _, next_agent_obs = adapter.transform(_policy_obs(next_obs))
             actions_taken.append(int(action))
             rewards.append(float(next_obs["reward"]))
 
@@ -214,8 +240,11 @@ def evaluate(
             trajectory.append(pos)
             headings.append(_get_agent_heading(env_instance))
             if record_video:
-                topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-                video_frames.append(compose_frame(next_obs["image"], topdown))
+                topdown = render_topdown_frame(
+                    env_instance, trajectory, goal_positions,
+                    size_px=env_render_resolution)
+                video_frames.append(compose_frame(
+                    next_obs["image"], topdown, panel_size=env_render_resolution))
 
             if next_obs["done"]:
                 obs = next_obs
@@ -251,6 +280,12 @@ def evaluate(
         if record_video:
             log_episode_video(
                 wandb_module, f"eval/episode_video_{ep_idx}", video_frames, ep_idx)
+            if args.save_video_path is not None:
+                os.makedirs(args.save_video_path, exist_ok=True)
+                mp4_path = os.path.join(
+                    args.save_video_path, f"episode_{ep_idx:03d}.mp4")
+                write_mp4_local(mp4_path, video_frames, fps=args.video_fps)
+                print(f"  wrote video {mp4_path}")
 
         print(
             f"Episode {ep_idx}: steps={len(actions_taken):3d}  "
