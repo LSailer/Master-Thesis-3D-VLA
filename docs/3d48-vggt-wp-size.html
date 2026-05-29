@@ -103,7 +103,7 @@
       <span class="pill">issue&nbsp;<b>3D-48</b></span>
       <span class="pill">branch&nbsp;<b>lucasailerls/3d-48-…</b></span>
       <span class="pill">spun&nbsp;off&nbsp;<b>3D-53</b></span>
-      <span class="pill">real&nbsp;frame&nbsp;<b>H100 job 4861360</b></span>
+      <span class="pill">real&nbsp;frame&nbsp;<b>L1 ep_009/step_038</b></span>
       <span class="pill"><b>196×</b>&nbsp;point reduction</span>
     </div>
   </div>
@@ -134,7 +134,7 @@
       <li>Our wrapper then <b>average-pools each 14×14 patch block</b> into a single point <span class="arrow">→</span> <span class="hl-b">37×37×3</span>, a <b>196× point reduction</b>, and feeds that to R2Dreamer.</li>
       <li>So this is <b>not a VGGT bug and not a paper-misreading</b>. It is an <b>engineering subsample we added</b>, to keep the feature vector at <code>37·37·3 + 9 = 4116</code> dims.</li>
     </ul>
-    <p style="margin-bottom:0">The pooling is exactly the <code>adaptive_avg_pool</code> over each patch cell — we verified <code>pooled == 14×14&nbsp;mean</code> to <code>4e-7</code> on a real frame.</p>
+    <p style="margin-bottom:0">The pooling is exactly the <code>adaptive_avg_pool</code> over each patch cell — we verified <code>pooled == 14×14&nbsp;mean</code> to <code>8e-7</code> on a real frame.</p>
   </div>
 </section>
 
@@ -204,8 +204,8 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
 
 <!-- ============================================================ -->
 <section id="visual">
-  <h2><span class="n">04</span>Visual evidence — on a real Habitat frame</h2>
-  <p>We ran the model once (H100, job 4861360) on a real Habitat observation and captured <em>both</em> resolutions from the same forward pass. Everything below is real data, not a mock-up.</p>
+  <h2><span class="n">04</span>Visual evidence — on a real L1 frame</h2>
+  <p>We ran the model on a real L1 navigation frame (the chair-only HM3D house, <code>episode_009/step_038</code> — a living room with a lamp, sofa, and a doorway to a brighter room) and captured <em>both</em> resolutions from the same forward pass. Everything below is real data, not a mock-up.</p>
 
   <figure>
     <img src="images/3d48/fig_grid_overlay.png" alt="Input RGB with 37x37 patch grid overlay">
@@ -245,9 +245,9 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
   <div class="stat-row">
     <div class="stat"><div class="v">3.22 MB</div><div class="l">dense, per frame</div></div>
     <div class="stat"><div class="v">16.4 KB</div><div class="l">pooled, per frame</div></div>
-    <div class="stat"><div class="v">4e-7</div><div class="l">max |pooled − block-mean|</div></div>
+    <div class="stat"><div class="v">8e-7</div><div class="l">max |pooled − block-mean|</div></div>
   </div>
-  <p><b>How much signal is actually lost?</b> Within each 14×14 cell the XYZ standard deviation averages <code>≈0.008</code> (X,Y) and <code>0.003</code> (Z), but spikes to <code>0.036</code> at edges — against a scene that spans only ~1.4 units. So pooling is near-lossless on flat surfaces and lossy precisely at object boundaries and depth steps (Figs 3, 5). The <b>3.22 MB → 16.4 KB</b> gap is also why naively storing dense WP would blow up the offline buffer ~196× — the trade-off tracked in <b>3D-53</b>.</p>
+  <p><b>How much signal is actually lost?</b> Within each 14×14 cell the XYZ standard deviation averages <code>≈0.013</code> (X), <code>0.010</code> (Y), <code>0.016</code> (Z), but spikes to <code>0.30</code> in depth at edges — against a scene that spans ~2.1 units. So pooling is near-lossless on flat surfaces and lossy precisely at object boundaries and depth steps like the doorway (Figs 3, 5). The <b>3.22 MB → 16.4 KB</b> gap is also why naively storing dense WP would blow up the offline buffer ~196× — the trade-off tracked in <b>3D-53</b>.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -307,7 +307,7 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
 </section>
 
 <footer><div>
-  3D-48 · VGGT WP size reconciliation · evidence on real Habitat frame (H100 job 4861360) · checkpoint <code>lch01/StreamVGGT</code> · branch <code>lucasailerls/3d-48-fix-vggt-wp-input-size</code>. Related: 3D-24/25/26/46 (WP/CP path), 3D-52 (MLP encoder), 3D-53 (full-res WP → CNN).
+  3D-48 · VGGT WP size reconciliation · evidence on real L1 frame (episode_009/step_038) · checkpoint <code>lch01/StreamVGGT</code> · branch <code>lucasailerls/3d-48-fix-vggt-wp-input-size</code>. Related: 3D-24/25/26/46 (WP/CP path), 3D-52 (MLP encoder), 3D-53 (full-res WP → CNN).
 </div></footer>
 
 </div>

@@ -23,6 +23,19 @@ GRID = 37
 IMG = 518
 
 
+def _max_var_cell(dense: np.ndarray) -> tuple[int, int]:
+    """Patch cell (row, col) whose 14x14 block has the largest XYZ spread.
+
+    Highlighting an edge cell (rather than a flat one) makes the pooling
+    loss visible in the grid-overlay and block-zoom figures.
+    """
+    blocks = (dense.reshape(GRID, PATCH, GRID, PATCH, 3)
+              .transpose(0, 2, 1, 3, 4).reshape(GRID, GRID, PATCH * PATCH, 3))
+    std = blocks.std(axis=2).sum(axis=-1)  # (37, 37) total XYZ std per cell
+    r, c = np.unravel_index(int(std.argmax()), std.shape)
+    return int(r), int(c)
+
+
 def _pct_norm(a: np.ndarray, lo: float = 2.0, hi: float = 98.0) -> np.ndarray:
     """Per-channel percentile min-max normalise to [0, 1] for display."""
     out = np.empty_like(a, dtype=np.float32)
@@ -78,7 +91,7 @@ def fig_depth(dense, pooled, outdir: Path) -> None:
     plt.close(fig)
 
 
-def fig_grid_overlay(rgb_chw, outdir: Path) -> None:
+def fig_grid_overlay(rgb_chw, cell: tuple[int, int], outdir: Path) -> None:
     """Input RGB with the 37x37 patch grid overlaid; one cell highlighted."""
     rgb = np.transpose(rgb_chw, (1, 2, 0))  # HWC uint8
     fig, ax = plt.subplots(figsize=(7.5, 7.5))
@@ -86,8 +99,8 @@ def fig_grid_overlay(rgb_chw, outdir: Path) -> None:
     for i in range(GRID + 1):
         ax.axhline(i * PATCH - 0.5, color="white", lw=0.3, alpha=0.5)
         ax.axvline(i * PATCH - 0.5, color="white", lw=0.3, alpha=0.5)
-    # Highlight one cell (centre-ish) — all 14x14 = 196 pixels -> 1 point.
-    r, c = 18, 18
+    # Highlight the most depth-variable cell — all 14x14 = 196 pixels -> 1 point.
+    r, c = cell
     ax.add_patch(plt.Rectangle((c * PATCH - 0.5, r * PATCH - 0.5), PATCH, PATCH,
                                fill=False, edgecolor="red", lw=2.0))
     ax.set_title(f"Input RGB {IMG}x{IMG} with {GRID}x{GRID} patch grid\n"
@@ -121,9 +134,9 @@ def fig_pointcloud(dense, pooled, outdir: Path) -> None:
     plt.close(fig)
 
 
-def fig_block_zoom(dense, pooled, outdir: Path) -> None:
+def fig_block_zoom(dense, pooled, cell: tuple[int, int], outdir: Path) -> None:
     """Zoom one 14x14 dense block and show the single pooled value it becomes."""
-    r, c = 18, 18
+    r, c = cell
     block = dense[r * PATCH:(r + 1) * PATCH, c * PATCH:(c + 1) * PATCH, :]
     mean_pt = block.reshape(-1, 3).mean(0)
     pooled_pt = pooled[r, c]
@@ -155,12 +168,14 @@ def main() -> None:
     rgb = d["input_rgb"]                 # (3, 518, 518) uint8
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    print(f"dense {dense.shape}  pooled {pooled.shape}  rgb {rgb.shape}")
+    cell = _max_var_cell(dense)
+    print(f"dense {dense.shape}  pooled {pooled.shape}  rgb {rgb.shape}  "
+          f"highlight cell {cell}")
     fig_xyz_image(dense, pooled, args.outdir)
     fig_depth(dense, pooled, args.outdir)
-    fig_grid_overlay(rgb, args.outdir)
+    fig_grid_overlay(rgb, cell, args.outdir)
     fig_pointcloud(dense, pooled, args.outdir)
-    fig_block_zoom(dense, pooled, args.outdir)
+    fig_block_zoom(dense, pooled, cell, args.outdir)
     print(f"Wrote figures to {args.outdir}")
 
 

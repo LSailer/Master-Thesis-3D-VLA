@@ -37,11 +37,17 @@ def main() -> None:
     p.add_argument("--frame-index", type=int, default=0)
     p.add_argument("--out", required=True, type=Path)
     p.add_argument("--device", default="cuda")
+    p.add_argument("--dtype", default="bf16", choices=["bf16", "fp32"],
+                   help="fp32 forces the XLA attention path (CPU-capable); "
+                        "bf16 uses cuDNN flash attention (GPU only).")
     args = p.parse_args()
+
+    import jax.numpy as jnp
+    dtype = {"bf16": jnp.bfloat16, "fp32": jnp.float32}[args.dtype]
 
     rgb = _load_frame(args.frames, args.frame_index)  # (3, 518, 518) uint8
 
-    ext = JAXVGGTFeatureExtractor(device=args.device)
+    ext = JAXVGGTFeatureExtractor(device=args.device, dtype=dtype)
     ext.reset()
     out = ext.extract(rgb, return_dense=True)
 
