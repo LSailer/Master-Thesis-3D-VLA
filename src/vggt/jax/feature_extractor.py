@@ -339,8 +339,16 @@ class JAXVGGTFeatureExtractor:
         self,
         rgb: np.ndarray,
         phase_times: dict[str, list[float]] | None = None,
+        return_dense: bool = False,
     ) -> dict[str, jnp.ndarray]:
-        """Single-frame streaming inference."""
+        """Single-frame streaming inference.
+
+        When ``return_dense`` is True the result dict additionally carries
+        ``dense_world_points`` — the pre-pool DPT point map at full
+        518x518x3 resolution (one 3D point per pixel, the paper's
+        "pixel-as-point" map). Diagnostic only (see issue 3D-48); the
+        default path is unaffected and does not materialize it.
+        """
         profiling = phase_times is not None
         fwd_t0 = time.perf_counter() if profiling else 0.0
 
@@ -418,6 +426,10 @@ class JAXVGGTFeatureExtractor:
 
             world_points_out = world_points[0].astype(jnp.float32)
             camera_pose_out = camera_pose[0].astype(jnp.float32)
+            # Pre-pool dense map (N, 518, 518, 3) -> (518, 518, 3); 3D-48.
+            dense_world_points_out = (
+                pts3d[0].astype(jnp.float32) if return_dense else None
+            )
 
             if profiling:
                 wrap_t1 = time.perf_counter()
@@ -441,9 +453,12 @@ class JAXVGGTFeatureExtractor:
         self._frame_idx += 1
 
         if self._compute_heads:
-            return {
+            out = {
                 "world_points": world_points_out,
                 "camera_pose": camera_pose_out,
                 "aggregator_features": aggregator_features,
             }
+            if return_dense:
+                out["dense_world_points"] = dense_world_points_out
+            return out
         return {"aggregator_features": aggregator_features}
