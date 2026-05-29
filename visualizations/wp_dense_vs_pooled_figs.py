@@ -46,27 +46,34 @@ def _pct_norm(a: np.ndarray, lo: float = 2.0, hi: float = 98.0) -> np.ndarray:
     return out
 
 
-def fig_xyz_image(dense, pooled, outdir: Path) -> None:
-    """XYZ map as a false-colour image: dense vs pooled (nearest-upsampled)."""
-    dense_rgb = _pct_norm(dense)
-    pooled_rgb = _pct_norm(pooled)
-    pooled_up = np.repeat(np.repeat(pooled_rgb, PATCH, axis=0), PATCH, axis=1)
+def fig_rgb_resolution(rgb_chw, outdir: Path) -> None:
+    """Input frame at full resolution vs averaged onto the 37x37 patch grid.
+
+    Shows the *spatial sampling density* of the world points in the scene's
+    real colours: VGGT regresses one 3D point per pixel (dense) but we keep
+    only one per 14x14 patch (pooled). Averaging the input RGB on the same
+    grid makes that resolution drop intuitive without false-colouring XYZ.
+    """
+    rgb = np.transpose(rgb_chw, (1, 2, 0)).astype(np.float32) / 255.0  # (518,518,3)
+    pooled = rgb.reshape(GRID, PATCH, GRID, PATCH, 3).mean(axis=(1, 3))  # (37,37,3)
+    pooled_up = np.repeat(np.repeat(pooled, PATCH, axis=0), PATCH, axis=1)
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5.4))
-    ax[0].imshow(dense_rgb)
-    ax[0].set_title(f"Dense pts3d  {dense.shape[0]}x{dense.shape[1]}x3\n"
-                    f"{dense.shape[0] * dense.shape[1]:,} points (1 / pixel)")
+    ax[0].imshow(rgb)
+    ax[0].set_title(f"Full resolution  {IMG}x{IMG}\n"
+                    f"{IMG * IMG:,} samples (1 / pixel)")
     ax[1].imshow(pooled_up, interpolation="nearest")
-    ax[1].set_title(f"Pooled world_points {GRID}x{GRID}x3\n"
-                    f"{GRID * GRID:,} points, shown upsampled (blocky)")
-    ax[2].imshow(pooled_rgb, interpolation="nearest")
-    ax[2].set_title(f"Pooled, native {GRID}x{GRID}\n(what we feed R2Dreamer)")
+    ax[1].set_title(f"Averaged to {GRID}x{GRID}\n"
+                    f"{GRID * GRID:,} samples, upsampled (blocky)")
+    ax[2].imshow(pooled, interpolation="nearest")
+    ax[2].set_title(f"Native {GRID}x{GRID}\n(world-point grid resolution)")
     for a in ax:
         a.set_xticks([]); a.set_yticks([])
-    fig.suptitle("World-point map (XYZ -> RGB) — 14x14 average pooling loss",
-                 fontsize=13, y=1.06)
+    fig.suptitle("Spatial resolution of the world points — one 3D point per "
+                 "14x14 patch (input RGB shown on the same grid)",
+                 fontsize=13, y=1.04)
     fig.tight_layout()
-    fig.savefig(outdir / "fig_xyz_image.png", dpi=130, bbox_inches="tight")
+    fig.savefig(outdir / "fig_rgb_resolution.png", dpi=130, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -134,6 +141,41 @@ def fig_pointcloud(dense, pooled, outdir: Path) -> None:
     plt.close(fig)
 
 
+def fig_colored_cloud(dense, pooled, rgb_chw, outdir: Path) -> None:
+    """Paper-style coloured point cloud: dense vs pooled.
+
+    Geometry is the VGGT point map (XYZ); colour is *borrowed from the input
+    image* by pixel index (exactly how VGGT reconstructions are coloured for
+    display). The world model itself receives only the XYZ positions.
+    """
+    rgb = np.transpose(rgb_chw, (1, 2, 0)).astype(np.float32) / 255.0
+    pooled_rgb = rgb.reshape(GRID, PATCH, GRID, PATCH, 3).mean(axis=(1, 3))
+
+    dP = dense.reshape(-1, 3)
+    dC = np.clip(rgb.reshape(-1, 3), 0, 1)
+    stride = max(1, dP.shape[0] // 45000)
+    dP, dC = dP[::stride], dC[::stride]
+    pP = pooled.reshape(-1, 3)
+    pC = np.clip(pooled_rgb.reshape(-1, 3), 0, 1)
+
+    fig = plt.figure(figsize=(13, 6.4))
+    for k, (P, C, title) in enumerate([
+        (dP, dC, f"Dense — {dense.shape[0] * dense.shape[1]:,} points (1 / pixel)"),
+        (pP, pC, f"Pooled — {GRID * GRID:,} points (1 / 14x14 patch)"),
+    ]):
+        ax = fig.add_subplot(1, 2, k + 1, projection="3d")
+        ax.scatter(P[:, 0], P[:, 1], P[:, 2], c=C, s=(2 if k == 0 else 22),
+                   depthshade=False)
+        ax.set_title(title, fontsize=11)
+        ax.set_xlabel("x"); ax.set_ylabel("y"); ax.set_zlabel("z")
+        ax.view_init(elev=-70, azim=-90)
+    fig.suptitle("World-point cloud (geometry = VGGT point map; colour borrowed "
+                 "from input frame for display only)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(outdir / "fig_colored_cloud.png", dpi=130, bbox_inches="tight")
+    plt.close(fig)
+
+
 def fig_block_zoom(dense, pooled, cell: tuple[int, int], outdir: Path) -> None:
     """Zoom one 14x14 dense block and show the single pooled value it becomes."""
     r, c = cell
@@ -171,10 +213,11 @@ def main() -> None:
     cell = _max_var_cell(dense)
     print(f"dense {dense.shape}  pooled {pooled.shape}  rgb {rgb.shape}  "
           f"highlight cell {cell}")
-    fig_xyz_image(dense, pooled, args.outdir)
+    fig_rgb_resolution(rgb, args.outdir)
     fig_depth(dense, pooled, args.outdir)
     fig_grid_overlay(rgb, cell, args.outdir)
     fig_pointcloud(dense, pooled, args.outdir)
+    fig_colored_cloud(dense, pooled, rgb, args.outdir)
     fig_block_zoom(dense, pooled, cell, args.outdir)
     print(f"Wrote figures to {args.outdir}")
 

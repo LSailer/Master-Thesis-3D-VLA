@@ -213,14 +213,14 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
   </figure>
 
   <figure>
-    <img src="images/3d48/fig_xyz_image.png" alt="XYZ map as RGB: dense vs pooled">
-    <figcaption><b>Fig 2 — XYZ as a false-colour image.</b> Left: dense 518² point map (one point/pixel). Middle: our 37² map, upsampled — note the blockiness. Right: the native 37² grid, the actual tensor fed to R2Dreamer. The faint horizontal feature on the right is a real depth edge that survives densely but is smeared by pooling.</figcaption>
+    <img src="images/3d48/fig_colored_cloud.png" alt="Coloured point cloud: dense vs pooled">
+    <figcaption><b>Fig 2 — Coloured reconstruction (dense vs pooled).</b> Geometry is VGGT's XYZ point map; colour is <em>borrowed from the input frame by pixel index</em> — exactly how the paper colours its reconstructions. Left: dense 518² (one point/pixel). Right: the 1,369-point 37² grid R2Dreamer receives. The model itself is fed only the XYZ positions, <b>never colour</b>.</figcaption>
   </figure>
 
   <div class="grid2">
     <figure>
       <img src="images/3d48/fig_depth.png" alt="Depth channel dense vs pooled">
-      <figcaption><b>Fig 3 — Depth (Z) detail.</b> Sharp structures — the door-frame edge on the right, the thin horizontal sill — are crisp at 518² and blockified at 37².</figcaption>
+      <figcaption><b>Fig 3 — Depth (Z) detail.</b> Sharp structures — the doorway opening, the lamp, the staircase post — are crisp at 518² and blockified at 37². Depth (Z) is a real channel the world model receives.</figcaption>
     </figure>
     <figure>
       <img src="images/3d48/fig_pointcloud.png" alt="3D point cloud dense vs pooled">
@@ -232,6 +232,16 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
     <img src="images/3d48/fig_block_zoom.png" alt="One 14x14 block averaged to one point">
     <figcaption><b>Fig 5 — What pooling does to one cell.</b> A single 14×14 block holds 196 distinct 3D points; pooling replaces them with their mean (verified identical to the pooled value). In smooth regions this is nearly lossless; at edges it averages across the discontinuity.</figcaption>
   </figure>
+
+  <h3>Is the point map geometry or colour? (verification)</h3>
+  <p>Both the input image and the point map are <code>H×W×3</code>, so it's natural to ask whether the 3 channels are RGB. They are not — they are <b>XYZ coordinates</b>. This is checked by <code>scripts/vggt/verify_pointmap_is_xyz.py</code> (no GPU needed):</p>
+  <figure>
+    <img src="images/3d48/verify_pointmap.png" alt="Verification: point map is XYZ, not colour">
+    <figcaption><b>Fig 6 — The point map is geometry, not colour.</b> Left: cloud coloured from the input pixels (coherent room). Middle: same geometry with colours <em>shuffled</em> against position — breaking the pixel pairing turns it to noise, proving colour is an external per-pixel overlay (borrowed from the input image), not stored in the point map. Right: the point map's own values as false-colour (R=X, G=Y, B=Z) — clearly not a photo.</figcaption>
+  </figure>
+  <div class="card callout">
+    <p style="margin:0"><b>Evidence (printed by the script).</b> Point-map values are signed with negatives — <code>X[-0.65,0.92] Y[-0.58,0.33] Z[0.18,1.28]</code> — which colours (0–255) can never be; X correlates <code>+0.96</code> with image column and Y <code>+0.97</code> with row (back-projected camera rays); and shuffling colours vs positions raises the neighbour-colour difference <b>×13</b>. So the Dreamer feed is <code>37×37×3</code> XYZ + 9-D pose = 4116 dims, with <b>no colour and no confidence channel</b>.</p>
+  </div>
 </section>
 
 <!-- ============================================================ -->
