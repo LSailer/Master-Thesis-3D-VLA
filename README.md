@@ -83,3 +83,7 @@ tmux attach -t gpu-work
 ```
 
 **Key:** tmux must wrap srun (not the reverse) — detaching tmux preserves the GPU allocation.
+
+## Watch HTML inside the Cluster
+From the repo on the cluster (you're presumably on Remote-SSH), run in the VS Code terminal:
+    cd docs && python3 -m http.server 8000 
