@@ -83,6 +83,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Override cfg.seq_len (production default 64).")
     p.add_argument("--lr", type=float, default=None,
                    help="Override cfg.lr (production default 4e-5).")
+    p.add_argument("--train_ratio", type=int, default=None,
+                   help="Override cfg.train_ratio (production default 512). Lower "
+                        "values bound train_step count for short smoke runs.")
     # --- Latent-size ablation (3D-50) ---
     p.add_argument("--latent_preset", choices=["small", "default", "large"],
                    default="default",

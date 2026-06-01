@@ -77,6 +77,34 @@ class TestHybridEncoder:
         assert jnp.allclose(fused, expected)
 
 
+class TestDecoderGuard:
+    """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
+
+    def _cfg(self, encoder_type, obs_shape):
+        from src.r2dreamer.config import R2DreamerConfig
+        return R2DreamerConfig(
+            encoder_type=encoder_type, obs_shape=obs_shape, decoder=True,
+            deter_size=64, stoch_classes=4, stoch_discrete=4, hidden_size=32,
+            mlp_units=32, vggt_embed_dim=8, mlp_vggt_hidden=8, mlp_vggt_layers=2,
+            num_actions=4,
+        )
+
+    def test_vggt_plus_decoder_raises(self):
+        import jax
+        from src.r2dreamer.agent import R2DreamerAgent
+        with pytest.raises(ValueError, match="decoder=True requires"):
+            R2DreamerAgent(self._cfg("vggt", (4116,)), jax.random.PRNGKey(0))
+
+    def test_cnn_and_hybrid_plus_decoder_build(self):
+        import jax
+        from src.r2dreamer.agent import R2DreamerAgent
+        # Both RGB-bearing encoders must construct with a decoder.
+        a = R2DreamerAgent(self._cfg("cnn", (3, 64, 64)), jax.random.PRNGKey(0))
+        assert "decoder" in a.params
+        b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
+        assert "decoder" in b.params
+
+
 class TestConvDecoder:
     def test_output_shape_and_range(self, rng):
         dec = ConvDecoder()

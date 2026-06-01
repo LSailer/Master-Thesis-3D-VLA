@@ -154,6 +154,39 @@ def evaluate(
         "encoder_module_cls": encoder_spec.module_cls,
         "obs_shape": encoder_spec.obs_shape,
     }
+
+    # Recover the trained ARCHITECTURE from the run's MANIFEST.json so eval can
+    # load non-default checkpoints — latent-size ablation (deter/stoch), the VGGT
+    # MLP depth, hybrid MLP dims, a co-trained decoder, etc. Without this,
+    # from_checkpoint rebuilds the modules with config defaults and the param
+    # pytree mismatches the saved weights. Only architecture-determining fields
+    # are threaded (not runtime knobs like lr/steps); obs_shape/encoder_type/
+    # module_cls stay as set above.
+    if not args.random and eff_checkpoint is not None:
+        import json
+        from pathlib import Path
+
+        _manifest = Path(eff_checkpoint).resolve().parents[1] / "MANIFEST.json"
+        if _manifest.is_file():
+            try:
+                _saved = json.loads(_manifest.read_text()).get("config", {})
+            except (ValueError, OSError):
+                _saved = {}
+            _ARCH_FIELDS = (
+                "deter_size", "hidden_size", "stoch_classes", "stoch_discrete",
+                "blocks", "dyn_layers", "obs_layers", "img_layers",
+                "encoder_depth", "encoder_kernel", "encoder_mults",
+                "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
+                "mlp_vggt_layers", "mlp_units", "mlp_layers_reward",
+                "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",
+                "twohot_bins", "decoder",
+            )
+            for _k in _ARCH_FIELDS:
+                if _k in _saved:
+                    agent_config_kwargs[_k] = (
+                        tuple(_saved[_k]) if _k == "encoder_mults" else _saved[_k]
+                    )
+
     config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
     rng_key = jax.random.PRNGKey(args.seed)
 

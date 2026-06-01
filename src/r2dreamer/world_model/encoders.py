@@ -220,8 +220,10 @@ class HybridEncoder(nn.Module):
     def branches(self, obs):
         """Diagnostic split: (cnn_embed, gated_vggt_embed, gate_scalar).
 
-        Shares params with ``__call__`` (both go through ``_branches``); used by
-        the agent's loss to log per-branch contribution metrics.
+        Shares params with ``__call__`` (both go through ``_branches``). A
+        standalone accessor used by tests; the training loss derives the same
+        per-branch contribution metrics more cheaply by slicing the
+        already-computed fused ``embed`` rather than calling this.
         """
         cnn_e, vggt_e = self._branches(obs)
         return cnn_e, vggt_e, self.gate

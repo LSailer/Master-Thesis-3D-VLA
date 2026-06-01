@@ -127,6 +127,8 @@ def train(
         agent_overrides["lr"] = args.lr
     if args.mlp_layers is not None:
         agent_overrides["vggt_mlp_layers"] = args.mlp_layers
+    if getattr(args, "train_ratio", None) is not None:
+        agent_overrides["train_ratio"] = args.train_ratio
 
     # Latent-size ablation (3D-50): preset, then explicit flags win.
     preset = getattr(args, "latent_preset", "default")

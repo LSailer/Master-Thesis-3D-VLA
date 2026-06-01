@@ -292,6 +292,12 @@ class R2DreamerAgent:
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
+            if config.encoder_type not in ("cnn", "hybrid"):
+                raise ValueError(
+                    "decoder=True requires encoder_type in {'cnn', 'hybrid'} — the "
+                    "ConvDecoder reconstructs an RGB image, but "
+                    f"{config.encoder_type!r} carries no RGB modality to reconstruct."
+                )
             rng_key, k_dec = jax.random.split(rng_key)
             self.decoder_mod = ConvDecoder(
                 depth=config.encoder_depth,
