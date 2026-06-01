@@ -9,6 +9,7 @@ PRESETS = [
     ("habitat", "cnn",  "L3"),
     ("habitat", "cnn",  "L4"),
     ("habitat", "vggt", "L1"),
+    ("habitat", "hybrid", "L1"),
     ("crafter", "cnn",  None),
 ]
 

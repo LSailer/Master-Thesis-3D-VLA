@@ -7,7 +7,13 @@ head. The choice between them is set by `R2DreamerConfig.encoder_type`.
 import jax.numpy as jnp
 import flax.linen as nn
 
+from .heads import R2MLP
 from .rssm import RMSNorm
+
+# Hybrid buffer layout (see HybridObsAdapter): a single flat float32 vector
+# ``[ rgb_normalised_flat (HYBRID_RGB_DIM) | wp_cp (HYBRID_VGGT_DIM) ]``.
+HYBRID_RGB_DIM = 3 * 64 * 64  # 12288 — the CNN branch's 64x64 RGB, flattened
+HYBRID_VGGT_DIM = 4116        # world_points 37*37*3 + camera_pose 9
 
 
 def _symlog(x: jnp.ndarray) -> jnp.ndarray:
@@ -153,3 +159,105 @@ class WPConvEncoder(nn.Module):
         x = jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW
         x = x.reshape(x.shape[0], -1)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class HybridEncoder(nn.Module):
+    """Hybrid encoder feeding the latent BOTH modalities at once (3D-50/51/52).
+
+    Input is the flat hybrid buffer vector ``[ rgb (HYBRID_RGB_DIM) | wp_cp
+    (HYBRID_VGGT_DIM) ]``. The RGB slice is reshaped to ``(B, 3, 64, 64)`` and
+    run through the standard ``ConvEncoder``; the WP/CP slice is run through an
+    MLP (the Linear->MLP upgrade of 3D-52). The two branch embeddings are
+    concatenated to form the ``embed`` that conditions the RSSM posterior.
+
+    The VGGT branch is multiplied by a single learnable scalar ``gate``
+    initialised to **zero** (Flamingo/ResNet zero-gamma style): at init the
+    branch contributes nothing, so the model behaves exactly like a CNN-Dreamer
+    and the VGGT pathway "opens" only as training finds it useful. Crucially the
+    MLP itself is *normally* initialised — zeroing both the gate and the MLP
+    output would strand the gate at zero (``dloss/dgate`` would also be 0). The
+    gate value is logged as the headline "how much WP/CP the latent uses" signal.
+
+    ``setup()`` (not ``@nn.compact``) defines the submodules and the gate once so
+    that ``__call__`` and the diagnostic ``branches`` method share identical
+    parameters.
+    """
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    vggt_embed_dim: int = 1024
+    mlp_hidden: int = 1024
+    mlp_layers: int = 2
+    rgb_dim: int = HYBRID_RGB_DIM
+    vggt_dim: int = HYBRID_VGGT_DIM
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        # Standard-init MLP (outscale=1.0); the zero-init lives in `gate`, not here.
+        self.vggt_mlp = R2MLP(
+            hidden=self.mlp_hidden, layers=self.mlp_layers, out_dim=self.vggt_embed_dim
+        )
+        self.gate = self.param("gate", nn.initializers.zeros, ())
+
+    def _branches(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
+            raise ValueError(
+                f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid features, "
+                f"got {obs.shape}"
+            )
+        rgb = obs[..., : self.rgb_dim].reshape(obs.shape[0], 3, 64, 64)
+        wp_cp = obs[..., self.rgb_dim :]
+        cnn_e = self.cnn(rgb)
+        vggt_e = self.gate * self.vggt_mlp(wp_cp)
+        return cnn_e, vggt_e
+
+    def __call__(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, vggt_e], axis=-1)
+
+    def branches(self, obs):
+        """Diagnostic split: (cnn_embed, gated_vggt_embed, gate_scalar).
+
+        Shares params with ``__call__`` (both go through ``_branches``); used by
+        the agent's loss to log per-branch contribution metrics.
+        """
+        cnn_e, vggt_e = self._branches(obs)
+        return cnn_e, vggt_e, self.gate
+
+
+class ConvDecoder(nn.Module):
+    """Transpose-conv image decoder for visual verification (3D-51).
+
+    Maps the RSSM feature ``feat`` (B, F) back to an RGB image ``(B, 3, 64, 64)``
+    in [0, 1]. Mirrors ``ConvEncoder``: a Dense lifts ``feat`` to a 4x4 grid,
+    then four stride-2 ``ConvTranspose`` stages (4->8->16->32->64) with
+    RMSNorm+SiLU, and a final 1-conv to 3 channels + sigmoid. R2-Dreamer is
+    decoder-free by default; this is only built when ``cfg.decoder`` is set, so
+    existing CNN/VGGT runs are unaffected.
+    """
+    depth: int = 16
+    kernel_size: int = 5
+    mults: tuple = (2, 3, 4, 4)
+    out_channels: int = 3
+    base_res: int = 4  # 4x4 -> (x2)^4 -> 64x64
+
+    @nn.compact
+    def __call__(self, feat):
+        b = feat.shape[0]
+        ch0 = self.depth * self.mults[-1]
+        x = nn.Dense(self.base_res * self.base_res * ch0, name="in")(feat)
+        x = x.reshape(b, self.base_res, self.base_res, ch0)  # NHWC
+        for i, mult in enumerate(reversed(self.mults)):
+            ch = self.depth * mult
+            x = nn.ConvTranspose(
+                ch, (self.kernel_size, self.kernel_size), strides=(2, 2),
+                padding="SAME", name=f"deconv{i}",
+            )(x)
+            x = RMSNorm(name=f"norm{i}")(x)
+            x = nn.silu(x)
+        x = nn.Conv(self.out_channels, (self.kernel_size, self.kernel_size),
+                    padding="SAME", name="out")(x)
+        x = nn.sigmoid(x)
+        return jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW, matches RGB layout

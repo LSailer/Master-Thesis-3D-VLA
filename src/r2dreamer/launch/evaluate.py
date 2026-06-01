@@ -116,10 +116,11 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) need 518x518 frames;
-    # the plain CNN baseline uses 64. Drive everything else off the EncoderSpec.
-    is_vggt = eff_encoder.startswith("vggt")
-    default_resolution = 518 if is_vggt else 64
+    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
+    # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
+    # driven off the EncoderSpec below.
+    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
+    default_resolution = 518 if needs_hires else 64
     render_resolution = (
         args.render_resolution if args.render_resolution is not None else default_resolution
     )
@@ -138,13 +139,16 @@ def evaluate(
 
     # --- Build encoder + adapter ---
     encoder_cls = encoder_registry[eff_encoder]
-    enc = encoder_cls(resolution=render_resolution) if is_vggt else encoder_cls()
+    enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
     adapter = enc.make_adapter()
 
     # --- Build agent ---
     # Source encoder_type + obs_shape from the spec so every registered encoder
     # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn) evaluates correctly.
     encoder_spec = enc.spec()
+    # Source encoder_type + obs_shape from the spec so every registered encoder
+    # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn / hybrid) evaluates
+    # correctly; the hybrid's (16404,) obs_shape and "hybrid" type flow through.
     agent_config_kwargs: dict = {
         "encoder_type": encoder_spec.encoder_type,
         "encoder_module_cls": encoder_spec.module_cls,

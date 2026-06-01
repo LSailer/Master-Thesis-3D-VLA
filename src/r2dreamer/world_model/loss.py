@@ -90,6 +90,22 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         optax.sigmoid_binary_cross_entropy(cont_logits[..., 0], cont_target)
     )
 
+    # ---- Co-trained decoder (image reconstruction; only when cfg.decoder) ----
+    # Off by default → no `decoder` loss key, so the total-loss sum and metrics
+    # are identical to the decoder-free baseline. 3D-51 visual-verification head.
+    if cfg.decoder:
+        recon = modules["decoder"].apply(params["decoder"], feat_flat)  # (BT,3,64,64)
+        if cfg.encoder_type == "hybrid":
+            # Hybrid obs is [ rgb (rgb_dim) | wp_cp (vggt_feature_dim) ]; the RGB
+            # slice is already normalised to [0, 1] by the adapter.
+            rgb_dim = cfg.obs_shape[0] - cfg.vggt_feature_dim  # 16404 - 4116 = 12288
+            rgb_target = batch["obs"].reshape(B * T, -1)[:, :rgb_dim].reshape(B * T, 3, 64, 64)
+        else:
+            # CNN path: obs is already (B, T, 3, 64, 64), normalised to [0, 1].
+            rgb_target = batch["obs"].reshape(B * T, 3, 64, 64)
+        losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
+        metrics["decoder/recon_mse"] = losses["decoder"]
+
     # ---- Latent diagnostics (cheap; once per step) ----
     prior_probs = jax.nn.softmax(prior_logits_flat, axis=-1)
     post_probs = jax.nn.softmax(post_logits_flat, axis=-1)

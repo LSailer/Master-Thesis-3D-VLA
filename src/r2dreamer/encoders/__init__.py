@@ -198,6 +198,32 @@ class VGGTDenseWPEncoder(VGGTEncoder):
     )
 
 
+class HybridEncoder(VGGTEncoder):
+    """CNN(RGB 64) + gated MLP(WP+CP 4116) fused into a single latent."""
+
+    feature_kind = "wp_cp"
+    encoder_type = "hybrid"
+    module_cls = wm_encoders.HybridEncoder
+    # World_points + camera_pose are required, so the extractor must build at
+    # 518 with heads (compute_heads=True, inherited from VGGTEncoder).
+    vggt_compute_heads = True
+    # 16404-d float32 at 1M ~= 65GB host RAM > node's 64GB; 100k ~= 6.5GB.
+    agent_overrides = {"buffer_capacity": 100_000}
+    design_notes = (
+        "Hybrid encoder: a CNN branch over the 64x64 RGB frame and a gated MLP "
+        "branch over the 4116-dim VGGT world_points+camera_pose vector are fused "
+        "(concatenated) into the latent. A zero-init scalar gate on the WP/CP "
+        "branch means training starts as plain CNN-Dreamer and only blends in the "
+        "geometric features as the gate opens; per-branch contributions are logged "
+        "as hybrid/* metrics (3D-50/51/52)."
+    )
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+
+        return HybridObsAdapter(self._extractor)
+
+
 __all__ = [
     "EncoderSpec",
     "Encoder",
@@ -205,4 +231,5 @@ __all__ = [
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
     "VGGTDenseWPEncoder",
+    "HybridEncoder",
 ]

@@ -6,13 +6,17 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
+from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
+    HybridEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
 )
+from src.r2dreamer.world_model import encoders as wm_encoders
+from src.shared.video_utils import resize_chw_uint8
 
 
 _FIXTURES = Path(__file__).parent / "fixtures"
@@ -214,6 +218,85 @@ class TestVGGTEncoderConfiguration:
         np.testing.assert_allclose(replay_features, expected)
         assert agent_obs["features"].shape == (3 * 4,)
         assert agent_obs["features"].dtype.name == "float32"
+
+
+class TestHybridEncoder:
+    """L2/L3 tests for the hybrid (CNN + gated WP/CP MLP) encoder.
+
+    No GPU / real VGGT: the spec test monkeypatches the extractor used inside
+    the spec class, and the adapter test injects a hand-rolled fake extractor
+    whose ``.extract()`` returns world_points (37,37,3) + camera_pose (9,).
+    """
+
+    def test_hybrid_encoder_exposes_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        spec = HybridEncoder().spec()
+        assert isinstance(spec, EncoderSpec)
+        assert spec.encoder_type == "hybrid"
+        assert spec.obs_shape == (16404,)
+        assert spec.env_render_resolution == 518
+        assert spec.module_cls is wm_encoders.HybridEncoder
+
+    def test_hybrid_adapter_builds_rgb_wp_cp_layout(self):
+        # Fake VGGT extractor: extract() -> world_points (37,37,3) + camera_pose (9,)
+        # so flatten_world_points_camera_pose yields 37*37*3 + 9 = 4116.
+        world_points = np.arange(37 * 37 * 3, dtype=np.float32).reshape(37, 37, 3)
+        camera_pose = np.arange(9, dtype=np.float32) + 100.0
+
+        class FakeExtractor:
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {
+                    "world_points": jnp.asarray(world_points),
+                    "camera_pose": jnp.asarray(camera_pose),
+                }
+
+        adapter = HybridObsAdapter(FakeExtractor())
+        assert isinstance(adapter, ObsAdapter)
+        assert adapter.buffer_shape == (16404,)
+        assert adapter.buffer_dtype == "float32"
+        assert adapter.normalize_on_sample is False
+
+        rng = np.random.default_rng(0)
+        image = rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
+        obs_dict = {"image": image, "is_first": True}
+
+        replay, agent_obs = adapter.transform(obs_dict)
+
+        assert replay.shape == (16404,)
+        assert replay.dtype == np.float32
+
+        # RGB slice: normalized 64x64 resize of the input, in [0, 1].
+        img64 = resize_chw_uint8(image, 64)  # (3,64,64) uint8
+        expected_rgb = (img64.astype(np.float32) / 255.0).reshape(-1)
+        assert replay[:12288].min() >= 0.0
+        assert replay[:12288].max() <= 1.0
+        np.testing.assert_allclose(replay[:12288], expected_rgb)
+
+        # WP/CP slice: flattened world_points then camera_pose.
+        expected_wp_cp = np.concatenate(
+            [world_points.reshape(-1), camera_pose]
+        ).astype(np.float32)
+        np.testing.assert_allclose(replay[12288:], expected_wp_cp)
+
+        assert np.asarray(agent_obs["hybrid"]).shape == (16404,)
+        assert agent_obs["image"].shape == (3, 64, 64)
 
 
 @pytest.mark.gpu

@@ -83,6 +83,27 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Override cfg.seq_len (production default 64).")
     p.add_argument("--lr", type=float, default=None,
                    help="Override cfg.lr (production default 4e-5).")
+    # --- Latent-size ablation (3D-50) ---
+    p.add_argument("--latent_preset", choices=["small", "default", "large"],
+                   default="default",
+                   help="Latent-size ablation preset (3D-50). Explicit "
+                        "--deter_size/--stoch_classes/--stoch_discrete win over it.")
+    p.add_argument("--deter_size", type=int, default=None,
+                   help="Override cfg.deter_size (explicit; wins over --latent_preset).")
+    p.add_argument("--stoch_classes", type=int, default=None,
+                   help="Override cfg.stoch_classes (explicit; wins over --latent_preset).")
+    p.add_argument("--stoch_discrete", type=int, default=None,
+                   help="Override cfg.stoch_discrete (explicit; wins over --latent_preset).")
+    # --- Co-trained decoder (3D-51) ---
+    p.add_argument("--decoder", action="store_true",
+                   help="Co-train a ConvDecoder + add a reconstruction loss (3D-51).")
+    p.add_argument("--scale_decoder", type=float, default=None,
+                   help="Override cfg.scale_decoder (reconstruction loss weight).")
+    # --- Hybrid VGGT-branch MLP knobs ---
+    p.add_argument("--mlp_vggt_hidden", type=int, default=None,
+                   help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).")
+    p.add_argument("--mlp_vggt_layers", type=int, default=None,
+                   help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).")
     return p
 
 
@@ -91,7 +112,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
     p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn"])
+                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "hybrid"])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

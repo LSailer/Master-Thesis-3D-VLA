@@ -20,7 +20,7 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # "cnn", "vggt", or "vggt_aggregator_mlp"
+    encoder_type: str = "cnn"  # "cnn", "vggt", "vggt_aggregator_mlp", or "hybrid"
     encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5
@@ -33,6 +33,16 @@ class R2DreamerConfig:
     # this to 3 to match R2Dreamer's native encoder.mlp.layers (3D-52). Setting
     # 0 collapses wp_cp to the original bare-linear projection.
     vggt_mlp_layers: int = 1
+    # --- Hybrid encoder (CNN on RGB + MLP on WP/CP, gated; 3D-50/51/52) ---
+    # The hybrid's WP/CP branch has its own width/depth knobs (vggt_mlp_layers
+    # above governs the standalone vggt/aggregator encoders).
+    mlp_vggt_hidden: int = 1024   # hidden width of the hybrid VGGT-branch MLP
+    mlp_vggt_layers: int = 2      # depth of the hybrid VGGT-branch MLP
+    # --- Co-trained decoder (image reconstruction; OFF by default; 3D-51) ---
+    # When False (default) no decoder params are built and no reconstruction
+    # term is added, so CNN/VGGT runs are byte-for-byte unchanged.
+    decoder: bool = False         # build a ConvDecoder + add a reconstruction loss
+    scale_decoder: float = 1.0    # weight of the reconstruction MSE in total loss
     design_notes: str = ""
 
     # --- MLP heads ---

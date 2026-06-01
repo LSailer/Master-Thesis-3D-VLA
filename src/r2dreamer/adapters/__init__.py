@@ -4,10 +4,16 @@ from src.r2dreamer.adapters.vggt_adapter import (
     VGGTObsAdapter,
     VGGT_FEATURE_DIM,
 )
+from src.r2dreamer.adapters.hybrid_adapter import (
+    HybridObsAdapter,
+    HYBRID_FEATURE_DIM,
+)
 
 __all__ = [
     "ObsAdapter",
     "VGGTFeatureKind",
     "VGGTObsAdapter",
     "VGGT_FEATURE_DIM",
+    "HybridObsAdapter",
+    "HYBRID_FEATURE_DIM",
 ]

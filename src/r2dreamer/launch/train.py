@@ -128,6 +128,21 @@ def train(
     if args.mlp_layers is not None:
         agent_overrides["vggt_mlp_layers"] = args.mlp_layers
 
+    # Latent-size ablation (3D-50): preset, then explicit flags win.
+    preset = getattr(args, "latent_preset", "default")
+    if preset == "small":
+        agent_overrides.update(deter_size=1024, stoch_classes=24, stoch_discrete=12)
+    elif preset == "large":
+        agent_overrides.update(deter_size=4096, stoch_classes=48, stoch_discrete=24)
+    for _name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
+        _v = getattr(args, _name, None)
+        if _v is not None:
+            agent_overrides[_name] = _v
+    if getattr(args, "decoder", False):
+        agent_overrides["decoder"] = True
+    if getattr(args, "scale_decoder", None) is not None:
+        agent_overrides["scale_decoder"] = args.scale_decoder
+
     agent_config = R2DreamerConfig(
         encoder_type=encoder_spec.encoder_type,
         encoder_module_cls=encoder_spec.module_cls,
