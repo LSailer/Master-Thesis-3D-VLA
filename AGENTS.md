@@ -2,6 +2,13 @@
 
 This repo is worked on by coding agents on bwUniCluster. Follow these rules for Linear issue implementation and review.
 
+`AGENTS.md` is the tooling-agnostic project contract read by every major agentic CLI (Claude Code, Codex, Cursor, Copilot, Aider, …). The pattern and conventions here follow [matthewsinclair/intent](https://github.com/matthewsinclair/intent). The nearest-ancestor file wins, so large subfolders carry their own scoped module contract — read the one closest to the files you are editing:
+
+- [`src/r2dreamer/AGENTS.md`](src/r2dreamer/AGENTS.md) — R2Dreamer JAX/Flax agent (RSSM, behavior, representation, launch)
+- [`src/vggt/AGENTS.md`](src/vggt/AGENTS.md) — VGGT 3D encoder (PyTorch reference + JAX production port)
+- [`scripts/r2dreamer/AGENTS.md`](scripts/r2dreamer/AGENTS.md) — experiment drivers + SLURM wrappers
+- [`tests/r2dreamer/AGENTS.md`](tests/r2dreamer/AGENTS.md) — R2Dreamer test suite
+
 ## Worktree Setup
 
 When working in a `git worktree` (any directory under `worktrees/`), run once per fresh worktree before any training or eval command:
