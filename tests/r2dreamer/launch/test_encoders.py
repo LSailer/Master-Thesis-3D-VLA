@@ -11,6 +11,7 @@ from src.r2dreamer.encoders import (
     EncoderSpec,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
+    VGGTDenseWPEncoder,
 )
 
 
@@ -123,6 +124,68 @@ class TestVGGTEncoderConfiguration:
             "train_ratio": 128,
         }
         assert "camera token" in spec.design_notes
+
+    def test_dense_wp_encoder_exposes_image_shaped_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+            image_size = 518
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = VGGTDenseWPEncoder(resolution=518)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        # Dense WP is stored channel-first as a (3, 518, 518) float16 image.
+        assert adapter.buffer_shape == (3, 518, 518)
+        assert adapter.buffer_dtype == "float16"
+        assert spec.obs_shape == (3, 518, 518)
+        assert spec.env_render_resolution == 518
+        assert spec.encoder_type == "vggt_wp_dense_cnn"
+        # Needs the point head (the dense map is its raw output).
+        assert enc.vggt_compute_heads is True
+        assert spec.agent_overrides == {
+            "buffer_capacity": 5_000,
+            "batch_size": 4,
+            "seq_len": 32,
+            "train_ratio": 128,
+        }
+
+    def test_dense_wp_adapter_emits_chw_pointmap(self):
+        # Fake extractor returns an (H, W, 3) dense map; adapter must transpose
+        # to (3, H, W) float16 and NOT divide by 255.
+        class FakeExtractor:
+            image_size = 4
+
+            def reset(self):
+                pass
+
+            def extract(self, image, return_dense=False):
+                import jax.numpy as jnp
+                assert return_dense is True, "wp_dense must request the dense map"
+                dense = jnp.arange(4 * 4 * 3, dtype=jnp.float32).reshape(4, 4, 3)
+                return {"dense_world_points": dense}
+
+        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_dense")
+        replay_features, agent_obs = adapter.transform(
+            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        )
+
+        expected = np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
+        assert replay_features.shape == (3, 4, 4)
+        assert replay_features.dtype == np.float16
+        np.testing.assert_allclose(replay_features, expected.astype(np.float16))
+        assert agent_obs["features"].shape == (3, 4, 4)
+        assert agent_obs["features"].dtype.name == "float32"
 
     def test_aggregator_adapter_emits_cam_mean_max_pools(self):
         # Fake extractor with 1 cam + 4 register + 5 patch tokens, D = 4.

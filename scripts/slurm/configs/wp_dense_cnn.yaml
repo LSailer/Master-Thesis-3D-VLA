@@ -1,0 +1,25 @@
+extends: _base
+job_name: wp-dense-cnn
+output_dir: output/r2dreamer-curriculum-l1-vggt-wp-dense
+script: scripts/r2dreamer/run_jax_habitat_vggt_wp_dense.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "Run 2 (3D-53): full-resolution 518x518x3 world points -> Conv encoder"
+  - "No 37x37 average-pool; XYZ fed as a 3-channel image, symlog-normalised"
+  - "WP-only (no camera pose). Buffer 5k frames @ ~1.6 MB float16, batch=4/seq=32"
+  - "    (buffer/batch/seq/train_ratio come from the encoder's agent_overrides)"
+  - "2M steps, 48h wall time"
+sbatch:
+  # 5000 x 518^2 x 3 float16 ~= 8 GB obs buffer; bump node RAM for headroom.
+  mem: 96G
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/r2dreamer-curriculum-l1-vggt-wp-dense/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: wp-dense-cnn-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,wp-dense,full-res-518,cnn,3d-53,jax
+  render_resolution: 518

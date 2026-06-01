@@ -27,6 +27,12 @@ class R2DreamerConfig:
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)
     vggt_feature_dim: int = 4116  # 37*37*3 + 9 (world_points + camera_pose)
     vggt_embed_dim: int = 1024
+    # Depth of the VGGT MLP encoders (wp_cp + aggregator), counting hidden
+    # Dense->RMSNorm->SiLU blocks before the linear readout. Default 1 keeps the
+    # encoder shallow (one hidden block + projection); the experiment runs raise
+    # this to 3 to match R2Dreamer's native encoder.mlp.layers (3D-52). Setting
+    # 0 collapses wp_cp to the original bare-linear projection.
+    vggt_mlp_layers: int = 1
     design_notes: str = ""
 
     # --- MLP heads ---

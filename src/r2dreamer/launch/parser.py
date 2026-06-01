@@ -22,6 +22,12 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument("--render_resolution", type=int, default=518,
                    help="Render resolution for VGGT encoder")
+    p.add_argument("--mlp_layers", type=int, default=None,
+                   help="Depth of the VGGT MLP encoders (wp_cp + aggregator): number "
+                        "of hidden Dense->RMSNorm->SiLU blocks before the linear readout. "
+                        "None keeps the config default (1). The experiment runs pass 3 to "
+                        "match R2Dreamer's native encoder.mlp.layers (3D-52). Ignored by "
+                        "the CNN/dense-WP conv encoders.")
     # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
     # checkpoint cadence so val signals land alongside checkpoints.
     p.add_argument("--val_every", type=int, default=50_000,
@@ -84,7 +90,8 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--encoder", type=str, default=None, choices=["cnn", "vggt"])
+    p.add_argument("--encoder", type=str, default=None,
+                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn"])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

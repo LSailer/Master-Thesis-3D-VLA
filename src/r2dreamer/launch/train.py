@@ -125,6 +125,8 @@ def train(
         agent_overrides["seq_len"] = args.seq_len
     if args.lr is not None:
         agent_overrides["lr"] = args.lr
+    if args.mlp_layers is not None:
+        agent_overrides["vggt_mlp_layers"] = args.mlp_layers
 
     agent_config = R2DreamerConfig(
         encoder_type=encoder_spec.encoder_type,

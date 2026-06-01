@@ -164,10 +164,45 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     )
 
 
+class VGGTDenseWPEncoder(VGGTEncoder):
+    """Full-resolution world-point map (518x518x3) -> Conv encoder (3D-53).
+
+    Unlike the WP/CP variant, this skips the 14x14 average-pool to 37x37 and
+    feeds the dense per-pixel point map straight into a conv stack that treats
+    the XYZ coordinates as a 3-channel image. The point head still runs
+    (``vggt_compute_heads=True``) because the dense map is its raw output;
+    only the pooling + flatten+Dense readout is dropped.
+    """
+
+    feature_kind = "wp_dense"
+    encoder_type = "vggt_wp_dense_cnn"
+    module_cls = wm_encoders.WPConvEncoder
+    # Dense WP needs the point head (the 518² map is its pre-pool output).
+    vggt_compute_heads = True
+    # A 518²x3 float16 frame is ~1.6 MB, vs ~16 KB at 37². Keep the buffer small
+    # and batches modest so replay storage and per-step conv cost stay bounded.
+    agent_overrides = {
+        "buffer_capacity": 5_000,
+        "batch_size": 4,
+        "seq_len": 32,
+        "train_ratio": 128,
+    }
+    design_notes = (
+        "Variant: full-resolution VGGT world points. The DPT point head's dense "
+        "518x518x3 per-pixel map (one metric XYZ point per pixel) is NOT pooled "
+        "to 37x37; it is stored channel-first as a (3, 518, 518) float16 image "
+        "and fed to WPConvEncoder, which symlog-normalises the metric XYZ range "
+        "and runs the RGB Conv+MaxPool+RMSNorm+SiLU stack before a linear "
+        "readout to embed_dim. WP-only (no camera pose): a 9-vector cannot be a "
+        "spatial channel. See issue 3D-53."
+    )
+
+
 __all__ = [
     "EncoderSpec",
     "Encoder",
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTDenseWPEncoder",
 ]

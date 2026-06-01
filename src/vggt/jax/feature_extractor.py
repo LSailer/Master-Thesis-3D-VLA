@@ -193,6 +193,11 @@ class JAXVGGTFeatureExtractor:
         return _IMG_SIZE // _PATCH_SIZE
 
     @property
+    def image_size(self) -> int:
+        """Side length (pixels) of the square RGB input and the dense WP map."""
+        return _IMG_SIZE
+
+    @property
     def aggregator_feature_shape(self) -> tuple[int, int, int]:
         """Shape of one frame's all-token pre-head global aggregator features."""
         return (1 + self._aggregator.num_register_tokens + self.patch_grid ** 2, self._aggregator.embed_dim)

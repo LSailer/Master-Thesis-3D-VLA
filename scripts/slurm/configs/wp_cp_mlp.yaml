@@ -1,0 +1,22 @@
+extends: _base
+job_name: wp-cp-mlp
+output_dir: output/r2dreamer-curriculum-l1-vggt-wp-cp-mlp
+script: scripts/r2dreamer/run_jax_habitat_vggt.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "Run 1 (3D-52): WP/CP readout (37x37 aggregated world points + camera pose)"
+  - "Encoder = depth-3 MLP (Dense->RMSNorm->SiLU x3 + linear readout), replacing"
+  - "the single linear projection to match R2Dreamer's native encoder.mlp.layers"
+  - "2M steps, 48h wall time (VGGT adds ~100ms/step during acting)"
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  mlp_layers: 3
+  output_dir: output/r2dreamer-curriculum-l1-vggt-wp-cp-mlp/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: wp-cp-mlp-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,wp-cp,mlp-3layer,3d-52,jax
+  render_resolution: 518

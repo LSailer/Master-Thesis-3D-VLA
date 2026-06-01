@@ -28,6 +28,7 @@ from .config import R2DreamerConfig
 from .world_model.rssm import R2RSSM
 from .world_model.encoders import (
     ConvEncoder,
+    WPConvEncoder,
     VGGTEncoder as WMVGGTEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
 )
@@ -115,16 +116,40 @@ def _make_encoder(cfg: R2DreamerConfig):
             "cnn": ConvEncoder,
             "vggt": WMVGGTEncoder,
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+            "vggt_wp_dense_cnn": WPConvEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
+    if cls in (ConvEncoder, WPConvEncoder) and cfg.vggt_mlp_layers != 1:
+        # Fail loud instead of silently dropping the knob: conv encoders have no
+        # MLP depth, so a non-default vggt_mlp_layers here is a misconfiguration.
+        raise ValueError(
+            f"vggt_mlp_layers={cfg.vggt_mlp_layers} has no effect on "
+            f"{cls.__name__} (a conv encoder, no MLP blocks). Only the 'vggt' and "
+            f"'vggt_aggregator_mlp' encoders consume vggt_mlp_layers; leave it at 1 "
+            f"for cnn / vggt_wp_dense_cnn."
+        )
     if cls is ConvEncoder:
         return cls(
             depth=cfg.encoder_depth,
             kernel_size=cfg.encoder_kernel,
             mults=cfg.encoder_mults,
         )
-    return cls(embed_dim=cfg.vggt_embed_dim)
+    if cls is WPConvEncoder:
+        # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
+        # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
+        return cls(
+            embed_dim=cfg.vggt_embed_dim,
+            depth=cfg.encoder_depth,
+            kernel_size=cfg.encoder_kernel,
+            mults=cfg.encoder_mults,
+        )
+    # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
+    return cls(
+        embed_dim=cfg.vggt_embed_dim,
+        hidden=cfg.vggt_embed_dim,
+        num_layers=cfg.vggt_mlp_layers,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -298,7 +323,10 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp"):
+        if self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn"):
+            # All VGGT readouts arrive pre-extracted under "features" (the dense
+            # WP map is already a float32 (3, H, W) array). No /255: the values
+            # are VGGT features / metric XYZ, not raw uint8 pixels.
             obs = jnp.asarray(obs_dict["features"])[None]
         else:
             image = obs_dict["image"].astype(np.float32) / 255.0

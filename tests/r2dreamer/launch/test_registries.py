@@ -27,6 +27,7 @@ class TestEncoderRegistry:
         assert "cnn" in encoder_registry
         assert "vggt" in encoder_registry
         assert "vggt_aggregator_mlp" in encoder_registry
+        assert "vggt_wp_dense_cnn" in encoder_registry
 
 
 class TestEnvRegistry:
