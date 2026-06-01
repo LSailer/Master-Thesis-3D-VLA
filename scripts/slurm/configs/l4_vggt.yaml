@@ -9,5 +9,6 @@ args:
   output_dir: output/r2dreamer-curriculum-l4-vggt/run-${SLURM_JOB_ID}
   wandb_name: r2d-L4-vggt-${SLURM_JOB_ID}
   wandb_tags: curriculum,level4,10houses,6goals,vggt,jax,3d-encoder
-  val_data: data/val_replay/val_200ep.npz
-  val_loss_every: 10000
+  # Scalars-only: video_log_every=0 / val_every=0 inherited from l1_vggt.
+  # (Dropped the stale val_data / val_loss_every flags — the parser no longer
+  # accepts them; in-run eval is off and regenerated from checkpoints instead.)

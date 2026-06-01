@@ -71,14 +71,23 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base has since gained two intentional infra changes the frozen legacy
-    # script predates: (1) the GL-teardown hard-exit env var (so every habitat
-    # variant exits 0 on completion), and (2) multi-partition auto-select
-    # (gpu_h100_il,gpu_h100). Normalise those two back out before the
-    # byte-equality check so the rest of the contract still holds.
+    # _base / l1_vggt have since gained three intentional changes the frozen
+    # legacy script predates: (1) the GL-teardown hard-exit env var (so every
+    # habitat variant exits 0 on completion), (2) multi-partition auto-select
+    # (gpu_h100_il,gpu_h100), and (3) the scalars-only flags video_log_every=0 /
+    # val_every=0 (videos + eval regenerated from checkpoints, not during
+    # training). Normalise all three back out before the byte-equality check so
+    # the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
     rendered = rendered.replace(
         "#SBATCH --partition=gpu_h100_il,gpu_h100", "#SBATCH --partition=gpu_h100", 1
+    )
+    rendered = rendered.replace(
+        "    --render_resolution 518 \\\n"
+        "    --video_log_every 0 \\\n"
+        "    --val_every 0",
+        "    --render_resolution 518",
+        1,
     )
     assert rendered == expected
 
@@ -160,7 +169,22 @@ def test_curriculum_variants_match_legacy_args(variant: str, legacy: str) -> Non
 
     assert r_python == l_python == "uv run python"
     assert r_script == l_script
-    assert r_flags == l_flags
+
+    # Intentional divergence from the frozen legacy sbatch: the VGGT arm is now
+    # scalars-only — video + in-run eval disabled (video_log_every=0 /
+    # val_every=0, inherited from l1_vggt), and the stale replay-buffer val
+    # flags (val_data / val_loss_every) dropped since the parser rejects them.
+    # Videos + eval metrics are regenerated from checkpoints. Normalise those
+    # four out, then assert the rest of the training command still matches.
+    assert r_flags["--video_log_every"] == "0"
+    assert r_flags["--val_every"] == "0"
+    assert "--val_data" not in r_flags
+    assert "--val_loss_every" not in r_flags
+
+    intentional = {"--video_log_every", "--val_every", "--val_data", "--val_loss_every"}
+    r_common = {k: v for k, v in r_flags.items() if k not in intentional}
+    l_common = {k: v for k, v in l_flags.items() if k not in intentional}
+    assert r_common == l_common
 
 
 def test_extends_chain_is_recursive() -> None:
@@ -170,9 +194,14 @@ def test_extends_chain_is_recursive() -> None:
     # Inherited from _base via l1_vggt:
     assert config.sbatch.gres == "gpu:1"
     assert config.args["render_resolution"] == 518
+    # Scalars-only flags inherited from l1_vggt (videos/eval regenerated offline):
+    assert config.args["video_log_every"] == 0
+    assert config.args["val_every"] == 0
     # Own override:
     assert config.script.endswith("run_jax_habitat_l2_vggt.py")
-    assert config.args["val_data"] == "data/val_replay/val_200ep.npz"
+    # The stale replay-buffer val flags were dropped (parser no longer accepts them):
+    assert "val_data" not in config.args
+    assert "val_loss_every" not in config.args
 
 
 def test_circular_extends_is_rejected(tmp_path: Path) -> None:
