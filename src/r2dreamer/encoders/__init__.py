@@ -117,6 +117,8 @@ class VGGTEncoder(Encoder):
     # pre-head aggregator tokens, so the extractor can skip camera_head +
     # point_head + world_points wrapper on every frame.
     vggt_compute_heads = True
+    # Grid the dense point map is pooled to for the WP output (37 = patch grid).
+    wp_pool_size = 37
 
     @classmethod
     def from_train_args(cls, args: Any) -> "VGGTEncoder":
@@ -128,6 +130,7 @@ class VGGTEncoder(Encoder):
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
             compute_heads=self.vggt_compute_heads,
+            wp_pool_size=self.wp_pool_size,
         )  # device="cuda" default
 
     def _build_adapter(self) -> ObsAdapter:
@@ -224,6 +227,35 @@ class HybridEncoder(VGGTEncoder):
         return HybridObsAdapter(self._extractor)
 
 
+class VGGTWPCP64Encoder(VGGTEncoder):
+    """WP+CP MLP at a finer 64x64 world-point grid (3D-52/3D-53 follow-up).
+
+    Identical to the WP+CP MLP encoder (same MLP module, same camera pose, same
+    1M-transition replay buffer) but pools VGGT's dense 518x518 point map to
+    64x64 instead of 37x37: obs becomes 64*64*3 + 9 = 12297-D. Holding the
+    architecture and pose fixed and sweeping only the WP resolution (37 -> 64)
+    isolates whether finer geometry helps; 64x64 also matches the RGB-CNN
+    baseline's input resolution. Replaces the conv-on-518² path (WPConvEncoder),
+    since a 12297-D vector is a trivial MLP input (~0.2 ms encoder forward) while
+    the 518² conv was ~4x too slow to finish.
+    """
+
+    encoder_type = "vggt_wp_cp_64"
+    wp_pool_size = 64
+    # Inherits feature_kind="wp_cp", module_cls=VGGTEncoder (MLP),
+    # vggt_compute_heads=True, agent_overrides={buffer_capacity: 1_000_000}.
+    # 64²x3 float32 ~= 49 KB/frame, so 1M transitions ~= 49 GB host RAM -> the
+    # run config bumps node memory accordingly.
+    design_notes = (
+        "WP+CP MLP at a 64x64 world-point grid. VGGT's dense 518x518x3 point map "
+        "is average-pooled (antialiased area resample, since 518 is not divisible "
+        "by 64) to 64x64x3, flattened (12288) and concatenated with the 9-D camera "
+        "pose into a 12297-D observation, then encoded by the same multi-layer MLP "
+        "as the 37x37 WP+CP variant. Only the WP resolution differs (37 -> 64): a "
+        "controlled resolution ablation, at the RGB-CNN baseline resolution."
+    )
+
+
 __all__ = [
     "EncoderSpec",
     "Encoder",
@@ -232,4 +264,5 @@ __all__ = [
     "VGGTAggregatorMLPEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "VGGTWPCP64Encoder",
 ]

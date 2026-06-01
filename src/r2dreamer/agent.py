@@ -119,6 +119,7 @@ def _make_encoder(cfg: R2DreamerConfig):
         cls = {
             "cnn": ConvEncoder,
             "vggt": WMVGGTEncoder,
+            "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
@@ -381,7 +382,7 @@ class R2DreamerAgent:
             # under "hybrid" (already float32, RGB already /255). The encoder
             # slices it back into the CNN and WP/CP branches.
             obs = jnp.asarray(obs_dict["hybrid"])[None]
-        elif self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn"):
+        elif self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64"):
             # All VGGT readouts arrive pre-extracted under "features" (the dense
             # WP map is already a float32 (3, H, W) array). No /255: the values
             # are VGGT features / metric XYZ, not raw uint8 pixels.

@@ -1,0 +1,25 @@
+extends: _base
+job_name: wp-cp-mlp-64
+output_dir: output/r2dreamer-curriculum-l1-vggt-wp-cp-64
+script: scripts/r2dreamer/run_jax_habitat_vggt_wp_cp_64.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53 follow-up)"
+  - "Controlled resolution ablation vs wp_cp_mlp (37x37): same MLP, pose, depth-3,"
+  - "and 1M-transition buffer; ONLY the WP pool grid differs (37 -> 64)."
+  - "obs = 64*64*3 + 9 = 12297; 1M float32 transitions ~= 49 GB host RAM -> mem 128G."
+  - "64x64 also matches the RGB-CNN baseline input resolution. 2M steps, 48h."
+sbatch:
+  mem: 128G
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  mlp_layers: 3
+  output_dir: output/r2dreamer-curriculum-l1-vggt-wp-cp-64/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: wp-cp-mlp-64-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,wp-cp,mlp-3layer,wp-64,3d-52,jax
+  render_resolution: 518

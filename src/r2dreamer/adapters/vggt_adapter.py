@@ -67,7 +67,10 @@ class VGGTObsAdapter(ObsAdapter):
 
     def __init__(self, extractor: VGGTFeatureExtractor, feature_kind: VGGTFeatureKind = "wp_cp"):
         if feature_kind == "wp_cp":
-            buffer_shape = (VGGT_FEATURE_DIM,)
+            # WP grid is configurable (37 default, 64 for the hi-res variant);
+            # flat dim = K*K*3 world points + 9 camera-pose. Defaults to 4116.
+            k = int(getattr(extractor, "wp_pool_size", 37))
+            buffer_shape = (k * k * 3 + 9,)
             buffer_dtype = "float32"
         elif feature_kind == "aggregator":
             embed_dim = int(extractor.aggregator_feature_shape[-1])

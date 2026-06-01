@@ -46,15 +46,31 @@ _PATCH_SIZE = 14
 _DEFAULT_TOTAL_BUDGET = 1_200_000
 
 
-def _adaptive_avg_pool_518_to_37(pts_nhwc: jnp.ndarray) -> jnp.ndarray:
-    """Average-pool (N, 518, 518, C) to (N, 37, 37, C)."""
+def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarray:
+    """Average-pool (N, 518, 518, C) -> (N, out_size, out_size, C).
+
+    When ``out_size`` divides 518 (e.g. 37 -> exact 14x14 cell means) this is a
+    bit-exact block average. Otherwise (e.g. 64, since 518 is not divisible by
+    64) it falls back to an antialiased area resample, which is the closest
+    structure-preserving downsample when no integer cell grid exists. Used to
+    feed the WP+CP MLP at configurable world-point resolutions (3D-52/3D-53).
+    """
     N, H, W, C = pts_nhwc.shape
     if (H, W) != (_IMG_SIZE, _IMG_SIZE):
-        raise ValueError(f"expected (518, 518), got ({H}, {W})")
-    out = pts_nhwc.reshape(
-        N, _PATCH_GRID, _PATCH_SIZE, _PATCH_GRID, _PATCH_SIZE, C
-    ).mean(axis=(2, 4))
-    return out  # (N, 37, 37, C)
+        raise ValueError(f"expected ({_IMG_SIZE}, {_IMG_SIZE}), got ({H}, {W})")
+    if out_size <= 0 or out_size > _IMG_SIZE:
+        raise ValueError(f"out_size must be in [1, {_IMG_SIZE}], got {out_size}")
+    if _IMG_SIZE % out_size == 0:
+        f = _IMG_SIZE // out_size
+        return pts_nhwc.reshape(N, out_size, f, out_size, f, C).mean(axis=(2, 4))
+    return jax.image.resize(
+        pts_nhwc, (N, out_size, out_size, C), method="linear", antialias=True
+    )
+
+
+def _adaptive_avg_pool_518_to_37(pts_nhwc: jnp.ndarray) -> jnp.ndarray:
+    """Average-pool (N, 518, 518, C) to (N, 37, 37, C) (exact 14x14 block mean)."""
+    return _pool_dense_world_points(pts_nhwc, _PATCH_GRID)
 
 
 class JAXVGGTFeatureExtractor:
@@ -75,11 +91,16 @@ class JAXVGGTFeatureExtractor:
         max_camera_frames: int = 1024,
         budgets_static: tuple[int, ...] | None = None,
         compute_heads: bool = True,
+        wp_pool_size: int = _PATCH_GRID,
     ):
         # compute_heads=False skips camera_head + point_head + world_points
         # wrapper in extract(); only `aggregator_features` is returned. Used by
         # encoders that consume the pre-head aggregator tokens directly.
         self._compute_heads = compute_heads
+        # Grid the dense 518² point map is average-pooled to for the `world_points`
+        # output (default 37 = the patch grid). Larger values (e.g. 64) keep finer
+        # geometry for the WP+CP MLP; see _pool_dense_world_points.
+        self._wp_pool_size = int(wp_pool_size)
         self._budgets_static_override = budgets_static
         if device in ("cuda", "gpu"):
             self._device = jax.devices("gpu")[0]
@@ -196,6 +217,11 @@ class JAXVGGTFeatureExtractor:
     def image_size(self) -> int:
         """Side length (pixels) of the square RGB input and the dense WP map."""
         return _IMG_SIZE
+
+    @property
+    def wp_pool_size(self) -> int:
+        """Grid the dense point map is pooled to for the `world_points` output."""
+        return self._wp_pool_size
 
     @property
     def aggregator_feature_shape(self) -> tuple[int, int, int]:
@@ -427,7 +453,7 @@ class JAXVGGTFeatureExtractor:
                 camera_pose.block_until_ready()
                 wrap_t0 = time.perf_counter()
 
-            world_points = _adaptive_avg_pool_518_to_37(pts3d)
+            world_points = _pool_dense_world_points(pts3d, self._wp_pool_size)
 
             world_points_out = world_points[0].astype(jnp.float32)
             camera_pose_out = camera_pose[0].astype(jnp.float32)
