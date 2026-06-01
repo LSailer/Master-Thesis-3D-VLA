@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import os
 import pickle
+import sys
 import time
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
@@ -101,6 +102,15 @@ class TrainerConfig:
     log_every: int = 250
     checkpoint_every: int = 50_000
     seed: int = 0
+
+    # When True, a fully completed run hard-exits the process (os._exit(0))
+    # after the final checkpoint, MANIFEST, and W&B are flushed — skipping
+    # habitat_sim's GL teardown, which SIGABRTs ("no current context") on some
+    # magnum builds and would otherwise poison the exit code of a successful
+    # run. Set by the SLURM launcher (env R2DREAMER_HARD_EXIT_ON_FINISH=1);
+    # left False for notebook/test callers so they keep the normal close() path
+    # and real failures still surface a non-zero exit.
+    hard_exit_on_finish: bool = False
 
     # WandB (None = disabled)
     wandb_project: str | None = "3d-vla-objectnav"
@@ -323,6 +333,16 @@ class Trainer:
             write_manifest_end(Path(tcfg.output_dir), status)
             if self._wandb is not None:
                 self._wandb.finish()
+            if tcfg.hard_exit_on_finish and status == "completed":
+                # habitat_sim's GL teardown SIGABRTs ("no current context") on
+                # some magnum builds, poisoning the exit code AFTER the run has
+                # fully completed (checkpoint + manifest + W&B already flushed
+                # above). Skip the aborting close and exit cleanly. Failures
+                # fall through to close() so their non-zero exit and traceback
+                # survive and the smoke gate still catches real breakage.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
             self.env.close()
             if self.val_env is not None:
                 self.val_env.close()

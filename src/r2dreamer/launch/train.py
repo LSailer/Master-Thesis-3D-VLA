@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -168,6 +169,9 @@ def train(
         overfit_batch_size=args.overfit_batch_size,
         overfit_seq_len=args.overfit_seq_len,
         overfit_min_loss_drop=args.overfit_min_loss_drop,
+        # Opt-in via the SLURM launcher: hard-exit a completed run before the
+        # habitat_sim GL teardown can SIGABRT and poison the exit code.
+        hard_exit_on_finish=os.environ.get("R2DREAMER_HARD_EXIT_ON_FINISH") == "1",
     )
 
     # --- Build trainer ---

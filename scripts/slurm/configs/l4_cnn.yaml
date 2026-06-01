@@ -1,0 +1,22 @@
+extends: _base
+job_name: r2d-L4-cnn
+output_dir: output/r2dreamer-curriculum-l4
+script: scripts/r2dreamer/run_jax_habitat_l4.py
+curriculum_check: data/curriculum/level4_10houses_6goals.json
+comments:
+  - "Level 4 CNN baseline: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories"
+  - "2D-RGB CNN encoder (64x64) — baseline control for the VGGT 3D-encoder comparison"
+  - "2M steps, 24h wall time (matches the VGGT arm's step budget)"
+sbatch:
+  time: "24:00:00"
+args:
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/r2dreamer-curriculum-l4/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: r2d-L4-cnn-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,cnn,baseline,jax,2d-rgb
+  val_every: 50000
+  val_episodes: 50

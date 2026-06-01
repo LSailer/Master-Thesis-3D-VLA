@@ -71,7 +71,12 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    assert result.stdout == expected
+    # _base now injects the GL-teardown hard-exit env var so every habitat
+    # variant exits 0 on completion (habitat_sim's close() SIGABRTs otherwise).
+    # The frozen legacy script predates it; strip that one intentional addition
+    # before the byte-equality check so the rest of the contract still holds.
+    rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
+    assert rendered == expected
 
 
 def test_smoke_then_prod_uses_afterok_dependency_before_prod_submit(tmp_path: Path) -> None:
