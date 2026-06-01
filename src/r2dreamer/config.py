@@ -2,6 +2,15 @@ from dataclasses import dataclass, field
 from typing import Any, Tuple
 
 
+# Latent-size ablation presets (3D-50). Each maps a `--latent_preset` name to the
+# RSSM-size field overrides it applies; explicit CLI flags still win over a preset.
+# Table-driven so adding a preset is a single entry, not another if/elif branch.
+LATENT_PRESETS: dict[str, dict[str, int]] = {
+    "small": {"deter_size": 1024, "stoch_classes": 24, "stoch_discrete": 12},
+    "large": {"deter_size": 4096, "stoch_classes": 48, "stoch_discrete": 24},
+}
+
+
 @dataclass
 class R2DreamerConfig:
     # --- Environment ---
@@ -20,7 +29,7 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # "cnn", "vggt", "vggt_aggregator_mlp", or "hybrid"
+    encoder_type: str = "cnn"  # canonical set: encoder_registry in src.r2dreamer.launch.registries
     encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5

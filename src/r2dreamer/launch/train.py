@@ -30,8 +30,8 @@ def train(
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
-    from src.r2dreamer.launch.curricula import CURRICULA
+    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
+    from src.r2dreamer.launch._helpers import resolve_curriculum_path
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
     from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
@@ -43,16 +43,8 @@ def train(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    # --- Resolve curriculum path ---
-    # CLI --curriculum_path is the escape hatch; otherwise use registry lookup.
-    if args.curriculum_path is not None:
-        curriculum_path = args.curriculum_path
-    elif curriculum is not None:
-        if curriculum not in CURRICULA:
-            raise KeyError(f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}")
-        curriculum_path = str(CURRICULA[curriculum])
-    else:
-        curriculum_path = None
+    # --- Resolve curriculum path (shared with evaluate via launch._helpers) ---
+    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
 
     if env == "habitat" and curriculum_path is None:
         raise ValueError(
@@ -130,12 +122,10 @@ def train(
     if getattr(args, "train_ratio", None) is not None:
         agent_overrides["train_ratio"] = args.train_ratio
 
-    # Latent-size ablation (3D-50): preset, then explicit flags win.
+    # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
+    # explicit flags win.
     preset = getattr(args, "latent_preset", "default")
-    if preset == "small":
-        agent_overrides.update(deter_size=1024, stoch_classes=24, stoch_discrete=12)
-    elif preset == "large":
-        agent_overrides.update(deter_size=4096, stoch_classes=48, stoch_discrete=24)
+    agent_overrides.update(LATENT_PRESETS.get(preset, {}))
     for _name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
         _v = getattr(args, _name, None)
         if _v is not None:

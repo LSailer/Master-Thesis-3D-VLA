@@ -28,8 +28,12 @@ publication plots. Scripts are thin — heavy logic lives in `src/r2dreamer/`.
 ### Live training launchers (shims → `src.r2dreamer.launch.train`)
 `run_jax_habitat.py` (L1 CNN), `…_l2/_l3/_l4.py`, the `_vggt` variants,
 `run_jax_habitat_vggt_aggregator_mlp.py`, `…_vggt_wp_dense.py`, `…_vggt_wp_cp_64.py`,
-`run_jax_habitat_hybrid.py`, `run_jax_crafter.py`. Each is ~14 lines: it just selects
-`(env, encoder, curriculum)` and delegates. Eval shims: `eval_habitat.py`,
+`run_jax_habitat_hybrid.py`, `run_jax_crafter.py`. Newer shims are ~7 lines and
+delegate to `_run_configs.launch_run("<run-id>")`, where the per-run `(env, encoder,
+curriculum, output_dir, wandb_name, wandb_tags)` lives in the `RUN_CONFIGS` table in
+[`_run_configs.py`](_run_configs.py) (single source of truth; encoder validated against
+`encoder_registry` at launch). Older shims still inline their `train(...)` call —
+migrate them into `RUN_CONFIGS` when touched. Eval shims: `eval_habitat.py`,
 `eval_habitat_vggt.py`. Validation shims: `run_parity_training.py`, `run_benchmark.py`.
 
 ### Curriculum / analysis / profiling
