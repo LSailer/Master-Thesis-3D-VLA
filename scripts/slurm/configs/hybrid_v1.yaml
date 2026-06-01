@@ -25,10 +25,7 @@ smoke:
     log_every: 50
     checkpoint_every: 10000
     output_dir: output/smoke/hybrid-${TIMESTAMP}
-    # Dedicated W&B project for smokes (kept separate from the prod
-    # 3d-vla-objectnav project). The job runs WANDB_MODE=offline on the
-    # firewalled compute node; sync from the login node afterwards:
-    #   wandb sync <output_dir>/wandb/offline-run-*
-    wandb_project: hybrid-cnn-vggt-smoke
+    # wandb_project intentionally omitted: inherits the shared smoke project
+    # (3d-vla-objectnav-smoke) from _base.yaml so all smokes land together.
     wandb_name: hybrid-smoke-${TIMESTAMP}
     wandb_tags: hybrid,smoke,cnn+vggt
