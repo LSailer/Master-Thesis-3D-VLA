@@ -1,5 +1,10 @@
 sbatch:
-  partition: gpu_h100
+  # Auto-select the faster queue: SLURM schedules on whichever partition can
+  # run the job soonest. Both are the same H100 hardware (identical speed) with
+  # PreemptMode=OFF; they share PriorityTier, so list order breaks ties — keep
+  # gpu_h100_il first to bias toward the (currently less-contended) il pool,
+  # with gpu_h100 as fallback. il MaxTime is 2 days, so keep prod time <= 48h.
+  partition: gpu_h100_il,gpu_h100
   gres: gpu:1
   ntasks: 1
   cpus_per_task: 8

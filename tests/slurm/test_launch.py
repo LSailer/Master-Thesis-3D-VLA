@@ -71,11 +71,15 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base now injects the GL-teardown hard-exit env var so every habitat
-    # variant exits 0 on completion (habitat_sim's close() SIGABRTs otherwise).
-    # The frozen legacy script predates it; strip that one intentional addition
-    # before the byte-equality check so the rest of the contract still holds.
+    # _base has since gained two intentional infra changes the frozen legacy
+    # script predates: (1) the GL-teardown hard-exit env var (so every habitat
+    # variant exits 0 on completion), and (2) multi-partition auto-select
+    # (gpu_h100_il,gpu_h100). Normalise those two back out before the
+    # byte-equality check so the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
+    rendered = rendered.replace(
+        "#SBATCH --partition=gpu_h100_il,gpu_h100", "#SBATCH --partition=gpu_h100", 1
+    )
     assert rendered == expected
 
 
