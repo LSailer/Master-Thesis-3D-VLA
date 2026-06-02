@@ -24,6 +24,48 @@ class BufferConfig:
     normalize_obs: bool = True
 
 
+def _gather_sequence_batch(
+    starts: np.ndarray,
+    seq_len: int,
+    obs: np.ndarray,
+    actions: np.ndarray,
+    rewards: np.ndarray,
+    dones: np.ndarray,
+    terminals: np.ndarray,
+    normalize: bool,
+) -> dict[str, jnp.ndarray]:
+    """Gather length-``seq_len`` windows at ``starts`` and pack a batch dict.
+
+    Shared by :class:`ReplayBuffer` and :class:`ValReplayDataset`, which differ
+    only in how they choose ``starts`` (ring-buffer wrap arithmetic vs. random
+    per-episode offsets). ``is_first`` is set at t=0 and wherever ``done`` flipped
+    on the previous step; ``obs`` is divided by 255 when ``normalize`` is set.
+    """
+    indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
+    obs_b = obs[indices]
+    actions_b = actions[indices]
+    rewards_b = rewards[indices]
+    dones_b = dones[indices]
+    terminals_b = terminals[indices]
+
+    is_first = np.zeros_like(dones_b)
+    is_first[:, 0] = True
+    is_first[:, 1:] = dones_b[:, :-1]
+
+    obs_jnp = jnp.array(obs_b, dtype=jnp.float32)
+    if normalize:
+        obs_jnp = obs_jnp / 255.0
+
+    return {
+        "obs": obs_jnp,
+        "actions": jnp.array(actions_b, dtype=jnp.int32),
+        "rewards": jnp.array(rewards_b, dtype=jnp.float32),
+        "dones": jnp.array(dones_b, dtype=jnp.float32),
+        "terminals": jnp.array(terminals_b, dtype=jnp.float32),
+        "is_first": jnp.array(is_first, dtype=jnp.float32),
+    }
+
+
 class ReplayBuffer:
     """Ring buffer that stores transitions and samples fixed-length sequences.
 
@@ -65,44 +107,34 @@ class ReplayBuffer:
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int, seq_len: int) -> dict[str, jnp.ndarray]:
+        starts = self._sample_starts(batch_size, seq_len)
+        return _gather_sequence_batch(
+            starts, seq_len, self.obs, self.actions, self.rewards,
+            self.dones, self.terminals, self._normalize,
+        )
+
+    def _sample_starts(self, batch_size: int, seq_len: int) -> np.ndarray:
+        """Pick ``batch_size`` valid sequence start indices into the ring buffer.
+
+        Before the buffer wraps, ``[0, size)`` is contiguous. After it wraps,
+        sequences must not cross the write head, so starts are drawn from the two
+        safe regions ``[0, idx-seq_len]`` (new) and ``[idx, cap-seq_len]`` (old)
+        via a single ``randint`` over their combined length and remapped onto the
+        old region — preserving the original RNG draw order.
+        """
         if self.size < self.capacity:
             # Buffer hasn't wrapped — data in [0, size) is contiguous
             n_valid = self.size - seq_len + 1
             assert n_valid > 0, "Not enough data in buffer"
-            starts = np.random.randint(0, n_valid, size=batch_size)
-        else:
-            # Buffer has wrapped — avoid sequences crossing the write head.
-            # Safe regions: [0, idx-seq_len] (new) and [idx, cap-seq_len] (old)
-            n_new = max(0, self.idx - seq_len + 1)
-            n_old = max(0, self.capacity - seq_len - self.idx + 1)
-            n_valid = n_new + n_old
-            assert n_valid > 0, "Not enough contiguous data in buffer"
-            raw = np.random.randint(0, n_valid, size=batch_size)
-            starts = np.where(raw < n_new, raw, raw - n_new + self.idx)
-        indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
+            return np.random.randint(0, n_valid, size=batch_size)
 
-        obs = self.obs[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices]
-        dones = self.dones[indices]
-        terminals = self.terminals[indices]
-
-        is_first = np.zeros_like(dones)
-        is_first[:, 0] = True
-        is_first[:, 1:] = dones[:, :-1]
-
-        obs_jnp = jnp.array(obs, dtype=jnp.float32)
-        if self._normalize:
-            obs_jnp = obs_jnp / 255.0
-
-        return {
-            "obs": obs_jnp,
-            "actions": jnp.array(actions, dtype=jnp.int32),
-            "rewards": jnp.array(rewards, dtype=jnp.float32),
-            "dones": jnp.array(dones, dtype=jnp.float32),
-            "terminals": jnp.array(terminals, dtype=jnp.float32),
-            "is_first": jnp.array(is_first, dtype=jnp.float32),
-        }
+        # Buffer has wrapped — avoid sequences crossing the write head.
+        n_new = max(0, self.idx - seq_len + 1)
+        n_old = max(0, self.capacity - seq_len - self.idx + 1)
+        n_valid = n_new + n_old
+        assert n_valid > 0, "Not enough contiguous data in buffer"
+        raw = np.random.randint(0, n_valid, size=batch_size)
+        return np.where(raw < n_new, raw, raw - n_new + self.idx)
 
 
 class ValReplayDataset:
@@ -151,30 +183,10 @@ class ValReplayDataset:
             np.random.randint(0, l - seq_len + 1) for l in ep_lens
         ])
         starts = ep_starts + offsets
-        indices = starts[:, None] + np.arange(seq_len)[None, :]
-
-        obs = self.obs[indices]
-        actions = self.actions[indices]
-        rewards = self.rewards[indices]
-        dones = self.dones[indices]
-        terminals = self.terminals[indices]
-
-        is_first = np.zeros_like(dones)
-        is_first[:, 0] = True
-        is_first[:, 1:] = dones[:, :-1]
-
-        obs_jnp = jnp.array(obs, dtype=jnp.float32)
-        if self._normalize:
-            obs_jnp = obs_jnp / 255.0
-
-        return {
-            "obs": obs_jnp,
-            "actions": jnp.array(actions, dtype=jnp.int32),
-            "rewards": jnp.array(rewards, dtype=jnp.float32),
-            "dones": jnp.array(dones, dtype=jnp.float32),
-            "terminals": jnp.array(terminals, dtype=jnp.float32),
-            "is_first": jnp.array(is_first, dtype=jnp.float32),
-        }
+        return _gather_sequence_batch(
+            starts, seq_len, self.obs, self.actions, self.rewards,
+            self.dones, self.terminals, self._normalize,
+        )
 
 
 def VGGTReplayBuffer(capacity: int, feature_dim: int = 4116) -> ReplayBuffer:

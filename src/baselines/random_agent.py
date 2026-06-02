@@ -19,6 +19,80 @@ from src.shared.configs import DreamerConfig
 from src.environments.habitat import ACTIONS, HabitatObjectNavEnv
 
 
+def _run_episode(env, rng, num_actions: int, max_episode_steps: int) -> dict:
+    """Roll one uniform-random episode and return its summary metrics.
+
+    Steps the env with actions drawn from ``rng`` until ``done`` or
+    ``max_episode_steps``. The returned dict carries everything the caller needs
+    for both the per-episode CSV row and the aggregate (scene/category plus
+    counts), leaving CSV/print orchestration to ``run_random_baseline``.
+    """
+    obs = env.reset()
+    episode = env._env.current_episode
+    scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
+    category = episode.object_category
+
+    action_counts = {a: 0 for a in range(num_actions)}
+    total_reward = 0.0
+    steps = 0
+    for _ in range(max_episode_steps):
+        action = int(rng.integers(0, num_actions))
+        obs = env.step(action)
+        action_counts[action] += 1
+        total_reward += obs["reward"]
+        steps += 1
+        if obs["done"]:
+            break
+
+    return {
+        "scene": scene,
+        "category": category,
+        "steps": steps,
+        "reward": total_reward,
+        "success": float(obs.get("success", 0.0)),
+        "spl": float(obs.get("spl", 0.0)),
+        "action_counts": action_counts,
+    }
+
+
+def _aggregate_results(
+    all_results: list[dict],
+    *,
+    seed: int,
+    max_episode_steps: int,
+    curriculum_path: str,
+) -> dict:
+    """Reduce per-episode results to aggregate metrics + action distribution."""
+    successes = [r["success"] for r in all_results]
+    spls = [r["spl"] for r in all_results]
+    rewards = [r["reward"] for r in all_results]
+    steps_list = [r["steps"] for r in all_results]
+    total_actions = sum(
+        sum(r["action_counts"].values()) for r in all_results
+    )
+    agg_action_counts = {name: 0 for name in ACTIONS.values()}
+    for r in all_results:
+        for idx, name in ACTIONS.items():
+            agg_action_counts[name] += r["action_counts"][idx]
+
+    return {
+        "episodes": len(all_results),
+        "sr": float(np.mean(successes)),
+        "spl": float(np.mean(spls)),
+        "mean_reward": float(np.mean(rewards)),
+        "std_reward": float(np.std(rewards)),
+        "mean_steps": float(np.mean(steps_list)),
+        "std_steps": float(np.std(steps_list)),
+        "action_distribution": {
+            name: count / total_actions * 100
+            for name, count in agg_action_counts.items()
+        },
+        "seed": seed,
+        "max_episode_steps": max_episode_steps,
+        "curriculum_path": curriculum_path,
+    }
+
+
 def run_random_baseline(
     curriculum_path: str,
     output_dir: str,
@@ -60,44 +134,20 @@ def run_random_baseline(
         ])
 
         for ep_idx in range(num_episodes):
-            obs = env.reset()
-            episode = env._env.current_episode
-            scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
-            category = episode.object_category
-
-            action_counts = {a: 0 for a in range(num_actions)}
-            total_reward = 0.0
-            steps = 0
-
-            for _ in range(max_episode_steps):
-                action = int(rng.integers(0, num_actions))
-                obs = env.step(action)
-                action_counts[action] += 1
-                total_reward += obs["reward"]
-                steps += 1
-                if obs["done"]:
-                    break
-
-            success = float(obs.get("success", 0.0))
-            spl = float(obs.get("spl", 0.0))
-
-            pcts = {name: action_counts[idx] / steps * 100
+            result = _run_episode(env, rng, num_actions, max_episode_steps)
+            steps = result["steps"]
+            pcts = {name: result["action_counts"][idx] / steps * 100
                     for idx, name in ACTIONS.items()}
 
             writer.writerow([
-                ep_idx, scene, category, steps, f"{total_reward:.4f}",
-                f"{success:.0f}", f"{spl:.4f}",
+                ep_idx, result["scene"], result["category"], steps,
+                f"{result['reward']:.4f}", f"{result['success']:.0f}",
+                f"{result['spl']:.4f}",
                 f"{pcts['STOP']:.1f}", f"{pcts['MOVE_FORWARD']:.1f}",
                 f"{pcts['TURN_LEFT']:.1f}", f"{pcts['TURN_RIGHT']:.1f}",
             ])
 
-            all_results.append({
-                "steps": steps,
-                "reward": total_reward,
-                "success": success,
-                "spl": spl,
-                "action_counts": action_counts,
-            })
+            all_results.append(result)
 
             if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
                 elapsed = time.time() - t_start
@@ -107,35 +157,12 @@ def run_random_baseline(
 
     env.close()
 
-    # Aggregate metrics
-    successes = [r["success"] for r in all_results]
-    spls = [r["spl"] for r in all_results]
-    rewards = [r["reward"] for r in all_results]
-    steps_list = [r["steps"] for r in all_results]
-    total_actions = sum(
-        sum(r["action_counts"].values()) for r in all_results
+    summary = _aggregate_results(
+        all_results,
+        seed=seed,
+        max_episode_steps=max_episode_steps,
+        curriculum_path=curriculum_path,
     )
-    agg_action_counts = {name: 0 for name in ACTIONS.values()}
-    for r in all_results:
-        for idx, name in ACTIONS.items():
-            agg_action_counts[name] += r["action_counts"][idx]
-
-    summary = {
-        "episodes": len(all_results),
-        "sr": float(np.mean(successes)),
-        "spl": float(np.mean(spls)),
-        "mean_reward": float(np.mean(rewards)),
-        "std_reward": float(np.std(rewards)),
-        "mean_steps": float(np.mean(steps_list)),
-        "std_steps": float(np.std(steps_list)),
-        "action_distribution": {
-            name: count / total_actions * 100
-            for name, count in agg_action_counts.items()
-        },
-        "seed": seed,
-        "max_episode_steps": max_episode_steps,
-        "curriculum_path": curriculum_path,
-    }
 
     json_path = os.path.join(output_dir, "summary.json")
     with open(json_path, "w") as f:
