@@ -23,9 +23,12 @@ real VGGT extractor.
 | `test_trainer.py` | `convert_batch`, `save/load_checkpoint`, resume | CPU |
 | `test_vggt_encoder.py` | VGGT encoders + `VGGTReplayBuffer` sampling / `is_first` (monkeypatched extractor) | CPU |
 | `test_cross_framework.py` | torch↔JAX weight transfer + equivalence (RMSNorm, BlockLinear, encoder, RSSM observe/prior, KL, Barlow, reward head, λ-return) | CPU, needs `torch` |
-| `test_collect_offline_buffer.py` | `flatten_world_points_camera_pose`, `pool_aggregator_tokens`, buffer streaming | CPU |
-| `test_external_offline_buffer.py` | external PyTorch buffer adapter; `importorskip("torch","tensordict")` | CPU* |
-| `test_offline_comparison.py` | 3D-46 comparison-table aggregation/rendering (stdlib) | CPU |
+
+> The offline-pipeline tests (`test_collect_offline_buffer.py`,
+> `test_external_offline_buffer.py`, `test_offline_comparison.py`, and
+> `tests/buffer/test_offline_buffer_dataset.py`) were archived with the offline
+> pipeline to `archiv/offline-r2dreamer-20260602/` (3D-25/26/45/46) and are no
+> longer collected.
 
 ### `launch/`
 | File | Covers | GPU |
@@ -80,7 +83,6 @@ selections with the same `srun` invocation.
 
 - **`test_cross_framework.py` imports `torch`** and the `external/r2dreamer/` reference. It
   lives in the default suite; skip with `-k "not cross_framework"` where torch is absent.
-- **`test_external_offline_buffer.py` self-skips** without `torch`+`tensordict` (`importorskip`).
 - **Real Habitat-Sim is not unit-tested** — only registry/curriculum/preset *resolution* is.
   Full env instantiation is deferred to sbatch smoke runs.
 - **Keep these lists in sync with the code:** the `PRESETS` matrix in `test_presets.py` and the

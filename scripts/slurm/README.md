@@ -21,8 +21,8 @@ bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod     # prod runs only if s
 bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke
 
 # Override an env var (wins over the YAML default)
-bash scripts/slurm/launch.sh offline_buffer_3d25 \
-    --env CNN_CHECKPOINT=output/r2dreamer-curriculum-l1/run-4367942/checkpoints/step_001000000.pkl \
+bash scripts/slurm/launch.sh l1_vggt \
+    --env WANDB_MODE=offline \
     --smoke
 ```
 
@@ -38,7 +38,6 @@ The first positional argument(s) are **variant names** — each maps to
 | `l3_vggt`            | `run_jax_habitat_l3_vggt.py`                | `train_curriculum_l3_vggt.sbatch`                |
 | `l4_vggt`            | `run_jax_habitat_l4_vggt.py`                | `train_curriculum_l4_vggt.sbatch`                |
 | `aggregator_mlp_v1`  | `run_jax_habitat_vggt_aggregator_mlp.py`    | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
-| `offline_buffer_3d25`| `collect_offline_buffer.py`                 | `collect_offline_buffer_3d25.sbatch`             |
 
 The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
 `archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
@@ -138,8 +137,7 @@ scripts/slurm/
 │   ├── l2_vggt.yaml           # extends l1_vggt
 │   ├── l3_vggt.yaml           # extends l1_vggt
 │   ├── l4_vggt.yaml           # extends l1_vggt
-│   ├── aggregator_mlp_v1.yaml # extends _base; timestamp run id
-│   └── offline_buffer_3d25.yaml  # standalone; hyphen flags, env, setup hooks
+│   └── aggregator_mlp_v1.yaml # extends _base; timestamp run id
 ├── hooks/
 │   └── link_external.sh       # symlink external VGGT repos into a fresh worktree
 ├── launch.py                  # render + validate
