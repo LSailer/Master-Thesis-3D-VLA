@@ -22,7 +22,7 @@ fi
 # L2 actent-fix rerun — supersedes l2-1house-6goals (flky9ybh, 36% SR).
 # Buffer fix already present; this run isolates actent=3e-4 effect on
 # multi-goal learning.
-uv run python scripts/r2dreamer/run_jax_habitat_l2.py \
+uv run python scripts/r2dreamer/run.py habitat-l2-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

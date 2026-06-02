@@ -24,7 +24,7 @@ fi
 # - write-head crossing fix (no corrupted sequences after buffer wraps)
 # - ema_state checkpoint fix (return normalization preserved on resume)
 # Same config as original L1 baseline (2.4M steps, 1 house, chair only)
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

@@ -1,7 +1,7 @@
 extends: _base
 job_name: r2d-L4-cnn
 output_dir: output/r2dreamer-curriculum-l4
-script: scripts/r2dreamer/run_jax_habitat_l4.py
+run_id: habitat-l4-cnn
 curriculum_check: data/curriculum/level4_10houses_6goals.json
 comments:
   - "Level 4 CNN baseline: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories"

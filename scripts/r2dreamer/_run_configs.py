@@ -1,18 +1,17 @@
 """Central registry of R2Dreamer experiment run configurations.
 
-DRY: the ``run_jax_*.py`` shims used to each repeat the same ~5-line ``sys.path``
-bootstrap plus a hardcoded ``train(...)`` call differing only in
+DRY: the per-run ``run_jax_*.py`` shims used to each repeat the same ~5-line
+``sys.path`` bootstrap plus a hardcoded ``train(...)`` call differing only in
 env/encoder/curriculum/output_dir/wandb_name/wandb_tags. That metadata now lives
-here as one ``RUN_CONFIGS`` table, and each shim collapses to::
+here as one ``RUN_CONFIGS`` table, launched by the single ``run.py`` dispatcher::
 
-    import _run_configs
-    if __name__ == "__main__":
-        _run_configs.launch_run("habitat-l1-hybrid")
+    uv run python scripts/r2dreamer/run.py <run-id> [train flags...]
 
-One file per run id is kept (rather than a single CLI) so the ``script:`` paths
-referenced by ``scripts/slurm/configs/*.yaml`` stay valid. ``launch_run`` also
-validates the encoder against the canonical ``encoder_registry`` at launch, so a
-typo fails fast instead of at train-time.
+Slurm configs select a run via the ``run_id:`` field (rendered as that leading
+positional by ``scripts/slurm/launch.py``); ad-hoc / legacy ``*.sbatch`` files
+call ``run.py <run-id>`` directly. ``launch_run`` validates the encoder against
+the canonical ``encoder_registry`` at launch, so a typo fails fast instead of at
+train-time.
 """
 
 from __future__ import annotations
@@ -159,8 +158,14 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
 }
 
 
-def launch_run(name: str):
-    """Validate and launch the named run configuration via ``src.main.train``."""
+def launch_run(name: str, *, argv: list[str] | None = None):
+    """Validate and launch the named run configuration via ``src.main.train``.
+
+    ``argv`` is forwarded to ``train`` (and thence to argparse); the generic
+    ``run.py`` dispatcher passes the train flags that followed the run id so
+    they do not have to be re-parsed out of ``sys.argv`` (which still holds the
+    run id positional). When ``None``, ``train`` falls back to ``sys.argv[1:]``.
+    """
     if name not in RUN_CONFIGS:
         raise KeyError(f"Unknown run {name!r}. Available: {sorted(RUN_CONFIGS)}")
     cfg = RUN_CONFIGS[name]
@@ -176,4 +181,4 @@ def launch_run(name: str):
 
     from src.main import train
 
-    return train(**cfg)
+    return train(**cfg, argv=argv)

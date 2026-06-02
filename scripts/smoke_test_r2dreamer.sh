@@ -8,7 +8,7 @@
 #
 # What it tests:
 #   1. Val data collection (collect_val_data.py)
-#   2. R2-Dreamer training with val loss (run_jax_habitat.py)
+#   2. R2-Dreamer training with val loss (run.py habitat-l1-cnn)
 #   3. Checkpoint evaluation with semantic + topdown (eval_habitat.py)
 #   4. Output file assertions
 
@@ -52,7 +52,7 @@ echo "[PASS] Val data collected"
 echo ""
 echo "=== Step 2/4: R2-Dreamer training with val loss ==="
 TRAIN_DIR="${OUTDIR}/train"
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 500 \
     --prefill 200 \
     --output_dir "$TRAIN_DIR" \

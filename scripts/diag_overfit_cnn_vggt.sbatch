@@ -61,7 +61,7 @@ COMMON=(
 # ------------------------------------------------------------------ Run 1
 RUN1="${TAG}-cnn-${TIMESTAMP}"
 echo "--- Run 1/2: CNN encoder ---"
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     "${COMMON[@]}" \
     --output_dir "output/diag/${RUN1}" \
     --wandb_name "${RUN1}" \
@@ -71,7 +71,7 @@ uv run python scripts/r2dreamer/run_jax_habitat.py \
 RUN2="${TAG}-vggt-${TIMESTAMP}"
 echo ""
 echo "--- Run 2/2: VGGT (wp_cp) encoder ---"
-uv run python scripts/r2dreamer/run_jax_habitat_vggt.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-vggt \
     "${COMMON[@]}" \
     --output_dir "output/diag/${RUN2}" \
     --wandb_name "${RUN2}" \

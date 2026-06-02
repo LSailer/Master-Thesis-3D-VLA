@@ -1,7 +1,7 @@
 extends: _base
 job_name: hybrid-cnn-vggt-v1
 output_dir: output/runs/r2dreamer-curriculum-l1-hybrid
-script: scripts/r2dreamer/run_jax_habitat_hybrid.py
+run_id: habitat-l1-hybrid
 curriculum_check: data/curriculum/level1_1house_1goal.json
 comments:
   - "Hybrid 3D encoder: CNN(RGB_64) + zero-gated MLP(WP/CP 4116) fused into the RSSM posterior; logs hybrid/{gate,cnn_frac,vggt_frac} contribution metrics"

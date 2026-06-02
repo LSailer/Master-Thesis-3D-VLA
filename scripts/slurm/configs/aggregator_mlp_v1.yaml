@@ -1,7 +1,7 @@
 extends: _base
 job_name: agg-mlp-prod-v1
 output_dir: output/prod
-script: scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py
+run_id: habitat-l1-vggt-aggregator-mlp
 strict_bash: true
 comments:
   - "Aggregator-MLP production run v1 (42h, 2M steps): pool-on-device, skip-heads"

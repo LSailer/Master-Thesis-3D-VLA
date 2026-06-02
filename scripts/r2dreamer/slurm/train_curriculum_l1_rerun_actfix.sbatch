@@ -22,7 +22,7 @@ fi
 # L1-rerun actent-fix rerun — supersedes l1-rerun-buffix (y5a0upzd, 75% SR).
 # Cleanest actent-isolation experiment: buffer fix was already in the
 # predecessor, this run isolates the actent=3e-4 vs 3e-2 effect.
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \
