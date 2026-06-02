@@ -6,11 +6,17 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
+from src.r2dreamer.adapters.vggt_adapter import (
+    VGGT_FEATURE_DIM,
+    flatten_world_points_camera_pose,
+)
 from src.shared.video_utils import resize_chw_uint8
 
 
-HYBRID_FEATURE_DIM = 16404  # 12288 (3*64*64 RGB) + 4116 (world_points + camera_pose)
+# Derived, not hand-typed: RGB branch (3*64*64, flattened) + the VGGT WP/CP vector.
+# VGGT_FEATURE_DIM is the single source of truth for the 4116 term (see vggt_adapter),
+# so a grid-size ablation that changes it stays consistent here automatically.
+HYBRID_FEATURE_DIM = 3 * 64 * 64 + VGGT_FEATURE_DIM  # 12288 RGB + 4116 WP/CP = 16404
 
 
 class HybridObsAdapter(ObsAdapter):

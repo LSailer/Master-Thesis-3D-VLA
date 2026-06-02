@@ -60,8 +60,13 @@ selections with the same `srun` invocation.
 
 ## Conventions
 
-- **No `conftest.py`** — fixtures (`cfg`, `agent`, `rng`, `replay_batch`) are defined
-  per-file. JAX RNG keys are fixed integers for determinism (e.g. init=7, train=11).
+- **`conftest.py` (repo root) handles markers only** — it skips `@pytest.mark.gpu`
+  tests without a JAX GPU backend and gates the VGGT parity test behind
+  `RUN_VGGT_PARITY=1`. Per-test fixtures (`cfg`, `agent`, `rng`, `replay_batch`) are
+  still defined per-file today; cross-file fakes/factories (e.g. a shared
+  `FakeExtractor`, a minimal-config builder) belong in `conftest.py` or a
+  `tests/r2dreamer/_helpers.py`, not copy-pasted per file. JAX RNG keys are fixed
+  integers for determinism (e.g. init=7, train=11).
 - **Markers:** `@pytest.mark.gpu` (only `test_encoders.py::TestVGGTEncoder`),
   plus `habitat_sim` / `integration` registered but currently unused.
 - **Mocking:** `monkeypatch` + hand-rolled fake extractors (`.extract()/.reset()/

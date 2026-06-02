@@ -13,7 +13,7 @@ from scipy.spatial.transform import Rotation
 
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
-from src.r2dreamer.launch.curricula import CURRICULA
+from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.shared.video_utils import (
@@ -88,15 +88,8 @@ def evaluate(
             "checkpoint must be set via evaluate(..., checkpoint=...) or --checkpoint"
         )
 
-    # --- Resolve curriculum path ---
-    if args.curriculum_path is not None:
-        curriculum_path = args.curriculum_path
-    elif curriculum is not None:
-        if curriculum not in CURRICULA:
-            raise KeyError(f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}")
-        curriculum_path = str(CURRICULA[curriculum])
-    else:
-        curriculum_path = None
+    # --- Resolve curriculum path (shared with train via launch._helpers) ---
+    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
 
     # --- Resolve output dir ---
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir

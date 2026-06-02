@@ -1,28 +1,8 @@
-"""L1 Hybrid shim — habitat + CNN(RGB) + gated MLP(WP/CP) hybrid encoder (3D-50/51/52)."""
-import os
-import sys
+"""L1 Hybrid shim — habitat + CNN(RGB) + gated MLP(WP/CP) hybrid encoder (3D-50/51/52).
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-
-from src.main import train
+Run metadata lives in _run_configs.RUN_CONFIGS["habitat-l1-hybrid"].
+"""
+import _run_configs
 
 if __name__ == "__main__":
-    train(
-        env="habitat",
-        encoder="hybrid",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-hybrid",
-        wandb_name="hybrid-cnn-vggt",
-        wandb_tags=[
-            "curriculum",
-            "level1",
-            "1house",
-            "chair-only",
-            "vggt",
-            "hybrid",
-            "cnn",
-            "wp-cp",
-            "3d-encoder",
-            "jax",
-        ],
-    )
+    _run_configs.launch_run("habitat-l1-hybrid")
