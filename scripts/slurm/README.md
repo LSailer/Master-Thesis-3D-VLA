@@ -31,13 +31,16 @@ The first positional argument(s) are **variant names** — each maps to
 
 ## Variants
 
-| Variant              | Script                                      | Replaces (legacy sbatch)                         |
+Curriculum-family variants share the single `scripts/r2dreamer/run.py` dispatcher
+(the `script` is inherited from `_base`); each selects its run via `run_id:`.
+
+| Variant              | Entrypoint                                  | Replaces (legacy sbatch)                         |
 |----------------------|---------------------------------------------|--------------------------------------------------|
-| `l1_vggt`            | `run_jax_habitat_vggt.py`                   | `train_curriculum_l1_vggt.sbatch`                |
-| `l2_vggt`            | `run_jax_habitat_l2_vggt.py`                | `train_curriculum_l2_vggt.sbatch`                |
-| `l3_vggt`            | `run_jax_habitat_l3_vggt.py`                | `train_curriculum_l3_vggt.sbatch`                |
-| `l4_vggt`            | `run_jax_habitat_l4_vggt.py`                | `train_curriculum_l4_vggt.sbatch`                |
-| `aggregator_mlp_v1`  | `run_jax_habitat_vggt_aggregator_mlp.py`    | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
+| `l1_vggt`            | `run.py habitat-l1-vggt`                    | `train_curriculum_l1_vggt.sbatch`                |
+| `l2_vggt`            | `run.py habitat-l2-vggt`                    | `train_curriculum_l2_vggt.sbatch`                |
+| `l3_vggt`            | `run.py habitat-l3-vggt`                    | `train_curriculum_l3_vggt.sbatch`                |
+| `l4_vggt`            | `run.py habitat-l4-vggt`                    | `train_curriculum_l4_vggt.sbatch`                |
+| `aggregator_mlp_v1`  | `run.py habitat-l1-vggt-aggregator-mlp`     | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
 
 The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
 `archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
@@ -80,7 +83,8 @@ extends: _base            # optional; resolved recursively (a config may extend
                           # another variant, which may itself extend _base)
 job_name: r2d-L2-vggt
 output_dir: output/...    # directory for #SBATCH logs (the run dir lives in args)
-script: scripts/r2dreamer/run_jax_habitat_l2_vggt.py   # repo-relative entrypoint
+script: scripts/r2dreamer/run.py   # repo-relative entrypoint (usually inherited from _base)
+run_id: habitat-l2-vggt   # leading positional for the run.py dispatcher (a RUN_CONFIGS key)
 
 python: uv run python     # interpreter prefix; e.g. ".venv/bin/python"
 arg_style: underscore     # "underscore" -> --val_data ; "hyphen" -> --val-data
@@ -170,8 +174,8 @@ Covers: l1 prod render is byte-equal to the legacy sbatch; `--smoke-then-prod`
 issues the prod submit with `--dependency=afterok:<smoke_jid>`; fail-fast
 validation before any sbatch call; recursive `extends` (incl. cycle rejection);
 L2/L3/L4 render the same training args as their legacy scripts; multi-variant
-sweep submits every variant; aggregator timestamp/strict behavior; offline-buffer
-hyphen flags, setup hooks, and `--env` override.
+sweep submits every variant; aggregator timestamp/strict behavior; and `--env`
+override handling.
 
 ## Monitoring a submitted job
 

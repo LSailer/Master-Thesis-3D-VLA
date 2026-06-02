@@ -22,7 +22,7 @@ fi
 
 # Level 1: 1 house (fK2vEV32Lag), chair only, 7499 train episodes
 # 2.4M steps, single scene = focused learning
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --act_entropy 3e-2 \
     --steps 2400000 \
     --prefill 5000 \

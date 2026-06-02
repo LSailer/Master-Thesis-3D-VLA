@@ -21,16 +21,28 @@ heavy logic lives in `src/r2dreamer/`.
 
 ## File map
 
-### Live training launchers (shims → `src.r2dreamer.launch.train`)
-`run_jax_habitat.py` (L1 CNN), `…_l2/_l3/_l4.py`, the `_vggt` variants,
-`run_jax_habitat_vggt_aggregator_mlp.py`, `…_vggt_wp_dense.py`, `…_vggt_wp_cp_64.py`,
-`run_jax_habitat_hybrid.py`, `run_jax_crafter.py`. Newer shims are ~7 lines and
-delegate to `_run_configs.launch_run("<run-id>")`, where the per-run `(env, encoder,
-curriculum, output_dir, wandb_name, wandb_tags)` lives in the `RUN_CONFIGS` table in
-[`_run_configs.py`](_run_configs.py) (single source of truth; encoder validated against
-`encoder_registry` at launch). Older shims still inline their `train(...)` call —
-migrate them into `RUN_CONFIGS` when touched. Eval shims: `eval_habitat.py`,
-`eval_habitat_vggt.py`. Validation shims: `run_parity_training.py`, `run_benchmark.py`.
+### Archived offline pipeline
+| Archived file | Role |
+|---------------|------|
+| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/collect_offline_buffer.py` | Roll out a CNN-policy checkpoint, extract VGGT WP/CP + aggregator features, write a crash-tolerant offline buffer. |
+| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/make_synthetic_offline_buffer.py` | Tiny random buffer for smoke-testing the offline pipeline. |
+| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/train_offline_ablation.py` | **3D-26** JAX offline trainer for the frozen comparison. |
+| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/train_external_offline.py` | **3D-45/46** offline trainer for the external PyTorch R2Dreamer baseline. |
+
+### Live training launcher (single dispatcher → `src.r2dreamer.launch.train`)
+`run.py <run-id> [train flags...]` is the one entrypoint for every live training
+run (the per-run `run_jax_*.py` shims were folded into it). The per-run `(env,
+encoder, curriculum, output_dir, wandb_name, wandb_tags)` lives in the
+`RUN_CONFIGS` table in [`_run_configs.py`](_run_configs.py) (single source of
+truth; `launch_run` validates the encoder against `encoder_registry` at launch).
+Run ids: `habitat-l{1,2,3,4}-cnn`, `habitat-l{1,2,3,4}-vggt`,
+`habitat-l1-{hybrid,vggt-aggregator-mlp,vggt-wp-cp-64,vggt-wp-dense}`,
+`crafter-cnn`. **To add a run:** add one `RUN_CONFIGS` entry + a
+`scripts/slurm/configs/*.yaml` whose `run_id:` names it — no new Python file.
+Slurm configs render `run.py <id>` from their `run_id` field (the shared
+`script: run.py` is inherited from `_base`); legacy `*.sbatch` call `run.py <id>`
+directly. Eval shims: `eval_habitat.py`, `eval_habitat_vggt.py`. Validation
+shims: `run_parity_training.py`, `run_benchmark.py`.
 
 ### Curriculum / analysis / profiling
 | File | Role |

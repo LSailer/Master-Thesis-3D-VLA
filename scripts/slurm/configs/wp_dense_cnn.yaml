@@ -1,7 +1,7 @@
 extends: _base
 job_name: wp-dense-cnn
 output_dir: output/r2dreamer-curriculum-l1-vggt-wp-dense
-script: scripts/r2dreamer/run_jax_habitat_vggt_wp_dense.py
+run_id: habitat-l1-vggt-wp-dense
 curriculum_check: data/curriculum/level1_1house_1goal.json
 comments:
   - "Run 2 (3D-53): full-resolution 518x518x3 world points -> Conv encoder"

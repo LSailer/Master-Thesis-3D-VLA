@@ -1,3 +1,6 @@
+# Every curriculum-family variant launches through the one run dispatcher; each
+# leaf selects its run with run_id: (resolved in scripts/r2dreamer/_run_configs.py).
+script: scripts/r2dreamer/run.py
 sbatch:
   # Auto-select the faster queue: SLURM schedules on whichever partition can
   # run the job soonest. Both are the same H100 hardware (identical speed) with

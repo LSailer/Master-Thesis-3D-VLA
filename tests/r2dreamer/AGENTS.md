@@ -37,7 +37,7 @@ real VGGT extractor.
 | `test_registries.py` | `encoder_registry`, `env_registry`, `CURRICULA` entries | CPU |
 | `test_presets.py` | `(env, encoder, curriculum)` preset matrix resolves (parametrized) | CPU |
 | `test_parser.py` | train parser does not expose `wandb_notes_file` | CPU |
-| `test_shim_invocation.py` | every `run_jax_*`/`eval_*` shim `--help` exits 0 (subprocess, parametrized) | CPU |
+| `test_shim_invocation.py` | every `run.py <run-id>` (parametrized over `RUN_CONFIGS`) + each standalone `eval_*`/validation shim `--help` exits 0 (subprocess) | CPU |
 | `test_video_utils.py` | `compose_frame`, `render_topdown_frame`, `log_episode_video` | CPU |
 | `fixtures/` | `sample_habitat_obs.npz` (~3.3 MB), `expected_vggt_outputs.npz` (~150 KB) | — |
 
@@ -85,8 +85,9 @@ selections with the same `srun` invocation.
   lives in the default suite; skip with `-k "not cross_framework"` where torch is absent.
 - **Real Habitat-Sim is not unit-tested** — only registry/curriculum/preset *resolution* is.
   Full env instantiation is deferred to sbatch smoke runs.
-- **Keep these lists in sync with the code:** the `PRESETS` matrix in `test_presets.py` and the
-  `SHIMS` list in `test_shim_invocation.py` must be updated when you add an encoder, curriculum,
-  or `run_jax_*` script — otherwise new launchers silently bypass CI.
+- **Keep these lists in sync with the code:** the `PRESETS` matrix in `test_presets.py` must be
+  updated when you add an encoder or curriculum. `test_shim_invocation.py` derives its run ids
+  from `RUN_CONFIGS`, so new runs are covered automatically; update its `STANDALONE_SHIMS` list
+  only when adding a non-dispatcher (`eval_*` / validation) entrypoint.
 - **`TestVGGTEncoder` downloads + loads the real VGGT model** and needs GPU memory; run it via
   `srun`, not bare `pytest`.
