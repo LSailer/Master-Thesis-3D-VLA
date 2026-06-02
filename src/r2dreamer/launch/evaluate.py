@@ -112,7 +112,7 @@ def evaluate(
     # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
     # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
     # driven off the EncoderSpec below.
-    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
+    needs_hires = eff_encoder.startswith("vggt") or eff_encoder.startswith("hybrid")
     default_resolution = 518 if needs_hires else 64
     render_resolution = (
         args.render_resolution if args.render_resolution is not None else default_resolution
@@ -146,6 +146,7 @@ def evaluate(
         "encoder_type": encoder_spec.encoder_type,
         "encoder_module_cls": encoder_spec.module_cls,
         "obs_shape": encoder_spec.obs_shape,
+        **encoder_spec.agent_overrides,
     }
 
     # Recover the trained ARCHITECTURE from the run's MANIFEST.json so eval can
@@ -169,7 +170,7 @@ def evaluate(
                 "deter_size", "hidden_size", "stoch_classes", "stoch_discrete",
                 "blocks", "dyn_layers", "obs_layers", "img_layers",
                 "encoder_depth", "encoder_kernel", "encoder_mults",
-                "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
+                "vggt_feature_dim", "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
                 "mlp_vggt_layers", "mlp_units", "mlp_layers_reward",
                 "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",
                 "twohot_bins", "decoder",

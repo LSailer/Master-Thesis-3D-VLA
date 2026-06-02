@@ -30,7 +30,10 @@ from .world_model.encoders import (
     ConvEncoder,
     WPConvEncoder,
     ConvDecoder,
+    HybridAggPooledEncoder as WMHybridAggPooledEncoder,
+    HybridAggRawEncoder as WMHybridAggRawEncoder,
     HybridEncoder as WMHybridEncoder,
+    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
     VGGTEncoder as WMVGGTEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
@@ -121,8 +124,11 @@ def _make_encoder(cfg: R2DreamerConfig):
             "vggt": WMVGGTEncoder,
             "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+            "vggt_agg_raw_mlp": WMVGGTAggRawMLPEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
+            "hybrid_agg_pooled": WMHybridAggPooledEncoder,
+            "hybrid_agg_raw": WMHybridAggRawEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -150,19 +156,19 @@ def _make_encoder(cfg: R2DreamerConfig):
             kernel_size=cfg.encoder_kernel,
             mults=cfg.encoder_mults,
         )
-    if cls is WMHybridEncoder:
-        # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
+    if cls in (WMHybridEncoder, WMHybridAggPooledEncoder, WMHybridAggRawEncoder):
+        # CNN(RGB) + gated VGGT branch fused into one embed (3D-50/51/52/56).
         # Guard the buffer-layout contract: the encoder splits obs at
         # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
         # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
         # and the encoder's RGB slice would silently diverge.
         assert (
-            cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
+            len(cfg.obs_shape) == 1
             and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
         ), (
             "hybrid obs_shape/split mismatch: expected "
-            f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
-            f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
+            f"flat RGB+VGGT obs with RGB dim {HYBRID_RGB_DIM}, got "
+            f"obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
         return cls(
@@ -293,9 +299,9 @@ class R2DreamerAgent:
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in ("cnn", "hybrid"):
+            if config.encoder_type != "cnn" and not config.encoder_type.startswith("hybrid"):
                 raise ValueError(
-                    "decoder=True requires encoder_type in {'cnn', 'hybrid'} — the "
+                    "decoder=True requires encoder_type 'cnn' or a hybrid encoder — the "
                     "ConvDecoder reconstructs an RGB image, but "
                     f"{config.encoder_type!r} carries no RGB modality to reconstruct."
                 )
@@ -377,12 +383,15 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        if self.cfg.encoder_type == "hybrid":
+        if self.cfg.encoder_type.startswith("hybrid"):
             # Hybrid: the adapter pre-builds the flat [rgb_norm | wp_cp] vector
             # under "hybrid" (already float32, RGB already /255). The encoder
             # slices it back into the CNN and WP/CP branches.
             obs = jnp.asarray(obs_dict["hybrid"])[None]
-        elif self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64"):
+        elif self.cfg.encoder_type in (
+            "vggt", "vggt_aggregator_mlp", "vggt_agg_raw_mlp",
+            "vggt_wp_dense_cnn", "vggt_wp_cp_64",
+        ):
             # All VGGT readouts arrive pre-extracted under "features" (the dense
             # WP map is already a float32 (3, H, W) array). No /255: the values
             # are VGGT features / metric XYZ, not raw uint8 pixels.
@@ -465,7 +474,7 @@ class R2DreamerAgent:
         feat = self.rssm_mod.apply(
             params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat)
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        if self.cfg.encoder_type == "hybrid":
+        if self.cfg.encoder_type.startswith("hybrid"):
             rgb_dim = self.cfg.obs_shape[0] - self.cfg.vggt_feature_dim
             target = obs_flat[:, :rgb_dim].reshape(B * T, 3, 64, 64)
         else:
@@ -655,7 +664,7 @@ class R2DreamerAgent:
         # encoder's `branches` method (shares params with the forward pass) and
         # log how much each modality drives the latent. `gate` starts at 0 and
         # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type == "hybrid":
+        if cfg.encoder_type.startswith("hybrid"):
             # Reuse the already-computed fused embed instead of a second encoder
             # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
             # leading cnn_dim columns are the CNN branch and the rest are the

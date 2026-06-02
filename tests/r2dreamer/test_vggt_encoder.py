@@ -7,6 +7,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import (
+    VGGTAggRawMLPEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     WPConvEncoder,
@@ -74,6 +75,30 @@ class TestVGGTAggregatorMLPEncoder:
             "norm0", "norm1", "norm2",
             "proj",
         }
+
+
+class TestVGGTAggRawMLPEncoder:
+    """Test raw flattened aggregator encoder without allocating production dims."""
+
+    def test_output_shape_small_input_dim(self):
+        enc = VGGTAggRawMLPEncoder(embed_dim=32, hidden=16, num_layers=3, input_dim=24)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, 24), dtype=jnp.float32)
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 32)
+        assert jnp.isfinite(out).all()
+        assert set(params["params"].keys()) == {
+            "hidden0", "hidden1", "hidden2",
+            "norm0", "norm1", "norm2",
+            "proj",
+        }
+
+    def test_rejects_wrong_dim(self):
+        enc = VGGTAggRawMLPEncoder(embed_dim=32, hidden=16, input_dim=24)
+        rng = jax.random.PRNGKey(0)
+        with pytest.raises(ValueError, match="raw aggregator features"):
+            enc.init(rng, jnp.zeros((2, 23), dtype=jnp.float32))
 
 
 class TestVGGTEncoder:

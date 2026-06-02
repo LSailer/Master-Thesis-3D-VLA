@@ -10,6 +10,8 @@ import pytest
 
 from src.r2dreamer.world_model.encoders import (
     ConvDecoder,
+    HybridAggPooledEncoder,
+    HybridAggRawEncoder,
     HybridEncoder,
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
@@ -76,6 +78,46 @@ class TestHybridEncoder:
         expected = jnp.concatenate([cnn_e, vggt_e], axis=-1)
         assert jnp.allclose(fused, expected)
 
+    def test_pooled_aggregator_hybrid_uses_zero_gate(self, rng):
+        vggt_embed_dim = 8
+        vggt_dim = 24
+        enc = HybridAggPooledEncoder(
+            vggt_embed_dim=vggt_embed_dim,
+            mlp_hidden=8,
+            mlp_layers=2,
+            vggt_dim=vggt_dim,
+        )
+        obs = jax.random.normal(rng, (4, HYBRID_RGB_DIM + vggt_dim))
+        params = enc.init(rng, obs)
+        out = enc.apply(params, obs)
+        cnn_e, vggt_e, gate = enc.apply(params, obs, method=enc.branches)
+
+        assert out.shape == (4, _cnn_dim() + vggt_embed_dim)
+        assert cnn_e.shape == (4, _cnn_dim())
+        assert vggt_e.shape == (4, vggt_embed_dim)
+        assert float(gate) == 0.0
+        assert float(jnp.max(jnp.abs(vggt_e))) == 0.0
+
+    def test_raw_aggregator_hybrid_uses_zero_gate(self, rng):
+        vggt_embed_dim = 8
+        vggt_dim = 24
+        enc = HybridAggRawEncoder(
+            vggt_embed_dim=vggt_embed_dim,
+            mlp_hidden=8,
+            mlp_layers=2,
+            vggt_dim=vggt_dim,
+        )
+        obs = jax.random.normal(rng, (4, HYBRID_RGB_DIM + vggt_dim))
+        params = enc.init(rng, obs)
+        out = enc.apply(params, obs)
+        cnn_e, vggt_e, gate = enc.apply(params, obs, method=enc.branches)
+
+        assert out.shape == (4, _cnn_dim() + vggt_embed_dim)
+        assert cnn_e.shape == (4, _cnn_dim())
+        assert vggt_e.shape == (4, vggt_embed_dim)
+        assert float(gate) == 0.0
+        assert float(jnp.max(jnp.abs(vggt_e))) == 0.0
+
 
 class TestDecoderGuard:
     """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
@@ -103,6 +145,19 @@ class TestDecoderGuard:
         assert "decoder" in a.params
         b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
+
+    def test_aggregator_hybrid_plus_decoder_builds(self):
+        import jax
+        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.world_model.encoders import HybridAggPooledEncoder as WMHybridAggPooledEncoder
+
+        cfg = self._cfg("hybrid_agg_pooled", (12288 + 3072,))
+        cfg.encoder_module_cls = WMHybridAggPooledEncoder
+        cfg.vggt_feature_dim = 3072
+        cfg.mlp_vggt_hidden = 8
+        cfg.mlp_vggt_layers = 1
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        assert "decoder" in agent.params
 
 
 class TestConvDecoder:

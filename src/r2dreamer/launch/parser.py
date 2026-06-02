@@ -3,6 +3,19 @@
 import argparse
 
 
+ENCODER_CHOICES = [
+    "cnn",
+    "vggt",
+    "vggt_aggregator_mlp",
+    "vggt_agg_raw_mlp",
+    "vggt_wp_dense_cnn",
+    "vggt_wp_cp_64",
+    "hybrid",
+    "hybrid_agg_pooled",
+    "hybrid_agg_raw",
+]
+
+
 def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
@@ -114,8 +127,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
+    p.add_argument("--encoder", type=str, default=None, choices=ENCODER_CHOICES)
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

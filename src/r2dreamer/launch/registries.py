@@ -6,9 +6,12 @@ from src.r2dreamer.encoders import (
     Encoder,
     CNNEncoder,
     VGGTEncoder,
+    VGGTAggRawMLPEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
     VGGTWPCP64Encoder,
+    HybridAggPooledEncoder,
+    HybridAggRawEncoder,
     HybridEncoder,
 )
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
@@ -24,9 +27,12 @@ encoder_registry: dict[str, type[Encoder]] = {
     "cnn": CNNEncoder,
     "vggt": VGGTEncoder,
     "vggt_aggregator_mlp": VGGTAggregatorMLPEncoder,
+    "vggt_agg_raw_mlp": VGGTAggRawMLPEncoder,
     "vggt_wp_dense_cnn": VGGTDenseWPEncoder,
     "vggt_wp_cp_64": VGGTWPCP64Encoder,
     "hybrid": HybridEncoder,
+    "hybrid_agg_pooled": HybridAggPooledEncoder,
+    "hybrid_agg_raw": HybridAggRawEncoder,
 }
 
 env_registry: dict[str, Callable] = {

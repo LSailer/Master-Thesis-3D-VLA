@@ -272,6 +272,51 @@ def test_aggregator_prod_is_strict_bash() -> None:
     assert "set -euo pipefail" in rendered
 
 
+@pytest.mark.parametrize(
+    "variant,script,wandb_name",
+    [
+        ("agg_raw_mlp_v1", "run_jax_habitat_vggt_agg_raw_mlp.py", "agg-raw-mlp-${SLURM_JOB_ID}"),
+        ("hybrid_agg_pooled_v1", "run_jax_habitat_hybrid_agg_pooled.py", "hybrid-agg-pooled-${SLURM_JOB_ID}"),
+        ("hybrid_agg_raw_v1", "run_jax_habitat_hybrid_agg_raw.py", "hybrid-agg-raw-${SLURM_JOB_ID}"),
+    ],
+)
+def test_3d56_prod_configs_render(variant: str, script: str, wandb_name: str) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
+    python_cmd, rendered_script, flags = training_command(rendered)
+
+    assert python_cmd == "uv run python"
+    assert rendered_script.endswith(script)
+    assert flags["--steps"] == "2000000"
+    assert flags["--prefill"] == "5000"
+    assert flags["--render_resolution"] == "518"
+    assert flags["--wandb_name"] == wandb_name
+    assert "3d-56" in flags["--wandb_tags"]
+    assert "set -euo pipefail" in rendered
+
+
+def test_3d56_raw_configs_use_conservative_resources() -> None:
+    for variant in ("agg_raw_mlp_v1", "hybrid_agg_raw_v1"):
+        prod = launch.render_sbatch(launch.load_config(variant), mode="prod")
+        smoke = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+        _, _, smoke_flags = training_command(smoke)
+
+        assert "#SBATCH --mem=128G" in prod
+        assert "#SBATCH --time=00:30:00" in smoke
+        assert smoke_flags["--batch_size"] == "1"
+        assert smoke_flags["--seq_len"] == "8"
+        assert smoke_flags["--train_ratio"] == "4"
+
+
+def test_3d56_pooled_smoke_trains_with_small_batch() -> None:
+    rendered = launch.render_sbatch(launch.load_config("hybrid_agg_pooled_v1"), mode="smoke")
+    _, _, flags = training_command(rendered)
+
+    assert "#SBATCH --time=00:20:00" in rendered
+    assert flags["--batch_size"] == "4"
+    assert flags["--seq_len"] == "16"
+    assert flags["--train_ratio"] == "16"
+
+
 # --------------------------------------------------------------------------- #
 # s4 — offline-buffer collector (hyphen flags, env, setup hooks)               #
 # --------------------------------------------------------------------------- #

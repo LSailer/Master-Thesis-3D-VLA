@@ -1,0 +1,36 @@
+extends: _base
+job_name: agg-raw-mlp-v1
+output_dir: output/runs/r2dreamer-curriculum-l1-vggt-agg-raw-mlp
+script: scripts/r2dreamer/run_jax_habitat_vggt_agg_raw_mlp.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+strict_bash: true
+comments:
+  - "3D-56 standalone raw aggregator: [camera token | patch tokens] flattened to ~1.4M -> MLP3"
+  - "VGGT heads skipped; raw replay stored float16 with small buffer/batch from encoder overrides"
+sbatch:
+  mem: 128G
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  mlp_layers: 3
+  output_dir: output/runs/r2dreamer-curriculum-l1-vggt-agg-raw-mlp/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: agg-raw-mlp-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,aggregator-raw,mlp-3layer,3d-56,jax
+  render_resolution: 518
+smoke:
+  time: "00:30:00"
+  args:
+    steps: 250
+    prefill: 64
+    batch_size: 1
+    seq_len: 8
+    train_ratio: 4
+    log_every: 25
+    checkpoint_every: 10000
+    output_dir: output/smoke/agg-raw-mlp-${TIMESTAMP}
+    wandb_name: agg-raw-mlp-smoke-${TIMESTAMP}
+    wandb_tags: agg-raw-mlp,smoke,3d-56

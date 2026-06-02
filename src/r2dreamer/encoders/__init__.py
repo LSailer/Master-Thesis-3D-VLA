@@ -9,7 +9,7 @@ instance.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import flax.linen as nn
@@ -167,6 +167,35 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     )
 
 
+class VGGTAggRawMLPEncoder(VGGTEncoder):
+    """External VGGT extractor exposing raw flattened aggregator tokens."""
+
+    feature_kind = "agg_raw"
+    encoder_type = "vggt_agg_raw_mlp"
+    module_cls = wm_encoders.VGGTAggRawMLPEncoder
+    vggt_compute_heads = False
+    agent_overrides = {
+        "buffer_capacity": 5_000,
+        "batch_size": 1,
+        "seq_len": 16,
+        "train_ratio": 64,
+        "vggt_mlp_layers": 3,
+    }
+    design_notes = (
+        "3D-56 raw aggregator encoder: adapter drops the four register tokens "
+        "and stores [camera token | 37x37 patch tokens] flattened to 1,402,880 "
+        "float16 values per frame. The agent upcasts to float32 and applies a "
+        "3-layer MLP -> embed_dim. Replay and batch settings are intentionally "
+        "small because the first Dense is about 1.4B parameters."
+    )
+
+    def spec(self) -> EncoderSpec:
+        spec = super().spec()
+        overrides = dict(spec.agent_overrides)
+        overrides["vggt_feature_dim"] = spec.obs_shape[0]
+        return replace(spec, agent_overrides=overrides)
+
+
 class VGGTDenseWPEncoder(VGGTEncoder):
     """Full-resolution world-point map (518x518x3) -> Conv encoder (3D-53).
 
@@ -227,6 +256,69 @@ class HybridEncoder(VGGTEncoder):
         return HybridObsAdapter(self._extractor)
 
 
+class HybridAggPooledEncoder(VGGTEncoder):
+    """CNN(RGB64) + gated MLP over pooled aggregator [cam|mean|max]."""
+
+    feature_kind = "aggregator"
+    encoder_type = "hybrid_agg_pooled"
+    module_cls = wm_encoders.HybridAggPooledEncoder
+    vggt_compute_heads = False
+    agent_overrides = {
+        "buffer_capacity": 100_000,
+        "mlp_vggt_layers": 3,
+    }
+    design_notes = (
+        "3D-56 hybrid pooled aggregator: CNN over 64x64 RGB fused with a "
+        "zero-init gated MLP3 over VGGT pooled aggregator features "
+        "[camera token | mean patches | max patches] (3072-D). VGGT heads are "
+        "skipped; hybrid/* metrics expose the branch contribution."
+    )
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+
+        return HybridObsAdapter(self._extractor, feature_kind=self.feature_kind)
+
+    def spec(self) -> EncoderSpec:
+        spec = super().spec()
+        overrides = dict(spec.agent_overrides)
+        overrides["vggt_feature_dim"] = spec.obs_shape[0] - wm_encoders.HYBRID_RGB_DIM
+        return replace(spec, agent_overrides=overrides)
+
+
+class HybridAggRawEncoder(VGGTEncoder):
+    """CNN(RGB64) + gated MLP over raw flattened aggregator tokens."""
+
+    feature_kind = "agg_raw"
+    encoder_type = "hybrid_agg_raw"
+    module_cls = wm_encoders.HybridAggRawEncoder
+    vggt_compute_heads = False
+    agent_overrides = {
+        "buffer_capacity": 5_000,
+        "batch_size": 1,
+        "seq_len": 16,
+        "train_ratio": 64,
+        "mlp_vggt_layers": 3,
+    }
+    design_notes = (
+        "3D-56 hybrid raw aggregator: CNN over 64x64 RGB fused with a zero-init "
+        "gated MLP3 over raw VGGT aggregator tokens flattened to 1,402,880-D. "
+        "VGGT heads are skipped. Replay/batch settings stay small to keep raw "
+        "float16 storage and the 1.4B-parameter first Dense within H100 limits."
+    )
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+
+        return HybridObsAdapter(self._extractor, feature_kind=self.feature_kind)
+
+    def spec(self) -> EncoderSpec:
+        spec = super().spec()
+        overrides = dict(spec.agent_overrides)
+        overrides["vggt_feature_dim"] = spec.obs_shape[0] - wm_encoders.HYBRID_RGB_DIM
+        return replace(spec, agent_overrides=overrides)
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid (3D-52/3D-53 follow-up).
 
@@ -262,7 +354,10 @@ __all__ = [
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTAggRawMLPEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "HybridAggPooledEncoder",
+    "HybridAggRawEncoder",
     "VGGTWPCP64Encoder",
 ]

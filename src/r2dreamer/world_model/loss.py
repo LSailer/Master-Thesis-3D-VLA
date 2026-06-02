@@ -95,7 +95,7 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
     # are identical to the decoder-free baseline. 3D-51 visual-verification head.
     if cfg.decoder:
         recon = modules["decoder"].apply(params["decoder"], feat_flat)  # (BT,3,64,64)
-        if cfg.encoder_type == "hybrid":
+        if cfg.encoder_type.startswith("hybrid"):
             # Hybrid obs is [ rgb (rgb_dim) | wp_cp (vggt_feature_dim) ]; the RGB
             # slice is already normalised to [0, 1] by the adapter.
             rgb_dim = cfg.obs_shape[0] - cfg.vggt_feature_dim  # 16404 - 4116 = 12288

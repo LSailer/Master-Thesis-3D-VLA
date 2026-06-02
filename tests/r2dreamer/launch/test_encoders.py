@@ -10,7 +10,10 @@ from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
+    HybridAggPooledEncoder,
+    HybridAggRawEncoder,
     HybridEncoder,
+    VGGTAggRawMLPEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
@@ -289,6 +292,64 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs["features"].shape == (3 * 4,)
         assert agent_obs["features"].dtype.name == "float32"
 
+    def test_raw_aggregator_encoder_spec_uses_flattened_tokens(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = VGGTAggRawMLPEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        # 1 camera token + tokens[5:] patches = 6 tokens, D=4 -> 24-D raw flat.
+        assert adapter.buffer_shape == (24,)
+        assert adapter.buffer_dtype == "float16"
+        assert spec.obs_shape == (24,)
+        assert spec.encoder_type == "vggt_agg_raw_mlp"
+        assert spec.module_cls is wm_encoders.VGGTAggRawMLPEncoder
+        assert enc.vggt_compute_heads is False
+        assert spec.agent_overrides == {
+            "buffer_capacity": 5_000,
+            "batch_size": 1,
+            "seq_len": 16,
+            "train_ratio": 64,
+            "vggt_mlp_layers": 3,
+            "vggt_feature_dim": 24,
+        }
+
+    def test_raw_aggregator_adapter_flattens_camera_and_patches(self):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
+
+        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="agg_raw")
+        replay_features, agent_obs = adapter.transform({"image": np.zeros((3, 4, 4), dtype=np.uint8)})
+
+        tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
+        expected = np.concatenate([tokens[0:1], tokens[5:]], axis=0).reshape(-1)
+
+        assert replay_features.shape == (24,)
+        assert replay_features.dtype == np.float16
+        np.testing.assert_allclose(replay_features, expected.astype(np.float16))
+        assert agent_obs["features"].shape == (24,)
+        assert agent_obs["features"].dtype.name == "float32"
+
 
 class TestHybridEncoder:
     """L2/L3 tests for the hybrid (CNN + gated WP/CP MLP) encoder.
@@ -367,6 +428,94 @@ class TestHybridEncoder:
 
         assert np.asarray(agent_obs["hybrid"]).shape == (16404,)
         assert agent_obs["image"].shape == (3, 64, 64)
+
+    def test_hybrid_pooled_encoder_exposes_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = HybridAggPooledEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert adapter.buffer_shape == (12288 + 12,)
+        assert adapter.buffer_dtype == "float32"
+        assert spec.encoder_type == "hybrid_agg_pooled"
+        assert spec.obs_shape == (12288 + 12,)
+        assert spec.module_cls is wm_encoders.HybridAggPooledEncoder
+        assert enc.vggt_compute_heads is False
+        assert spec.agent_overrides["vggt_feature_dim"] == 12
+        assert spec.agent_overrides["mlp_vggt_layers"] == 3
+
+    def test_hybrid_raw_encoder_exposes_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        enc = HybridAggRawEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert adapter.buffer_shape == (12288 + 24,)
+        assert adapter.buffer_dtype == "float16"
+        assert spec.encoder_type == "hybrid_agg_raw"
+        assert spec.obs_shape == (12288 + 24,)
+        assert spec.module_cls is wm_encoders.HybridAggRawEncoder
+        assert enc.vggt_compute_heads is False
+        assert spec.agent_overrides["buffer_capacity"] == 5_000
+        assert spec.agent_overrides["vggt_feature_dim"] == 24
+
+    def test_hybrid_aggregator_adapters_build_expected_layouts(self):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
+
+        rng = np.random.default_rng(0)
+        image = rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
+        tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
+        expected_rgb = (resize_chw_uint8(image, 64).astype(np.float32) / 255.0).reshape(-1)
+        expected_pooled = np.concatenate([tokens[0], tokens[5:].mean(axis=0), tokens[5:].max(axis=0)])
+        expected_raw = np.concatenate([tokens[0:1], tokens[5:]], axis=0).reshape(-1)
+
+        pooled = HybridObsAdapter(FakeExtractor(), feature_kind="aggregator")
+        pooled_replay, pooled_agent = pooled.transform({"image": image})
+        assert pooled_replay.dtype == np.float32
+        np.testing.assert_allclose(pooled_replay[:12288], expected_rgb)
+        np.testing.assert_allclose(pooled_replay[12288:], expected_pooled)
+        assert np.asarray(pooled_agent["hybrid"]).shape == (12288 + 12,)
+
+        raw = HybridObsAdapter(FakeExtractor(), feature_kind="agg_raw")
+        raw_replay, raw_agent = raw.transform({"image": image})
+        assert raw_replay.dtype == np.float16
+        np.testing.assert_allclose(raw_replay[:12288], expected_rgb.astype(np.float16))
+        np.testing.assert_allclose(raw_replay[12288:], expected_raw.astype(np.float16))
+        assert np.asarray(raw_agent["hybrid"]).shape == (12288 + 24,)
 
 
 @pytest.mark.gpu
