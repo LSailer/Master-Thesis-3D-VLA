@@ -413,27 +413,6 @@ class DPTHead(nn.Module):
             features=self.features, in_channels=self.out_channels, name="scratch"
         )
 
-    def _project_and_resize(
-        self, idx: int, feat: jnp.ndarray
-    ) -> jnp.ndarray:
-        """Apply projects[idx] then resize_layers[idx] to an NCHW feature map."""
-        x = jnp.transpose(feat, (0, 2, 3, 1))
-        if idx == 0:
-            x = self.projects_0(x)
-            x = self.resize_layers_0(x)
-        elif idx == 1:
-            x = self.projects_1(x)
-            x = self.resize_layers_1(x)
-        elif idx == 2:
-            x = self.projects_2(x)
-            # identity resize
-        elif idx == 3:
-            x = self.projects_3(x)
-            x = self.resize_layers_3(x)
-        else:
-            raise ValueError(idx)
-        return jnp.transpose(x, (0, 3, 1, 2))
-
     def __call__(
         self,
         aggregated_tokens_list: list[jnp.ndarray],
