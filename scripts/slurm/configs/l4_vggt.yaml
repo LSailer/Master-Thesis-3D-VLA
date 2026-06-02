@@ -7,8 +7,12 @@ comments:
   - "Level 4 with VGGT 3D encoder: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories"
 args:
   output_dir: output/r2dreamer-curriculum-l4-vggt/run-${SLURM_JOB_ID}
-  wandb_name: r2d-L4-vggt-${SLURM_JOB_ID}
-  wandb_tags: curriculum,level4,10houses,6goals,vggt,jax,3d-encoder
+  wandb_name: r2d-L4-vggt-flatten-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,vggt,jax,3d-encoder,flatten,wp-cp
+  # Flatten / bare-linear WP+CP readout (vggt_mlp_layers=0), matching the L1
+  # flatten reference vggt_jax-4216462. The current default is 1 (shallow MLP),
+  # so this MUST be set explicitly or the cross-level comparison is confounded.
+  mlp_layers: 0
   # Scalars-only: video_log_every=0 / val_every=0 inherited from l1_vggt.
   # (Dropped the stale val_data / val_loss_every flags — the parser no longer
   # accepts them; in-run eval is off and regenerated from checkpoints instead.)
