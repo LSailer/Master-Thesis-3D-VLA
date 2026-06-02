@@ -29,6 +29,76 @@ if _REPO_ROOT not in sys.path:
 
 # Each value is the full kwargs forwarded to ``src.main.train`` for one run.
 RUN_CONFIGS: dict[str, dict[str, Any]] = {
+    # ── CNN curriculum baselines (L1–L4) ────────────────────────────────────
+    "habitat-l1-cnn": dict(
+        env="habitat",
+        encoder="cnn",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1",
+        wandb_name="r2d-L1-1house-chair",
+        wandb_tags=["curriculum", "level1", "1house", "chair-only", "no-goal"],
+    ),
+    "habitat-l2-cnn": dict(
+        env="habitat",
+        encoder="cnn",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2",
+        wandb_name="r2d-L2-buffix",
+        wandb_tags=["curriculum", "level2", "1house", "6goals", "buffer-fix", "rerun"],
+    ),
+    "habitat-l3-cnn": dict(
+        env="habitat",
+        encoder="cnn",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3",
+        wandb_name="r2d-L3-buffix",
+        wandb_tags=["curriculum", "level3", "10houses", "chair-only", "buffer-fix", "rerun"],
+    ),
+    "habitat-l4-cnn": dict(
+        env="habitat",
+        encoder="cnn",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4",
+        wandb_name="r2d-L4-buffix",
+        wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
+    ),
+    # ── VGGT 3D-encoder curriculum (L1–L4) ──────────────────────────────────
+    "habitat-l1-vggt": dict(
+        env="habitat",
+        encoder="vggt",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt",
+        wandb_name="vggt_jax",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "vggt_jax", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l2-vggt": dict(
+        env="habitat",
+        encoder="vggt",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2-vggt",
+        wandb_name="r2d-L2-vggt",
+        wandb_tags=["curriculum", "level2", "1house", "6goals", "vggt", "jax", "3d-encoder"],
+    ),
+    "habitat-l3-vggt": dict(
+        env="habitat",
+        encoder="vggt",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-vggt",
+        wandb_name="r2d-L3-vggt",
+        wandb_tags=["curriculum", "level3", "10houses", "chair-only", "vggt", "jax", "3d-encoder"],
+    ),
+    "habitat-l4-vggt": dict(
+        env="habitat",
+        encoder="vggt",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4-vggt",
+        wandb_name="r2d-L4-vggt",
+        wandb_tags=["curriculum", "level4", "10houses", "6goals", "vggt", "jax", "3d-encoder"],
+    ),
+    # ── VGGT encoder variants / ablations ───────────────────────────────────
     # L1 Hybrid — CNN(RGB) + gated MLP(WP/CP) hybrid encoder (3D-50/51/52).
     "habitat-l1-hybrid": dict(
         env="habitat",
@@ -64,6 +134,27 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "curriculum", "level1", "1house", "chair-only", "vggt",
             "wp-dense", "full-res-518", "cnn", "jax", "3d-encoder",
         ],
+    ),
+    # L1 VGGT aggregator-MLP encoder (variant-1).
+    "habitat-l1-vggt-aggregator-mlp": dict(
+        env="habitat",
+        encoder="vggt_aggregator_mlp",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-aggregator-mlp",
+        wandb_name="variant-1-aggregator-mlp",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "aggregator-mlp", "variant-1", "jax", "3d-encoder",
+        ],
+    ),
+    # ── Crafter (non-curriculum sanity env) ─────────────────────────────────
+    "crafter-cnn": dict(
+        env="crafter",
+        encoder="cnn",
+        curriculum=None,
+        output_dir="output/runs/r2dreamer-crafter",
+        wandb_name="r2d-crafter",
+        wandb_tags=["crafter", "cnn"],
     ),
 }
 

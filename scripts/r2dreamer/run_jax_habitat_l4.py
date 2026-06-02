@@ -1,14 +1,8 @@
-"""L4 CNN shim — habitat, cnn, L4 (10 houses, 6 goals, full curriculum)."""
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+"""L4 CNN shim — habitat, cnn, L4 (10 houses, 6 goals, full curriculum).
 
-from src.main import train
+Run metadata lives in _run_configs.RUN_CONFIGS["habitat-l4-cnn"].
+"""
+import _run_configs
 
 if __name__ == "__main__":
-    train(
-        env="habitat", encoder="cnn", curriculum="L4",
-        output_dir="output/runs/r2dreamer-curriculum-l4",
-        wandb_name="r2d-L4-buffix",
-        wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
-    )
+    _run_configs.launch_run("habitat-l4-cnn")

@@ -1,14 +1,8 @@
-"""L1 VGGT shim — habitat, vggt, L1 (1 house, chair only, 3D encoder)."""
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+"""L1 VGGT shim — habitat, vggt, L1 (1 house, chair only, 3D encoder).
 
-from src.main import train
+Run metadata lives in _run_configs.RUN_CONFIGS["habitat-l1-vggt"].
+"""
+import _run_configs
 
 if __name__ == "__main__":
-    train(
-        env="habitat", encoder="vggt", curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt",
-        wandb_name="vggt_jax",
-        wandb_tags=["curriculum", "level1", "1house", "chair-only", "vggt", "vggt_jax", "jax", "3d-encoder"],
-    )
+    _run_configs.launch_run("habitat-l1-vggt")
