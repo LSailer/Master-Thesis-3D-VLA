@@ -156,15 +156,16 @@ def _make_encoder(cfg: R2DreamerConfig):
         # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
         # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
         # and the encoder's RGB slice would silently diverge.
-        assert (
+        if not (
             cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
             and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
-        ), (
-            "hybrid obs_shape/split mismatch: expected "
-            f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
-            f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
-            f"vggt_feature_dim={cfg.vggt_feature_dim}"
-        )
+        ):
+            raise ValueError(
+                "hybrid obs_shape/split mismatch: expected "
+                f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
+                f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
+                f"vggt_feature_dim={cfg.vggt_feature_dim}"
+            )
         return cls(
             cnn_depth=cfg.encoder_depth,
             cnn_kernel=cfg.encoder_kernel,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 import jax
 import numpy as np
@@ -52,6 +53,17 @@ def _get_agent_heading(env):
     r = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w])
     euler = r.as_euler("yxz")
     return float(euler[0])
+
+
+def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
+    ckpt = Path(checkpoint).resolve()
+    for candidate in (
+        ckpt.parent / "MANIFEST.json",
+        ckpt.parent.parent / "MANIFEST.json",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def evaluate(
@@ -156,11 +168,8 @@ def evaluate(
     # are threaded (not runtime knobs like lr/steps); obs_shape/encoder_type/
     # module_cls stay as set above.
     if not args.random and eff_checkpoint is not None:
-        import json
-        from pathlib import Path
-
-        _manifest = Path(eff_checkpoint).resolve().parents[1] / "MANIFEST.json"
-        if _manifest.is_file():
+        _manifest = _find_manifest_for_checkpoint(eff_checkpoint)
+        if _manifest is not None:
             try:
                 _saved = json.loads(_manifest.read_text()).get("config", {})
             except (ValueError, OSError):
