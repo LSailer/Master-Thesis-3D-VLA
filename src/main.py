@@ -35,13 +35,17 @@ def _build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--encoder",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp"],
+        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
     )
     train_parser.add_argument("--curriculum", default=None)
 
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained agent.")
     eval_parser.add_argument("--env", default="habitat", choices=["habitat"])
-    eval_parser.add_argument("--encoder", default="cnn", choices=["cnn", "vggt"])
+    eval_parser.add_argument(
+        "--encoder",
+        default="cnn",
+        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+    )
     eval_parser.add_argument("--curriculum", default=None)
     eval_parser.add_argument("--checkpoint", default=None)
     eval_parser.add_argument("--output_dir", default=None)

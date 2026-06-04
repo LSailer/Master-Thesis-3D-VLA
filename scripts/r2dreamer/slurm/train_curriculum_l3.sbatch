@@ -22,7 +22,7 @@ fi
 
 # Level 3: 10 houses, chair only
 # 2.4M steps, multi-scene generalization
-uv run python scripts/r2dreamer/run_jax_habitat_l3.py \
+uv run python scripts/r2dreamer/run.py habitat-l3-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

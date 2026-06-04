@@ -2,6 +2,13 @@
 
 This repo is worked on by coding agents on bwUniCluster. Follow these rules for Linear issue implementation and review.
 
+`AGENTS.md` is the tooling-agnostic project contract read by every major agentic CLI (Claude Code, Codex, Cursor, Copilot, Aider, …). The pattern and conventions here follow [matthewsinclair/intent](https://github.com/matthewsinclair/intent). The nearest-ancestor file wins, so large subfolders carry their own scoped module contract — read the one closest to the files you are editing:
+
+- [`src/r2dreamer/AGENTS.md`](src/r2dreamer/AGENTS.md) — R2Dreamer JAX/Flax agent (RSSM, behavior, representation, launch)
+- [`src/vggt/AGENTS.md`](src/vggt/AGENTS.md) — VGGT 3D encoder (PyTorch reference + JAX production port)
+- [`scripts/r2dreamer/AGENTS.md`](scripts/r2dreamer/AGENTS.md) — experiment drivers + SLURM wrappers
+- [`tests/r2dreamer/AGENTS.md`](tests/r2dreamer/AGENTS.md) — R2Dreamer test suite
+
 ## Worktree Setup
 
 When working in a `git worktree` (any directory under `worktrees/`), run once per fresh worktree before any training or eval command:
@@ -11,6 +18,15 @@ When working in a `git worktree` (any directory under `worktrees/`), run once pe
 ```
 
 This symlinks the shared `data/` and `.venv/` from the main checkout into the worktree. Habitat and other scripts resolve dataset paths relative to CWD, so a worktree without these links fails fast with `FileNotFoundError: data/datasets/...`. The script is idempotent and is a no-op in the main checkout.
+
+## Naming Conventions
+
+Use names that describe the Linear issue or task, not the tool or agent doing the work.
+
+- Branches and worktrees: `<linear-key>-<short-task-slug>`; example: `3d-47-skip-heldout-eval`
+- Commit subjects and PR titles: `<Linear issue key>: <short change summary>`; example: `3D-47: Skip heldout eval for offline ablations`
+- Do not include tool or agent names such as `codex`, `ai`, `agent`, `bot`, or model names in branch names, worktree names, commit subjects, or PR titles.
+- Mention agent/tool involvement only in the PR body `Agent involvement` section.
 
 ## Default Workflow
 

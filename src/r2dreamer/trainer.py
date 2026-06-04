@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import os
 import pickle
+import sys
 import time
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
@@ -101,6 +102,15 @@ class TrainerConfig:
     log_every: int = 250
     checkpoint_every: int = 50_000
     seed: int = 0
+
+    # When True, a fully completed run hard-exits the process (os._exit(0))
+    # after the final checkpoint, MANIFEST, and W&B are flushed — skipping
+    # habitat_sim's GL teardown, which SIGABRTs ("no current context") on some
+    # magnum builds and would otherwise poison the exit code of a successful
+    # run. Set by the SLURM launcher (env R2DREAMER_HARD_EXIT_ON_FINISH=1);
+    # left False for notebook/test callers so they keep the normal close() path
+    # and real failures still surface a non-zero exit.
+    hard_exit_on_finish: bool = False
 
     # WandB (None = disabled)
     wandb_project: str | None = "3d-vla-objectnav"
@@ -323,6 +333,16 @@ class Trainer:
             write_manifest_end(Path(tcfg.output_dir), status)
             if self._wandb is not None:
                 self._wandb.finish()
+            if tcfg.hard_exit_on_finish and status == "completed":
+                # habitat_sim's GL teardown SIGABRTs ("no current context") on
+                # some magnum builds, poisoning the exit code AFTER the run has
+                # fully completed (checkpoint + manifest + W&B already flushed
+                # above). Skip the aborting close and exit cleanly. Failures
+                # fall through to close() so their non-zero exit and traceback
+                # survive and the smoke gate still catches real breakage.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(0)
             self.env.close()
             if self.val_env is not None:
                 self.val_env.close()
@@ -439,6 +459,8 @@ class Trainer:
 
                 if step % tcfg.log_every == 0 and metrics:
                     self._log_train_metrics(metrics, step, writer, f)
+                    if getattr(acfg, "decoder", False):
+                        self._maybe_log_recon(batch, step)
 
             # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
             if (self.val_env is not None
@@ -614,6 +636,29 @@ class Trainer:
             f"policy={metrics.get('loss/policy', 0):.3f} "
             f"fps={fps:.0f}"
         )
+
+    def _maybe_log_recon(self, batch: dict, step: int) -> None:
+        """Log decoder input/reconstruction image pairs to W&B (3D-51).
+
+        No-op unless a decoder is configured and W&B is active. Decodes the
+        sampled training batch and logs up to 4 side-by-side ``input | recon``
+        panels so the learned hybrid representation can be eyeballed during a run.
+        """
+        if self._wandb is None or not getattr(self.acfg, "decoder", False):
+            return
+        pair = self.agent.reconstruct(batch)
+        if pair is None:
+            return
+        target, recon = pair  # (B*T, 3, 64, 64) in [0, 1]
+        n = min(4, target.shape[0])
+        images = []
+        for i in range(n):
+            tgt = np.transpose(target[i], (1, 2, 0))  # CHW -> HWC
+            rec = np.transpose(recon[i], (1, 2, 0))
+            combo = np.concatenate([tgt, rec], axis=1)  # side by side
+            combo = np.clip(combo * 255.0, 0, 255).astype(np.uint8)
+            images.append(self._wandb.Image(combo, caption=f"input | recon ({i})"))
+        self._wandb.log({"decoder/reconstructions": images}, step=step)
 
     def _run_val_loop(
         self, rng_key: jnp.ndarray, step: int, writer: Any, f: Any,

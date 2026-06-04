@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.world_model.encoders import VGGTEncoder, VGGTAggregatorMLPEncoder
+from src.r2dreamer.world_model.encoders import (
+    VGGTEncoder,
+    VGGTAggregatorMLPEncoder,
+    WPConvEncoder,
+)
 from src.buffer.replay_buffer import VGGTReplayBuffer
 
 
@@ -44,6 +48,7 @@ class TestVGGTAggregatorMLPEncoder:
             enc.init(rng, dummy)
 
     def test_per_pool_norms_and_mlp_params(self):
+        # Default depth = 1 hidden block (hidden0/norm0) + linear readout (proj).
         enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.arange(2 * 24, dtype=jnp.float32).reshape(2, 24)
@@ -52,7 +57,22 @@ class TestVGGTAggregatorMLPEncoder:
 
         assert out.shape == (2, 32)
         assert set(params["params"].keys()) == {
-            "norm_cam", "norm_mean", "norm_max", "hidden", "proj",
+            "norm_cam", "norm_mean", "norm_max", "hidden0", "norm0", "proj",
+        }
+
+    def test_num_layers_stacks_blocks(self):
+        # num_layers=3 -> hidden0/1/2 + norm0/1/2 + per-pool norms + proj.
+        enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16, num_layers=3)
+        rng = jax.random.PRNGKey(0)
+        dummy = jnp.zeros((2, 24), dtype=jnp.float32)
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 32)
+        assert set(params["params"].keys()) == {
+            "norm_cam", "norm_mean", "norm_max",
+            "hidden0", "hidden1", "hidden2",
+            "norm0", "norm1", "norm2",
+            "proj",
         }
 
 
@@ -83,6 +103,51 @@ class TestVGGTEncoder:
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (1, 512)
+
+    def test_default_is_one_hidden_block_plus_proj(self):
+        # 3D-52: default depth replaces the bare linear projection with an MLP.
+        enc = VGGTEncoder(embed_dim=64, hidden=48)
+        params = enc.init(jax.random.PRNGKey(0), jnp.zeros((1, FEATURE_DIM)))
+        assert set(params["params"].keys()) == {"hidden0", "norm0", "proj"}
+
+    def test_num_layers_three(self):
+        enc = VGGTEncoder(embed_dim=64, hidden=48, num_layers=3)
+        params = enc.init(jax.random.PRNGKey(0), jnp.zeros((2, FEATURE_DIM)))
+        out = enc.apply(params, jnp.zeros((2, FEATURE_DIM)))
+        assert out.shape == (2, 64)
+        assert set(params["params"].keys()) == {
+            "hidden0", "hidden1", "hidden2", "norm0", "norm1", "norm2", "proj",
+        }
+
+    def test_num_layers_zero_is_bare_linear(self):
+        # Escape hatch: depth 0 reproduces the historical single-Dense projection.
+        enc = VGGTEncoder(embed_dim=64, num_layers=0)
+        params = enc.init(jax.random.PRNGKey(0), jnp.zeros((1, FEATURE_DIM)))
+        assert set(params["params"].keys()) == {"proj"}
+
+
+class TestWPConvEncoder:
+    """Full-resolution world-point CNN encoder (3D-53)."""
+
+    def test_output_shape_518(self):
+        enc = WPConvEncoder(embed_dim=256)
+        rng = jax.random.PRNGKey(0)
+        # (B, 3, H, W) metric XYZ world-point map.
+        dummy = jnp.zeros((2, 3, 518, 518))
+        params = enc.init(rng, dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 256)
+        assert jnp.isfinite(out).all()
+
+    def test_handles_metric_xyz_range(self):
+        # Values far outside [0, 1] (metric coords) must not blow up (symlog).
+        enc = WPConvEncoder(embed_dim=32)
+        rng = jax.random.PRNGKey(0)
+        big = jnp.full((1, 3, 518, 518), 1e3)
+        params = enc.init(rng, big)
+        out = enc.apply(params, big)
+        assert out.shape == (1, 32)
+        assert jnp.isfinite(out).all()
 
 
 class TestVGGTReplayBuffer:
@@ -180,6 +245,46 @@ class TestVGGTAgentInit:
         rng, act_key = jax.random.split(rng)
         action = agent.act(obs_dict, act_key)
         assert 0 <= action < 4
+
+    def test_agent_act_vggt_wp_dense(self):
+        # Full wiring smoke for the dense-WP CNN path (3D-53). Small image keeps
+        # the conv forward cheap on CPU; WPConvEncoder is resolution-agnostic.
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_wp_dense_cnn",
+            obs_shape=(3, 70, 70),
+            num_actions=4,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+        assert "encoder" in agent.params
+
+        obs_dict = {
+            "features": np.zeros((3, 70, 70), dtype=np.float32),
+            "is_first": True,
+        }
+        rng, act_key = jax.random.split(rng)
+        action = agent.act(obs_dict, act_key)
+        assert 0 <= action < 4
+
+    def test_mlp_layers_rejected_by_conv_encoders(self):
+        # 3D-52 guard: vggt_mlp_layers must not be silently dropped by a conv
+        # encoder (cnn or dense-WP). It should fail loud at agent construction.
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        for enc_type, shape in (
+            ("cnn", (3, 64, 64)),
+            ("vggt_wp_dense_cnn", (3, 70, 70)),
+        ):
+            cfg = R2DreamerConfig(
+                encoder_type=enc_type,
+                obs_shape=shape,
+                num_actions=4,
+                vggt_mlp_layers=3,
+            )
+            with pytest.raises(ValueError, match="vggt_mlp_layers"):
+                R2DreamerAgent(cfg, jax.random.PRNGKey(0))
 
     def test_agent_train_step_vggt(self):
         from src.r2dreamer.agent import R2DreamerAgent

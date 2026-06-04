@@ -47,7 +47,7 @@ uv run python scripts/profile_pipeline_aggregator_mlp.py \
 # ----- Step 3: real end-to-end training smoke ~20 min -----
 echo ""
 echo "=== [3/3] End-to-end training smoke ==="
-uv run python scripts/r2dreamer/run_jax_habitat_vggt_aggregator_mlp.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-vggt-aggregator-mlp \
     --steps 6000 \
     --prefill 200 \
     --seed 42 \

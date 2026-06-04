@@ -22,7 +22,7 @@ fi
 
 # Level 2: 1 house (fK2vEV32Lag), 6 goal categories
 # 2.4M steps, single scene with diverse goals
-uv run python scripts/r2dreamer/run_jax_habitat_l2.py \
+uv run python scripts/r2dreamer/run.py habitat-l2-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

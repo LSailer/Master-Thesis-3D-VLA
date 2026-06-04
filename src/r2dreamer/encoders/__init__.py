@@ -117,6 +117,8 @@ class VGGTEncoder(Encoder):
     # pre-head aggregator tokens, so the extractor can skip camera_head +
     # point_head + world_points wrapper on every frame.
     vggt_compute_heads = True
+    # Grid the dense point map is pooled to for the WP output (37 = patch grid).
+    wp_pool_size = 37
 
     @classmethod
     def from_train_args(cls, args: Any) -> "VGGTEncoder":
@@ -128,6 +130,7 @@ class VGGTEncoder(Encoder):
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
             compute_heads=self.vggt_compute_heads,
+            wp_pool_size=self.wp_pool_size,
         )  # device="cuda" default
 
     def _build_adapter(self) -> ObsAdapter:
@@ -164,10 +167,102 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     )
 
 
+class VGGTDenseWPEncoder(VGGTEncoder):
+    """Full-resolution world-point map (518x518x3) -> Conv encoder (3D-53).
+
+    Unlike the WP/CP variant, this skips the 14x14 average-pool to 37x37 and
+    feeds the dense per-pixel point map straight into a conv stack that treats
+    the XYZ coordinates as a 3-channel image. The point head still runs
+    (``vggt_compute_heads=True``) because the dense map is its raw output;
+    only the pooling + flatten+Dense readout is dropped.
+    """
+
+    feature_kind = "wp_dense"
+    encoder_type = "vggt_wp_dense_cnn"
+    module_cls = wm_encoders.WPConvEncoder
+    # Dense WP needs the point head (the 518² map is its pre-pool output).
+    vggt_compute_heads = True
+    # A 518²x3 float16 frame is ~1.6 MB, vs ~16 KB at 37². Keep the buffer small
+    # and batches modest so replay storage and per-step conv cost stay bounded.
+    agent_overrides = {
+        "buffer_capacity": 5_000,
+        "batch_size": 4,
+        "seq_len": 32,
+        "train_ratio": 128,
+    }
+    design_notes = (
+        "Variant: full-resolution VGGT world points. The DPT point head's dense "
+        "518x518x3 per-pixel map (one metric XYZ point per pixel) is NOT pooled "
+        "to 37x37; it is stored channel-first as a (3, 518, 518) float16 image "
+        "and fed to WPConvEncoder, which symlog-normalises the metric XYZ range "
+        "and runs the RGB Conv+MaxPool+RMSNorm+SiLU stack before a linear "
+        "readout to embed_dim. WP-only (no camera pose): a 9-vector cannot be a "
+        "spatial channel. See issue 3D-53."
+    )
+
+
+class HybridEncoder(VGGTEncoder):
+    """CNN(RGB 64) + gated MLP(WP+CP 4116) fused into a single latent."""
+
+    feature_kind = "wp_cp"
+    encoder_type = "hybrid"
+    module_cls = wm_encoders.HybridEncoder
+    # World_points + camera_pose are required, so the extractor must build at
+    # 518 with heads (compute_heads=True, inherited from VGGTEncoder).
+    vggt_compute_heads = True
+    # 16404-d float32 at 1M ~= 65GB host RAM > node's 64GB; 100k ~= 6.5GB.
+    agent_overrides = {"buffer_capacity": 100_000}
+    design_notes = (
+        "Hybrid encoder: a CNN branch over the 64x64 RGB frame and a gated MLP "
+        "branch over the 4116-dim VGGT world_points+camera_pose vector are fused "
+        "(concatenated) into the latent. A zero-init scalar gate on the WP/CP "
+        "branch means training starts as plain CNN-Dreamer and only blends in the "
+        "geometric features as the gate opens; per-branch contributions are logged "
+        "as hybrid/* metrics (3D-50/51/52)."
+    )
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+
+        return HybridObsAdapter(self._extractor)
+
+
+class VGGTWPCP64Encoder(VGGTEncoder):
+    """WP+CP MLP at a finer 64x64 world-point grid (3D-52/3D-53 follow-up).
+
+    Identical to the WP+CP MLP encoder (same MLP module, same camera pose, same
+    1M-transition replay buffer) but pools VGGT's dense 518x518 point map to
+    64x64 instead of 37x37: obs becomes 64*64*3 + 9 = 12297-D. Holding the
+    architecture and pose fixed and sweeping only the WP resolution (37 -> 64)
+    isolates whether finer geometry helps; 64x64 also matches the RGB-CNN
+    baseline's input resolution. Replaces the conv-on-518² path (WPConvEncoder),
+    since a 12297-D vector is a trivial MLP input (~0.2 ms encoder forward) while
+    the 518² conv was ~4x too slow to finish.
+    """
+
+    encoder_type = "vggt_wp_cp_64"
+    wp_pool_size = 64
+    # Inherits feature_kind="wp_cp", module_cls=VGGTEncoder (MLP),
+    # vggt_compute_heads=True, agent_overrides={buffer_capacity: 1_000_000}.
+    # 64²x3 float32 ~= 49 KB/frame, so 1M transitions ~= 49 GB host RAM -> the
+    # run config bumps node memory accordingly.
+    design_notes = (
+        "WP+CP MLP at a 64x64 world-point grid. VGGT's dense 518x518x3 point map "
+        "is average-pooled (antialiased area resample, since 518 is not divisible "
+        "by 64) to 64x64x3, flattened (12288) and concatenated with the 9-D camera "
+        "pose into a 12297-D observation, then encoded by the same multi-layer MLP "
+        "as the 37x37 WP+CP variant. Only the WP resolution differs (37 -> 64): a "
+        "controlled resolution ablation, at the RGB-CNN baseline resolution."
+    )
+
+
 __all__ = [
     "EncoderSpec",
     "Encoder",
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTDenseWPEncoder",
+    "HybridEncoder",
+    "VGGTWPCP64Encoder",
 ]

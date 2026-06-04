@@ -1,0 +1,43 @@
+extends: _base
+job_name: hybrid-cnn-vggt-v1
+output_dir: output/runs/r2dreamer-curriculum-l1-hybrid
+run_id: habitat-l1-hybrid
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "Hybrid 3D encoder: CNN(RGB_64) + zero-gated MLP(WP/CP 4116) fused into the RSSM posterior; logs hybrid/{gate,cnn_frac,vggt_frac} contribution metrics"
+  - "Compares against the WP/CP-only baseline (W&B lhgoxh0y): hybrid keeps the strong CNN path and opens the VGGT branch from zero"
+env:
+  # A completed run os._exit(0)s before habitat_sim's GL teardown, which
+  # otherwise SIGABRTs ("no current context") and poisons the exit code of an
+  # otherwise-successful run (see Trainer.hard_exit_on_finish / d09ad3c).
+  R2DREAMER_HARD_EXIT_ON_FINISH: "1"
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l1-hybrid/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: hybrid-cnn-vggt-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,hybrid,cnn,wp-cp,jax,3d-encoder
+  render_resolution: 518
+smoke:
+  time: "00:20:00"
+  args:
+    steps: 800
+    prefill: 200
+    # Small batch/seq so batch_steps (batch_size*seq_len) is reached early and
+    # train_step actually fires in a short run (default 16*64=1024 > the ~1000
+    # transitions an 800-step smoke collects, so the encoder never trains).
+    # Low train_ratio bounds the number of full-size train_steps for wall-time.
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 10000
+    output_dir: output/smoke/hybrid-${TIMESTAMP}
+    # wandb_project intentionally omitted: inherits the shared smoke project
+    # (3d-vla-objectnav-smoke) from _base.yaml so all smokes land together.
+    wandb_name: hybrid-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,smoke,cnn+vggt

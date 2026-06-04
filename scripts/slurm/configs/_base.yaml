@@ -1,10 +1,29 @@
+# Every curriculum-family variant launches through the one run dispatcher; each
+# leaf selects its run with run_id: (resolved in scripts/r2dreamer/_run_configs.py).
+script: scripts/r2dreamer/run.py
 sbatch:
-  partition: gpu_h100
+  # Auto-select the faster queue: SLURM schedules on whichever partition can
+  # run the job soonest. Both are the same H100 hardware (identical speed) with
+  # PreemptMode=OFF; they share PriorityTier, so list order breaks ties — keep
+  # gpu_h100_il first to bias toward the (currently less-contended) il pool,
+  # with gpu_h100 as fallback. il MaxTime is 2 days, so keep prod time <= 48h.
+  partition: gpu_h100_il,gpu_h100
   gres: gpu:1
   ntasks: 1
   cpus_per_task: 8
   mem: 64G
   time: "48:00:00"
+env:
+  # Hard-exit a completed habitat run before habitat_sim's GL teardown
+  # SIGABRTs ("no current context") and poisons the exit code — handled in
+  # Trainer.run() via the hard_exit_on_finish flag (read from this var).
+  # Defined here so every _base-derived variant inherits it, keeping the
+  # CNN and VGGT arms symmetric under the smoke-then-prod afterok gate.
+  R2DREAMER_HARD_EXIT_ON_FINISH: "1"
+args:
+  # Shared training-step budget for the curriculum family. The CNN and VGGT
+  # arms share the same 2M budget for a fair comparison; variants may override.
+  steps: 2000000
 smoke:
   partition: gpu_h100_short
   time: "00:30:00"
@@ -16,3 +35,9 @@ smoke:
     checkpoint_every: 1000000
     seed: 42
     log_every: 50
+    # All smoke runs log to a dedicated W&B project, kept separate from the
+    # prod 3d-vla-objectnav project. Inherited by every config that `extends:
+    # _base` and overrides the prod `wandb_project` for smoke mode. (Jobs run
+    # WANDB_MODE=offline on the firewalled compute node; sync from the login
+    # node: `wandb sync <output_dir>/wandb/offline-run-*`.)
+    wandb_project: 3d-vla-objectnav-smoke

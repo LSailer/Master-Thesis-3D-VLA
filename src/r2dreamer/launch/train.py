@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from typing import TYPE_CHECKING
 
@@ -29,8 +30,8 @@ def train(
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
-    from src.r2dreamer.launch.curricula import CURRICULA
+    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
+    from src.r2dreamer.launch._helpers import resolve_curriculum_path
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
     from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
@@ -42,16 +43,8 @@ def train(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    # --- Resolve curriculum path ---
-    # CLI --curriculum_path is the escape hatch; otherwise use registry lookup.
-    if args.curriculum_path is not None:
-        curriculum_path = args.curriculum_path
-    elif curriculum is not None:
-        if curriculum not in CURRICULA:
-            raise KeyError(f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}")
-        curriculum_path = str(CURRICULA[curriculum])
-    else:
-        curriculum_path = None
+    # --- Resolve curriculum path (shared with evaluate via launch._helpers) ---
+    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
 
     if env == "habitat" and curriculum_path is None:
         raise ValueError(
@@ -124,6 +117,23 @@ def train(
         agent_overrides["seq_len"] = args.seq_len
     if args.lr is not None:
         agent_overrides["lr"] = args.lr
+    if args.mlp_layers is not None:
+        agent_overrides["vggt_mlp_layers"] = args.mlp_layers
+    if getattr(args, "train_ratio", None) is not None:
+        agent_overrides["train_ratio"] = args.train_ratio
+
+    # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
+    # explicit flags win.
+    preset = getattr(args, "latent_preset", "default")
+    agent_overrides.update(LATENT_PRESETS.get(preset, {}))
+    for _name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
+        _v = getattr(args, _name, None)
+        if _v is not None:
+            agent_overrides[_name] = _v
+    if getattr(args, "decoder", False):
+        agent_overrides["decoder"] = True
+    if getattr(args, "scale_decoder", None) is not None:
+        agent_overrides["scale_decoder"] = args.scale_decoder
 
     agent_config = R2DreamerConfig(
         encoder_type=encoder_spec.encoder_type,
@@ -168,6 +178,9 @@ def train(
         overfit_batch_size=args.overfit_batch_size,
         overfit_seq_len=args.overfit_seq_len,
         overfit_min_loss_drop=args.overfit_min_loss_drop,
+        # Opt-in via the SLURM launcher: hard-exit a completed run before the
+        # habitat_sim GL teardown can SIGABRT and poison the exit code.
+        hard_exit_on_finish=os.environ.get("R2DREAMER_HARD_EXIT_ON_FINISH") == "1",
     )
 
     # --- Build trainer ---

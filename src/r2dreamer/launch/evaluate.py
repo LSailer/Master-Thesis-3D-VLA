@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 
 import jax
 import numpy as np
@@ -13,7 +14,7 @@ from scipy.spatial.transform import Rotation
 
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
-from src.r2dreamer.launch.curricula import CURRICULA
+from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.shared.video_utils import (
@@ -54,6 +55,17 @@ def _get_agent_heading(env):
     return float(euler[0])
 
 
+def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
+    ckpt = Path(checkpoint).resolve()
+    for candidate in (
+        ckpt.parent / "MANIFEST.json",
+        ckpt.parent.parent / "MANIFEST.json",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def evaluate(
     *,
     env: str,
@@ -70,7 +82,6 @@ def evaluate(
     Returns metrics dict with 'results' and 'meta' keys.
     """
     from src.r2dreamer.launch.registries import encoder_registry
-    from src.r2dreamer.adapters import VGGT_FEATURE_DIM
     from src.shared.configs import DreamerConfig
     from src.environments.habitat import HabitatObjectNavEnv
 
@@ -89,15 +100,8 @@ def evaluate(
             "checkpoint must be set via evaluate(..., checkpoint=...) or --checkpoint"
         )
 
-    # --- Resolve curriculum path ---
-    if args.curriculum_path is not None:
-        curriculum_path = args.curriculum_path
-    elif curriculum is not None:
-        if curriculum not in CURRICULA:
-            raise KeyError(f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}")
-        curriculum_path = str(CURRICULA[curriculum])
-    else:
-        curriculum_path = None
+    # --- Resolve curriculum path (shared with train via launch._helpers) ---
+    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
 
     # --- Resolve output dir ---
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
@@ -117,10 +121,14 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    if eff_encoder == "vggt":
-        render_resolution = args.render_resolution if args.render_resolution is not None else 518
-    else:
-        render_resolution = args.render_resolution if args.render_resolution is not None else 64
+    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
+    # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
+    # driven off the EncoderSpec below.
+    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
+    default_resolution = 518 if needs_hires else 64
+    render_resolution = (
+        args.render_resolution if args.render_resolution is not None else default_resolution
+    )
     hab_config = DreamerConfig(
         obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
@@ -136,26 +144,51 @@ def evaluate(
 
     # --- Build encoder + adapter ---
     encoder_cls = encoder_registry[eff_encoder]
-    if eff_encoder == "vggt":
-        enc = encoder_cls(resolution=render_resolution)
-    else:
-        enc = encoder_cls()
+    enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
     adapter = enc.make_adapter()
 
     # --- Build agent ---
+    # Source encoder_type + obs_shape from the spec so every registered encoder
+    # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn) evaluates correctly.
     encoder_spec = enc.spec()
-    if eff_encoder == "vggt":
-        from src.r2dreamer.adapters import VGGT_FEATURE_DIM
-        agent_config_kwargs: dict = {
-            "encoder_type": "vggt",
-            "encoder_module_cls": encoder_spec.module_cls,
-            "obs_shape": (VGGT_FEATURE_DIM,),
-        }
-    else:
-        agent_config_kwargs = {
-            "encoder_module_cls": encoder_spec.module_cls,
-            "obs_shape": (3, 64, 64),
-        }
+    # Source encoder_type + obs_shape from the spec so every registered encoder
+    # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn / hybrid) evaluates
+    # correctly; the hybrid's (16404,) obs_shape and "hybrid" type flow through.
+    agent_config_kwargs: dict = {
+        "encoder_type": encoder_spec.encoder_type,
+        "encoder_module_cls": encoder_spec.module_cls,
+        "obs_shape": encoder_spec.obs_shape,
+    }
+
+    # Recover the trained ARCHITECTURE from the run's MANIFEST.json so eval can
+    # load non-default checkpoints — latent-size ablation (deter/stoch), the VGGT
+    # MLP depth, hybrid MLP dims, a co-trained decoder, etc. Without this,
+    # from_checkpoint rebuilds the modules with config defaults and the param
+    # pytree mismatches the saved weights. Only architecture-determining fields
+    # are threaded (not runtime knobs like lr/steps); obs_shape/encoder_type/
+    # module_cls stay as set above.
+    if not args.random and eff_checkpoint is not None:
+        _manifest = _find_manifest_for_checkpoint(eff_checkpoint)
+        if _manifest is not None:
+            try:
+                _saved = json.loads(_manifest.read_text()).get("config", {})
+            except (ValueError, OSError):
+                _saved = {}
+            _ARCH_FIELDS = (
+                "deter_size", "hidden_size", "stoch_classes", "stoch_discrete",
+                "blocks", "dyn_layers", "obs_layers", "img_layers",
+                "encoder_depth", "encoder_kernel", "encoder_mults",
+                "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
+                "mlp_vggt_layers", "mlp_units", "mlp_layers_reward",
+                "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",
+                "twohot_bins", "decoder",
+            )
+            for _k in _ARCH_FIELDS:
+                if _k in _saved:
+                    agent_config_kwargs[_k] = (
+                        tuple(_saved[_k]) if _k == "encoder_mults" else _saved[_k]
+                    )
+
     config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
     rng_key = jax.random.PRNGKey(args.seed)
 

@@ -2,6 +2,15 @@ from dataclasses import dataclass, field
 from typing import Any, Tuple
 
 
+# Latent-size ablation presets (3D-50). Each maps a `--latent_preset` name to the
+# RSSM-size field overrides it applies; explicit CLI flags still win over a preset.
+# Table-driven so adding a preset is a single entry, not another if/elif branch.
+LATENT_PRESETS: dict[str, dict[str, int]] = {
+    "small": {"deter_size": 1024, "stoch_classes": 24, "stoch_discrete": 12},
+    "large": {"deter_size": 4096, "stoch_classes": 48, "stoch_discrete": 24},
+}
+
+
 @dataclass
 class R2DreamerConfig:
     # --- Environment ---
@@ -20,13 +29,29 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # "cnn", "vggt", or "vggt_aggregator_mlp"
+    encoder_type: str = "cnn"  # canonical set: encoder_registry in src.r2dreamer.launch.registries
     encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)
     vggt_feature_dim: int = 4116  # 37*37*3 + 9 (world_points + camera_pose)
     vggt_embed_dim: int = 1024
+    # Depth of the VGGT MLP encoders (wp_cp + aggregator), counting hidden
+    # Dense->RMSNorm->SiLU blocks before the linear readout. Default 1 keeps the
+    # encoder shallow (one hidden block + projection); the experiment runs raise
+    # this to 3 to match R2Dreamer's native encoder.mlp.layers (3D-52). Setting
+    # 0 collapses wp_cp to the original bare-linear projection.
+    vggt_mlp_layers: int = 1
+    # --- Hybrid encoder (CNN on RGB + MLP on WP/CP, gated; 3D-50/51/52) ---
+    # The hybrid's WP/CP branch has its own width/depth knobs (vggt_mlp_layers
+    # above governs the standalone vggt/aggregator encoders).
+    mlp_vggt_hidden: int = 1024   # hidden width of the hybrid VGGT-branch MLP
+    mlp_vggt_layers: int = 2      # depth of the hybrid VGGT-branch MLP
+    # --- Co-trained decoder (image reconstruction; OFF by default; 3D-51) ---
+    # When False (default) no decoder params are built and no reconstruction
+    # term is added, so CNN/VGGT runs are byte-for-byte unchanged.
+    decoder: bool = False         # build a ConvDecoder + add a reconstruction loss
+    scale_decoder: float = 1.0    # weight of the reconstruction MSE in total loss
     design_notes: str = ""
 
     # --- MLP heads ---

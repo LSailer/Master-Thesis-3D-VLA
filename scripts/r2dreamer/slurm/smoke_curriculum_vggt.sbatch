@@ -39,7 +39,7 @@ SMOKE_DIR="output/smoke/r2d-vggt-smoke-${SLURM_JOB_ID}"
 export WANDB_MODE=offline
 export PYTHONFAULTHANDLER=1
 
-uv run python scripts/r2dreamer/run_jax_habitat_vggt.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-vggt \
     --steps 1500 \
     --prefill 500 \
     --checkpoint_every 1000000 \

@@ -22,6 +22,13 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument("--render_resolution", type=int, default=518,
                    help="Render resolution for VGGT encoder")
+    p.add_argument("--mlp_layers", type=int, default=None,
+                   help="Depth of the VGGT MLP encoders (wp_cp + aggregator): number "
+                        "of hidden Dense->RMSNorm->SiLU blocks before the linear readout. "
+                        "None keeps the config default (1). The experiment runs pass 3 to "
+                        "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
+                        "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
+                        "default value (1).")
     # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
     # checkpoint cadence so val signals land alongside checkpoints.
     p.add_argument("--val_every", type=int, default=50_000,
@@ -77,6 +84,30 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Override cfg.seq_len (production default 64).")
     p.add_argument("--lr", type=float, default=None,
                    help="Override cfg.lr (production default 4e-5).")
+    p.add_argument("--train_ratio", type=int, default=None,
+                   help="Override cfg.train_ratio (production default 512). Lower "
+                        "values bound train_step count for short smoke runs.")
+    # --- Latent-size ablation (3D-50) ---
+    p.add_argument("--latent_preset", choices=["small", "default", "large"],
+                   default="default",
+                   help="Latent-size ablation preset (3D-50). Explicit "
+                        "--deter_size/--stoch_classes/--stoch_discrete win over it.")
+    p.add_argument("--deter_size", type=int, default=None,
+                   help="Override cfg.deter_size (explicit; wins over --latent_preset).")
+    p.add_argument("--stoch_classes", type=int, default=None,
+                   help="Override cfg.stoch_classes (explicit; wins over --latent_preset).")
+    p.add_argument("--stoch_discrete", type=int, default=None,
+                   help="Override cfg.stoch_discrete (explicit; wins over --latent_preset).")
+    # --- Co-trained decoder (3D-51) ---
+    p.add_argument("--decoder", action="store_true",
+                   help="Co-train a ConvDecoder + add a reconstruction loss (3D-51).")
+    p.add_argument("--scale_decoder", type=float, default=None,
+                   help="Override cfg.scale_decoder (reconstruction loss weight).")
+    # --- Hybrid VGGT-branch MLP knobs ---
+    p.add_argument("--mlp_vggt_hidden", type=int, default=None,
+                   help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).")
+    p.add_argument("--mlp_vggt_layers", type=int, default=None,
+                   help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).")
     return p
 
 
@@ -84,7 +115,8 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--encoder", type=str, default=None, choices=["cnn", "vggt"])
+    p.add_argument("--encoder", type=str, default=None,
+                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

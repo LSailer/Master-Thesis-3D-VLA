@@ -32,7 +32,7 @@ from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.trainer import convert_batch
 
-VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches run_jax_habitat_vggt.py
+VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches the vggt encoder (run id habitat-l1-vggt)
 
 
 # 7-phase list locked in PRD #74.
@@ -91,7 +91,7 @@ def _build_cnn(
 def _flatten_vggt(out: dict) -> jnp.ndarray:
     """Concatenate VGGT output into a single (4116,) float32 feature vector.
 
-    Duplicated from run_jax_habitat_vggt.py to keep this script self-contained.
+    Duplicated from the vggt encoder's flatten readout to keep this self-contained.
     """
     wp = out["world_points"].reshape(-1)  # (4107,)
     cp = out["camera_pose"]              # (9,)

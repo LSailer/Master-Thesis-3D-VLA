@@ -1,0 +1,30 @@
+extends: _base
+job_name: r2d-L4-cnn
+output_dir: output/r2dreamer-curriculum-l4
+run_id: habitat-l4-cnn
+curriculum_check: data/curriculum/level4_10houses_6goals.json
+comments:
+  - "Level 4 CNN baseline: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories"
+  - "2D-RGB CNN encoder (64x64) — baseline control for the VGGT 3D-encoder comparison"
+  - "2M steps, 24h wall time (matches the VGGT arm's step budget)"
+  - "Scalars-only run: video logging + in-run eval disabled (video_log_every=0,"
+  - "val_every=0). Episode videos and held-out eval metrics are regenerated"
+  - "offline from saved checkpoints, not during training. This also avoids the"
+  - "two heaviest habitat GL paths (video re-render + second val sim instance)."
+sbatch:
+  time: "24:00:00"
+args:
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/r2dreamer-curriculum-l4/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: r2d-L4-cnn-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,cnn,baseline,jax,2d-rgb
+  # Scalars-only during training. video_log_every=0 disables W&B episode-video
+  # rendering; val_every=0 disables the in-run val-episode loop AND skips
+  # building the eval habitat sim (train.py only spawns val_env when val_every
+  # > 0). Videos + eval metrics are produced later from checkpoints.
+  video_log_every: 0
+  val_every: 0

@@ -19,7 +19,7 @@ export WANDB_RUN_GROUP="baseline-no-goal"
 export WANDB_TAGS="r2dreamer,habitat,baseline,no-goal"
 
 # 2.4M steps ≈ 23h at ~30 fps (measured in sanity check)
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \
