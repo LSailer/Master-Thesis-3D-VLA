@@ -50,12 +50,7 @@ def rolling_mean(steps, values, window=50):
     return np.array(steps[window - 1:]), smoothed
 
 
-def plot_episode_metrics(metrics: dict, out_dir: Path):
-    """Plot reward, success rate, and episode length over training."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    # Episode reward
-    ax = axes[0, 0]
+def _plot_episode_reward(ax, metrics: dict):
     steps, vals = zip(*metrics["episode/reward"])
     ax.scatter(steps, vals, alpha=0.1, s=2, c="steelblue")
     s_steps, s_vals = rolling_mean(list(steps), list(vals), window=100)
@@ -66,8 +61,8 @@ def plot_episode_metrics(metrics: dict, out_dir: Path):
     ax.set_title("Episode Reward (geodesic delta)")
     ax.legend()
 
-    # Success rate (rolling window)
-    ax = axes[0, 1]
+
+def _plot_success_rate(ax, metrics: dict):
     steps, vals = zip(*metrics["episode/success"])
     s_steps, s_vals = rolling_mean(list(steps), list(vals), window=100)
     ax.plot(s_steps, s_vals * 100, color="green", linewidth=2)
@@ -78,8 +73,8 @@ def plot_episode_metrics(metrics: dict, out_dir: Path):
     ax.set_ylim(-0.5, 15)
     ax.legend()
 
-    # Episode steps
-    ax = axes[1, 0]
+
+def _plot_episode_steps(ax, metrics: dict):
     steps, vals = zip(*metrics["episode/steps"])
     ax.scatter(steps, vals, alpha=0.1, s=2, c="coral")
     s_steps, s_vals = rolling_mean(list(steps), list(vals), window=100)
@@ -90,8 +85,8 @@ def plot_episode_metrics(metrics: dict, out_dir: Path):
     ax.set_title("Episode Length")
     ax.legend()
 
-    # Success rate by quartile
-    ax = axes[1, 1]
+
+def _success_quartiles(metrics: dict) -> list[float]:
     success_data = list(zip(*metrics["episode/success"]))
     n = len(success_data[1])
     q_size = n // 4
@@ -102,6 +97,11 @@ def plot_episode_metrics(metrics: dict, out_dir: Path):
         chunk = success_data[1][start:end]
         sr = sum(chunk) / len(chunk) * 100
         quartiles.append(sr)
+    return quartiles
+
+
+def _plot_success_quartiles(ax, metrics: dict):
+    quartiles = _success_quartiles(metrics)
     bars = ax.bar(["0-600K", "600K-1.2M", "1.2M-1.8M", "1.8M-2.4M"],
                   quartiles, color=["#4c72b0", "#55a868", "#c44e52", "#8172b2"])
     ax.set_ylabel("Success Rate (%)")
@@ -109,6 +109,16 @@ def plot_episode_metrics(metrics: dict, out_dir: Path):
     for bar, val in zip(bars, quartiles):
         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.05,
                 f"{val:.1f}%", ha="center", va="bottom", fontsize=10)
+
+
+def plot_episode_metrics(metrics: dict, out_dir: Path):
+    """Plot reward, success rate, and episode length over training."""
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    _plot_episode_reward(axes[0, 0], metrics)
+    _plot_success_rate(axes[0, 1], metrics)
+    _plot_episode_steps(axes[1, 0], metrics)
+    _plot_success_quartiles(axes[1, 1], metrics)
 
     fig.suptitle("R2-Dreamer Baseline — 2.4M Steps, All Scenes, No Goal Conditioning",
                  fontsize=14, fontweight="bold")

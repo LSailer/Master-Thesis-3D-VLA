@@ -4,48 +4,21 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.r2dreamer.trainer import Trainer
 
 
-def train(
-    *,
-    env: str,
-    encoder: str,
-    curriculum: str | None = None,
-    output_dir: str | None = None,
-    wandb_name: str | None = None,
-    wandb_tags: list[str] | None = None,
-    argv: list[str] | None = None,
-) -> "Trainer":
-    """Resolve (env, encoder, curriculum) via registries; parse CLI; run Trainer.run().
-
-    Kwargs (output_dir, wandb_name, wandb_tags) are shim-supplied defaults — CLI
-    flags from argparse override if provided.
-
-    Returns the Trainer for programmatic (notebook) callers.
-    """
-    import jax
-
-    from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
+def _resolve_curriculum_inputs(
+    *, env: str, args: Any, curriculum: str | None, env_registry: dict[str, Any],
+) -> str | None:
     from src.r2dreamer.launch._helpers import resolve_curriculum_path
-    from src.r2dreamer.launch.parser import _build_parser_train
-    from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
 
-    parser = _build_parser_train()
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
-
-    # --- Resolve env ---
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    # --- Resolve curriculum path (shared with evaluate via launch._helpers) ---
     curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
-
     if env == "habitat" and curriculum_path is None:
         raise ValueError(
             "Habitat env requires a curriculum. "
@@ -53,30 +26,43 @@ def train(
         )
     if env == "crafter" and curriculum_path is not None:
         raise ValueError("Crafter env does not use a curriculum.")
+    return curriculum_path
 
-    # --- Resolve encoder and its observation spec ---
+
+def _make_encoder_bundle(encoder: str, args: Any, encoder_registry: dict[str, Any]):
     if encoder not in encoder_registry:
         raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
+    enc = encoder_registry[encoder].from_train_args(args)
+    return enc, enc.make_adapter(), enc.spec()
 
-    encoder_cls = encoder_registry[encoder]
-    enc = encoder_cls.from_train_args(args)
-    adapter = enc.make_adapter()
-    encoder_spec = enc.spec()
 
-    # --- Resolve effective output_dir / wandb_name / wandb_tags ---
+def _effective_run_metadata(
+    *,
+    args: Any,
+    output_dir: str | None,
+    wandb_name: str | None,
+    wandb_tags: list[str] | None,
+) -> tuple[str, str | None, list[str]]:
     # CLI value (non-None) wins over shim kwarg.
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
     if eff_output_dir is None:
         raise ValueError("output_dir must be set via train(..., output_dir=...) or --output_dir")
 
     eff_wandb_name = args.wandb_name if args.wandb_name is not None else wandb_name
-
-    # Build tags: start with shim defaults, extend with CLI extras if provided.
     eff_wandb_tags: list[str] = list(wandb_tags) if wandb_tags is not None else []
     if args.wandb_tags:
         eff_wandb_tags.extend(t.strip() for t in args.wandb_tags.split(","))
+    return eff_output_dir, eff_wandb_name, eff_wandb_tags
 
-    # --- Build env ---
+
+def _make_env_instances(
+    *,
+    env: str,
+    args: Any,
+    curriculum_path: str | None,
+    encoder_spec: Any,
+    env_registry: dict[str, Any],
+) -> tuple[Any, Any | None, int]:
     env_fn = env_registry[env]
     val_env_instance = None
     if env == "habitat":
@@ -95,12 +81,12 @@ def train(
                 seed=args.seed,
                 render_resolution=encoder_spec.env_render_resolution,
             )
-        num_actions = 4
-    else:
-        env_instance = env_fn(seed=args.seed)
-        num_actions = 17
+        return env_instance, val_env_instance, 4
 
-    # --- Build agent config ---
+    return env_fn(seed=args.seed), None, 17
+
+
+def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dict[str, dict]):
     agent_overrides = dict(encoder_spec.agent_overrides)
     # Diagnostic CLI overrides (None => keep config default / encoder override).
     if args.actor_loss_weight is not None:
@@ -125,17 +111,23 @@ def train(
     # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
     # explicit flags win.
     preset = getattr(args, "latent_preset", "default")
-    agent_overrides.update(LATENT_PRESETS.get(preset, {}))
-    for _name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
-        _v = getattr(args, _name, None)
-        if _v is not None:
-            agent_overrides[_name] = _v
+    agent_overrides.update(latent_presets.get(preset, {}))
+    for name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
+        value = getattr(args, name, None)
+        if value is not None:
+            agent_overrides[name] = value
     if getattr(args, "decoder", False):
         agent_overrides["decoder"] = True
     if getattr(args, "scale_decoder", None) is not None:
         agent_overrides["scale_decoder"] = args.scale_decoder
+    return agent_overrides
 
-    agent_config = R2DreamerConfig(
+
+def _make_agent_config(
+    *, args: Any, encoder_spec: Any, num_actions: int, output_dir: str,
+    agent_overrides: dict[str, Any], config_cls: type,
+):
+    return config_cls(
         encoder_type=encoder_spec.encoder_type,
         encoder_module_cls=encoder_spec.module_cls,
         obs_shape=encoder_spec.obs_shape,
@@ -145,26 +137,26 @@ def train(
         act_entropy=args.act_entropy,
         seed=args.seed,
         log_every=args.log_every,
-        logdir=eff_output_dir,
+        logdir=output_dir,
         design_notes=encoder_spec.design_notes,
         **agent_overrides,
     )
 
-    # --- Build agent ---
-    _rng_key, init_key = jax.random.split(jax.random.PRNGKey(args.seed))
-    agent = R2DreamerAgent(agent_config, init_key)
 
-    # --- Build trainer config ---
-    trainer_config = TrainerConfig(
-        output_dir=eff_output_dir,
+def _make_trainer_config(
+    *, args: Any, output_dir: str, wandb_name: str | None,
+    wandb_tags: list[str], trainer_config_cls: type,
+):
+    return trainer_config_cls(
+        output_dir=output_dir,
         total_steps=args.steps,
         prefill_steps=args.prefill,
         log_every=args.log_every,
         checkpoint_every=args.checkpoint_every,
         seed=args.seed,
         wandb_project=args.wandb_project,
-        wandb_name=eff_wandb_name,
-        wandb_tags=eff_wandb_tags,
+        wandb_name=wandb_name,
+        wandb_tags=wandb_tags,
         wandb_id=args.wandb_id,
         video_log_every=args.video_log_every,
         video_log_episodes=args.video_log_episodes,
@@ -183,38 +175,128 @@ def train(
         hard_exit_on_finish=os.environ.get("R2DREAMER_HARD_EXIT_ON_FINISH") == "1",
     )
 
-    # --- Build trainer ---
-    if env == "habitat":
-        hab = habitat_defaults(env_instance)
-        val_kwargs: dict[str, object] = {}
-        if val_env_instance is not None:
-            # Val-Episode-Loop (3D-36) wiring: own adapter so the train
-            # VGGT video buffer isn't disturbed; own tracker so val
-            # rolling means stay independent of train rollouts.
-            val_adapter = enc.make_adapter()
-            val_hab = habitat_defaults(val_env_instance, track_collision_rate=True)
-            val_kwargs = {
-                "val_env": val_env_instance,
-                "val_obs_adapter": val_adapter,
-                "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
-            }
-        trainer = Trainer(
-            agent=agent,
-            env=env_instance,
-            agent_config=agent_config,
-            trainer_config=trainer_config,
-            obs_adapter=adapter,
-            episode_metrics_fn=hab["episode_metrics_fn"],
-            **val_kwargs,
-        )
-    else:
-        trainer = Trainer(
+
+def _make_trainer(
+    *,
+    env: str,
+    enc: Any,
+    agent: Any,
+    env_instance: Any,
+    val_env_instance: Any | None,
+    agent_config: Any,
+    trainer_config: Any,
+    adapter: Any,
+    trainer_cls: type,
+    habitat_defaults_fn: Any,
+):
+    if env != "habitat":
+        return trainer_cls(
             agent=agent,
             env=env_instance,
             agent_config=agent_config,
             trainer_config=trainer_config,
             obs_adapter=adapter,
         )
+
+    hab = habitat_defaults_fn(env_instance)
+    val_kwargs: dict[str, object] = {}
+    if val_env_instance is not None:
+        # Val-Episode-Loop (3D-36) wiring: own adapter so the train
+        # VGGT video buffer isn't disturbed; own tracker so val
+        # rolling means stay independent of train rollouts.
+        val_adapter = enc.make_adapter()
+        val_hab = habitat_defaults_fn(val_env_instance, track_collision_rate=True)
+        val_kwargs = {
+            "val_env": val_env_instance,
+            "val_obs_adapter": val_adapter,
+            "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
+        }
+    return trainer_cls(
+        agent=agent,
+        env=env_instance,
+        agent_config=agent_config,
+        trainer_config=trainer_config,
+        obs_adapter=adapter,
+        episode_metrics_fn=hab["episode_metrics_fn"],
+        **val_kwargs,
+    )
+
+
+def train(
+    *,
+    env: str,
+    encoder: str,
+    curriculum: str | None = None,
+    output_dir: str | None = None,
+    wandb_name: str | None = None,
+    wandb_tags: list[str] | None = None,
+    argv: list[str] | None = None,
+) -> "Trainer":
+    """Resolve (env, encoder, curriculum) via registries; parse CLI; run Trainer.run().
+
+    Kwargs (output_dir, wandb_name, wandb_tags) are shim-supplied defaults — CLI
+    flags from argparse override if provided.
+
+    Returns the Trainer for programmatic (notebook) callers.
+    """
+    import jax
+
+    from src.r2dreamer.agent import R2DreamerAgent
+    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
+    from src.r2dreamer.launch.parser import _build_parser_train
+    from src.r2dreamer.launch.registries import env_registry, encoder_registry
+    from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
+
+    parser = _build_parser_train()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    curriculum_path = _resolve_curriculum_inputs(
+        env=env, args=args, curriculum=curriculum, env_registry=env_registry,
+    )
+    enc, adapter, encoder_spec = _make_encoder_bundle(encoder, args, encoder_registry)
+    eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
+        args=args, output_dir=output_dir, wandb_name=wandb_name, wandb_tags=wandb_tags,
+    )
+    env_instance, val_env_instance, num_actions = _make_env_instances(
+        env=env,
+        args=args,
+        curriculum_path=curriculum_path,
+        encoder_spec=encoder_spec,
+        env_registry=env_registry,
+    )
+    agent_overrides = _agent_overrides_from_args(args, encoder_spec, LATENT_PRESETS)
+    agent_config = _make_agent_config(
+        args=args,
+        encoder_spec=encoder_spec,
+        num_actions=num_actions,
+        output_dir=eff_output_dir,
+        agent_overrides=agent_overrides,
+        config_cls=R2DreamerConfig,
+    )
+
+    # --- Build agent ---
+    _rng_key, init_key = jax.random.split(jax.random.PRNGKey(args.seed))
+    agent = R2DreamerAgent(agent_config, init_key)
+
+    trainer_config = _make_trainer_config(
+        args=args,
+        output_dir=eff_output_dir,
+        wandb_name=eff_wandb_name,
+        wandb_tags=eff_wandb_tags,
+        trainer_config_cls=TrainerConfig,
+    )
+    trainer = _make_trainer(
+        env=env,
+        enc=enc,
+        agent=agent,
+        env_instance=env_instance,
+        val_env_instance=val_env_instance,
+        agent_config=agent_config,
+        trainer_config=trainer_config,
+        adapter=adapter,
+        trainer_cls=Trainer,
+        habitat_defaults_fn=habitat_defaults,
+    )
 
     trainer.run()
     return trainer

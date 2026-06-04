@@ -36,7 +36,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.r2dreamer.launch.registries import encoder_registry, env_registry  # noqa: F401
+from src.r2dreamer.launch.registries import encoder_registry
 from src.r2dreamer.adapters import VGGT_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
 from src.r2dreamer.agent import R2DreamerAgent

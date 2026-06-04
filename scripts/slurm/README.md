@@ -21,8 +21,8 @@ bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod     # prod runs only if s
 bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke
 
 # Override an env var (wins over the YAML default)
-bash scripts/slurm/launch.sh offline_buffer_3d25 \
-    --env CNN_CHECKPOINT=output/r2dreamer-curriculum-l1/run-4367942/checkpoints/step_001000000.pkl \
+bash scripts/slurm/launch.sh l1_vggt \
+    --env WANDB_MODE=offline \
     --smoke
 ```
 
@@ -41,7 +41,6 @@ Curriculum-family variants share the single `scripts/r2dreamer/run.py` dispatche
 | `l3_vggt`            | `run.py habitat-l3-vggt`                    | `train_curriculum_l3_vggt.sbatch`                |
 | `l4_vggt`            | `run.py habitat-l4-vggt`                    | `train_curriculum_l4_vggt.sbatch`                |
 | `aggregator_mlp_v1`  | `run.py habitat-l1-vggt-aggregator-mlp`     | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
-| `offline_buffer_3d25`| `collect_offline_buffer.py`                 | `collect_offline_buffer_3d25.sbatch`             |
 
 The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
 `archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
@@ -142,8 +141,7 @@ scripts/slurm/
 │   ├── l2_vggt.yaml           # extends l1_vggt
 │   ├── l3_vggt.yaml           # extends l1_vggt
 │   ├── l4_vggt.yaml           # extends l1_vggt
-│   ├── aggregator_mlp_v1.yaml # extends _base; timestamp run id
-│   └── offline_buffer_3d25.yaml  # standalone; hyphen flags, env, setup hooks
+│   └── aggregator_mlp_v1.yaml # extends _base; timestamp run id
 ├── hooks/
 │   └── link_external.sh       # symlink external VGGT repos into a fresh worktree
 ├── launch.py                  # render + validate
@@ -176,8 +174,8 @@ Covers: l1 prod render is byte-equal to the legacy sbatch; `--smoke-then-prod`
 issues the prod submit with `--dependency=afterok:<smoke_jid>`; fail-fast
 validation before any sbatch call; recursive `extends` (incl. cycle rejection);
 L2/L3/L4 render the same training args as their legacy scripts; multi-variant
-sweep submits every variant; aggregator timestamp/strict behavior; offline-buffer
-hyphen flags, setup hooks, and `--env` override.
+sweep submits every variant; aggregator timestamp/strict behavior; and `--env`
+override handling.
 
 ## Monitoring a submitted job
 

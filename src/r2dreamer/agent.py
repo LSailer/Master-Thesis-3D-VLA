@@ -110,7 +110,7 @@ def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     return ckpt
 
 
-def _make_encoder(cfg: R2DreamerConfig):
+def _resolve_encoder_cls(cfg: R2DreamerConfig):
     # Launcher-created configs pass EncoderSpec.module_cls explicitly. Unit tests
     # and direct R2DreamerConfig() construction rely on encoder_type, so map the
     # documented names to their Flax modules when no class is supplied.
@@ -126,6 +126,10 @@ def _make_encoder(cfg: R2DreamerConfig):
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
+    return cls
+
+
+def _validate_encoder_config(cfg: R2DreamerConfig, cls) -> None:
     if cls in (ConvEncoder, WPConvEncoder) and cfg.vggt_mlp_layers != 1:
         # Fail loud instead of silently dropping the knob: conv encoders have no
         # MLP depth, so a non-default vggt_mlp_layers here is a misconfiguration.
@@ -135,51 +139,134 @@ def _make_encoder(cfg: R2DreamerConfig):
             f"'vggt_aggregator_mlp' encoders consume vggt_mlp_layers; leave it at 1 "
             f"for cnn / vggt_wp_dense_cnn."
         )
-    if cls is ConvEncoder:
-        return cls(
-            depth=cfg.encoder_depth,
-            kernel_size=cfg.encoder_kernel,
-            mults=cfg.encoder_mults,
+
+
+def _make_conv_encoder(cfg: R2DreamerConfig):
+    return ConvEncoder(
+        depth=cfg.encoder_depth,
+        kernel_size=cfg.encoder_kernel,
+        mults=cfg.encoder_mults,
+    )
+
+
+def _make_wp_conv_encoder(cfg: R2DreamerConfig):
+    # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
+    # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
+    return WPConvEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        depth=cfg.encoder_depth,
+        kernel_size=cfg.encoder_kernel,
+        mults=cfg.encoder_mults,
+    )
+
+
+def _make_hybrid_encoder(cfg: R2DreamerConfig):
+    # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
+    # Guard the buffer-layout contract: the encoder splits obs at
+    # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
+    # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
+    # and the encoder's RGB slice would silently diverge.
+    if not (
+        cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
+        and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
+    ):
+        raise ValueError(
+            "hybrid obs_shape/split mismatch: expected "
+            f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
+            f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
+            f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
-    if cls is WPConvEncoder:
-        # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
-        # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
-        return cls(
-            embed_dim=cfg.vggt_embed_dim,
-            depth=cfg.encoder_depth,
-            kernel_size=cfg.encoder_kernel,
-            mults=cfg.encoder_mults,
-        )
-    if cls is WMHybridEncoder:
-        # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-        # Guard the buffer-layout contract: the encoder splits obs at
-        # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
-        # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
-        # and the encoder's RGB slice would silently diverge.
-        if not (
-            cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
-            and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
-        ):
-            raise ValueError(
-                "hybrid obs_shape/split mismatch: expected "
-                f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
-                f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
-                f"vggt_feature_dim={cfg.vggt_feature_dim}"
-            )
-        return cls(
-            cnn_depth=cfg.encoder_depth,
-            cnn_kernel=cfg.encoder_kernel,
-            cnn_mults=cfg.encoder_mults,
-            vggt_embed_dim=cfg.vggt_embed_dim,
-            mlp_hidden=cfg.mlp_vggt_hidden,
-            mlp_layers=cfg.mlp_vggt_layers,
-        )
+    return WMHybridEncoder(
+        cnn_depth=cfg.encoder_depth,
+        cnn_kernel=cfg.encoder_kernel,
+        cnn_mults=cfg.encoder_mults,
+        vggt_embed_dim=cfg.vggt_embed_dim,
+        mlp_hidden=cfg.mlp_vggt_hidden,
+        mlp_layers=cfg.mlp_vggt_layers,
+    )
+
+
+def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
     return cls(
         embed_dim=cfg.vggt_embed_dim,
         hidden=cfg.vggt_embed_dim,
         num_layers=cfg.vggt_mlp_layers,
     )
+
+
+def _make_encoder(cfg: R2DreamerConfig):
+    cls = _resolve_encoder_cls(cfg)
+    _validate_encoder_config(cfg, cls)
+    if cls is ConvEncoder:
+        return _make_conv_encoder(cfg)
+    if cls is WPConvEncoder:
+        return _make_wp_conv_encoder(cfg)
+    if cls is WMHybridEncoder:
+        return _make_hybrid_encoder(cfg)
+    return _make_mlp_encoder(cfg, cls)
+
+
+def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
+    total_loss = (
+        cfg.scale_dyn * losses["dyn"]
+        + cfg.scale_rep * losses["rep"]
+        + cfg.scale_barlow * losses["barlow"]
+        + cfg.scale_rew * losses["rew"]
+        + cfg.scale_con * losses["con"]
+        + cfg.scale_policy * losses["policy"]
+        + cfg.scale_value * losses["value"]
+        + cfg.scale_repval * losses["repval"]
+    )
+    # Co-trained decoder term (only present when cfg.decoder; 3D-51).
+    if cfg.decoder:
+        total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
+    return total_loss
+
+
+def _add_loss_metrics(metrics: dict[str, Any], losses: dict[str, Any]) -> None:
+    for k, v in losses.items():
+        metrics[f"loss/{k}"] = v
+
+
+def _add_encoder_l2_metric(metrics: dict[str, Any], params: dict[str, Any]) -> None:
+    # Encoder L2 — Protocol D diagnostic for whether Barlow's gradient
+    # toggle is actually moving the encoder weights.
+    enc_sq = jax.tree_util.tree_reduce(
+        lambda acc, x: acc + jnp.sum(jnp.square(x)),
+        params["encoder"], 0.0,
+    )
+    metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
+
+
+def _add_hybrid_contribution_metrics(
+    metrics: dict[str, Any],
+    *,
+    cfg: R2DreamerConfig,
+    params: dict[str, Any],
+    forward: dict[str, Any],
+    B: int,
+    T: int,
+) -> None:
+    # Reuse the already-computed fused embed instead of a second encoder
+    # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
+    # leading cnn_dim columns are the CNN branch and the rest are the
+    # gated VGGT branch. The raw gate scalar is read straight from params.
+    embed_flat = forward["embed"].reshape(B * T, -1)
+    cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
+    cnn_e = embed_flat[:, :cnn_dim]
+    vggt_e = embed_flat[:, cnn_dim:]
+    gate = params["encoder"]["params"]["gate"]
+    cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e ** 2, axis=-1)))
+    vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e ** 2, axis=-1)))
+    denom = cnn_l2 + vggt_l2 + 1e-8
+    metrics["hybrid/gate"] = gate
+    metrics["hybrid/cnn_l2"] = cnn_l2
+    metrics["hybrid/vggt_l2"] = vggt_l2
+    metrics["hybrid/cnn_std"] = jnp.std(cnn_e)
+    metrics["hybrid/vggt_std"] = jnp.std(vggt_e)
+    metrics["hybrid/cnn_frac"] = cnn_l2 / denom
+    metrics["hybrid/vggt_frac"] = vggt_l2 / denom
 
 
 # ---------------------------------------------------------------------------
@@ -624,32 +711,12 @@ class R2DreamerAgent:
         )
 
         losses = {**wm_losses, **bh_losses, **rep_losses}
-        total_loss = (
-            cfg.scale_dyn * losses["dyn"]
-            + cfg.scale_rep * losses["rep"]
-            + cfg.scale_barlow * losses["barlow"]
-            + cfg.scale_rew * losses["rew"]
-            + cfg.scale_con * losses["con"]
-            + cfg.scale_policy * losses["policy"]
-            + cfg.scale_value * losses["value"]
-            + cfg.scale_repval * losses["repval"]
-        )
-        # Co-trained decoder term (only present when cfg.decoder; 3D-51).
-        if cfg.decoder:
-            total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
+        total_loss = _weighted_total_loss(cfg, losses)
 
         # ---- Metrics ----
         metrics = {**wm_metrics, **bh_metrics, **rep_metrics}
-        for k, v in losses.items():
-            metrics[f"loss/{k}"] = v
-
-        # Encoder L2 — Protocol D diagnostic for whether Barlow's gradient
-        # toggle is actually moving the encoder weights.
-        enc_sq = jax.tree_util.tree_reduce(
-            lambda acc, x: acc + jnp.sum(jnp.square(x)),
-            params["encoder"], 0.0,
-        )
-        metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
+        _add_loss_metrics(metrics, losses)
+        _add_encoder_l2_metric(metrics, params)
 
         # ---- Hybrid contribution diagnostics (3D-50) ----
         # Re-split the fused embed into its CNN and gated-VGGT branches via the
@@ -657,25 +724,9 @@ class R2DreamerAgent:
         # log how much each modality drives the latent. `gate` starts at 0 and
         # opens over training; `*_frac` is each branch's share of the embed norm.
         if cfg.encoder_type == "hybrid":
-            # Reuse the already-computed fused embed instead of a second encoder
-            # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
-            # leading cnn_dim columns are the CNN branch and the rest are the
-            # gated VGGT branch. The raw gate scalar is read straight from params.
-            embed_flat = forward["embed"].reshape(B * T, -1)
-            cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
-            cnn_e = embed_flat[:, :cnn_dim]
-            vggt_e = embed_flat[:, cnn_dim:]
-            gate = params["encoder"]["params"]["gate"]
-            cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e ** 2, axis=-1)))
-            vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e ** 2, axis=-1)))
-            denom = cnn_l2 + vggt_l2 + 1e-8
-            metrics["hybrid/gate"] = gate
-            metrics["hybrid/cnn_l2"] = cnn_l2
-            metrics["hybrid/vggt_l2"] = vggt_l2
-            metrics["hybrid/cnn_std"] = jnp.std(cnn_e)
-            metrics["hybrid/vggt_std"] = jnp.std(vggt_e)
-            metrics["hybrid/cnn_frac"] = cnn_l2 / denom
-            metrics["hybrid/vggt_frac"] = vggt_l2 / denom
+            _add_hybrid_contribution_metrics(
+                metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
+            )
 
         aux = {"metrics": metrics, "imag_returns": imag_ret.reshape(-1)}
         return total_loss, aux

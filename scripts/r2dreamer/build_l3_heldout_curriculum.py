@@ -27,19 +27,16 @@ def _episode_key(ep: dict, scene: str) -> list[str]:
     return [str(ep["episode_id"]), ep["object_category"], scene]
 
 
-def build_curriculum(
-    *,
-    source_curriculum: Path,
-    content_dir: Path,
-    output: Path,
-    houses: int,
-    eval_episodes_per_house: int,
-    seed: int,
-) -> dict:
+def _load_source_scenes(source_curriculum: Path) -> set[str]:
     source = json.loads(source_curriculum.read_text())
-    source_scenes = set(source["scenes"])
-    candidates: list[tuple[str, list[dict]]] = []
+    return set(source["scenes"])
 
+
+def _find_chair_candidates(
+    content_dir: Path,
+    source_scenes: set[str],
+) -> list[tuple[str, list[dict]]]:
+    candidates: list[tuple[str, list[dict]]] = []
     for path in sorted(content_dir.glob("*.json.gz")):
         scene = _scene_name(path)
         if scene in source_scenes:
@@ -50,19 +47,32 @@ def build_curriculum(
         ]
         if chair_eps:
             candidates.append((scene, chair_eps))
+    return candidates
 
+
+def _select_candidate_scenes(
+    candidates: list[tuple[str, list[dict]]],
+    houses: int,
+) -> list[tuple[str, list[dict]]]:
     if len(candidates) < houses:
         raise RuntimeError(
             f"Only found {len(candidates)} held-out chair scenes, need {houses}"
         )
 
     candidates.sort(key=lambda item: (-len(item[1]), item[0]))
-    selected = candidates[:houses]
-    rng = random.Random(seed)
+    return candidates[:houses]
 
+
+def _split_episode_keys(
+    selected: list[tuple[str, list[dict]]],
+    eval_episodes_per_house: int,
+    seed: int,
+) -> tuple[list[list[str]], list[list[str]], dict[str, dict[str, int]]]:
+    rng = random.Random(seed)
     train_keys: list[list[str]] = []
     eval_keys: list[list[str]] = []
     stats: dict[str, dict[str, int]] = {}
+
     for scene, episodes in selected:
         shuffled = list(episodes)
         rng.shuffle(shuffled)
@@ -76,7 +86,20 @@ def build_curriculum(
             "unused_train_keys": len(train_eps),
         }
 
-    result = {
+    return train_keys, eval_keys, stats
+
+
+def _curriculum_payload(
+    *,
+    source_curriculum: Path,
+    source_scenes: set[str],
+    selected: list[tuple[str, list[dict]]],
+    seed: int,
+    train_keys: list[list[str]],
+    eval_keys: list[list[str]],
+    stats: dict[str, dict[str, int]],
+) -> dict:
+    return {
         "name": "level3_heldout_10houses_1goal",
         "description": (
             "Held-out-house L3 ObjectNav eval curriculum: chair episodes from "
@@ -93,6 +116,34 @@ def build_curriculum(
         "eval_episode_keys": eval_keys,
         "stats": stats,
     }
+
+
+def build_curriculum(
+    *,
+    source_curriculum: Path,
+    content_dir: Path,
+    output: Path,
+    houses: int,
+    eval_episodes_per_house: int,
+    seed: int,
+) -> dict:
+    source_scenes = _load_source_scenes(source_curriculum)
+    candidates = _find_chair_candidates(content_dir, source_scenes)
+    selected = _select_candidate_scenes(candidates, houses)
+    train_keys, eval_keys, stats = _split_episode_keys(
+        selected,
+        eval_episodes_per_house,
+        seed,
+    )
+    result = _curriculum_payload(
+        source_curriculum=source_curriculum,
+        source_scenes=source_scenes,
+        selected=selected,
+        seed=seed,
+        train_keys=train_keys,
+        eval_keys=eval_keys,
+        stats=stats,
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, indent=2) + "\n")
     return result

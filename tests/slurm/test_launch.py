@@ -313,37 +313,3 @@ def test_aggregator_smoke_overrides() -> None:
 def test_aggregator_prod_is_strict_bash() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     assert "set -euo pipefail" in rendered
-
-
-# --------------------------------------------------------------------------- #
-# s4 — offline-buffer collector (hyphen flags, env, setup hooks)               #
-# --------------------------------------------------------------------------- #
-
-
-def test_offline_buffer_uses_hyphen_flags_and_venv_python() -> None:
-    rendered = launch.render_sbatch(launch.load_config("offline_buffer_3d25"), mode="prod")
-    python_cmd, script, _run_id, flags = training_command(rendered)
-
-    assert python_cmd == ".venv/bin/python"
-    assert script.endswith("collect_offline_buffer.py")
-    assert flags["--n-steps"] == "400000"
-    assert flags["--collect-seed"] == "42"
-    assert flags["--out-dir"] == "data/offline_buffer"
-    assert flags["--skeleton-flush-every"] == "10000"
-    assert flags["--checkpoint"] == "${CNN_CHECKPOINT}"
-
-
-def test_offline_buffer_setup_hooks_present() -> None:
-    rendered = launch.render_sbatch(launch.load_config("offline_buffer_3d25"), mode="prod")
-    assert "./scripts/setup_worktree.sh" in rendered
-    assert "bash scripts/slurm/hooks/link_external.sh" in rendered
-
-
-def test_offline_buffer_env_override_wins_over_yaml_default() -> None:
-    custom = "output/custom/run-9/checkpoints/step_x.pkl"
-    config = launch.load_config("offline_buffer_3d25", env_overrides={"CNN_CHECKPOINT": custom})
-    rendered = launch.render_sbatch(config, mode="smoke")
-    assert f'export CNN_CHECKPOINT="{custom}"' in rendered
-    # Smoke also reduces the step budget.
-    _, _, _, flags = training_command(rendered)
-    assert flags["--n-steps"] == "5000"

@@ -35,20 +35,6 @@ V1_EXCLUDE_PREFIXES: tuple[str, ...] = ("depth_head.", "track_head.")
 #  Transposition helpers
 # --------------------------------------------------------------------------- #
 
-# ConvTranspose2d weight layout in PyTorch is (in, out, H, W) whereas Conv2d is
-# (out, in, H, W). Flax uses (H, W, in, out) for both. We therefore need to
-# know which 4-D weight tensors are ConvTranspose2d -- we list them explicitly
-# since the tensor shape alone does not disambiguate.
-_CONV_TRANSPOSE_SUFFIXES: frozenset[str] = frozenset(
-    {
-        # DPT decoder upsampling layers (point_head / depth_head)
-        "resize_layers.0.weight",
-        "resize_layers.1.weight",
-        # resize_layers.2 is Identity (no params); resize_layers.3 is Conv2d.
-    }
-)
-
-
 def _conv2d_to_flax(t: np.ndarray) -> np.ndarray:
     """(O, I, H, W) -> (H, W, I, O)."""
     assert t.ndim == 4, t.shape
@@ -383,6 +369,31 @@ def _insert(tree: dict[str, Any], path: str, leaf: str, value: np.ndarray) -> No
     node[leaf] = value
 
 
+def _expand_path_template(
+    key: str, path_template: str, match: re.Match[str]
+) -> str:
+    """Expand a matched output path template for one PyTorch key."""
+    try:
+        return match.expand(path_template)
+    except re.error as e:
+        raise RuntimeError(f"Bad path_template for key {key!r}: {e}") from e
+
+
+def _map_state_dict_entry(
+    key: str, tensor: np.ndarray
+) -> tuple[str, str, np.ndarray] | None:
+    """Map one PyTorch state_dict entry to (Flax path, leaf name, value)."""
+    matched = _match_rule(key)
+    if matched is None:
+        return None
+
+    (_pat, path_template, leaf_map, transpose_kind), match = matched
+    out_path = _expand_path_template(key, path_template, match)
+    leaf_name = _resolve_leaf_name(key, leaf_map)
+    value = _apply_transpose(np.asarray(tensor), transpose_kind, leaf_name)
+    return out_path, leaf_name, value
+
+
 def load_pytorch_weights(
     state_dict: dict[str, np.ndarray],
     *,
@@ -412,20 +423,12 @@ def load_pytorch_weights(
             report["skipped"].append(key)
             continue
 
-        matched = _match_rule(key)
-        if matched is None:
+        mapped = _map_state_dict_entry(key, tensor)
+        if mapped is None:
             report["unmapped"].append(key)
             continue
 
-        (_pat, path_template, leaf_map, transpose_kind), m = matched
-        # Expand backreferences in the path template.
-        try:
-            out_path = m.expand(path_template)
-        except re.error as e:
-            raise RuntimeError(f"Bad path_template for key {key!r}: {e}") from e
-
-        leaf_name = _resolve_leaf_name(key, leaf_map)
-        value = _apply_transpose(np.asarray(tensor), transpose_kind, leaf_name)
+        out_path, leaf_name, value = mapped
         _insert(tree, out_path, leaf_name, value)
         report["mapped"].append(key)
 
@@ -464,12 +467,9 @@ def verify_per_leaf_roundtrip(
     for key, tensor in state_dict.items():
         if key.startswith(V1_EXCLUDE_PREFIXES):
             continue
-        matched = _match_rule(key)
-        assert matched is not None, f"Unmapped: {key}"
-        (_pat, path_template, leaf_map, transpose_kind), m = matched
-        out_path = m.expand(path_template)
-        leaf_name = _resolve_leaf_name(key, leaf_map)
-        expected = _apply_transpose(np.asarray(tensor), transpose_kind, leaf_name)
+        mapped = _map_state_dict_entry(key, tensor)
+        assert mapped is not None, f"Unmapped: {key}"
+        out_path, leaf_name, expected = mapped
 
         node = tree
         if out_path:

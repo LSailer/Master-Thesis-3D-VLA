@@ -83,9 +83,8 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
         last, term, imag_reward, imag_value, imag_value, disc, cfg.lamb,
     )  # (BT, H-1, 1)
 
-    ret_offset, ret_scale = return_ema.get_stats(ema_state)
+    _, ret_scale = return_ema.get_stats(ema_state)
     adv = (ret - imag_value[:, :-1]) / ret_scale
-    del ret_offset  # currently unused; kept for parity with PyTorch hook
 
     # ---- Actor loss: re-evaluate unfrozen actor on detached imagined feats ----
     actor_logits = modules["actor"].apply(

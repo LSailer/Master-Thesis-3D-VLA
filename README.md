@@ -86,4 +86,4 @@ tmux attach -t gpu-work
 
 ## Watch HTML inside the Cluster
 From the repo on the cluster (you're presumably on Remote-SSH), run in the VS Code terminal:
-    cd docs && python3 -m http.server 8000 
+    cd docs && python3 -m http.server 8000

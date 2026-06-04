@@ -3,9 +3,7 @@
 import argparse
 
 
-def _build_parser_train() -> argparse.ArgumentParser:
-    """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
-    p = argparse.ArgumentParser(add_help=True)
+def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
     p.add_argument("--output_dir", type=str, default=None)
@@ -29,6 +27,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                         "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
                         "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
                         "default value (1).")
+
+
+def _add_val_train_args(p: argparse.ArgumentParser) -> None:
     # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
     # checkpoint cadence so val signals land alongside checkpoints.
     p.add_argument("--val_every", type=int, default=50_000,
@@ -39,6 +40,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Number of val episodes to record as W&B videos per trigger")
     p.add_argument("--val_max_episode_steps", type=int, default=500,
                    help="Per-episode step cap inside the val loop")
+
+
+def _add_resume_video_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
@@ -50,6 +54,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
                         "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
                         "collapses the policy here.")
+
+
+def _add_overfit_train_args(p: argparse.ArgumentParser) -> None:
     # --- Diagnostic / overfit-one-batch knobs (Karpathy step 3) ---
     p.add_argument("--overfit_one_batch", action="store_true",
                    help="After prefill, freeze a single sampled batch and call "
@@ -65,6 +72,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--overfit_min_loss_drop", type=float, default=0.20,
                    help="Fail --overfit_one_batch unless total_loss drops by this "
                         "fraction over the frozen-batch run (default 0.20).")
+
+
+def _add_loss_override_train_args(p: argparse.ArgumentParser) -> None:
     # Loss-scale overrides (Protocol C). None => keep config default.
     p.add_argument("--actor_loss_weight", type=float, default=None,
                    help="Override cfg.scale_policy. Set 0 to disable actor loss.")
@@ -87,6 +97,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--train_ratio", type=int, default=None,
                    help="Override cfg.train_ratio (production default 512). Lower "
                         "values bound train_step count for short smoke runs.")
+
+
+def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
     # --- Latent-size ablation (3D-50) ---
     p.add_argument("--latent_preset", choices=["small", "default", "large"],
                    default="default",
@@ -108,6 +121,17 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).")
     p.add_argument("--mlp_vggt_layers", type=int, default=None,
                    help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).")
+
+
+def _build_parser_train() -> argparse.ArgumentParser:
+    """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
+    p = argparse.ArgumentParser(add_help=True)
+    _add_basic_train_args(p)
+    _add_val_train_args(p)
+    _add_resume_video_train_args(p)
+    _add_overfit_train_args(p)
+    _add_loss_override_train_args(p)
+    _add_latent_decoder_train_args(p)
     return p
 
 
