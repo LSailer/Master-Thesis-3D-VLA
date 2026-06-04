@@ -299,8 +299,8 @@ def _run_eval_episode(
         if next_obs["done"]:
             obs = next_obs
             break
-            obs = next_obs
-            agent_obs = next_agent_obs
+        obs = next_obs
+        agent_obs = next_agent_obs
 
     ep_result = _make_eval_episode_result(
         ep_idx=ep_idx,

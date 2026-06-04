@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+
+import jax
+
+from src.r2dreamer.launch import evaluate as eval_module
 from src.r2dreamer.launch.evaluate import _find_manifest_for_checkpoint
 
 
@@ -19,3 +24,82 @@ def test_find_manifest_in_run_dir_for_checkpoints_subdir(tmp_path):
     manifest.write_text('{"config": {}}')
 
     assert _find_manifest_for_checkpoint(ckpt) == manifest.resolve()
+
+
+def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_path):
+    class _Position:
+        def __init__(self, values):
+            self._values = values
+
+        def tolist(self):
+            return list(self._values)
+
+    class _FakeSim:
+        def __init__(self, env):
+            self._env = env
+
+        def get_agent_state(self):
+            return SimpleNamespace(
+                position=_Position([float(self._env.step_count), 0.0, 0.0])
+            )
+
+    class _FakeEnv:
+        def __init__(self):
+            self.step_count = 0
+            self._env = SimpleNamespace(sim=_FakeSim(self))
+
+        def step(self, action):
+            self.step_count += 1
+            return {
+                "id": f"step{self.step_count}",
+                "done": False,
+                "reward": float(action),
+                "success": float(self.step_count),
+                "spl": float(self.step_count) / 1000.0,
+            }
+
+    class _FakeAdapter:
+        def transform(self, obs):
+            return None, f"agent-{obs['id']}"
+
+    class _FakeAgent:
+        def __init__(self):
+            self.seen = []
+
+        def act(self, agent_obs, act_key, training=False):
+            self.seen.append(agent_obs)
+            return 1
+
+    def _fake_start_episode(env_instance, adapter):
+        obs = {"id": "initial", "done": False, "reward": 0.0, "success": 0.0, "spl": 0.0}
+        _, agent_obs = adapter.transform(obs)
+        return (
+            obs,
+            agent_obs,
+            [0.0, 0.0, 0.0],
+            [],
+            "scene",
+            "chair",
+            [[0.0, 0.0, 0.0]],
+            [0.0],
+        )
+
+    monkeypatch.setattr(eval_module, "_start_eval_episode", _fake_start_episode)
+    monkeypatch.setattr(eval_module, "_get_agent_heading", lambda env_instance: 0.0)
+
+    agent = _FakeAgent()
+    result, _ = eval_module._run_eval_episode(
+        ep_idx=0,
+        args=SimpleNamespace(log_video_episodes=0, render_topdown=False),
+        env_instance=_FakeEnv(),
+        adapter=_FakeAdapter(),
+        agent=agent,
+        rng_key=jax.random.PRNGKey(0),
+        config=SimpleNamespace(num_actions=4),
+        wandb_module=None,
+        output_dir=str(tmp_path),
+    )
+
+    assert agent.seen[:3] == ["agent-initial", "agent-step1", "agent-step2"]
+    assert result["steps"] == 500
+    assert result["success"] == 500.0
