@@ -5,6 +5,7 @@ Episodes terminate on: (1) agent within goal_radius of target, or
 (2) max_episode_steps exceeded.
 """
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -208,8 +209,23 @@ class HabitatObjectNavEnv:
         self._forward_steps = 0
 
     def reset(self) -> dict:
-        obs = self._env.reset()
-        self._prev_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
+        for attempt in range(100):
+            obs = self._env.reset()
+            raw_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
+            try:
+                dist = _validate_goal_distance(raw_dist)
+                break
+            except ValueError:
+                self._log_invalid_goal_distance(
+                    raw_dist, phase=f"reset attempt {attempt + 1}"
+                )
+        else:
+            raise RuntimeError(
+                "Habitat reset did not find an episode with finite "
+                "distance_to_goal after 100 attempts"
+            )
+
+        self._prev_dist = dist
         self._start_geodesic = self._prev_dist
         self._prev_position = np.array(self._env.sim.get_agent_state().position)
         self._path_length = 0.0
@@ -258,7 +274,13 @@ class HabitatObjectNavEnv:
                 self._collisions += 1
         self._prev_position = current_position
 
-        dist = _validate_goal_distance(metrics.get("distance_to_goal", float("inf")))
+        raw_dist = metrics.get("distance_to_goal", float("inf"))
+        try:
+            dist = _validate_goal_distance(raw_dist)
+        except ValueError:
+            self._log_invalid_goal_distance(raw_dist, phase="step")
+            return self._invalid_goal_distance_transition(obs, raw_dist)
+
         reward = self._compute_reward(dist)
         success = 1.0 if _is_success_distance(dist) else 0.0
         done = success > 0 or self._step_count >= self._cfg.max_episode_steps
@@ -276,6 +298,44 @@ class HabitatObjectNavEnv:
             "spl": spl,
             **self._episode_end_metrics(dist, done),
         }
+
+    def _invalid_goal_distance_transition(self, obs, raw_dist: object) -> dict:
+        image = self._obs_to_image(obs)
+        fallback_dist = (
+            self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
+        )
+        return {
+            "image": image,
+            "reward": self._cfg.step_penalty,
+            "done": True,
+            "is_first": False,
+            "success": 0.0,
+            "spl": 0.0,
+            "invalid_goal_distance": 1.0,
+            "invalid_goal_distance_raw": str(raw_dist),
+            **self._episode_end_metrics(fallback_dist, True),
+        }
+
+    def _log_invalid_goal_distance(self, raw_dist: object, *, phase: str) -> None:
+        print(
+            "[HabitatObjectNavEnv] invalid distance_to_goal; "
+            f"phase={phase} raw={raw_dist!r} {self._episode_context()}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def _episode_context(self) -> str:
+        episode = getattr(self._env, "current_episode", None)
+        episode_id = getattr(episode, "episode_id", "unknown")
+        category = getattr(episode, "object_category", "unknown")
+        scene_id = getattr(episode, "scene_id", "unknown")
+        scene_name = str(scene_id).split("/")[-1].replace(".basis.glb", "")
+        start_position = getattr(episode, "start_position", "unknown")
+        return (
+            f"episode_id={episode_id} category={category} scene={scene_name} "
+            f"scene_id={scene_id} start_position={start_position} "
+            f"step={getattr(self, '_step_count', 'unknown')}"
+        )
 
     def _length_ratio(self) -> float:
         """shortest_geodesic / max(shortest_geodesic, path_length). 0 if degenerate."""

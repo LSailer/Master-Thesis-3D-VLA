@@ -57,6 +57,17 @@ def _get_agent_heading(env):
     return float(euler[0])
 
 
+def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
+    ckpt = Path(checkpoint).resolve()
+    for candidate in (
+        ckpt.parent / "MANIFEST.json",
+        ckpt.parent.parent / "MANIFEST.json",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _resolve_eval_settings(args, *, encoder: str, checkpoint: str | None, output_dir: str | None):
     # CLI --encoder overrides shim kwarg if user passed it explicitly.
     eff_encoder = args.encoder if args.encoder is not None else encoder
@@ -117,8 +128,8 @@ def _make_eval_encoder(eff_encoder: str, encoder_registry: dict, needs_hires: bo
 def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
     if eff_checkpoint is None:
         return {}
-    manifest = Path(eff_checkpoint).resolve().parents[1] / "MANIFEST.json"
-    if not manifest.is_file():
+    manifest = _find_manifest_for_checkpoint(eff_checkpoint)
+    if manifest is None:
         return {}
     try:
         saved = json.loads(manifest.read_text()).get("config", {})
