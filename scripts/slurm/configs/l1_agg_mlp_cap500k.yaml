@@ -1,0 +1,19 @@
+extends: aggregator_mlp_v1
+job_name: l1-agg-mlp-cap500k
+output_dir: output/r2dreamer-l1-replay-capacity/agg-mlp-cap500k
+comments:
+  - "3D-63: L1 VGGT aggregator-MLP replay-capacity ablation at 500k transitions."
+  - "Keeps aggregator batch_size=4, seq_len=32, train_ratio=128; only replay capacity changes."
+args:
+  output_dir: output/r2dreamer-l1-replay-capacity/agg-mlp-cap500k/run-${SLURM_JOB_ID}
+  seed: 42
+  buffer_capacity: 500000
+  wandb_name: l1-agg-mlp-cap500k-${SLURM_JOB_ID}
+  wandb_tags: replay-capacity,3d-63,l1,vggt,aggregator-mlp,cap-500k,seed-42,sr-ablation
+  video_log_every: 0
+  val_every: 0
+smoke:
+  args:
+    output_dir: output/r2dreamer-l1-replay-capacity/agg-mlp-cap500k/smoke-${TIMESTAMP}
+    wandb_name: l1-agg-mlp-cap500k-smoke-${TIMESTAMP}
+    wandb_tags: replay-capacity,3d-63,l1,vggt,aggregator-mlp,cap-500k,seed-42,smoke
