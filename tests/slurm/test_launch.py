@@ -349,3 +349,17 @@ def test_l1_aggregator_capacity_ablation_keeps_encoder_batch_defaults() -> None:
     assert "--batch_size" not in flags
     assert "--seq_len" not in flags
     assert "--train_ratio" not in flags
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "l1_vggt_wpcp37_cap500k",
+        "l1_vggt_wpcp64_cap500k",
+        "l1_agg_mlp_cap500k",
+    ],
+)
+def test_l1_vggt_capacity_ablation_links_external_repos(variant: str) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+
+    assert "./scripts/slurm/hooks/link_external.sh" in rendered

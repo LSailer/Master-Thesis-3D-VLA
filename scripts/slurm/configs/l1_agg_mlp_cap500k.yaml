@@ -1,6 +1,8 @@
 extends: aggregator_mlp_v1
 job_name: l1-agg-mlp-cap500k
 output_dir: output/r2dreamer-l1-replay-capacity/agg-mlp-cap500k
+setup:
+  - ./scripts/slurm/hooks/link_external.sh
 comments:
   - "3D-63: L1 VGGT aggregator-MLP replay-capacity ablation at 500k transitions."
   - "Keeps aggregator batch_size=4, seq_len=32, train_ratio=128; only replay capacity changes."

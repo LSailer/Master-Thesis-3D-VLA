@@ -1,6 +1,8 @@
 extends: wp_cp_mlp
 job_name: l1-wpcp37-cap500k
 output_dir: output/r2dreamer-l1-replay-capacity/wpcp37-cap500k
+setup:
+  - ./scripts/slurm/hooks/link_external.sh
 comments:
   - "3D-63: L1 VGGT WP/CP 37x37 replay-capacity ablation at 500k transitions."
   - "Same encoder/run as wp_cp_mlp; only replay capacity is reduced from 1M to 500k."
