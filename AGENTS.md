@@ -9,6 +9,39 @@ This repo is worked on by coding agents on bwUniCluster. Follow these rules for 
 - [`scripts/r2dreamer/AGENTS.md`](scripts/r2dreamer/AGENTS.md) — experiment drivers + SLURM wrappers
 - [`tests/r2dreamer/AGENTS.md`](tests/r2dreamer/AGENTS.md) — R2Dreamer test suite
 
+## Thesis Writing
+
+The written thesis is a **separate LaTeX repo** at [`../writing/`](../writing/) (sibling of this checkout; absolute path `/pfs/data6/home/ul/ul_student/ul_hfj15/writing/`). It is version-controlled independently — commit there separately, never from this repo. When an experiment here produces a reportable result, the prose and figures belong there, not only in `docs/`:
+
+- [`../writing/document.tex`](../writing/document.tex) — main file; `\input{content/...}` in reading order
+- [`../writing/content/Experiments.tex`](../writing/content/Experiments.tex) — results, per-level SR/SPL, encoder comparisons
+- `../writing/content/{Introduction,Related work,Method,Discussion,Appendix}.tex`
+- `../writing/img/` — figures, referenced by **bare filename** in `\includegraphics`; drop generated PNGs here
+
+Match the existing `\section`/`\subsection`, `\label{sec:|fig:|tab:}`, and `natbib` (`splncs04`) conventions already in those files. The repo-side `docs/notes/` writeups are staging drafts; the thesis is the destination.
+
+## Multi-Agent Worktree Policy
+
+The main checkout is the orchestrator/control checkout. Use it for status checks, SLURM/W&B/PR inspection, branch review, worktree creation/removal, and coordination.
+
+Do not implement feature changes in the main checkout unless the user explicitly asks for that. Coding agents must work in a dedicated Git worktree on a dedicated branch.
+
+Use `worktrees/<linear-key>-<short-task-slug>/` as the canonical workspace layout for agent implementation work. The parent checkout ignores `worktrees/`, so nested worktrees do not make the orchestrator checkout dirty.
+
+Before editing, agents must check where they are:
+
+```
+git rev-parse --show-toplevel
+git rev-parse --git-dir
+git rev-parse --git-common-dir
+git status --short --branch
+git worktree list
+```
+
+If `git rev-parse --git-dir` and `git rev-parse --git-common-dir` both resolve to the main checkout's `.git`, the agent is in the orchestrator checkout and must create or switch to a task worktree before editing code.
+
+Each agent owns only its assigned worktree and branch. Do not edit another agent's worktree, and do not remove or clean another worktree unless explicitly asked.
+
 ## Worktree Setup
 
 When working in a `git worktree` (any directory under `worktrees/`), run once per fresh worktree before any training or eval command:

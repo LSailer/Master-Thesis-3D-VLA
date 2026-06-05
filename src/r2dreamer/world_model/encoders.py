@@ -15,6 +15,14 @@ from .rssm import RMSNorm
 HYBRID_RGB_DIM = 3 * 64 * 64  # 12288 — the CNN branch's 64x64 RGB, flattened
 HYBRID_VGGT_DIM = 4116        # world_points 37*37*3 + camera_pose 9
 
+# Aggregator readouts (3D-50 follow-up). Defined here (small ints) rather than
+# imported from adapters.vggt_adapter so importing the world-model encoders stays
+# free of the heavy VGGT extractor dependency; tests/test_agg_raw_dims.py asserts
+# these agree with the adapter's constants and the live extractor shape.
+AGG_RAW_TOKENS = 1370                  # cam(1) + patches(1369); 4 register tokens dropped
+AGG_RAW_DIM = AGG_RAW_TOKENS * 1024    # 1,402,880 — raw flattened aggregator
+AGG_POOLED_DIM = 3 * 1024              # 3,072 — pooled [cam | mean | max]
+
 
 def _symlog(x: jnp.ndarray) -> jnp.ndarray:
     """Symmetric log compression, ``sign(x) * log1p(|x|)``.
@@ -122,6 +130,31 @@ class VGGTAggregatorMLPEncoder(nn.Module):
         return nn.Dense(self.embed_dim, name="proj")(x)
 
 
+class VGGTAggRawMLPEncoder(nn.Module):
+    """3-layer MLP over the RAW flattened aggregator tokens (V1 standalone).
+
+    Input ``(B, AGG_RAW_DIM)`` = camera token + 1369 patch tokens x 1024-d, the 4
+    register tokens dropped (see ``flatten_raw_aggregator``). Layer-1 is the
+    expensive ~1.44B-param projection (1,402,880 -> ``hidden``); layers 2-3 are
+    cheap 1024->1024 blocks. Replay stores float16; the cast to float32 here lets
+    the dense matmuls run in the agent's working precision. No per-slice RMSNorm
+    (unlike the pooled readout): raw tokens have no cam/mean/max slice structure.
+    """
+    embed_dim: int = 1024
+    hidden: int = 1024
+    num_layers: int = 3
+
+    @nn.compact
+    def __call__(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != AGG_RAW_DIM:
+            raise ValueError(
+                f"VGGTAggRawMLPEncoder expects (B, {AGG_RAW_DIM}), got {obs.shape}"
+            )
+        x = obs.astype(jnp.float32)
+        x = _mlp_body(x, self.num_layers, self.hidden)
+        return nn.Dense(self.embed_dim, name="proj")(x)
+
+
 class WPConvEncoder(nn.Module):
     """Conv encoder over full-resolution VGGT world-point maps (3D-53).
 
@@ -225,6 +258,109 @@ class HybridEncoder(nn.Module):
         per-branch contribution metrics more cheaply by slicing the
         already-computed fused ``embed`` rather than calling this.
         """
+        cnn_e, vggt_e = self._branches(obs)
+        return cnn_e, vggt_e, self.gate
+
+
+class HybridAggPooledModule(nn.Module):
+    """CNN(RGB 64) + zero-init-gated aggregator-pooled MLP, fused (V2).
+
+    Same structure as ``HybridEncoder`` but the gated VGGT branch is the pooled
+    aggregator readout (``VGGTAggregatorMLPEncoder``: per-slice RMSNorm on
+    [cam | mean | max] then an MLP) over the 3072-d vector, instead of WP/CP. The
+    zero-init scalar ``gate`` means training starts as plain CNN-Dreamer and the
+    aggregator branch opens only as it proves useful; the per-branch hybrid/*
+    metrics work unchanged (the VGGT branch still projects to ``vggt_embed_dim``
+    and the module exposes a ``gate`` param via ``setup``).
+    """
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    vggt_embed_dim: int = 1024
+    mlp_hidden: int = 1024
+    mlp_layers: int = 3
+    rgb_dim: int = HYBRID_RGB_DIM
+    vggt_dim: int = AGG_POOLED_DIM
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        # Reuse the standalone pooled-aggregator readout so the hybrid branch is a
+        # faithful gated copy (per-slice RMSNorm preserved), not a degraded MLP.
+        self.vggt_mlp = VGGTAggregatorMLPEncoder(
+            embed_dim=self.vggt_embed_dim,
+            pool_dim=self.vggt_dim // 3,
+            hidden=self.mlp_hidden,
+            num_layers=self.mlp_layers,
+        )
+        self.gate = self.param("gate", nn.initializers.zeros, ())
+
+    def _branches(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
+            raise ValueError(
+                f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid-agg-pooled "
+                f"features, got {obs.shape}"
+            )
+        rgb = obs[..., : self.rgb_dim].astype(jnp.float32).reshape(obs.shape[0], 3, 64, 64)
+        agg = obs[..., self.rgb_dim :]
+        cnn_e = self.cnn(rgb)
+        vggt_e = self.gate * self.vggt_mlp(agg)
+        return cnn_e, vggt_e
+
+    def __call__(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, vggt_e], axis=-1)
+
+    def branches(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        return cnn_e, vggt_e, self.gate
+
+
+class HybridAggRawModule(nn.Module):
+    """CNN(RGB 64) + zero-init-gated raw-aggregator 3-layer MLP, fused (V3).
+
+    Same gate pattern as ``HybridEncoder``; the gated VGGT branch is
+    ``VGGTAggRawMLPEncoder`` over the raw 1,402,880-d flattened aggregator (4
+    register tokens dropped). The RGB slice is stored float16 in replay, so it is
+    upcast to float32 before the CNN; the raw slice is upcast inside the MLP. The
+    expensive ~1.44B-param layer-1 lives in this branch.
+    """
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    vggt_embed_dim: int = 1024
+    mlp_hidden: int = 1024
+    mlp_layers: int = 3
+    rgb_dim: int = HYBRID_RGB_DIM
+    vggt_dim: int = AGG_RAW_DIM
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        self.vggt_mlp = VGGTAggRawMLPEncoder(
+            embed_dim=self.vggt_embed_dim, hidden=self.mlp_hidden, num_layers=self.mlp_layers
+        )
+        self.gate = self.param("gate", nn.initializers.zeros, ())
+
+    def _branches(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
+            raise ValueError(
+                f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid-agg-raw "
+                f"features, got {obs.shape}"
+            )
+        rgb = obs[..., : self.rgb_dim].astype(jnp.float32).reshape(obs.shape[0], 3, 64, 64)
+        raw = obs[..., self.rgb_dim :]
+        cnn_e = self.cnn(rgb)
+        vggt_e = self.gate * self.vggt_mlp(raw)
+        return cnn_e, vggt_e
+
+    def __call__(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, vggt_e], axis=-1)
+
+    def branches(self, obs):
         cnn_e, vggt_e = self._branches(obs)
         return cnn_e, vggt_e, self.gate
 
