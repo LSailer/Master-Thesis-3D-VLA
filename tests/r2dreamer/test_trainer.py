@@ -37,6 +37,13 @@ class _DummyEnv:
         pass
 
 
+def test_trainer_config_defaults_disable_in_run_val_and_video():
+    tcfg = TrainerConfig()
+
+    assert tcfg.val_every == 0
+    assert tcfg.video_log_every == 0
+
+
 class TestConvertBatch:
     """convert_batch turns replay buffer output into agent-ready batches."""
 

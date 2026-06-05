@@ -71,23 +71,14 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base / l1_vggt have since gained three intentional changes the frozen
+    # _base / l1_vggt have since gained two intentional changes the frozen
     # legacy script predates: (1) the GL-teardown hard-exit env var (so every
-    # habitat variant exits 0 on completion), (2) multi-partition auto-select
-    # (gpu_h100_il,gpu_h100), and (3) the scalars-only flags video_log_every=0 /
-    # val_every=0 (videos + eval regenerated from checkpoints, not during
-    # training). Normalise all three back out before the byte-equality check so
-    # the rest of the contract still holds.
+    # habitat variant exits 0 on completion), and (2) multi-partition
+    # auto-select (gpu_h100_il,gpu_h100). Normalise both back out before the
+    # byte-equality check so the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
     rendered = rendered.replace(
         "#SBATCH --partition=gpu_h100_il,gpu_h100", "#SBATCH --partition=gpu_h100", 1
-    )
-    rendered = rendered.replace(
-        "    --render_resolution 518 \\\n"
-        "    --video_log_every 0 \\\n"
-        "    --val_every 0",
-        "    --render_resolution 518",
-        1,
     )
     assert rendered == expected
 
@@ -170,18 +161,21 @@ def test_curriculum_variants_match_legacy_args(variant: str, legacy: str) -> Non
     assert r_python == l_python == "uv run python"
     assert r_script == l_script
 
-    # Intentional divergence from the frozen legacy sbatch: the VGGT arm is now
-    # scalars-only — video + in-run eval disabled (video_log_every=0 /
-    # val_every=0, inherited from l1_vggt), and the stale replay-buffer val
-    # flags (val_data / val_loss_every) dropped since the parser rejects them.
-    # Videos + eval metrics are regenerated from checkpoints. Normalise those
-    # four out, then assert the rest of the training command still matches.
-    assert r_flags["--video_log_every"] == "0"
-    assert r_flags["--val_every"] == "0"
+    # Intentional divergences from the frozen legacy sbatch: scalars-only is now
+    # the parser default; stale replay-buffer val flags (val_data /
+    # val_loss_every) were dropped since the parser rejects them; and the VGGT
+    # L2-L4 arm pins the flatten/bare-linear WP+CP readout with mlp_layers=0
+    # plus explicit W&B names/tags. Normalise those out, then assert the rest
+    # of the command still matches.
+    assert "--video_log_every" not in r_flags
+    assert "--val_every" not in r_flags
     assert "--val_data" not in r_flags
     assert "--val_loss_every" not in r_flags
+    assert r_flags["--mlp_layers"] == "0"
+    assert "flatten" in r_flags["--wandb_name"]
+    assert "flatten,wp-cp" in r_flags["--wandb_tags"]
 
-    intentional = {"--video_log_every", "--val_every", "--val_data", "--val_loss_every"}
+    intentional = {"--val_data", "--val_loss_every", "--mlp_layers", "--wandb_name", "--wandb_tags"}
     r_common = {k: v for k, v in r_flags.items() if k not in intentional}
     l_common = {k: v for k, v in l_flags.items() if k not in intentional}
     assert r_common == l_common
@@ -194,9 +188,9 @@ def test_extends_chain_is_recursive() -> None:
     # Inherited from _base via l1_vggt:
     assert config.sbatch.gres == "gpu:1"
     assert config.args["render_resolution"] == 518
-    # Scalars-only flags inherited from l1_vggt (videos/eval regenerated offline):
-    assert config.args["video_log_every"] == 0
-    assert config.args["val_every"] == 0
+    # Scalars-only is now the parser default, not YAML inheritance:
+    assert "video_log_every" not in config.args
+    assert "val_every" not in config.args
     # Own override:
     assert config.script.endswith("run_jax_habitat_l2_vggt.py")
     # The stale replay-buffer val flags were dropped (parser no longer accepts them):
@@ -292,6 +286,8 @@ def test_3d56_prod_configs_render(variant: str, script: str, wandb_name: str) ->
     assert flags["--wandb_name"] == wandb_name
     assert "3d-56" in flags["--wandb_tags"]
     assert "set -euo pipefail" in rendered
+    assert "--video_log_every" not in flags
+    assert "--val_every" not in flags
 
 
 def test_3d56_raw_configs_use_conservative_resources() -> None:
