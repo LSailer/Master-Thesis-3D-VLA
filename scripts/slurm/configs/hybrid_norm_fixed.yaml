@@ -1,0 +1,35 @@
+extends: _base
+job_name: hybrid-norm-fixed
+output_dir: output/runs/r2dreamer-curriculum-l1-hybrid-norm-fixed
+run_id: habitat-l1-hybrid-norm-fixed
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "3D-65 hybrid ablation: CNN(RGB_64) + fixed-scale RMS-normalized MLP(WP/CP 4116)"
+  - "Keeps the default hybrid input layout but removes the learned zero-init VGGT gate."
+  - "Logs hybrid/{gate,cnn_frac,vggt_frac}; hybrid/gate is fixed at 1.0 for this run."
+env:
+  R2DREAMER_HARD_EXIT_ON_FINISH: "1"
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l1-hybrid-norm-fixed/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: hybrid-norm-fixed-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,hybrid,cnn,wp-cp,norm-fixed,3d-65,jax,3d-encoder
+  render_resolution: 518
+smoke:
+  time: "00:20:00"
+  args:
+    steps: 800
+    prefill: 200
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 10000
+    output_dir: output/smoke/hybrid-norm-fixed-${TIMESTAMP}
+    wandb_name: hybrid-norm-fixed-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,smoke,cnn+vggt,norm-fixed,3d-65

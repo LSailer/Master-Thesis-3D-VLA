@@ -47,6 +47,7 @@ class R2DreamerConfig:
     # above governs the standalone vggt/aggregator encoders).
     mlp_vggt_hidden: int = 1024   # hidden width of the hybrid VGGT-branch MLP
     mlp_vggt_layers: int = 2      # depth of the hybrid VGGT-branch MLP
+    hybrid_fixed_scale: float = 1.0  # fixed VGGT branch scale for 3D-65 ablations
     # --- Co-trained decoder (image reconstruction; OFF by default; 3D-51) ---
     # When False (default) no decoder params are built and no reconstruction
     # term is added, so CNN/VGGT runs are byte-for-byte unchanged.

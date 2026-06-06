@@ -313,3 +313,32 @@ def test_aggregator_smoke_overrides() -> None:
 def test_aggregator_prod_is_strict_bash() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     assert "set -euo pipefail" in rendered
+
+
+def test_hybrid_norm_fixed_prod_args() -> None:
+    rendered = launch.render_sbatch(launch.load_config("hybrid_norm_fixed"), mode="prod")
+    python_cmd, script, run_id, flags = training_command(rendered)
+
+    assert python_cmd == "uv run python"
+    assert script.endswith("run.py")
+    assert run_id == "habitat-l1-hybrid-norm-fixed"
+    assert flags["--steps"] == "2000000"
+    assert flags["--prefill"] == "5000"
+    assert flags["--checkpoint_every"] == "100000"
+    assert flags["--wandb_name"] == "hybrid-norm-fixed-${SLURM_JOB_ID}"
+    assert flags["--wandb_project"] == "3d-vla-objectnav"
+    assert flags["--render_resolution"] == "518"
+    assert "norm-fixed" in flags["--wandb_tags"]
+
+
+def test_hybrid_norm_fixed_smoke_reaches_training_early() -> None:
+    rendered = launch.render_sbatch(launch.load_config("hybrid_norm_fixed"), mode="smoke")
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-hybrid-norm-fixed"
+    assert flags["--steps"] == "800"
+    assert flags["--prefill"] == "200"
+    assert flags["--batch_size"] == "4"
+    assert flags["--seq_len"] == "16"
+    assert flags["--train_ratio"] == "16"
+    assert flags["--wandb_project"] == "3d-vla-objectnav-smoke"

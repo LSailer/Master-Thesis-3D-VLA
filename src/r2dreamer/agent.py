@@ -31,6 +31,7 @@ from .world_model.encoders import (
     WPConvEncoder,
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
+    HybridNormFixedEncoder as WMHybridNormFixedEncoder,
     VGGTEncoder as WMVGGTEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
@@ -44,6 +45,8 @@ from .behavior.loss import behavior_loss
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
 from src.shared.optim import laprop, agc
+
+HYBRID_ENCODER_TYPES = ("hybrid", "hybrid_norm_fixed")
 
 # Re-export internal helpers so test_cross_framework.py keeps working.
 __all__ = [
@@ -123,6 +126,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
+            "hybrid_norm_fixed": WMHybridNormFixedEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -160,8 +164,8 @@ def _make_wp_conv_encoder(cfg: R2DreamerConfig):
     )
 
 
-def _make_hybrid_encoder(cfg: R2DreamerConfig):
-    # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
+def _make_hybrid_encoder(cfg: R2DreamerConfig, cls=WMHybridEncoder):
+    # CNN(RGB) + MLP(WP/CP) fused into one embed (3D-50/51/52/65).
     # Guard the buffer-layout contract: the encoder splits obs at
     # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
     # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
@@ -176,7 +180,7 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
             f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
-    return WMHybridEncoder(
+    kwargs = dict(
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
         cnn_mults=cfg.encoder_mults,
@@ -184,6 +188,9 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
         mlp_hidden=cfg.mlp_vggt_hidden,
         mlp_layers=cfg.mlp_vggt_layers,
     )
+    if cls is WMHybridNormFixedEncoder:
+        kwargs["fixed_vggt_scale"] = cfg.hybrid_fixed_scale
+    return cls(**kwargs)
 
 
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
@@ -202,8 +209,8 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_conv_encoder(cfg)
     if cls is WPConvEncoder:
         return _make_wp_conv_encoder(cfg)
-    if cls is WMHybridEncoder:
-        return _make_hybrid_encoder(cfg)
+    if cls in (WMHybridEncoder, WMHybridNormFixedEncoder):
+        return _make_hybrid_encoder(cfg, cls)
     return _make_mlp_encoder(cfg, cls)
 
 
@@ -249,14 +256,18 @@ def _add_hybrid_contribution_metrics(
     T: int,
 ) -> None:
     # Reuse the already-computed fused embed instead of a second encoder
-    # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
-    # leading cnn_dim columns are the CNN branch and the rest are the
-    # gated VGGT branch. The raw gate scalar is read straight from params.
+    # forward: embed == concat([cnn_e, vggt_branch]), so the leading cnn_dim
+    # columns are the CNN branch and the rest are the VGGT branch. The learned
+    # hybrid reads a trainable gate param; fixed-scale variants log their config
+    # scale under the same key for W&B chart comparability.
     embed_flat = forward["embed"].reshape(B * T, -1)
     cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
     cnn_e = embed_flat[:, :cnn_dim]
     vggt_e = embed_flat[:, cnn_dim:]
-    gate = params["encoder"]["params"]["gate"]
+    encoder_params = params["encoder"].get("params", {})
+    gate = encoder_params.get("gate")
+    if gate is None:
+        gate = jnp.asarray(cfg.hybrid_fixed_scale, dtype=embed_flat.dtype)
     cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e ** 2, axis=-1)))
     vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e ** 2, axis=-1)))
     denom = cnn_l2 + vggt_l2 + 1e-8
@@ -381,9 +392,10 @@ class R2DreamerAgent:
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in ("cnn", "hybrid"):
+            if config.encoder_type not in ("cnn", *HYBRID_ENCODER_TYPES):
                 raise ValueError(
-                    "decoder=True requires encoder_type in {'cnn', 'hybrid'} — the "
+                    "decoder=True requires encoder_type in {'cnn', 'hybrid', "
+                    "'hybrid_norm_fixed'} — the "
                     "ConvDecoder reconstructs an RGB image, but "
                     f"{config.encoder_type!r} carries no RGB modality to reconstruct."
                 )
@@ -465,7 +477,7 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        if self.cfg.encoder_type == "hybrid":
+        if self.cfg.encoder_type in HYBRID_ENCODER_TYPES:
             # Hybrid: the adapter pre-builds the flat [rgb_norm | wp_cp] vector
             # under "hybrid" (already float32, RGB already /255). The encoder
             # slices it back into the CNN and WP/CP branches.
@@ -553,7 +565,7 @@ class R2DreamerAgent:
         feat = self.rssm_mod.apply(
             params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat)
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        if self.cfg.encoder_type == "hybrid":
+        if self.cfg.encoder_type in HYBRID_ENCODER_TYPES:
             rgb_dim = self.cfg.obs_shape[0] - self.cfg.vggt_feature_dim
             target = obs_flat[:, :rgb_dim].reshape(B * T, 3, 64, 64)
         else:
@@ -720,10 +732,10 @@ class R2DreamerAgent:
 
         # ---- Hybrid contribution diagnostics (3D-50) ----
         # Re-split the fused embed into its CNN and gated-VGGT branches via the
-        # encoder's `branches` method (shares params with the forward pass) and
-        # log how much each modality drives the latent. `gate` starts at 0 and
-        # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type == "hybrid":
+        # encoder's fused embed and log how much each modality drives the latent.
+        # Learned-gate hybrid logs its trainable scalar; fixed-scale ablations log
+        # their configured constant. `*_frac` is each branch's share of embed norm.
+        if cfg.encoder_type in HYBRID_ENCODER_TYPES:
             _add_hybrid_contribution_metrics(
                 metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
             )

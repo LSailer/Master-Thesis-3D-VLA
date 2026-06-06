@@ -3,7 +3,7 @@
 import inspect
 import pytest
 
-from src.r2dreamer.encoders import Encoder, HybridEncoder
+from src.r2dreamer.encoders import Encoder, HybridEncoder, HybridNormFixedEncoder
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.launch.curricula import CURRICULA
 
@@ -29,9 +29,11 @@ class TestEncoderRegistry:
         assert "vggt_aggregator_mlp" in encoder_registry
         assert "vggt_wp_dense_cnn" in encoder_registry
         assert "hybrid" in encoder_registry
+        assert "hybrid_norm_fixed" in encoder_registry
 
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
         assert encoder_registry["hybrid"] is HybridEncoder
+        assert encoder_registry["hybrid_norm_fixed"] is HybridNormFixedEncoder
 
 
 class TestEnvRegistry:

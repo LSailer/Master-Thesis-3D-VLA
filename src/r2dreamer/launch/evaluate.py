@@ -96,10 +96,10 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
     from src.shared.configs import DreamerConfig
     from src.environments.habitat import HabitatObjectNavEnv
 
-    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
+    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND hybrid encoders
     # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
     # driven off the EncoderSpec below.
-    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
+    needs_hires = eff_encoder.startswith("vggt") or eff_encoder.startswith("hybrid")
     default_resolution = 518 if needs_hires else 64
     render_resolution = (
         args.render_resolution if args.render_resolution is not None else default_resolution

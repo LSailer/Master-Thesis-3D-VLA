@@ -227,6 +227,24 @@ class HybridEncoder(VGGTEncoder):
         return HybridObsAdapter(self._extractor)
 
 
+class HybridNormFixedEncoder(HybridEncoder):
+    """CNN(RGB 64) + fixed-scale normalized MLP(WP+CP) ablation (3D-65)."""
+
+    encoder_type = "hybrid_norm_fixed"
+    module_cls = wm_encoders.HybridNormFixedEncoder
+    agent_overrides = {
+        "buffer_capacity": 100_000,
+        "hybrid_fixed_scale": 1.0,
+    }
+    design_notes = (
+        "3D-65 hybrid ablation: same input layout as the default hybrid "
+        "([64x64 RGB | 4116-dim VGGT world_points+camera_pose]) but both branch "
+        "embeddings are parameter-free RMS-normalized before concatenation. The "
+        "VGGT branch uses a fixed scale of 1.0 instead of a learned zero-init gate, "
+        "so the run tests whether the learned gate caused bad branch-scale dynamics."
+    )
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid (3D-52/3D-53 follow-up).
 
@@ -264,5 +282,6 @@ __all__ = [
     "VGGTAggregatorMLPEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "HybridNormFixedEncoder",
     "VGGTWPCP64Encoder",
 ]

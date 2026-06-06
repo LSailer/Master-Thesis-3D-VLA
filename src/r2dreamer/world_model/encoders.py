@@ -34,6 +34,12 @@ def _symlog(x: jnp.ndarray) -> jnp.ndarray:
     return jnp.sign(x) * jnp.log1p(jnp.abs(x))
 
 
+def _unit_rms(x: jnp.ndarray, eps: float = 1e-4) -> jnp.ndarray:
+    """Parameter-free RMS normalization for branch-scale ablations."""
+    rms = jnp.sqrt(jnp.mean(x ** 2, axis=-1, keepdims=True) + eps)
+    return x / rms
+
+
 class ConvEncoder(nn.Module):
     """Convolutional encoder ported from R2-Dreamer.
 
@@ -260,6 +266,55 @@ class HybridEncoder(nn.Module):
         """
         cnn_e, vggt_e = self._branches(obs)
         return cnn_e, vggt_e, self.gate
+
+
+class HybridNormFixedEncoder(nn.Module):
+    """Hybrid encoder with normalized branches and a fixed-open VGGT scale (3D-65).
+
+    This is an ablation of ``HybridEncoder`` that keeps the same input layout and
+    branch architectures but removes the learned scalar gate. Both branch embeddings
+    are parameter-free RMS-normalized before fusion, then the VGGT branch is scaled
+    by ``fixed_vggt_scale`` (default 1.0). The goal is to test whether the learned
+    zero-init gate created bad scale dynamics without changing the RGB/VGGT inputs.
+    """
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    vggt_embed_dim: int = 1024
+    mlp_hidden: int = 1024
+    mlp_layers: int = 2
+    fixed_vggt_scale: float = 1.0
+    rgb_dim: int = HYBRID_RGB_DIM
+    vggt_dim: int = HYBRID_VGGT_DIM
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        self.vggt_mlp = R2MLP(
+            hidden=self.mlp_hidden, layers=self.mlp_layers, out_dim=self.vggt_embed_dim
+        )
+
+    def _branches(self, obs):
+        if obs.ndim != 2 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
+            raise ValueError(
+                f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid-norm-fixed "
+                f"features, got {obs.shape}"
+            )
+        rgb = obs[..., : self.rgb_dim].reshape(obs.shape[0], 3, 64, 64)
+        wp_cp = obs[..., self.rgb_dim :]
+        cnn_e = _unit_rms(self.cnn(rgb))
+        vggt_e = self.fixed_vggt_scale * _unit_rms(self.vggt_mlp(wp_cp))
+        return cnn_e, vggt_e
+
+    def __call__(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, vggt_e], axis=-1)
+
+    def branches(self, obs):
+        cnn_e, vggt_e = self._branches(obs)
+        gate = jnp.asarray(self.fixed_vggt_scale, dtype=obs.dtype)
+        return cnn_e, vggt_e, gate
 
 
 class HybridAggPooledModule(nn.Module):

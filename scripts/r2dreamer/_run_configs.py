@@ -110,6 +110,18 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
+    # L1 Hybrid fixed-scale normalization ablation (3D-65).
+    "habitat-l1-hybrid-norm-fixed": dict(
+        env="habitat",
+        encoder="hybrid_norm_fixed",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-hybrid-norm-fixed",
+        wandb_name="hybrid-norm-fixed",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "hybrid", "cnn", "wp-cp", "norm-fixed", "3d-65", "3d-encoder", "jax",
+        ],
+    ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",

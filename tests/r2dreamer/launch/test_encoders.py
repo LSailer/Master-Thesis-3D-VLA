@@ -11,6 +11,7 @@ from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
     HybridEncoder,
+    HybridNormFixedEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
@@ -319,6 +320,33 @@ class TestHybridEncoder:
         assert spec.obs_shape == (16404,)
         assert spec.env_render_resolution == 518
         assert spec.module_cls is wm_encoders.HybridEncoder
+
+    def test_hybrid_norm_fixed_encoder_exposes_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.VGGTFeatureExtractor",
+            FakeExtractor,
+        )
+
+        spec = HybridNormFixedEncoder().spec()
+        assert isinstance(spec, EncoderSpec)
+        assert spec.encoder_type == "hybrid_norm_fixed"
+        assert spec.obs_shape == (16404,)
+        assert spec.env_render_resolution == 518
+        assert spec.module_cls is wm_encoders.HybridNormFixedEncoder
+        assert spec.agent_overrides == {
+            "buffer_capacity": 100_000,
+            "hybrid_fixed_scale": 1.0,
+        }
+        assert "fixed scale of 1.0" in spec.design_notes
 
     def test_hybrid_adapter_builds_rgb_wp_cp_layout(self):
         # Fake VGGT extractor: extract() -> world_points (37,37,3) + camera_pose (9,)

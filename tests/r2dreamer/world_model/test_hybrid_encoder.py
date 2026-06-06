@@ -11,6 +11,7 @@ import pytest
 from src.r2dreamer.world_model.encoders import (
     ConvDecoder,
     HybridEncoder,
+    HybridNormFixedEncoder,
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
 )
@@ -77,6 +78,38 @@ class TestHybridEncoder:
         assert jnp.allclose(fused, expected)
 
 
+class TestHybridNormFixedEncoder:
+    def test_branches_are_normalized_and_fixed_scaled(self, rng):
+        vggt_embed_dim = 8
+        enc = HybridNormFixedEncoder(
+            vggt_embed_dim=vggt_embed_dim,
+            mlp_hidden=8,
+            mlp_layers=2,
+            fixed_vggt_scale=0.5,
+        )
+        obs = jax.random.normal(rng, (4, HYBRID_RGB_DIM + HYBRID_VGGT_DIM))
+        params = enc.init(rng, obs)
+
+        cnn_e, vggt_e, gate = enc.apply(params, obs, method=enc.branches)
+
+        assert "gate" not in params["params"]
+        assert float(gate) == 0.5
+        assert cnn_e.shape == (4, _cnn_dim())
+        assert vggt_e.shape == (4, vggt_embed_dim)
+        assert jnp.allclose(jnp.sqrt(jnp.mean(cnn_e ** 2, axis=-1)), 1.0, atol=1e-3)
+        assert jnp.allclose(jnp.sqrt(jnp.mean(vggt_e ** 2, axis=-1)), 0.5, atol=1e-3)
+
+    def test_call_concatenates_normalized_branches(self, rng):
+        enc = HybridNormFixedEncoder(vggt_embed_dim=8, mlp_hidden=8, mlp_layers=2)
+        obs = jax.random.normal(rng, (4, HYBRID_RGB_DIM + HYBRID_VGGT_DIM))
+        params = enc.init(rng, obs)
+
+        fused = enc.apply(params, obs)
+        cnn_e, vggt_e, _ = enc.apply(params, obs, method=enc.branches)
+
+        assert jnp.allclose(fused, jnp.concatenate([cnn_e, vggt_e], axis=-1))
+
+
 class TestDecoderGuard:
     """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
 
@@ -103,6 +136,8 @@ class TestDecoderGuard:
         assert "decoder" in a.params
         b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
+        c = R2DreamerAgent(self._cfg("hybrid_norm_fixed", (16404,)), jax.random.PRNGKey(0))
+        assert "decoder" in c.params
 
     def test_hybrid_split_mismatch_raises_value_error(self):
         import jax
