@@ -19,8 +19,8 @@ worktrees/
 *.aux
 *.log
 
-# external repos — cloned locally, not committed
-external/*/
+# external repos — cloned or symlinked locally, not committed
+external/*
 !external/.gitkeep
 
 # uv lockfile
