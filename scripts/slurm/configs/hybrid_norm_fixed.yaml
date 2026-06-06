@@ -7,6 +7,8 @@ comments:
   - "3D-65 hybrid ablation: CNN(RGB_64) + fixed-scale RMS-normalized MLP(WP/CP 4116)"
   - "Keeps the default hybrid input layout but removes the learned zero-init VGGT gate."
   - "Logs hybrid/{gate,cnn_frac,vggt_frac}; hybrid/gate is fixed at 1.0 for this run."
+setup:
+  - bash scripts/slurm/hooks/link_external.sh
 env:
   R2DREAMER_HARD_EXIT_ON_FINISH: "1"
 args:
