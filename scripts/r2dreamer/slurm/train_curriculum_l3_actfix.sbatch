@@ -22,7 +22,7 @@ fi
 # L3 actent-fix rerun — supersedes l3-10houses-chair (rsopsua1, 32% SR).
 # Buffer fix already present; this run isolates actent=3e-4 effect on
 # multi-scene generalization.
-uv run python scripts/r2dreamer/run_jax_habitat_l3.py \
+uv run python scripts/r2dreamer/run.py habitat-l3-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

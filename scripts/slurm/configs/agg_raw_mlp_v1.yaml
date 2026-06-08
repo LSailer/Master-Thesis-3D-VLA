@@ -1,7 +1,7 @@
 extends: _base
 job_name: agg-raw-mlp-v1
 output_dir: output/runs/r2dreamer-curriculum-l1-vggt-agg-raw-mlp
-script: scripts/r2dreamer/run_jax_habitat_vggt_agg_raw_mlp.py
+run_id: habitat-l1-vggt-agg-raw-mlp
 curriculum_check: data/curriculum/level1_1house_1goal.json
 strict_bash: true
 comments:

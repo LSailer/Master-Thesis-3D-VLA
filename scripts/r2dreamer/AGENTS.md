@@ -25,17 +25,20 @@ publication plots. Scripts are thin — heavy logic lives in `src/r2dreamer/`.
 | `train_offline_ablation.py` | **3D-26** JAX offline trainer; encoder ∈ {`wp_cp`, `aggregator`} × seed ∈ {0,1,2}. Enforces a shared-hyperparameter fairness contract (batch=16, seq_len=64, imag_horizon=15). Logs held-out WM metrics. |
 | `train_external_offline.py` | **3D-45/46** offline trainer for the *external PyTorch* R2Dreamer. Same sampling/logging as the JAX run → apples-to-apples baseline. **Requires `external/r2dreamer/.venv`.** |
 
-### Live training launchers (shims → `src.r2dreamer.launch.train`)
-`run_jax_habitat.py` (L1 CNN), `…_l2/_l3/_l4.py`, the `_vggt` variants,
-`run_jax_habitat_vggt_aggregator_mlp.py`, `…_vggt_wp_dense.py`, `…_vggt_wp_cp_64.py`,
-`run_jax_habitat_hybrid.py`, `run_jax_crafter.py`. Every shim is now ~8 lines and
-delegates to `_run_configs.launch_run("<run-id>")`, where the per-run `(env, encoder,
-curriculum, output_dir, wandb_name, wandb_tags)` lives in the `RUN_CONFIGS` table in
-[`_run_configs.py`](_run_configs.py) (single source of truth; encoder validated against
-`encoder_registry` at launch). To add a run: add a `RUN_CONFIGS` entry, then a one-line
-shim that calls `launch_run` (the file is kept so the `script:` paths in
-`scripts/slurm/configs/*.yaml` stay valid). Eval shims: `eval_habitat.py`,
-`eval_habitat_vggt.py`. Validation shims: `run_parity_training.py`, `run_benchmark.py`.
+### Live training launcher (single dispatcher → `src.r2dreamer.launch.train`)
+`run.py <run-id> [train flags...]` is the one entrypoint for every live training
+run (the per-run `run_jax_*.py` shims were folded into it). The per-run `(env,
+encoder, curriculum, output_dir, wandb_name, wandb_tags)` lives in the
+`RUN_CONFIGS` table in [`_run_configs.py`](_run_configs.py) (single source of
+truth; `launch_run` validates the encoder against `encoder_registry` at launch).
+Run ids: `habitat-l{1,2,3,4}-cnn`, `habitat-l{1,2,3,4}-vggt`,
+`habitat-l1-{hybrid,vggt-aggregator-mlp,vggt-wp-cp-64,vggt-wp-dense}`,
+`crafter-cnn`. **To add a run:** add one `RUN_CONFIGS` entry + a
+`scripts/slurm/configs/*.yaml` whose `run_id:` names it — no new Python file.
+Slurm configs render `run.py <id>` from their `run_id` field (the shared
+`script: run.py` is inherited from `_base`); legacy `*.sbatch` call `run.py <id>`
+directly. Eval shims: `eval_habitat.py`, `eval_habitat_vggt.py`. Validation
+shims: `run_parity_training.py`, `run_benchmark.py`.
 
 ### Curriculum / analysis / profiling
 | File | Role |

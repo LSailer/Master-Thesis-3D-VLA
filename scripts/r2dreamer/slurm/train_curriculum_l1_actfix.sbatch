@@ -22,7 +22,7 @@ fi
 # L1 actent-fix rerun — supersedes l1-baseline-2.4m (krokhgwi, 67% SR).
 # Note: baseline predates the buffer-fix; this rerun unavoidably includes both
 # fixes (buffer + actent). For clean actent isolation see L1-rerun-actfix.
-uv run python scripts/r2dreamer/run_jax_habitat.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 2400000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

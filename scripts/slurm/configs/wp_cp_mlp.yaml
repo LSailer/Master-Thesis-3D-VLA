@@ -1,7 +1,7 @@
 extends: _base
 job_name: wp-cp-mlp
 output_dir: output/r2dreamer-curriculum-l1-vggt-wp-cp-mlp
-script: scripts/r2dreamer/run_jax_habitat_vggt.py
+run_id: habitat-l1-vggt
 curriculum_check: data/curriculum/level1_1house_1goal.json
 comments:
   - "Run 1 (3D-52): WP/CP readout (37x37 aggregated world points + camera pose)"

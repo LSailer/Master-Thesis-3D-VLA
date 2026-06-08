@@ -1,7 +1,7 @@
 extends: _base
 job_name: hybrid-agg-pooled-v1
 output_dir: output/runs/r2dreamer-curriculum-l1-hybrid-agg-pooled
-script: scripts/r2dreamer/run_jax_habitat_hybrid_agg_pooled.py
+run_id: habitat-l1-hybrid-agg-pooled
 curriculum_check: data/curriculum/level1_1house_1goal.json
 strict_bash: true
 comments:

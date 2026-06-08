@@ -211,3 +211,18 @@ def test_step_does_not_end_episode_at_exact_goal_radius():
     assert obs["success"] == 0.0
     assert obs["done"] is False
     assert obs["spl"] == 0.0
+
+
+def test_step_invalid_goal_distance_ends_failed_episode(capsys):
+    env = _make_step_test_env(float("inf"))
+    obs = env.step(1)
+
+    assert obs["done"] is True
+    assert obs["success"] == 0.0
+    assert obs["spl"] == 0.0
+    assert obs["invalid_goal_distance"] == 1.0
+    assert obs["invalid_goal_distance_raw"] == "inf"
+    assert obs["dtg"] == pytest.approx(1.0)
+    assert obs["reward"] == 0.0
+    assert env._prev_dist == 1.0
+    assert "invalid distance_to_goal" in capsys.readouterr().err

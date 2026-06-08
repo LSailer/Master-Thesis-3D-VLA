@@ -159,6 +159,16 @@ class TestDecoderGuard:
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         assert "decoder" in agent.params
 
+    def test_hybrid_split_mismatch_raises_value_error(self):
+        import jax
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = self._cfg("hybrid", (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,))
+        cfg.vggt_feature_dim = HYBRID_VGGT_DIM + 1
+
+        with pytest.raises(ValueError, match="hybrid obs_shape/split mismatch"):
+            R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+
 
 class TestConvDecoder:
     def test_output_shape_and_range(self, rng):

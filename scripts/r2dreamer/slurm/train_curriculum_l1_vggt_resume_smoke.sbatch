@@ -37,7 +37,7 @@ fi
 
 export WANDB_MODE=disabled
 
-uv run python scripts/r2dreamer/run_jax_habitat_vggt.py \
+uv run python scripts/r2dreamer/run.py habitat-l1-vggt \
     --steps 905000 \
     --prefill 5000 \
     --checkpoint_every 100000 \

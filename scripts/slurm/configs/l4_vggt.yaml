@@ -1,7 +1,7 @@
 extends: l1_vggt
 job_name: r2d-L4-vggt
 output_dir: output/r2dreamer-curriculum-l4-vggt
-script: scripts/r2dreamer/run_jax_habitat_l4_vggt.py
+run_id: habitat-l4-vggt
 curriculum_check: data/curriculum/level4_10houses_6goals.json
 comments:
   - "Level 4 with VGGT 3D encoder: 10 houses (4 easy, 4 medium, 2 hard) x 6 goal categories"

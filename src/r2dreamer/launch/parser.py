@@ -39,8 +39,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                    help="Depth of the VGGT MLP encoders (wp_cp + aggregator): number "
                         "of hidden Dense->RMSNorm->SiLU blocks before the linear readout. "
                         "None keeps the config default (1). The experiment runs pass 3 to "
-                        "match R2Dreamer's native encoder.mlp.layers (3D-52). Ignored by "
-                        "the CNN/dense-WP conv encoders.")
+                        "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
+                        "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
+                        "default value (1).")
     # Val-Episode-Loop (3D-36). Disabled by default; opt in explicitly for
     # diagnostic runs that can afford the extra Habitat simulator.
     p.add_argument("--val_every", type=int, default=0,

@@ -66,7 +66,7 @@ src/r2dreamer/
 ## Entry points
 
 ```python
-# Train (used by every scripts/r2dreamer/run_jax_*.py shim)
+# Train (driven by the scripts/r2dreamer/run.py dispatcher via _run_configs.launch_run)
 from src.r2dreamer.launch.train import train
 train(env="habitat", encoder="cnn", curriculum="L1", output_dir=..., wandb_name=...)
 
@@ -84,8 +84,9 @@ action  = agent.act(obs_dict, rng_key)
 
 `encoder` and `env` strings resolve through `launch/registries.py`; `curriculum`
 through `launch/curricula.py`. To add an encoder: implement an `Encoder`/`EncoderSpec`
-in `encoders/__init__.py`, register it in `registries.py`, then add a `run_jax_*` shim
-and a `test_presets.py` entry.
+in `encoders/__init__.py`, register it in `registries.py`, then add a `RUN_CONFIGS`
+entry in `scripts/r2dreamer/_run_configs.py` (launched via `run.py <run-id>`) and a
+`test_presets.py` entry.
 
 ## Data flow
 

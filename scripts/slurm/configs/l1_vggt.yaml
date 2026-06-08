@@ -1,7 +1,7 @@
 extends: _base
 job_name: vggt_jax
 output_dir: output/r2dreamer-curriculum-l1-vggt
-script: scripts/r2dreamer/run_jax_habitat_vggt.py
+run_id: habitat-l1-vggt
 curriculum_check: data/curriculum/level1_1house_1goal.json
 comments:
   - "Level 1 with VGGT 3D encoder: 1 house (fK2vEV32Lag), chair only"

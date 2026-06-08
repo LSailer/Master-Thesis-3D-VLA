@@ -66,6 +66,10 @@ class LaunchConfig(BaseModel):
     script: str  # repo-relative python entrypoint
     sbatch: SbatchConfig
 
+    # Optional leading positional for a dispatcher entrypoint (e.g. run.py's
+    # run id). Rendered as ``<python> <script> <run_id> <flags>``; when unset
+    # the command is just ``<python> <script> <flags>`` as before.
+    run_id: str | None = None
     python: str = "uv run python"  # interpreter prefix (e.g. ".venv/bin/python")
     arg_style: Literal["underscore", "hyphen"] = "underscore"
     strict_bash: bool = False  # emit `set -euo pipefail` in prod too (always on for smoke)
@@ -183,8 +187,9 @@ def _format_arg(name: str, value: Any, arg_style: str) -> str:
 
 
 def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
-    # Skip the (slow) dependency resync for the default uv interpreter on smokes.
-    if mode == "smoke" and config.python == "uv run python":
+    # Slurm jobs share the worktree .venv symlink; never let concurrent jobs
+    # mutate it while starting.
+    if config.python == "uv run python":
         return "uv run --no-sync python"
     return config.python
 
@@ -252,7 +257,7 @@ def render_sbatch(config: LaunchConfig, *, mode: Mode = "prod") -> str:
             "# Generate curriculum configs if not present",
             f"if [ ! -f {config.curriculum_check} ]; then",
             '    echo "Generating curriculum configs..."',
-            "    uv run python scripts/environments/generate_curriculum.py",
+            "    uv run --no-sync python scripts/environments/generate_curriculum.py",
             "fi",
             "",
         ])
@@ -260,13 +265,14 @@ def render_sbatch(config: LaunchConfig, *, mode: Mode = "prod") -> str:
     lines.extend(f"# {comment}" for comment in config.comments)
 
     python_cmd = _python_cmd(config, mode)
+    entrypoint = config.script if config.run_id is None else f"{config.script} {config.run_id}"
     arg_lines = [_format_arg(name, value, config.arg_style) for name, value in args.items()]
     if arg_lines:
-        lines.append(f"{python_cmd} {config.script} \\")
+        lines.append(f"{python_cmd} {entrypoint} \\")
         lines.extend(f"{line} \\" for line in arg_lines[:-1])
         lines.append(arg_lines[-1])
     else:
-        lines.append(f"{python_cmd} {config.script}")
+        lines.append(f"{python_cmd} {entrypoint}")
 
     if mode == "smoke" and config.smoke.assert_file:
         run_dir = _run_dir(args, config)

@@ -42,15 +42,27 @@ def run_launch(*args: str, env: dict[str, str] | None = None) -> subprocess.Comp
     )
 
 
-def training_command(text: str) -> tuple[str, str, dict[str, str]]:
-    """Extract (python_cmd, script, {flag: value}) from a rendered sbatch's
-    training invocation (the python line followed by `--flag value` continuations)."""
+def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
+    """Extract (python_cmd, script, run_id, {flag: value}) from a rendered
+    sbatch's training invocation (the python line followed by `--flag value`
+    continuations).
+
+    ``run_id`` is the optional leading positional emitted for dispatcher
+    entrypoints (``run.py``), else ``None``. The invocation head is the first
+    backslash-continued line that names a ``.py`` script (the curriculum-check
+    ``generate_curriculum.py`` guard line has no trailing backslash)."""
 
     lines = text.splitlines()
-    idx = next(i for i, line in enumerate(lines) if line.rstrip().endswith(".py \\"))
+    idx = next(
+        i for i, line in enumerate(lines)
+        if line.rstrip().endswith(" \\") and ".py" in line
+    )
     head = lines[idx].strip().rstrip(" \\")
-    script = head.split()[-1]
-    python_cmd = " ".join(head.split()[:-1])
+    tokens = head.split()
+    s = next(j for j, tok in enumerate(tokens) if tok.endswith(".py"))
+    python_cmd = " ".join(tokens[:s])
+    script = tokens[s]
+    run_id = tokens[s + 1] if len(tokens) > s + 1 else None
     flags: dict[str, str] = {}
     for line in lines[idx + 1:]:
         stripped = line.strip().rstrip(" \\")
@@ -58,7 +70,7 @@ def training_command(text: str) -> tuple[str, str, dict[str, str]]:
             break
         flag, _, value = stripped.partition(" ")
         flags[flag] = value.strip().strip('"')
-    return python_cmd, script, flags
+    return python_cmd, script, run_id, flags
 
 
 # --------------------------------------------------------------------------- #
@@ -71,12 +83,21 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base / l1_vggt have since gained two intentional changes the frozen
+    # _base / l1_vggt have since gained three intentional changes the frozen
     # legacy script predates: (1) the GL-teardown hard-exit env var (so every
     # habitat variant exits 0 on completion), and (2) multi-partition
-    # auto-select (gpu_h100_il,gpu_h100). Normalise both back out before the
-    # byte-equality check so the rest of the contract still holds.
+    # auto-select (gpu_h100_il,gpu_h100), and (3) uv --no-sync for
+    # shared-worktree jobs. Normalise these back out before the byte-equality
+    # check so the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
+    rendered = rendered.replace("uv run --no-sync python", "uv run python")
+    # The entrypoint migrated to the single run.py dispatcher (run id positional);
+    # the frozen legacy sbatch still names the old per-run shim. Map it back.
+    rendered = rendered.replace(
+        "scripts/r2dreamer/run.py habitat-l1-vggt",
+        "scripts/r2dreamer/run_jax_habitat_vggt.py",
+        1,
+    )
     rendered = rendered.replace(
         "#SBATCH --partition=gpu_h100_il,gpu_h100", "#SBATCH --partition=gpu_h100", 1
     )
@@ -107,13 +128,15 @@ def test_smoke_then_prod_uses_afterok_dependency_before_prod_submit(tmp_path: Pa
 
 
 def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -> None:
-    """A config missing a required structural field (script) must fail fast,
-    before any sbatch process is started."""
+    """A config missing a required structural field (job_name) must fail fast,
+    before any sbatch process is started.
 
-    broken = CONFIG_DIR / "broken_missing_script.yaml"
+    (``script`` is now supplied by ``_base`` — the shared run.py dispatcher — so
+    ``job_name`` is the structural field a leaf can still omit.)"""
+
+    broken = CONFIG_DIR / "broken_missing_job_name.yaml"
     broken.write_text(
         "extends: _base\n"
-        "job_name: broken\n"
         "output_dir: output/broken\n"
         "args:\n"
         "  steps: 100\n"
@@ -125,14 +148,14 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
 
     try:
         result = run_launch(
-            "broken_missing_script",
+            "broken_missing_job_name",
             env={"PATH": f"{tmp_path}:{os.environ['PATH']}"},
         )
     finally:
         broken.unlink(missing_ok=True)
 
     assert result.returncode == 2  # validation error, not the fake sbatch's 88
-    assert "script" in result.stderr
+    assert "job_name" in result.stderr
     assert "Field required" in result.stderr
     assert shutil.which("sbatch", path=str(tmp_path)) is not None
 
@@ -143,23 +166,27 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
 
 
 @pytest.mark.parametrize(
-    "variant,legacy",
+    "variant,run_id,legacy",
     [
-        ("l2_vggt", f"{LEGACY_SBATCH}/train_curriculum_l2_vggt.sbatch"),
-        ("l3_vggt", f"{LEGACY_SBATCH}/train_curriculum_l3_vggt.sbatch"),
-        ("l4_vggt", f"{LEGACY_SBATCH}/train_curriculum_l4_vggt.sbatch"),
+        ("l2_vggt", "habitat-l2-vggt", f"{LEGACY_SBATCH}/train_curriculum_l2_vggt.sbatch"),
+        ("l3_vggt", "habitat-l3-vggt", f"{LEGACY_SBATCH}/train_curriculum_l3_vggt.sbatch"),
+        ("l4_vggt", "habitat-l4-vggt", f"{LEGACY_SBATCH}/train_curriculum_l4_vggt.sbatch"),
     ],
 )
-def test_curriculum_variants_match_legacy_args(variant: str, legacy: str) -> None:
-    """Each L2/L3/L4 config extends l1_vggt and renders the same training
-    command + identical flags as its hand-written sbatch (order-insensitive)."""
+def test_curriculum_variants_match_legacy_args(variant: str, run_id: str, legacy: str) -> None:
+    """Each L2/L3/L4 config extends l1_vggt and renders identical training flags
+    to its hand-written sbatch (order-insensitive). The entrypoint itself
+    migrated from a per-run shim to the run.py dispatcher, so the run is now
+    selected by the run_id positional rather than the script path."""
 
     rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
-    r_python, r_script, r_flags = training_command(rendered)
-    l_python, l_script, l_flags = training_command((ROOT / legacy).read_text())
+    r_python, r_script, r_run_id, r_flags = training_command(rendered)
+    l_python, l_script, _l_run_id, l_flags = training_command((ROOT / legacy).read_text())
 
-    assert r_python == l_python == "uv run python"
-    assert r_script == l_script
+    assert r_python == "uv run --no-sync python"
+    assert l_python == "uv run python"
+    assert r_script.endswith("run.py")
+    assert r_run_id == run_id
 
     # Intentional divergences from the frozen legacy sbatch: scalars-only is now
     # the parser default; stale replay-buffer val flags (val_data /
@@ -191,8 +218,10 @@ def test_extends_chain_is_recursive() -> None:
     # Scalars-only is now the parser default, not YAML inheritance:
     assert "video_log_every" not in config.args
     assert "val_every" not in config.args
-    # Own override:
-    assert config.script.endswith("run_jax_habitat_l2_vggt.py")
+    # script is inherited from _base (the shared run.py dispatcher); the run is
+    # selected by run_id, which l2_vggt sets as its own override:
+    assert config.script.endswith("run.py")
+    assert config.run_id == "habitat-l2-vggt"
     # The stale replay-buffer val flags were dropped (parser no longer accepts them):
     assert "val_data" not in config.args
     assert "val_loss_every" not in config.args
@@ -235,10 +264,11 @@ def test_sweep_submits_every_variant(tmp_path: Path) -> None:
 
 def test_aggregator_prod_args() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
-    python_cmd, script, flags = training_command(rendered)
+    python_cmd, script, run_id, flags = training_command(rendered)
 
-    assert python_cmd == "uv run python"
-    assert script.endswith("run_jax_habitat_vggt_aggregator_mlp.py")
+    assert python_cmd == "uv run --no-sync python"
+    assert script.endswith("run.py")
+    assert run_id == "habitat-l1-vggt-aggregator-mlp"
     assert flags["--steps"] == "2000000"
     assert flags["--prefill"] == "5000"
     assert flags["--checkpoint_every"] == "50000"
@@ -253,7 +283,7 @@ def test_aggregator_prod_args() -> None:
 
 def test_aggregator_smoke_overrides() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="smoke")
-    _, _, flags = training_command(rendered)
+    _, _, _, flags = training_command(rendered)
 
     assert flags["--steps"] == "800"
     assert flags["--prefill"] == "200"
@@ -267,19 +297,20 @@ def test_aggregator_prod_is_strict_bash() -> None:
 
 
 @pytest.mark.parametrize(
-    "variant,script,wandb_name",
+    "variant,run_id,wandb_name",
     [
-        ("agg_raw_mlp_v1", "run_jax_habitat_vggt_agg_raw_mlp.py", "agg-raw-mlp-${SLURM_JOB_ID}"),
-        ("hybrid_agg_pooled_v1", "run_jax_habitat_hybrid_agg_pooled.py", "hybrid-agg-pooled-${SLURM_JOB_ID}"),
-        ("hybrid_agg_raw_v1", "run_jax_habitat_hybrid_agg_raw.py", "hybrid-agg-raw-${SLURM_JOB_ID}"),
+        ("agg_raw_mlp_v1", "habitat-l1-vggt-agg-raw-mlp", "agg-raw-mlp-${SLURM_JOB_ID}"),
+        ("hybrid_agg_pooled_v1", "habitat-l1-hybrid-agg-pooled", "hybrid-agg-pooled-${SLURM_JOB_ID}"),
+        ("hybrid_agg_raw_v1", "habitat-l1-hybrid-agg-raw", "hybrid-agg-raw-${SLURM_JOB_ID}"),
     ],
 )
-def test_3d56_prod_configs_render(variant: str, script: str, wandb_name: str) -> None:
+def test_3d56_prod_configs_render(variant: str, run_id: str, wandb_name: str) -> None:
     rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
-    python_cmd, rendered_script, flags = training_command(rendered)
+    python_cmd, rendered_script, rendered_run_id, flags = training_command(rendered)
 
-    assert python_cmd == "uv run python"
-    assert rendered_script.endswith(script)
+    assert python_cmd == "uv run --no-sync python"
+    assert rendered_script.endswith("run.py")
+    assert rendered_run_id == run_id
     assert flags["--steps"] == "2000000"
     assert flags["--prefill"] == "5000"
     assert flags["--render_resolution"] == "518"
@@ -294,7 +325,7 @@ def test_3d56_raw_configs_use_conservative_resources() -> None:
     for variant in ("agg_raw_mlp_v1", "hybrid_agg_raw_v1"):
         prod = launch.render_sbatch(launch.load_config(variant), mode="prod")
         smoke = launch.render_sbatch(launch.load_config(variant), mode="smoke")
-        _, _, smoke_flags = training_command(smoke)
+        _, _, _, smoke_flags = training_command(smoke)
 
         assert "#SBATCH --mem=128G" in prod
         assert "#SBATCH --time=00:30:00" in smoke
@@ -305,7 +336,7 @@ def test_3d56_raw_configs_use_conservative_resources() -> None:
 
 def test_3d56_pooled_smoke_trains_with_small_batch() -> None:
     rendered = launch.render_sbatch(launch.load_config("hybrid_agg_pooled_v1"), mode="smoke")
-    _, _, flags = training_command(rendered)
+    _, _, _, flags = training_command(rendered)
 
     assert "#SBATCH --time=00:20:00" in rendered
     assert flags["--batch_size"] == "4"
@@ -320,7 +351,7 @@ def test_3d56_pooled_smoke_trains_with_small_batch() -> None:
 
 def test_offline_buffer_uses_hyphen_flags_and_venv_python() -> None:
     rendered = launch.render_sbatch(launch.load_config("offline_buffer_3d25"), mode="prod")
-    python_cmd, script, flags = training_command(rendered)
+    python_cmd, script, _run_id, flags = training_command(rendered)
 
     assert python_cmd == ".venv/bin/python"
     assert script.endswith("collect_offline_buffer.py")
@@ -343,5 +374,5 @@ def test_offline_buffer_env_override_wins_over_yaml_default() -> None:
     rendered = launch.render_sbatch(config, mode="smoke")
     assert f'export CNN_CHECKPOINT="{custom}"' in rendered
     # Smoke also reduces the step budget.
-    _, _, flags = training_command(rendered)
+    _, _, _, flags = training_command(rendered)
     assert flags["--n-steps"] == "5000"

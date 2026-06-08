@@ -19,6 +19,15 @@ When working in a `git worktree` (any directory under `worktrees/`), run once pe
 
 This symlinks the shared `data/` and `.venv/` from the main checkout into the worktree. Habitat and other scripts resolve dataset paths relative to CWD, so a worktree without these links fails fast with `FileNotFoundError: data/datasets/...`. The script is idempotent and is a no-op in the main checkout.
 
+## Naming Conventions
+
+Use names that describe the Linear issue or task, not the tool or agent doing the work.
+
+- Branches and worktrees: `<linear-key>-<short-task-slug>`; example: `3d-47-skip-heldout-eval`
+- Commit subjects and PR titles: `<Linear issue key>: <short change summary>`; example: `3D-47: Skip heldout eval for offline ablations`
+- Do not include tool or agent names such as `codex`, `ai`, `agent`, `bot`, or model names in branch names, worktree names, commit subjects, or PR titles.
+- Mention agent/tool involvement only in the PR body `Agent involvement` section.
+
 ## Default Workflow
 
 Before editing:
