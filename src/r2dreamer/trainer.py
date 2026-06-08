@@ -118,12 +118,12 @@ class TrainerConfig:
     wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
     # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
     wandb_id: str | None = None
-    video_log_every: int = 25_000
+    video_log_every: int = 0
     video_log_episodes: int = 1
 
-    # Deterministic Val-Episode-Loop. val_every=0 disables. Requires a
-    # val_env to be passed to Trainer.
-    val_every: int = 50_000
+    # Deterministic Val-Episode-Loop. Disabled by default; val_every > 0
+    # requires a val_env to be passed to Trainer.
+    val_every: int = 0
     val_episodes: int = 50
     val_video_episodes: int = 1
     val_max_episode_steps: int = 500

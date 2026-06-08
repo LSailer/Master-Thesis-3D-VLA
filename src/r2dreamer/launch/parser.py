@@ -30,9 +30,9 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
 
 
 def _add_val_train_args(p: argparse.ArgumentParser) -> None:
-    # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
-    # checkpoint cadence so val signals land alongside checkpoints.
-    p.add_argument("--val_every", type=int, default=50_000,
+    # Val-Episode-Loop (3D-36). Disabled by default; opt in explicitly for
+    # diagnostic runs that can afford the extra Habitat simulator.
+    p.add_argument("--val_every", type=int, default=0,
                    help="Run a deterministic val-episode loop every N steps (0 disables)")
     p.add_argument("--val_episodes", type=int, default=50,
                    help="Episodes per val-loop trigger")
@@ -46,8 +46,8 @@ def _add_resume_video_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
-    p.add_argument("--video_log_every", type=int, default=25_000,
-                   help="Log one Habitat episode video every N train steps")
+    p.add_argument("--video_log_every", type=int, default=0,
+                   help="Log one Habitat episode video every N train steps (0 disables)")
     p.add_argument("--video_log_episodes", type=int, default=1,
                    help="Number of Habitat train episodes to record per interval")
     p.add_argument("--act_entropy", type=float, default=3e-2,

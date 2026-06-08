@@ -136,6 +136,12 @@ class TestResume:
     def cfg(self):
         return R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
 
+    def test_trainer_config_defaults_disable_in_run_val_and_video(self):
+        tcfg = TrainerConfig()
+
+        assert tcfg.val_every == 0
+        assert tcfg.video_log_every == 0
+
     @pytest.fixture
     def saved_agent(self, cfg, tmp_path):
         """Build an agent, save its checkpoint, return (agent, ckpt_path, step)."""
