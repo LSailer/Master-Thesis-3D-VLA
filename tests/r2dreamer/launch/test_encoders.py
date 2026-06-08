@@ -1,5 +1,6 @@
 """L2 (construction) and L3 (adapter behavior) tests for Encoder classes."""
 
+import ast
 from pathlib import Path
 
 import numpy as np
@@ -16,11 +17,33 @@ from src.r2dreamer.encoders import (
     VGGTDenseWPEncoder,
     VGGTWPCP64Encoder,
 )
+from src.r2dreamer.encoders.specs import VGGT_VARIANTS
 from src.r2dreamer.world_model import encoders as wm_encoders
 from src.shared.video_utils import resize_chw_uint8
 
 
 _FIXTURES = Path(__file__).parent / "fixtures"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_encoder_package_init_is_thin_reexport():
+    package_init = _REPO_ROOT / "src/r2dreamer/encoders/__init__.py"
+    tree = ast.parse(package_init.read_text())
+    nodes = [
+        node for node in tree.body
+        if not (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+    ]
+
+    for node in nodes:
+        assert isinstance(node, (ast.ImportFrom, ast.Assign))
+        if isinstance(node, ast.Assign):
+            assert len(node.targets) == 1
+            assert isinstance(node.targets[0], ast.Name)
+            assert node.targets[0].id == "__all__"
 
 
 class TestCNNEncoder:
@@ -62,8 +85,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTEncoder()
@@ -88,8 +110,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         spec = VGGTEncoder(resolution=518).spec()
@@ -109,8 +130,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTAggregatorMLPEncoder(resolution=256)
@@ -143,8 +163,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTDenseWPEncoder(resolution=518)
@@ -204,8 +223,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTWPCP64Encoder(resolution=518)
@@ -261,6 +279,16 @@ class TestVGGTEncoderConfiguration:
         np.testing.assert_allclose(rep[-9:], np.arange(9, dtype=np.float32))
         assert agent_obs["features"].shape == (12297,)
 
+    def test_vggt_launcher_variants_are_centralized(self):
+        assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
+        assert VGGTAggregatorMLPEncoder.variant is VGGT_VARIANTS["vggt_aggregator_mlp"]
+        assert VGGTDenseWPEncoder.variant is VGGT_VARIANTS["vggt_wp_dense_cnn"]
+        assert VGGTWPCP64Encoder.variant is VGGT_VARIANTS["vggt_wp_cp_64"]
+
+        assert VGGT_VARIANTS["vggt"].compute_heads is True
+        assert VGGT_VARIANTS["vggt_aggregator_mlp"].compute_heads is False
+        assert VGGT_VARIANTS["vggt_wp_cp_64"].wp_pool_size == 64
+
     def test_aggregator_adapter_emits_cam_mean_max_pools(self):
         # Fake extractor with 1 cam + 4 register + 5 patch tokens, D = 4.
         # tokens = arange(40).reshape(10, 4); patches = tokens[5:].
@@ -275,7 +303,9 @@ class TestVGGTEncoderConfiguration:
                 return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
-        replay_features, agent_obs = adapter.transform({"image": np.zeros((3, 4, 4), dtype=np.uint8)})
+        replay_features, agent_obs = adapter.transform(
+            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        )
 
         tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
         expected_cam = tokens[0]
@@ -309,8 +339,7 @@ class TestHybridEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor",
-            FakeExtractor,
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
         spec = HybridEncoder().spec()
