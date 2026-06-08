@@ -318,6 +318,8 @@ def test_aggregator_prod_is_strict_bash() -> None:
 @pytest.mark.parametrize(
     "variant,run_id,capacity,tag",
     [
+        ("l1_cnn_cap1m", "habitat-l1-cnn", "1000000", "cap-1m"),
+        ("l1_cnn_cap500k", "habitat-l1-cnn", "500000", "cap-500k"),
         ("l1_cnn_cap100k", "habitat-l1-cnn", "100000", "cap-100k"),
         ("l1_cnn_cap10k", "habitat-l1-cnn", "10000", "cap-10k"),
         ("l1_vggt_wpcp37_cap500k", "habitat-l1-vggt", "500000", "cap-500k"),
