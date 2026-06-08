@@ -83,14 +83,16 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base / l1_vggt have since gained three intentional changes the frozen
+    # _base / l1_vggt have since gained four intentional changes the frozen
     # legacy script predates: (1) the GL-teardown hard-exit env var (so every
     # habitat variant exits 0 on completion), (2) multi-partition auto-select
     # (gpu_h100_il,gpu_h100), and (3) the scalars-only flags video_log_every=0 /
     # val_every=0 (videos + eval regenerated from checkpoints, not during
-    # training). Normalise all three back out before the byte-equality check so
+    # training), and (4) uv --no-sync for shared-worktree jobs. Normalise these
+    # back out before the byte-equality check so
     # the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
+    rendered = rendered.replace("uv run --no-sync python", "uv run python")
     # The entrypoint migrated to the single run.py dispatcher (run id positional);
     # the frozen legacy sbatch still names the old per-run shim. Map it back.
     rendered = rendered.replace(
@@ -190,7 +192,8 @@ def test_curriculum_variants_match_legacy_args(variant: str, run_id: str, legacy
     r_python, r_script, r_run_id, r_flags = training_command(rendered)
     l_python, l_script, _l_run_id, l_flags = training_command((ROOT / legacy).read_text())
 
-    assert r_python == l_python == "uv run python"
+    assert r_python == "uv run --no-sync python"
+    assert l_python == "uv run python"
     assert r_script.endswith("run.py")
     assert r_run_id == run_id
 
@@ -285,7 +288,7 @@ def test_aggregator_prod_args() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     python_cmd, script, run_id, flags = training_command(rendered)
 
-    assert python_cmd == "uv run python"
+    assert python_cmd == "uv run --no-sync python"
     assert script.endswith("run.py")
     assert run_id == "habitat-l1-vggt-aggregator-mlp"
     assert flags["--steps"] == "2000000"
@@ -319,7 +322,7 @@ def test_hybrid_norm_fixed_prod_args() -> None:
     rendered = launch.render_sbatch(launch.load_config("hybrid_norm_fixed"), mode="prod")
     python_cmd, script, run_id, flags = training_command(rendered)
 
-    assert python_cmd == "uv run python"
+    assert python_cmd == "uv run --no-sync python"
     assert script.endswith("run.py")
     assert run_id == "habitat-l1-hybrid-norm-fixed"
     assert flags["--steps"] == "2000000"
