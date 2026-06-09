@@ -10,6 +10,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.trainer import (
     Trainer,
     TrainerConfig,
@@ -35,6 +36,22 @@ class _DummyEnv:
 
     def close(self) -> None:
         pass
+
+
+class _MappingObsAdapter(ObsAdapter):
+    def __init__(self):
+        super().__init__(
+            buffer_dtype={"image": "uint8", "wp_cp": "float32"},
+            buffer_shape={"image": (3, 64, 64), "wp_cp": (4116,)},
+            normalize_on_sample={"image": False, "wp_cp": False},
+            agent_obs_shape=(16404,),
+        )
+
+    def transform(self, obs_dict: dict) -> tuple[dict[str, np.ndarray], dict]:
+        return {
+            "image": obs_dict["image"],
+            "wp_cp": np.ones((4116,), dtype=np.float32),
+        }, obs_dict
 
 
 class TestConvertBatch:
@@ -198,3 +215,35 @@ class TestResume:
             Trainer(
                 agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
             )
+
+
+class TestTrainerMappingReplay:
+    def test_trainer_builds_and_records_mapping_obs_buffer(self, tmp_path):
+        cfg = R2DreamerConfig(obs_shape=(16404,), num_actions=4, buffer_capacity=8)
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+        )
+        trainer = Trainer(
+            agent=object(),
+            env=_DummyEnv(),
+            agent_config=cfg,
+            trainer_config=tcfg,
+            obs_adapter=_MappingObsAdapter(),
+        )
+
+        buffer_obs, _ = trainer.obs_adapter.transform(_DummyEnv().reset())
+        trainer._record_train_transition(
+            buffer_obs=buffer_obs,
+            action=1,
+            next_obs={"reward": 1.0, "done": False, "success": 0.0},
+        )
+
+        assert trainer.buffer.size == 1
+        batch = trainer.buffer.sample(batch_size=1, seq_len=1)
+        assert set(batch["obs"]) == {"image", "wp_cp"}
+        assert batch["obs"]["image"].shape == (1, 1, 3, 64, 64)
+        assert batch["obs"]["image"].dtype == jnp.uint8
+        assert batch["obs"]["wp_cp"].shape == (1, 1, 4116)
+        assert batch["obs"]["wp_cp"].dtype == jnp.float32

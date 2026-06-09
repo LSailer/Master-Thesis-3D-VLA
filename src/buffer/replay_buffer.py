@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
 import jax.numpy as jnp
+
+
+ObsShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
+ObsDType = str | Mapping[str, str]
+ObsNormalize = bool | Mapping[str, bool]
 
 
 @dataclass(frozen=True)
@@ -14,25 +20,37 @@ class BufferConfig:
 
     Args:
         capacity: Maximum number of transitions to store.
-        obs_shape: Shape of a single observation, e.g. (3, 64, 64) or (4116,).
-        obs_dtype: Storage dtype — "uint8" for images, "float32" for features.
-        normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on sample.
+        obs_shape: Shape of one observation, or a mapping of named fields to
+            shapes for multi-modal observations such as hybrid image+WP/CP.
+        obs_dtype: Storage dtype, either one dtype for single-observation
+            buffers or a mapping keyed like ``obs_shape``.
+        normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on
+            sample. Mapping configs can choose this per field.
     """
     capacity: int
-    obs_shape: tuple[int, ...]
-    obs_dtype: str = "uint8"
-    normalize_obs: bool = True
+    obs_shape: ObsShape
+    obs_dtype: ObsDType = "uint8"
+    normalize_obs: ObsNormalize = True
+
+
+@dataclass(frozen=True)
+class _FieldSpec:
+    shape: tuple[int, ...]
+    dtype: str
+    normalize: bool
+    keep_uint8_on_sample: bool
 
 
 def _gather_sequence_batch(
     starts: np.ndarray,
     seq_len: int,
-    obs: np.ndarray,
+    obs: np.ndarray | Mapping[str, np.ndarray],
     actions: np.ndarray,
     rewards: np.ndarray,
     dones: np.ndarray,
     terminals: np.ndarray,
-    normalize: bool,
+    normalize: bool | Mapping[str, bool],
+    keep_uint8_on_sample: bool | Mapping[str, bool],
 ) -> dict[str, jnp.ndarray]:
     """Gather length-``seq_len`` windows at ``starts`` and pack a batch dict.
 
@@ -42,7 +60,6 @@ def _gather_sequence_batch(
     on the previous step; ``obs`` is divided by 255 when ``normalize`` is set.
     """
     indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
-    obs_b = obs[indices]
     actions_b = actions[indices]
     rewards_b = rewards[indices]
     dones_b = dones[indices]
@@ -52,18 +69,105 @@ def _gather_sequence_batch(
     is_first[:, 0] = True
     is_first[:, 1:] = dones_b[:, :-1]
 
-    obs_jnp = jnp.array(obs_b, dtype=jnp.float32)
-    if normalize:
-        obs_jnp = obs_jnp / 255.0
-
     return {
-        "obs": obs_jnp,
+        "obs": _gather_obs(obs, indices, normalize, keep_uint8_on_sample),
         "actions": jnp.array(actions_b, dtype=jnp.int32),
         "rewards": jnp.array(rewards_b, dtype=jnp.float32),
         "dones": jnp.array(dones_b, dtype=jnp.float32),
         "terminals": jnp.array(terminals_b, dtype=jnp.float32),
         "is_first": jnp.array(is_first, dtype=jnp.float32),
     }
+
+
+def _np_dtype(name: str) -> type:
+    if name == "uint8":
+        return np.uint8
+    if name == "float16":
+        return np.float16
+    return np.float32
+
+
+def _single_field_spec(config: BufferConfig) -> _FieldSpec:
+    if not isinstance(config.obs_shape, tuple):
+        raise TypeError("single-field BufferConfig requires tuple obs_shape")
+    if not isinstance(config.obs_dtype, str):
+        raise TypeError("single-field BufferConfig requires string obs_dtype")
+    if not isinstance(config.normalize_obs, bool):
+        raise TypeError("single-field BufferConfig requires bool normalize_obs")
+    return _FieldSpec(
+        shape=config.obs_shape,
+        dtype=config.obs_dtype,
+        normalize=config.normalize_obs and config.obs_dtype == "uint8",
+        keep_uint8_on_sample=False,
+    )
+
+
+def _mapping_value(mapping_or_scalar, key: str, default):
+    if isinstance(mapping_or_scalar, Mapping):
+        return mapping_or_scalar.get(key, default)
+    return mapping_or_scalar
+
+
+def _field_specs(config: BufferConfig) -> dict[str, _FieldSpec] | None:
+    if not isinstance(config.obs_shape, Mapping):
+        return None
+    specs: dict[str, _FieldSpec] = {}
+    for key, shape in config.obs_shape.items():
+        dtype = _mapping_value(config.obs_dtype, key, "float32")
+        normalize = bool(_mapping_value(config.normalize_obs, key, False))
+        specs[key] = _FieldSpec(
+            shape=tuple(shape),
+            dtype=str(dtype),
+            normalize=normalize and dtype == "uint8",
+            keep_uint8_on_sample=(dtype == "uint8" and not normalize),
+        )
+    return specs
+
+
+def _to_jax_obs(
+    obs_b: np.ndarray,
+    normalize: bool,
+    keep_uint8_on_sample: bool,
+) -> jnp.ndarray:
+    """Convert sampled replay storage to the dtype expected downstream.
+
+    Feature observations always leave replay as float32, even when stored as
+    float16. The only deferred-cast case is a modal uint8 image field: hybrid
+    training normalizes that image later in obs_batch, after the modalities are
+    still inspectable as separate fields.
+    """
+    if normalize:
+        return jnp.array(obs_b, dtype=jnp.float32) / 255.0
+    if keep_uint8_on_sample:
+        return jnp.asarray(obs_b)
+    return jnp.array(obs_b, dtype=jnp.float32)
+
+
+def _gather_obs(
+    obs: np.ndarray | Mapping[str, np.ndarray],
+    indices: np.ndarray,
+    normalize: bool | Mapping[str, bool],
+    keep_uint8_on_sample: bool | Mapping[str, bool],
+) -> jnp.ndarray | dict[str, jnp.ndarray]:
+    """Gather observation windows and apply each field's sample conversion."""
+    if isinstance(obs, Mapping):
+        if not isinstance(normalize, Mapping):
+            raise TypeError("mapping observations require mapping normalize flags")
+        if not isinstance(keep_uint8_on_sample, Mapping):
+            raise TypeError("mapping observations require mapping uint8 sample flags")
+        return {
+            key: _to_jax_obs(
+                value[indices],
+                bool(normalize.get(key, False)),
+                bool(keep_uint8_on_sample.get(key, False)),
+            )
+            for key, value in obs.items()
+        }
+    if not isinstance(normalize, bool):
+        raise TypeError("single observations require a bool normalize flag")
+    if not isinstance(keep_uint8_on_sample, bool):
+        raise TypeError("single observations require a bool uint8 sample flag")
+    return _to_jax_obs(obs[indices], normalize, keep_uint8_on_sample)
 
 
 class ReplayBuffer:
@@ -80,25 +184,48 @@ class ReplayBuffer:
                 obs_shape=config.obs_shape,
             )
         cap = config.capacity
-        if config.obs_dtype == "uint8":
-            np_dtype = np.uint8
-        elif config.obs_dtype == "float16":
-            np_dtype = np.float16
+        field_specs = _field_specs(config)
+        if field_specs is None:
+            spec = _single_field_spec(config)
+            self.obs = np.zeros((cap, *spec.shape), dtype=_np_dtype(spec.dtype))
+            self._normalize: bool | dict[str, bool] = spec.normalize
+            self._keep_uint8_on_sample: bool | dict[str, bool] = (
+                spec.keep_uint8_on_sample
+            )
         else:
-            np_dtype = np.float32
-        self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)
+            self.obs = {
+                key: np.zeros((cap, *spec.shape), dtype=_np_dtype(spec.dtype))
+                for key, spec in field_specs.items()
+            }
+            self._normalize = {
+                key: spec.normalize for key, spec in field_specs.items()
+            }
+            self._keep_uint8_on_sample = {
+                key: spec.keep_uint8_on_sample for key, spec in field_specs.items()
+            }
         self.actions = np.zeros(cap, dtype=np.int32)
         self.rewards = np.zeros(cap, dtype=np.float32)
         self.dones = np.zeros(cap, dtype=np.bool_)
         self.terminals = np.zeros(cap, dtype=np.bool_)
-        self._normalize = config.normalize_obs and config.obs_dtype == "uint8"
         self.capacity = cap
         self.idx = 0
         self.size = 0
 
-    def add(self, obs: np.ndarray, action: int, reward: float, done: bool,
+    def add(self, obs: np.ndarray | Mapping[str, np.ndarray],
+            action: int, reward: float, done: bool,
             terminal: bool = False) -> None:
-        self.obs[self.idx] = obs
+        if isinstance(self.obs, Mapping):
+            if not isinstance(obs, Mapping):
+                raise TypeError("mapping replay buffer requires mapping obs")
+            missing = set(self.obs) - set(obs)
+            if missing:
+                raise KeyError(f"obs missing replay fields: {sorted(missing)}")
+            for key, storage in self.obs.items():
+                storage[self.idx] = obs[key]
+        else:
+            if isinstance(obs, Mapping):
+                raise TypeError("single replay buffer requires array obs")
+            self.obs[self.idx] = obs
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
         self.dones[self.idx] = done
@@ -110,7 +237,7 @@ class ReplayBuffer:
         starts = self._sample_starts(batch_size, seq_len)
         return _gather_sequence_batch(
             starts, seq_len, self.obs, self.actions, self.rewards,
-            self.dones, self.terminals, self._normalize,
+            self.dones, self.terminals, self._normalize, self._keep_uint8_on_sample,
         )
 
     def _sample_starts(self, batch_size: int, seq_len: int) -> np.ndarray:
@@ -185,7 +312,7 @@ class ValReplayDataset:
         starts = ep_starts + offsets
         return _gather_sequence_batch(
             starts, seq_len, self.obs, self.actions, self.rewards,
-            self.dones, self.terminals, self._normalize,
+            self.dones, self.terminals, self._normalize, False,
         )
 
 

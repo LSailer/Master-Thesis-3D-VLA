@@ -10,10 +10,11 @@ import flax.linen as nn
 from .heads import R2MLP
 from .rssm import RMSNorm
 
-# Hybrid buffer layout (see HybridObsAdapter): a single flat float32 vector
-# ``[ rgb_normalised_flat (HYBRID_RGB_DIM) | wp_cp (HYBRID_VGGT_DIM) ]``.
+# Hybrid encoder input layout. Replay stores the modalities under explicit
+# fields (see HybridObsAdapter); src.r2dreamer.obs_batch packs them into this
+# flat tensor right before the Flax encoder boundary.
 HYBRID_RGB_DIM = 3 * 64 * 64  # 12288 — the CNN branch's 64x64 RGB, flattened
-HYBRID_VGGT_DIM = 4116        # world_points 37*37*3 + camera_pose 9
+HYBRID_VGGT_DIM = 4116        # WP/CP width: world_points 37*37*3 + camera_pose 9
 
 # Aggregator readouts (3D-50 follow-up). Defined here (small ints) rather than
 # imported from adapters.vggt_adapter so importing the world-model encoders stays
@@ -197,10 +198,12 @@ class WPConvEncoder(nn.Module):
 class HybridEncoder(nn.Module):
     """Hybrid encoder feeding the latent BOTH modalities at once (3D-50/51/52).
 
-    Input is the flat hybrid buffer vector ``[ rgb (HYBRID_RGB_DIM) | wp_cp
-    (HYBRID_VGGT_DIM) ]``. The RGB slice is reshaped to ``(B, 3, 64, 64)`` and
-    run through the standard ``ConvEncoder``; the WP/CP slice is run through an
-    MLP (the Linear->MLP upgrade of 3D-52). The two branch embeddings are
+    Input is the packed WP/CP hybrid encoder vector ``[ rgb (HYBRID_RGB_DIM) |
+    wp_cp (HYBRID_VGGT_DIM) ]``. Replay stores the fields separately as
+    ``{"image": uint8 RGB64, "wp_cp": float32}``, and obs_batch packs them
+    before this Flax module runs. The RGB slice is reshaped to ``(B, 3, 64, 64)``
+    and run through the standard ``ConvEncoder``; the WP/CP slice is run through
+    an MLP (the Linear->MLP upgrade of 3D-52). The two branch embeddings are
     concatenated to form the ``embed`` that conditions the RSSM posterior.
 
     The VGGT branch is multiplied by a single learnable scalar ``gate``

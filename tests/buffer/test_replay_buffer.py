@@ -116,6 +116,72 @@ class TestReplayBufferFloat32:
         # terminals should be stored and returned
         assert batch["terminals"].dtype == jnp.float32
 
+    def test_float16_storage_samples_as_float32(self):
+        cfg = BufferConfig(capacity=10, obs_shape=(8,),
+                           obs_dtype="float16", normalize_obs=False)
+        buf = ReplayBuffer(cfg)
+        for _ in range(4):
+            buf.add(np.ones(8, dtype=np.float16), 0, 0.0, False)
+
+        batch = buf.sample(batch_size=1, seq_len=2)
+        assert batch["obs"].dtype == jnp.float32
+
+
+class TestReplayBufferMappingObs:
+    """Test ReplayBuffer with explicit multi-modal observation fields."""
+
+    @pytest.fixture
+    def buf(self):
+        cfg = BufferConfig(
+            capacity=50,
+            obs_shape={"image": (3, 4, 4), "wp_cp": (6,)},
+            obs_dtype={"image": "uint8", "wp_cp": "float32"},
+            normalize_obs={"image": False, "wp_cp": False},
+        )
+        return ReplayBuffer(cfg)
+
+    def test_add_and_sample_fields(self, buf):
+        for i in range(20):
+            obs = {
+                "image": np.full((3, 4, 4), i, dtype=np.uint8),
+                "wp_cp": np.full((6,), float(i), dtype=np.float32),
+            }
+            buf.add(obs, i % 4, float(i), done=(i == 9))
+
+        batch = buf.sample(batch_size=4, seq_len=5)
+        assert set(batch["obs"]) == {"image", "wp_cp"}
+        assert batch["obs"]["image"].shape == (4, 5, 3, 4, 4)
+        assert batch["obs"]["image"].dtype == jnp.uint8
+        assert batch["obs"]["wp_cp"].shape == (4, 5, 6)
+        assert batch["obs"]["wp_cp"].dtype == jnp.float32
+        assert batch["actions"].shape == (4, 5)
+        assert batch["is_first"].shape == (4, 5)
+
+    def test_missing_field_raises(self, buf):
+        obs = {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        with pytest.raises(KeyError, match="missing replay fields"):
+            buf.add(obs, action=0, reward=0.0, done=False)
+
+    def test_mapping_field_normalization_is_per_field(self):
+        cfg = BufferConfig(
+            capacity=10,
+            obs_shape={"image": (1,), "features": (1,)},
+            obs_dtype={"image": "uint8", "features": "float32"},
+            normalize_obs={"image": True, "features": False},
+        )
+        buf = ReplayBuffer(cfg)
+        obs = {
+            "image": np.array([255], dtype=np.uint8),
+            "features": np.array([255.0], dtype=np.float32),
+        }
+        for _ in range(4):
+            buf.add(obs, action=0, reward=0.0, done=False)
+
+        batch = buf.sample(batch_size=1, seq_len=2)
+        assert jnp.allclose(batch["obs"]["image"], 1.0)
+        assert batch["obs"]["image"].dtype == jnp.float32
+        assert jnp.allclose(batch["obs"]["features"], 255.0)
+
 
 class TestWriteHeadSafety:
     """Verify sampled sequences never cross the write-head boundary."""

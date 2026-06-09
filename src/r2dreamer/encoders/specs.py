@@ -200,7 +200,7 @@ class Encoder(ABC):
             )
         adapter = self.make_adapter()
         return EncoderSpec(
-            obs_shape=adapter.buffer_shape,
+            obs_shape=adapter.encoder_obs_shape,
             env_render_resolution=self.env_render_resolution,
             encoder_type=self.encoder_type,
             module_cls=self.module_cls,
