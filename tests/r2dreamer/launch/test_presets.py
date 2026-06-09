@@ -9,7 +9,10 @@ PRESETS = [
     ("habitat", "cnn",  "L3"),
     ("habitat", "cnn",  "L4"),
     ("habitat", "vggt", "L1"),
+    ("habitat", "vggt_agg_raw_mlp", "L1"),
     ("habitat", "hybrid", "L1"),
+    ("habitat", "hybrid_agg_pooled", "L1"),
+    ("habitat", "hybrid_agg_raw", "L1"),
     ("crafter", "cnn",  None),
 ]
 

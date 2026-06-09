@@ -146,6 +146,44 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "aggregator-mlp", "variant-1", "jax", "3d-encoder",
         ],
     ),
+    # L1 VGGT raw aggregator MLP encoder (3D-56).
+    "habitat-l1-vggt-agg-raw-mlp": dict(
+        env="habitat",
+        encoder="vggt_agg_raw_mlp",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-agg-raw-mlp",
+        wandb_name="agg-raw-mlp",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "aggregator-raw", "mlp-3layer", "3d-56", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 hybrid over pooled aggregator [camera | mean | max] (3D-56).
+    "habitat-l1-hybrid-agg-pooled": dict(
+        env="habitat",
+        encoder="hybrid_agg_pooled",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-hybrid-agg-pooled",
+        wandb_name="hybrid-agg-pooled",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "hybrid", "cnn", "aggregator-pooled", "camera-mean-max",
+            "mlp-3layer", "3d-56", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 hybrid over raw flattened aggregator tokens (3D-56).
+    "habitat-l1-hybrid-agg-raw": dict(
+        env="habitat",
+        encoder="hybrid_agg_raw",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-hybrid-agg-raw",
+        wandb_name="hybrid-agg-raw",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "hybrid", "cnn", "aggregator-raw", "mlp-3layer",
+            "3d-56", "jax", "3d-encoder",
+        ],
+    ),
     # ── Crafter (non-curriculum sanity env) ─────────────────────────────────
     "crafter-cnn": dict(
         env="crafter",

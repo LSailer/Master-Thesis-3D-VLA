@@ -19,9 +19,15 @@ from __future__ import annotations
 import dataclasses
 
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
-from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
+from src.r2dreamer.adapters.vggt_adapter import AGG_RAW_DIM, AGG_RAW_TOKENS, VGGT_FEATURE_DIM
 from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.world_model.encoders import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
+from src.r2dreamer.world_model.encoders import (
+    AGG_RAW_DIM as WM_AGG_RAW_DIM,
+    AGG_RAW_TOKENS as WM_AGG_RAW_TOKENS,
+    AGG_POOLED_DIM,
+    HYBRID_RGB_DIM,
+    HYBRID_VGGT_DIM,
+)
 
 
 def _field_default(cls, name: str):
@@ -38,3 +44,12 @@ def test_config_default_matches_adapter_feature_dim():
 
 def test_hybrid_feature_dim_is_sum_of_branches():
     assert HYBRID_FEATURE_DIM == HYBRID_RGB_DIM + HYBRID_VGGT_DIM
+
+
+def test_raw_aggregator_dims_match_adapter_and_world_model():
+    assert AGG_RAW_TOKENS == WM_AGG_RAW_TOKENS
+    assert AGG_RAW_DIM == WM_AGG_RAW_DIM
+
+
+def test_pooled_aggregator_dim_is_three_slices():
+    assert AGG_POOLED_DIM == 3 * 1024

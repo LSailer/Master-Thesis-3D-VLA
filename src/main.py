@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from src.r2dreamer.launch.evaluate import evaluate
+from src.r2dreamer.launch.parser import ENCODER_CHOICES
 from src.r2dreamer.launch.train import train
 
 
@@ -35,7 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument(
         "--encoder",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=ENCODER_CHOICES,
     )
     train_parser.add_argument("--curriculum", default=None)
 
@@ -44,7 +45,7 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument(
         "--encoder",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=ENCODER_CHOICES,
     )
     eval_parser.add_argument("--curriculum", default=None)
     eval_parser.add_argument("--checkpoint", default=None)

@@ -3,6 +3,19 @@
 import argparse
 
 
+ENCODER_CHOICES = [
+    "cnn",
+    "vggt",
+    "vggt_aggregator_mlp",
+    "vggt_agg_raw_mlp",
+    "vggt_wp_dense_cnn",
+    "vggt_wp_cp_64",
+    "hybrid",
+    "hybrid_agg_pooled",
+    "hybrid_agg_raw",
+]
+
+
 def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
@@ -29,9 +42,9 @@ def _build_parser_train() -> argparse.ArgumentParser:
                         "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
                         "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
                         "default value (1).")
-    # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
-    # checkpoint cadence so val signals land alongside checkpoints.
-    p.add_argument("--val_every", type=int, default=50_000,
+    # Val-Episode-Loop (3D-36). Disabled by default; opt in explicitly for
+    # diagnostic runs that can afford the extra Habitat simulator.
+    p.add_argument("--val_every", type=int, default=0,
                    help="Run a deterministic val-episode loop every N steps (0 disables)")
     p.add_argument("--val_episodes", type=int, default=50,
                    help="Episodes per val-loop trigger")
@@ -42,8 +55,8 @@ def _build_parser_train() -> argparse.ArgumentParser:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
-    p.add_argument("--video_log_every", type=int, default=25_000,
-                   help="Log one Habitat episode video every N train steps")
+    p.add_argument("--video_log_every", type=int, default=0,
+                   help="Log one Habitat episode video every N train steps (0 disables)")
     p.add_argument("--video_log_episodes", type=int, default=1,
                    help="Number of Habitat train episodes to record per interval")
     p.add_argument("--act_entropy", type=float, default=3e-2,
@@ -115,8 +128,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
+    p.add_argument("--encoder", type=str, default=None, choices=ENCODER_CHOICES)
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

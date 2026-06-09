@@ -12,7 +12,12 @@ from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatur
 
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9
-VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense"]
+VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw"]
+
+# Raw aggregator readout: drop the 4 register tokens, keep camera(1) + patches.
+# At the default 518² / 37x37-patch / 1024-d config: 1 + 1369 = 1370 tokens.
+AGG_RAW_TOKENS = 1370
+AGG_RAW_DIM = AGG_RAW_TOKENS * 1024  # 1,402,880 at default 1024-d embedding
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
@@ -62,6 +67,25 @@ def pool_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.nd
     return jnp.concatenate([cam, mean_p, max_p], axis=0)
 
 
+def flatten_raw_aggregator(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Return camera token + all patch tokens flattened, dropping registers.
+
+    The pooled path reduces patch tokens to mean/max. This keeps the full patch
+    grid as a single vector: ``[camera | patches]``. Register tokens (1:5) are
+    dropped to match ``pool_aggregator_tokens``.
+    """
+    features = out["aggregator_features"]
+    if features.shape != expected_shape:
+        raise ValueError(
+            f"expected aggregator_features shape {expected_shape}, "
+            f"got {features.shape}"
+        )
+    features = features.astype(jnp.float32)
+    cam = features[0:1]
+    patches = features[_PATCH_START_IDX:]
+    return jnp.concatenate([cam, patches], axis=0).reshape(-1)
+
+
 class VGGTObsAdapter(ObsAdapter):
     """Runs VGGT extraction, returns features for both buffer and agent."""
 
@@ -81,6 +105,12 @@ class VGGTObsAdapter(ObsAdapter):
             # float16 to halve the per-frame cost (~3.2 MB -> ~1.6 MB at 518²).
             img = int(extractor.image_size)
             buffer_shape = (3, img, img)
+            buffer_dtype = "float16"
+        elif feature_kind == "agg_raw":
+            shp = extractor.aggregator_feature_shape
+            n_tokens = 1 + (int(shp[0]) - _PATCH_START_IDX)
+            embed_dim = int(shp[-1])
+            buffer_shape = (n_tokens * embed_dim,)
             buffer_dtype = "float16"
         else:
             raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
@@ -103,6 +133,8 @@ class VGGTObsAdapter(ObsAdapter):
             out = self._extractor.extract(obs_dict["image"])
         if self._feature_kind == "aggregator":
             features_jax = pool_aggregator_tokens(out, self._aggregator_feature_shape)
+        elif self._feature_kind == "agg_raw":
+            features_jax = flatten_raw_aggregator(out, self._aggregator_feature_shape)
         elif self._feature_kind == "wp_dense":
             features_jax = dense_world_points_chw(out)
             if tuple(features_jax.shape) != tuple(self.buffer_shape):
@@ -121,7 +153,7 @@ class VGGTObsAdapter(ObsAdapter):
         replay_features = np.asarray(features_jax)
         if self._feature_kind == "aggregator":
             replay_features = replay_features.astype(np.float32)
-        elif self._feature_kind == "wp_dense":
+        elif self._feature_kind in ("wp_dense", "agg_raw"):
             # Match the float16 buffer storage declared in __init__.
             replay_features = replay_features.astype(np.float16)
 

@@ -187,8 +187,9 @@ def _format_arg(name: str, value: Any, arg_style: str) -> str:
 
 
 def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
-    # Skip the (slow) dependency resync for the default uv interpreter on smokes.
-    if mode == "smoke" and config.python == "uv run python":
+    # Slurm jobs share the worktree .venv symlink; never let concurrent jobs
+    # mutate it while starting.
+    if config.python == "uv run python":
         return "uv run --no-sync python"
     return config.python
 
@@ -256,7 +257,7 @@ def render_sbatch(config: LaunchConfig, *, mode: Mode = "prod") -> str:
             "# Generate curriculum configs if not present",
             f"if [ ! -f {config.curriculum_check} ]; then",
             '    echo "Generating curriculum configs..."',
-            "    uv run python scripts/environments/generate_curriculum.py",
+            "    uv run --no-sync python scripts/environments/generate_curriculum.py",
             "fi",
             "",
         ])
