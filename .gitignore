@@ -19,7 +19,7 @@ data/
 *.log
 
 # external repos — cloned locally, not committed
-external/*/
+external/*
 !external/.gitkeep
 
 # uv lockfile
