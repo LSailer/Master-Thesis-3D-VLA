@@ -78,6 +78,28 @@ shims: `run_parity_training.py`, `run_benchmark.py`.
   tags encode issue id, encoder, seed. `--no-wandb` for local smoke.
 - Run dirs are named by SLURM `JOB_ID`; held-out eval cadence via `--heldout-eval-every`.
 
+## Smoke / profiling contract
+
+Every new or modified smoke/profiling path in this folder must report enough
+timing to decide whether the corresponding full experiment is feasible at the
+target training budget. For ObjectNav experiments, the default budget estimate is
+`2,000,000` environment steps unless the issue explicitly specifies another
+target.
+
+At minimum, smoke/profile output must include:
+
+- environment steps/sec or per-step wall time;
+- train steps/sec or train-step wall time when training is part of the path;
+- feature-extraction time when VGGT or another external encoder runs online;
+- replay write/sample overhead when replay is part of the path;
+- an estimated wall-clock time for the target step budget;
+- an explicit yes/no feasibility statement for the current bwUniCluster
+  allocation, including the limiting factor when the answer is no.
+
+If the smoke/profile run cannot produce one of these measurements, it must say
+which measurement is missing and why. Do not queue a production run from
+`scripts/r2dreamer/` before this timing feedback is available.
+
 ## Gotchas / read-this-first
 
 - **External PyTorch runs use a different venv.** `train_external_offline.py` and
