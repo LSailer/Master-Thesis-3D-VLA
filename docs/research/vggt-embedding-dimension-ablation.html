@@ -246,7 +246,7 @@
   .node .name { font-weight: 760; line-height: 1.18; }
   .node .shape { font-family: var(--mono); color: var(--faint); font-size: 11px; margin-top: 6px; }
   .node.compress { border-top-color: var(--amber); }
-  .node.train { border-top-color: var(--green); }
+  .node.decision { border-top-color: var(--green); }
 
   table {
     width: 100%;
@@ -302,6 +302,55 @@
   }
   .annotation-target:hover { outline-color: var(--line-2); }
 
+  .visual-plan {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+  }
+  @media (max-width: 980px) { .visual-plan { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .visual-plan { grid-template-columns: 1fr; } }
+  .visual-card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    min-height: 140px;
+  }
+  .visual-card .thumb {
+    height: 54px;
+    border-radius: 7px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    background:
+      linear-gradient(135deg, rgba(37,99,235,.16), rgba(4,120,87,.12)),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.45) 0 8px, transparent 8px 16px);
+  }
+  .visual-card h3 { font-size: 15px; margin-bottom: 5px; }
+  .visual-card p { font-size: 13px; margin-bottom: 0; }
+  .source-list {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  @media (max-width: 760px) { .source-list { grid-template-columns: 1fr; } }
+  .source-list div {
+    background: #fbfcfe;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .source-list b {
+    display: block;
+    font-family: var(--mono);
+    color: var(--faint);
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
   footer { padding: 34px 0 60px; color: var(--faint); font-size: 13px; }
 </style>
 </head>
@@ -311,7 +360,7 @@
     <div class="eyebrow">Experiment prototype · VGGT token compression</div>
     <h1>What happens when VGGT token embeddings shrink to 512 or 256 dimensions?</h1>
     <p class="lede">
-      This page frames a dimension-ablation experiment for the token-preserving VGGT encoder. It separates storage, compute, and quality effects so the experiment can test whether smaller token embeddings keep enough geometry for R2Dreamer.
+      This page frames a standalone dimension-ablation experiment for the VGGT/VTC geometry encoder. It focuses only on direct geometry quality so the experiment can measure how much depth, point, pose, and token quality changes when embeddings shrink.
     </p>
     <div class="chips">
       <span class="chip">tokens: 1374 including camera + registers + patches</span>
@@ -326,8 +375,9 @@
   <div class="wrap">
     <a href="#question">Question</a>
     <a href="#dimension-lab">Dimension lab</a>
-    <a href="#pipeline">Pipeline choices</a>
+    <a href="#pipeline">VGGT-only pipeline</a>
     <a href="#quality">Quality risks</a>
+    <a href="#visual-checks">Visual checks</a>
     <a href="#experiment">Experiment matrix</a>
     <a href="#metrics">Metrics</a>
   </div>
@@ -357,13 +407,13 @@
           <span class="tag amber">Main risk</span>
           <h3>Geometry bottleneck</h3>
           <p>
-            If the width is too small, the encoder may keep coarse scene layout but lose object boundaries, navigational affordances, or pose-sensitive details needed by the RSSM.
+            If the width is too small, the encoder may keep coarse scene layout but lose object boundaries, camera-pose cues, depth precision, or local 3D structure.
           </p>
         </div>
       </div>
       <div class="callout annotation-target">
         <p>
-          <strong>Hypothesis:</strong> 512-D may be a useful middle ground: large enough to preserve most geometry cues while cutting storage and Transformer compute. 256-D is the stress test: it should expose whether the policy needs high-dimensional VGGT semantics or mostly low-rank geometry.
+          <strong>Hypothesis:</strong> 512-D may be a useful middle ground: large enough to preserve most geometry cues while cutting encoder compute. 256-D is the stress test: it should expose whether VGGT's geometry signal needs high-dimensional token channels or is mostly low-rank.
         </p>
       </div>
     </div>
@@ -374,7 +424,7 @@
       <div class="section-kicker">02 · Dimension lab</div>
       <h2>Storage and compute consequences</h2>
       <p>
-        The selector below assumes the replay stores all <code>1374</code> VGGT aggregator tokens per frame in <code>float16</code>: camera token, register tokens, and patch tokens. It reports feature storage only; actions, rewards, and flags are small by comparison.
+        The selector below reports the feature tensor size for all <code>1374</code> VGGT aggregator tokens per frame in <code>float16</code>: camera token, register tokens, and patch tokens. It is a footprint estimate for cached encoder outputs during offline geometry analysis.
       </p>
 
       <div class="dim-selector annotation-target">
@@ -396,7 +446,7 @@
             <small id="valuesOut">1,406,976 fp16 values</small>
           </div>
           <div class="metric">
-            <b>100k replay slots</b>
+            <b>100k frames</b>
             <span id="gbOut">281.4 GB</span>
             <small id="gibOut">262.1 GiB</small>
           </div>
@@ -410,10 +460,10 @@
 
       <div class="grid g2" style="margin-top: 16px;">
         <div class="card annotation-target">
-          <span class="tag green">Storage</span>
-          <h3>VTC width controls stored features</h3>
+          <span class="tag green">Footprint</span>
+          <h3>VTC width controls feature size</h3>
           <p>
-            The intended experiment is not PCA. We change the VTC / token-encoder parameterization so its token width is <code>d_model = 512</code> or <code>256</code>, then store and train on those smaller embeddings. The question is how much quality is lost when the model itself has fewer embedding channels.
+            The intended experiment is not PCA. We change the VTC / token-encoder parameterization so its token width is <code>d_model = 512</code> or <code>256</code>, then evaluate the geometry outputs directly. The question is how much quality is lost when the encoder itself has fewer embedding channels.
           </p>
         </div>
         <div class="card annotation-target">
@@ -429,18 +479,18 @@
 
   <section id="pipeline">
     <div class="wrap">
-      <div class="section-kicker">03 · Pipeline choices</div>
-      <h2>Adjust the VTC model width, then measure quality</h2>
+      <div class="section-kicker">03 · VGGT-only pipeline</div>
+      <h2>Adjust the VTC model width, then measure geometry quality</h2>
       <div class="pipeline annotation-target">
         <div class="node">
-          <div class="icon">🧊</div>
-          <div class="name">Frozen VGGT / eVGGT</div>
-          <div class="shape">(1374, 1024)</div>
+          <div class="icon">🖼️</div>
+          <div class="name">Same RGB frames</div>
+          <div class="shape">evaluation image set</div>
         </div>
         <div class="node">
-          <div class="icon">🧩</div>
-          <div class="name">Keep full token set</div>
-          <div class="shape">(1374, 1024)</div>
+          <div class="icon">🧊</div>
+          <div class="name">VGGT / VTC encoder</div>
+          <div class="shape">24-block or 4-block</div>
         </div>
         <div class="node compress">
           <div class="icon">📉</div>
@@ -448,19 +498,19 @@
           <div class="shape">1024 → 512 / 256</div>
         </div>
         <div class="node">
-          <div class="icon">💾</div>
-          <div class="name">Replay buffer</div>
-          <div class="shape">(1374, D) fp16</div>
+          <div class="icon">📐</div>
+          <div class="name">Geometry heads</div>
+          <div class="shape">camera / depth / points</div>
         </div>
         <div class="node compress">
-          <div class="icon">🔀</div>
-          <div class="name">Token Transformer</div>
-          <div class="shape">d_model = D</div>
+          <div class="icon">🔍</div>
+          <div class="name">Quality probes</div>
+          <div class="shape">compare to 1024-D baseline</div>
         </div>
-        <div class="node train">
-          <div class="icon">🧠</div>
-          <div class="name">RSSM losses</div>
-          <div class="shape">train encoder</div>
+        <div class="node decision">
+          <div class="icon">📊</div>
+          <div class="name">Decision</div>
+          <div class="shape">quality vs compute</div>
         </div>
       </div>
 
@@ -468,28 +518,28 @@
         <thead>
           <tr>
             <th>Design</th>
-            <th>Replay storage</th>
-            <th>Trainable?</th>
+            <th>Feature footprint</th>
+            <th>What is evaluated?</th>
             <th>When to use</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>VTC d_model = 1024</strong></td>
-            <td>Baseline storage</td>
-            <td>Token Transformer trained by R2Dreamer</td>
-            <td>Quality ceiling for the token-width ablation.</td>
+            <td>Baseline feature size</td>
+            <td>Direct VGGT geometry outputs</td>
+            <td>Quality ceiling for the token-width ablation, no downstream model involved.</td>
           </tr>
           <tr>
             <td><strong>VTC d_model = 512</strong></td>
-            <td>Half of 1024-D storage</td>
-            <td>Smaller VTC trained by R2Dreamer</td>
-            <td>Main target: tests whether half-width tokens preserve enough geometry.</td>
+            <td>Half of 1024-D feature size</td>
+            <td>Depth, points, camera pose, token similarity</td>
+            <td>Main target: tests whether half-width tokens preserve VGGT-quality geometry.</td>
           </tr>
           <tr>
             <td><strong>VTC d_model = 256</strong></td>
-            <td>Quarter of 1024-D storage</td>
-            <td>Smaller VTC trained by R2Dreamer</td>
+            <td>Quarter of 1024-D feature size</td>
+            <td>Depth, points, camera pose, token similarity</td>
             <td>Stress test: exposes whether the geometry signal is low-rank enough.</td>
           </tr>
         </tbody>
@@ -505,13 +555,13 @@
         <div class="risk annotation-target">
           <b>512-D</b>
           <p>
-            Likely retains global geometry and many semantic cues if the VTC can learn to use the smaller channel budget. Risk is moderate: smaller head dimensions can weaken fine object boundaries, but R2Dreamer may only need stable layout and navigability cues.
+            Likely retains global geometry and many semantic cues if the VTC can use the smaller channel budget. Risk is moderate: smaller head dimensions can weaken fine object boundaries, depth edges, and small-object 3D structure.
           </p>
         </div>
         <div class="risk annotation-target">
           <b>256-D</b>
           <p>
-            Strong bottleneck. Useful as a stress test for whether VGGT tokens are highly redundant. Expect faster/cheaper training, but more risk of lower reward prediction quality, worse RSSM posterior stability, and degraded ObjectNav behavior.
+            Strong bottleneck. Useful as a stress test for whether VGGT tokens are highly redundant. Expect cheaper inference, but more risk of noisy depth, poorer point-map consistency, and worse camera-pose estimates.
           </p>
         </div>
         <div class="risk annotation-target">
@@ -529,10 +579,54 @@
     </div>
   </section>
 
+  <section id="visual-checks">
+    <div class="wrap">
+      <div class="section-kicker">05 · Notebook-derived visual checks</div>
+      <h2>Reuse the old VGGT comparison notebook tests</h2>
+      <p>
+        The old notebooks already compare VGGT-style geometry outputs. For the 1024/512/256 width ablation, reuse the same image set and render the same visual rows for each width. This keeps the analysis focused on the encoder's own geometry quality.
+      </p>
+      <div class="visual-plan annotation-target">
+        <div class="visual-card">
+          <div class="thumb"></div>
+          <h3>Depth + confidence</h3>
+          <p>Show depth maps, confidence maps, depth error vs 1024-D reference, and edge-band error around discontinuities.</p>
+        </div>
+        <div class="visual-card">
+          <div class="thumb"></div>
+          <h3>World points</h3>
+          <p>Compare dense world points, pooled 37x37 points, XYZ false-colour maps, and per-axis L1/L2 errors.</p>
+        </div>
+        <div class="visual-card">
+          <div class="thumb"></div>
+          <h3>Point clouds</h3>
+          <p>Render Plotly point clouds, RGB-coloured clouds, confidence-filtered clouds, Chamfer distance, and F-score.</p>
+        </div>
+        <div class="visual-card">
+          <div class="thumb"></div>
+          <h3>Camera + tokens</h3>
+          <p>Plot camera frustums, pose convergence, PCA-RGB token maps, token cosine/CKA similarity, and attention-grid changes.</p>
+        </div>
+      </div>
+      <div class="source-list annotation-target">
+        <div>
+          <b>Notebook sources</b>
+          <p><code>notebooks/vggt/comparison.ipynb</code> for variant latency, memory, depth grids, Plotly point clouds, and frame-coloured point clouds.</p>
+          <p><code>notebooks/vggt/exploration.ipynb</code> for depth/confidence maps, camera frustums, pose convergence, and PCA-RGB token visualisation.</p>
+        </div>
+        <div>
+          <b>Script sources</b>
+          <p><code>scripts/vggt/dump_wp_dense_vs_pooled.py</code> and <code>visualizations/wp_dense_vs_pooled_figs.py</code> for dense vs pooled world-point figures.</p>
+          <p><code>visualizations/vggt_pointcloud_html.py</code> and <code>scripts/vggt/verify_pointmap_is_xyz.py</code> for point-cloud HTML and XYZ sanity checks.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="experiment">
     <div class="wrap">
-      <div class="section-kicker">05 · Experiment matrix</div>
-      <h2>Runs to isolate storage, compute, and quality</h2>
+      <div class="section-kicker">06 · Experiment matrix</div>
+      <h2>Runs to isolate width, depth, and geometry quality</h2>
       <table class="annotation-target">
         <thead>
           <tr>
@@ -540,7 +634,7 @@
             <th>Token source</th>
             <th>Width</th>
             <th>VTC setting</th>
-            <th>Purpose</th>
+            <th>Geometry-only purpose</th>
           </tr>
         </thead>
         <tbody>
@@ -549,28 +643,28 @@
             <td>Frozen VGGT aggregator</td>
             <td>1024</td>
             <td>None</td>
-            <td>Quality ceiling for token Transformer.</td>
+            <td>Reference geometry quality from full-width tokens.</td>
           </tr>
           <tr>
             <td><strong>B</strong></td>
             <td>Frozen VGGT aggregator</td>
             <td>512</td>
             <td><code>d_model=512</code>, 8 heads</td>
-            <td>Main target: train the smaller VTC and compare quality against 1024-D.</td>
+            <td>Measure quality loss from half-width VTC tokens.</td>
           </tr>
           <tr>
             <td><strong>C</strong></td>
             <td>Frozen VGGT aggregator</td>
             <td>256</td>
             <td><code>d_model=256</code>, 8 heads</td>
-            <td>Stress test: train a quarter-width VTC and measure quality loss.</td>
+            <td>Measure quality loss from quarter-width VTC tokens.</td>
           </tr>
           <tr>
             <td><strong>D</strong></td>
             <td>4-block student / eVGGT-like</td>
             <td>512</td>
             <td>Student/VTC width 512</td>
-            <td>Separates depth compression from width compression.</td>
+            <td>Separates block-depth compression from width compression.</td>
           </tr>
           <tr>
             <td><strong>E</strong></td>
@@ -586,28 +680,28 @@
 
   <section id="metrics">
     <div class="wrap">
-      <div class="section-kicker">06 · Metrics and decision rule</div>
-      <h2>Measure policy quality and representation quality separately</h2>
+      <div class="section-kicker">07 · Metrics and decision rule</div>
+      <h2>Measure geometry quality only</h2>
       <div class="grid g3">
         <div class="card annotation-target">
-          <span class="tag blue">World model</span>
-          <h3>Does the RSSM still model the task?</h3>
-          <p>Track reward MSE/twohot loss, continue loss, representation KL, posterior entropy, and heldout k-step rollout error.</p>
+          <span class="tag blue">Depth / points</span>
+          <h3>Does 3D reconstruction survive?</h3>
+          <p>Track depth AbsRel, delta accuracy, point-map L1/L2 error, Chamfer distance when ground-truth points are available, and edge/detail degradation.</p>
         </div>
         <div class="card annotation-target">
-          <span class="tag green">Policy</span>
-          <h3>Does navigation behavior survive?</h3>
-          <p>Compare success rate, SPL/SoftSPL, collision rate, path length ratio, and sample efficiency at matched environment steps.</p>
+          <span class="tag green">Camera pose</span>
+          <h3>Does pose geometry survive?</h3>
+          <p>Track relative pose translation/rotation error and pose consistency across adjacent frames or multi-view image groups.</p>
         </div>
         <div class="card annotation-target">
-          <span class="tag amber">Geometry proxy</span>
-          <h3>What did compression remove?</h3>
-          <p>Probe linear depth/world-point reconstruction from frozen tokens, nearest-neighbor scene consistency, and attention maps over the 37x37 patch grid.</p>
+          <span class="tag amber">Token fidelity</span>
+          <h3>What did width reduction remove?</h3>
+          <p>Compare token cosine similarity to the 1024-D reference, attention maps over the 37x37 patch grid, and nearest-neighbor scene consistency.</p>
         </div>
       </div>
       <div class="callout annotation-target">
         <p>
-          <strong>Decision rule:</strong> keep a reduced dimension only if it cuts memory/compute substantially while staying within a small tolerance of the 1024-D baseline on heldout world-model probes and downstream ObjectNav metrics. If 256-D matches 1024-D, the original token width is probably overkill for this task; if only 1024-D works, the policy depends on high-bandwidth VGGT semantics.
+          <strong>Decision rule:</strong> keep a reduced dimension only if it cuts encoder footprint/compute substantially while staying close to the 1024-D VGGT reference on direct geometry metrics. If 256-D matches 1024-D, the original token width is probably overkill for geometry reconstruction; if only 1024-D works, VGGT's geometric reasoning depends on high-bandwidth token channels.
         </p>
       </div>
     </div>
