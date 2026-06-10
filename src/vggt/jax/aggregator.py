@@ -20,6 +20,8 @@ Mirrors ``streamvggt.models.aggregator.Aggregator``:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -92,16 +94,45 @@ def _calculate_dynamic_budgets(
     return budgets.astype(jnp.int32)
 
 
-def _validate_aggregator_call(
-    images: jnp.ndarray,
-    *,
-    use_cache: bool,
-    past_kvs: list | None,
-    last_scores: jnp.ndarray | None,
-    depth: int,
-    img_size: int,
-) -> tuple[int, int, int, int, int, list | None, jnp.ndarray | None]:
-    """Validate public Aggregator inputs and initialise cache bookkeeping."""
+@dataclass(frozen=True)
+class _CacheState:
+    """Streaming-cache settings shared by all global attention blocks."""
+
+    enabled: bool
+    past_kvs: list | None
+    last_scores: jnp.ndarray | None
+    padded_mode: bool
+    current_budgets: list[int] | jnp.ndarray | None
+
+
+@dataclass(frozen=True)
+class _TokenLayout:
+    """Static token dimensions used to switch between frame/global layouts."""
+
+    B: int
+    S: int
+    P: int
+    embed_dim: int
+
+    def to_frame(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        if tokens.shape in (
+            (self.B, self.S, self.P, self.embed_dim),
+            (self.B, self.S * self.P, self.embed_dim),
+        ):
+            return tokens.reshape(self.B * self.S, self.P, self.embed_dim)
+        return tokens
+
+    def to_global(self, frame_tokens: jnp.ndarray) -> jnp.ndarray:
+        return frame_tokens.reshape(
+            self.B, self.S, self.P, self.embed_dim
+        ).reshape(self.B, self.S * self.P, self.embed_dim)
+
+    def split_layers(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        return tokens.reshape(self.B, self.S, self.P, self.embed_dim)
+
+
+def _validate_image_shape(images: jnp.ndarray, *, img_size: int) -> tuple[int, ...]:
+    """Validate image channels/spatial size and return static input dimensions."""
     B, S, C_in, H, W = images.shape
     if C_in != 3:
         raise ValueError(f"expected 3 input channels, got {C_in}")
@@ -109,40 +140,43 @@ def _validate_aggregator_call(
         raise NotImplementedError(
             f"Aggregator is fixed at {img_size}x{img_size}; got {H}x{W}."
         )
-    if use_cache and S != 1:
+    return B, S, C_in, H, W
+
+
+def _prepare_cache_state(
+    *,
+    use_cache: bool,
+    past_kvs: list | None,
+    last_scores: jnp.ndarray | None,
+    total_budget: int | None,
+    current_budgets_static: tuple[int, ...] | None,
+    depth: int,
+    S: int,
+) -> _CacheState:
+    """Validate and collect all streaming-cache metadata for one call."""
+    if not use_cache:
+        return _CacheState(False, None, None, False, None)
+    if S != 1:
         raise ValueError(f"use_cache expects S=1 per call, got S={S}")
-    if use_cache and past_kvs is None:
+    if past_kvs is None:
         past_kvs = [None] * depth
-    if use_cache and len(past_kvs) != depth:
+    if len(past_kvs) != depth:
         raise ValueError(f"past_kvs length {len(past_kvs)} != depth {depth}")
-    if use_cache and last_scores is None:
+    if last_scores is None:
         last_scores = jnp.zeros((depth,), dtype=jnp.float32)
-    return B, S, C_in, H, W, past_kvs, last_scores
 
-
-def _has_padded_cache_entries(use_cache: bool, past_kvs: list | None) -> bool:
-    """Return whether the streaming cache uses fixed-shape 3-tuple entries."""
-    if not use_cache or past_kvs is None:
-        return False
-    return any(
+    padded_mode = any(
         entry is not None and isinstance(entry, tuple) and len(entry) == 3
         for entry in past_kvs
     )
-
-
-def _select_current_budgets(
-    *,
-    use_cache: bool,
-    total_budget: int | None,
-    last_scores: jnp.ndarray | None,
-    current_budgets_static: tuple[int, ...] | None,
-) -> list[int] | jnp.ndarray | None:
-    """Choose the per-block eviction budgets for the current streaming step."""
-    if not use_cache or total_budget is None:
-        return None
-    if current_budgets_static is not None:
-        return list(current_budgets_static)
-    return _calculate_dynamic_budgets(last_scores, total_budget)
+    current_budgets = None
+    if total_budget is not None:
+        current_budgets = (
+            list(current_budgets_static)
+            if current_budgets_static is not None
+            else _calculate_dynamic_budgets(last_scores, total_budget)
+        )
+    return _CacheState(True, past_kvs, last_scores, padded_mode, current_budgets)
 
 
 def _normalise_resnet_images(images: jnp.ndarray) -> jnp.ndarray:
@@ -189,13 +223,10 @@ def _make_special_tokens(
 
 def _prepare_attention_geometry(
     *,
-    B: int,
-    S: int,
-    P: int,
+    layout: _TokenLayout,
     img_size: int,
     patch_size: int,
     patch_start_idx: int,
-    embed_dim: int,
     num_heads: int,
     rope_freq: float,
     dtype,
@@ -205,9 +236,13 @@ def _prepare_attention_geometry(
 ]:
     """Build token positions, RoPE tables, and the no-cache causal mask."""
     grid = img_size // patch_size
-    positions_bs_p = _make_position_grid(B, S, grid, grid, patch_start_idx)
-    positions_b_sp = positions_bs_p.reshape(B, S, P, 2).reshape(B, S * P, 2)
-    head_dim = embed_dim // num_heads
+    positions_bs_p = _make_position_grid(
+        layout.B, layout.S, grid, grid, patch_start_idx
+    )
+    positions_b_sp = positions_bs_p.reshape(
+        layout.B, layout.S, layout.P, 2
+    ).reshape(layout.B, layout.S * layout.P, 2)
+    head_dim = layout.embed_dim // num_heads
     cos_t, sin_t = compute_1d_rope_tables(
         dim=head_dim // 2,
         max_pos=grid + 1,
@@ -215,30 +250,9 @@ def _prepare_attention_geometry(
         dtype=dtype,
     )
     global_mask = None if use_cache else _make_causal_global_mask(
-        S, P, dtype=jnp.float32
+        layout.S, layout.P, dtype=jnp.float32
     )
     return positions_bs_p, positions_b_sp, (cos_t, sin_t), global_mask
-
-
-def _to_frame_tokens(
-    tokens: jnp.ndarray, *, B: int, S: int, P: int, embed_dim: int
-) -> jnp.ndarray:
-    """Represent tokens as ``(B*S, P, C)`` for frame attention."""
-    if tokens.shape == (B, S * P, embed_dim):
-        return tokens.reshape(B * S, P, embed_dim)
-    return tokens
-
-
-def _to_global_tokens(
-    frame_tokens: jnp.ndarray, *, B: int, S: int, P: int, embed_dim: int
-) -> jnp.ndarray:
-    """Represent frame-attention output as ``(B, S*P, C)`` for global attention."""
-    return frame_tokens.reshape(B, S, P, embed_dim).reshape(B, S * P, embed_dim)
-
-
-def _per_block_budget(current_budgets: list[int] | jnp.ndarray, block_idx: int) -> int:
-    """Return a Python int budget for ``Attention.top_k``."""
-    return int(current_budgets[block_idx])
 
 
 def _record_cache_scores(
@@ -262,25 +276,25 @@ def _record_cache_scores(
 
 def _finalise_last_scores(
     *,
-    padded_mode: bool,
-    current_budgets: list[int] | jnp.ndarray | None,
+    cache_state: _CacheState,
     new_scores: list,
     any_evicted: bool,
-    last_scores: jnp.ndarray,
 ) -> jnp.ndarray:
     """Merge per-block eviction scores into the state returned to the caller."""
-    if padded_mode and current_budgets is not None:
+    if cache_state.padded_mode and cache_state.current_budgets is not None:
         per_block_new = []
         for b, entry in enumerate(new_scores):
             if isinstance(entry, tuple):
                 did_evict, score = entry
-                per_block_new.append(jnp.where(did_evict, score, last_scores[b]))
+                per_block_new.append(
+                    jnp.where(did_evict, score, cache_state.last_scores[b])
+                )
             else:
                 per_block_new.append(jnp.asarray(entry, dtype=jnp.float32))
         return jnp.stack(per_block_new).astype(jnp.float32)
     if any_evicted:
         return jnp.stack([jnp.asarray(s, dtype=jnp.float32) for s in new_scores])
-    return last_scores
+    return cache_state.last_scores
 
 
 class Aggregator(nn.Module):
@@ -330,20 +344,15 @@ class Aggregator(nn.Module):
             Cache:     ``(output_list, patch_start_idx, new_past_kvs,
                           new_last_scores)``.
         """
-        B, S, C_in, H, W, past_kvs, last_scores = _validate_aggregator_call(
-            images,
+        B, S, C_in, H, W = _validate_image_shape(images, img_size=self.img_size)
+        cache_state = _prepare_cache_state(
             use_cache=use_cache,
             past_kvs=past_kvs,
             last_scores=last_scores,
-            depth=self.depth,
-            img_size=self.img_size,
-        )
-        padded_mode = _has_padded_cache_entries(use_cache, past_kvs)
-        current_budgets = _select_current_budgets(
-            use_cache=use_cache,
             total_budget=total_budget,
-            last_scores=last_scores,
             current_budgets_static=current_budgets_static,
+            depth=self.depth,
+            S=S,
         )
         images = _normalise_resnet_images(images)
 
@@ -377,28 +386,30 @@ class Aggregator(nn.Module):
             patch_tokens=patch_tokens,
             B=B,
             S=S,
-            use_cache=use_cache,
+            use_cache=cache_state.enabled,
             past_frame_idx=past_frame_idx,
             num_register_tokens=self.num_register_tokens,
             embed_dim=self.embed_dim,
         )
         tokens = jnp.concatenate([camera, register, patch_tokens], axis=1)
-        P = tokens.shape[1]
         patch_start_idx = 1 + self.num_register_tokens  # 5
+        layout = _TokenLayout(
+            B=B,
+            S=S,
+            P=tokens.shape[1],
+            embed_dim=self.embed_dim,
+        )
 
         positions_bs_p, positions_b_sp, rope_tables, global_mask = (
             _prepare_attention_geometry(
-                B=B,
-                S=S,
-                P=P,
+                layout=layout,
                 img_size=self.img_size,
                 patch_size=self.patch_size,
                 patch_start_idx=patch_start_idx,
-                embed_dim=self.embed_dim,
                 num_heads=self.num_heads,
                 rope_freq=self.rope_freq,
                 dtype=images.dtype,
-                use_cache=use_cache,
+                use_cache=cache_state.enabled,
             )
         )
 
@@ -408,9 +419,7 @@ class Aggregator(nn.Module):
         any_evicted = False
 
         for b in range(self.depth):
-            tokens_frame = _to_frame_tokens(
-                tokens, B=B, S=S, P=P, embed_dim=self.embed_dim
-            )
+            tokens_frame = layout.to_frame(tokens)
             tokens_frame = Block(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
@@ -420,11 +429,9 @@ class Aggregator(nn.Module):
                 norm_eps=self.norm_eps,
                 name=f"frame_blocks_{b}",
             )(tokens_frame, rope_tables=rope_tables, positions=positions_bs_p)
-            frame_inter = tokens_frame.reshape(B, S, P, self.embed_dim)
+            frame_inter = layout.split_layers(tokens_frame)
 
-            tokens_global = _to_global_tokens(
-                tokens_frame, B=B, S=S, P=P, embed_dim=self.embed_dim
-            )
+            tokens_global = layout.to_global(tokens_frame)
             global_block = Block(
                 dim=self.embed_dim,
                 num_heads=self.num_heads,
@@ -434,16 +441,9 @@ class Aggregator(nn.Module):
                 norm_eps=self.norm_eps,
                 name=f"global_blocks_{b}",
             )
-            if use_cache:
-                # In padded mode, initialize zero-pad on the first frame.
-                past_entry = past_kvs[b] if past_kvs is not None else None
-                if padded_mode and past_entry is None:
-                    # Shouldn't happen — padded mode implies entries are 3-tuples.
-                    # But keep safe: fall through to 2-tuple (legacy) path.
-                    pass
-
-                if current_budgets is not None:
-                    per_block_budget = _per_block_budget(current_budgets, b)
+            if cache_state.enabled:
+                past_entry = cache_state.past_kvs[b]
+                if cache_state.current_budgets is not None:
                     tokens_global, new_kv, scores = global_block(
                         tokens_global,
                         rope_tables=rope_tables,
@@ -451,14 +451,14 @@ class Aggregator(nn.Module):
                         attn_mask=None,
                         past_kv=past_entry,
                         use_cache=True,
-                        cache_budget=per_block_budget,
-                        num_anchor_tokens=P,
+                        cache_budget=int(cache_state.current_budgets[b]),
+                        num_anchor_tokens=layout.P,
                     )
                     any_evicted = _record_cache_scores(
                         new_scores=new_scores,
                         any_evicted=any_evicted,
                         scores=scores,
-                        fallback_score=last_scores[b],
+                        fallback_score=cache_state.last_scores[b],
                     )
                 else:
                     tokens_global, new_kv = global_block(
@@ -477,20 +477,16 @@ class Aggregator(nn.Module):
                     positions=positions_b_sp,
                     attn_mask=global_mask,
                 )
-            global_inter = tokens_global.reshape(B, S, P, self.embed_dim)
-            tokens = _to_frame_tokens(
-                global_inter, B=B, S=S, P=P, embed_dim=self.embed_dim
-            )
+            global_inter = layout.split_layers(tokens_global)
+            tokens = layout.to_frame(global_inter)
 
             output_list.append(jnp.concatenate([frame_inter, global_inter], axis=-1))
 
-        if use_cache:
+        if cache_state.enabled:
             new_last_scores = _finalise_last_scores(
-                padded_mode=padded_mode,
-                current_budgets=current_budgets,
+                cache_state=cache_state,
                 new_scores=new_scores,
                 any_evicted=any_evicted,
-                last_scores=last_scores,
             )
             return output_list, patch_start_idx, new_past_kvs, new_last_scores
         return output_list, patch_start_idx
