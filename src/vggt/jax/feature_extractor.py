@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass
 from typing import Any
 
 # JAX compilation cache: re-use compiled graphs across runs / processes.
@@ -38,6 +39,7 @@ from src.vggt.jax.weight_transfer import (  # noqa: E402
     load_pytorch_weights,
 )
 
+
 # Image and patch grid are fixed at 518 / 14 = 37 patches per side.
 _IMG_SIZE = 518
 _PATCH_GRID = 37
@@ -45,31 +47,140 @@ _PATCH_SIZE = 14
 # Reference default (streamvggt.models.streamvggt.StreamVGGT.__init__).
 _DEFAULT_TOTAL_BUDGET = 1_200_000
 
+ParamTree = dict[str, Any]
+CacheEntry = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
+CompactCacheEntry = tuple[jnp.ndarray, jnp.ndarray]
+PhaseTimes = dict[str, list[float]]
+ExtractOutput = dict[str, jnp.ndarray]
+
+
+@dataclass(frozen=True)
+class ExtractorParams:
+    """Flax parameter groups consumed by the three JIT-wrapped modules."""
+
+    aggregator: ParamTree
+    camera_head: ParamTree
+    point_head: ParamTree
+
+
+@dataclass(frozen=True)
+class HeadOutputs:
+    """Post-processed camera/point-head outputs for one streamed frame."""
+
+    world_points: jnp.ndarray
+    camera_pose: jnp.ndarray
+    dense_world_points: jnp.ndarray | None
+
+
+def select_jax_device(device: str) -> jax.Device:
+    """Resolve the public device string to a concrete JAX device."""
+    if device in ("cuda", "gpu"):
+        return jax.devices("gpu")[0]
+    if device == "cpu":
+        return jax.devices("cpu")[0]
+    raise ValueError(f"unknown device {device!r}")
+
+
+def load_params_on_device(device: jax.Device) -> ExtractorParams:
+    """Load StreamVGGT weights, convert them to Flax layout, and place on device."""
+    state_dict = load_checkpoint()
+    tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
+    tree = jax.tree.map(lambda x: jax.device_put(jnp.asarray(x), device), tree)
+    return ExtractorParams(
+        aggregator={"params": tree["aggregator"]},
+        camera_head={"params": tree["camera_head"]},
+        point_head={"params": tree["point_head"]},
+    )
+
+
+def compile_point_head_apply(point_head: Any) -> Any:
+    """JIT the point-head apply with static ``patch_start_idx``."""
+    def _point_head_fn(
+        params: ParamTree,
+        out_list: list[jnp.ndarray],
+        images: jnp.ndarray,
+        patch_start_idx: int,
+    ) -> tuple[jnp.ndarray, Any]:
+        return point_head.apply(params, out_list, images, patch_start_idx)
+
+    return jax.jit(_point_head_fn, static_argnums=(3,))
+
+
+def compile_aggregator_apply(aggregator: Any) -> Any:
+    """JIT one streaming aggregator step with static cache-control arguments."""
+    def _agg_fn(
+        params: ParamTree,
+        images: jnp.ndarray,
+        past_kvs: list[CacheEntry],
+        is_first_frame: bool,
+        total_budget: int,
+        last_scores: jnp.ndarray,
+        use_cache: bool,
+        current_budgets_static: tuple[int, ...],
+    ) -> tuple[list[jnp.ndarray], jnp.ndarray, list[CacheEntry], jnp.ndarray]:
+        return aggregator.apply(
+            params,
+            images,
+            use_cache=use_cache,
+            past_kvs=past_kvs,
+            past_frame_idx=0 if is_first_frame else 1,
+            total_budget=total_budget,
+            last_scores=last_scores,
+            current_budgets_static=current_budgets_static,
+        )
+
+    return jax.jit(_agg_fn, static_argnums=(3, 4, 6, 7))
+
+
+def compile_camera_head_apply(camera_head: Any) -> Any:
+    """JIT the camera head against padded cache entries with stable shapes."""
+    def _cam_fn(
+        params: ParamTree,
+        out_list: list[jnp.ndarray],
+        past_kvs_camera: list[CacheEntry],
+    ) -> tuple[list[jnp.ndarray], list[CacheEntry]]:
+        return camera_head.apply(
+            params,
+            out_list,
+            use_cache=True,
+            past_kvs_camera=past_kvs_camera,
+        )
+
+    return jax.jit(_cam_fn)
+
 
 def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarray:
-    """Average-pool (N, 518, 518, C) -> (N, out_size, out_size, C).
+    """Average-pool ``(N, 518, 518, C)`` to ``(N, out_size, out_size, C)``.
 
-    When ``out_size`` divides 518 (e.g. 37 -> exact 14x14 cell means) this is a
-    bit-exact block average. Otherwise (e.g. 64, since 518 is not divisible by
-    64) it falls back to an antialiased area resample, which is the closest
-    structure-preserving downsample when no integer cell grid exists. Used to
-    feed the WP+CP MLP at configurable world-point resolutions (3D-52/3D-53).
+    Divisible sizes use exact block means, e.g. ``37`` maps to 14x14 cells.
+    Non-divisible sizes use antialiased area-style resizing for configurable
+    WP+CP readouts such as the 64x64 ablation.
     """
-    N, H, W, C = pts_nhwc.shape
-    if (H, W) != (_IMG_SIZE, _IMG_SIZE):
-        raise ValueError(f"expected ({_IMG_SIZE}, {_IMG_SIZE}), got ({H}, {W})")
+    n_batch, height, width, channels = pts_nhwc.shape
+    if (height, width) != (_IMG_SIZE, _IMG_SIZE):
+        raise ValueError(f"expected ({_IMG_SIZE}, {_IMG_SIZE}), got ({height}, {width})")
     if out_size <= 0 or out_size > _IMG_SIZE:
         raise ValueError(f"out_size must be in [1, {_IMG_SIZE}], got {out_size}")
     if _IMG_SIZE % out_size == 0:
-        f = _IMG_SIZE // out_size
-        return pts_nhwc.reshape(N, out_size, f, out_size, f, C).mean(axis=(2, 4))
+        factor = _IMG_SIZE // out_size
+        return pts_nhwc.reshape(
+            n_batch,
+            out_size,
+            factor,
+            out_size,
+            factor,
+            channels,
+        ).mean(axis=(2, 4))
     return jax.image.resize(
-        pts_nhwc, (N, out_size, out_size, C), method="linear", antialias=True
+        pts_nhwc,
+        (n_batch, out_size, out_size, channels),
+        method="linear",
+        antialias=True,
     )
 
 
 def _adaptive_avg_pool_518_to_37(pts_nhwc: jnp.ndarray) -> jnp.ndarray:
-    """Average-pool (N, 518, 518, C) to (N, 37, 37, C) (exact 14x14 block mean)."""
+    """Average-pool ``(N, 518, 518, C)`` to exact 37x37 patch-grid cells."""
     return _pool_dense_world_points(pts_nhwc, _PATCH_GRID)
 
 
@@ -92,34 +203,40 @@ class JAXVGGTFeatureExtractor:
         budgets_static: tuple[int, ...] | None = None,
         compute_heads: bool = True,
         wp_pool_size: int = _PATCH_GRID,
-    ):
-        # compute_heads=False skips camera_head + point_head + world_points
-        # wrapper in extract(); only `aggregator_features` is returned. Used by
-        # encoders that consume the pre-head aggregator tokens directly.
-        self._compute_heads = compute_heads
-        # Grid the dense 518² point map is average-pooled to for the `world_points`
-        # output (default 37 = the patch grid). Larger values (e.g. 64) keep finer
-        # geometry for the WP+CP MLP; see _pool_dense_world_points.
-        self._wp_pool_size = int(wp_pool_size)
-        self._budgets_static_override = budgets_static
-        if device in ("cuda", "gpu"):
-            self._device = jax.devices("gpu")[0]
-        elif device == "cpu":
-            self._device = jax.devices("cpu")[0]
-        else:
-            raise ValueError(f"unknown device {device!r}")
+    ) -> None:
+        """Initialize weights, cache dimensions, JIT callables, and warmup graphs."""
+        self._configure_runtime_options(compute_heads, wp_pool_size, budgets_static)
+        self._device = select_jax_device(device)
         self._compile = compile  # reserved
         self._total_budget = total_budget
         self._dtype = dtype
 
-        # Load weights: HF checkpoint -> numpy state_dict -> Flax PyTree.
-        sd = load_checkpoint()
-        tree, _ = load_pytorch_weights(sd, include_v1_only=True)
-        tree = jax.tree.map(lambda x: jax.device_put(jnp.asarray(x), self._device), tree)
-        self._agg_params = {"params": tree["aggregator"]}
-        self._cam_params = {"params": tree["camera_head"]}
-        self._pt_params = {"params": tree["point_head"]}
+        params = load_params_on_device(self._device)
+        self._agg_params = params.aggregator
+        self._cam_params = params.camera_head
+        self._pt_params = params.point_head
 
+        self._init_modules()
+        self._configure_aggregator_cache(total_budget)
+        self._configure_camera_cache(max_camera_frames)
+        self._compile_apply_functions()
+
+        self.reset()
+        self._warmup()
+
+    def _configure_runtime_options(
+        self,
+        compute_heads: bool,
+        wp_pool_size: int,
+        budgets_static: tuple[int, ...] | None,
+    ) -> None:
+        """Store public options that alter output wrapping or cache budgets."""
+        self._compute_heads = compute_heads
+        self._wp_pool_size = int(wp_pool_size)
+        self._budgets_static_override = budgets_static
+
+    def _init_modules(self) -> None:
+        """Construct module instances and cache their static depths."""
         self._aggregator = Aggregator()
         self._camera_head = CameraHead()
         self._point_head = DPTHead()
@@ -127,86 +244,26 @@ class JAXVGGTFeatureExtractor:
         self._agg_depth = self._aggregator.depth
         self._cam_depth = self._camera_head.trunk_depth
 
-        # Padded cache dimensions.
-        # Token count per global-block frame: P = 5 + (518/14)^2 = 1374.
+    def _configure_aggregator_cache(self, total_budget: int) -> None:
+        """Derive padded cache dimensions for the streaming aggregator."""
         self._P = 5 + (_IMG_SIZE // _PATCH_SIZE) ** 2
-        # MAX = uniform share of total_budget across depth blocks + one frame
-        # headroom. After eviction the cache has <= uniform valid tokens, and
-        # we append at most P tokens before the next eviction fires, so
-        # uniform + P is the tightest safe upper bound (was uniform * 2).
         uniform = max(total_budget // self._agg_depth, self._P)
-        self._MAX = uniform + self._P  # headroom for one fresh frame before eviction
-        # Heads / head-dim from aggregator defaults.
+        self._MAX = uniform + self._P
         self._num_heads = self._aggregator.num_heads
         self._head_dim = self._aggregator.embed_dim // self._num_heads
 
-        # Camera-head padded cache dims.  The camera head has its own
-        # num_heads/dim_in (16 × 2048) and no eviction: each frame appends
-        # num_iterations tokens to every trunk block's cache.  _CAM_MAX
-        # therefore bounds the worst-case episode length.
+    def _configure_camera_cache(self, max_camera_frames: int) -> None:
+        """Derive padded cache dimensions for the fixed-window camera head."""
         self._cam_num_heads = self._camera_head.num_heads
         self._cam_head_dim = self._camera_head.dim_in // self._cam_num_heads
         self._cam_num_iters = self._camera_head.num_iterations
         self._CAM_MAX = max_camera_frames * self._cam_num_iters
 
-        # Point head JIT (unchanged from previous version).
-        def _point_head_fn(params, out_list, images, psi):
-            return self._point_head.apply(params, out_list, images, psi)
-
-        self._point_head_apply = jax.jit(_point_head_fn, static_argnums=(3,))
-
-        # JIT-wrap the aggregator apply. ``past_frame_idx`` (argnum 3) and
-        # ``current_budgets_static`` (argnum 7) are Python-static.
-        # Positional signature: (params, images, past_kvs, past_frame_idx,
-        # total_budget, last_scores, use_cache, current_budgets_static).
-        # is_first_frame (argnum 3) is a bool — only two distinct static values
-        # → two compiles total. Previously used frame_idx (int), which caused
-        # a recompile every frame.
-        def _agg_fn(
-            params,
-            images,
-            past_kvs,
-            is_first_frame,
-            total_budget,
-            last_scores,
-            use_cache,
-            current_budgets_static,
-        ):
-            return self._aggregator.apply(
-                params,
-                images,
-                use_cache=use_cache,
-                past_kvs=past_kvs,
-                past_frame_idx=0 if is_first_frame else 1,
-                total_budget=total_budget,
-                last_scores=last_scores,
-                current_budgets_static=current_budgets_static,
-            )
-
-        # static_argnums: is_first_frame (3), total_budget (4), use_cache (6),
-        # current_budgets_static (7).
-        self._aggregator_apply = jax.jit(
-            _agg_fn, static_argnums=(3, 4, 6, 7)
-        )
-
-        # JIT-wrap camera-head apply.  Past KVs are padded 3-tuples with
-        # fixed MAX → graph is shape-stable across frames, no static args
-        # required (a single compile covers frame 0 and frame N alike).
-        def _cam_fn(params, out_list, past_kvs_camera):
-            return self._camera_head.apply(
-                params,
-                out_list,
-                use_cache=True,
-                past_kvs_camera=past_kvs_camera,
-            )
-
-        self._camera_head_apply = jax.jit(_cam_fn)
-
-        self.reset()
-
-        # AOT warmup: compile for frame 0 (past_kvs=None → padded init with
-        # valid_len=0) and frame 1 (past_kvs=3-tuples with valid_len>0).
-        self._warmup()
+    def _compile_apply_functions(self) -> None:
+        """Create JIT wrappers around the stateful module apply calls."""
+        self._point_head_apply = compile_point_head_apply(self._point_head)
+        self._aggregator_apply = compile_aggregator_apply(self._aggregator)
+        self._camera_head_apply = compile_camera_head_apply(self._camera_head)
 
     @property
     def patch_grid(self) -> int:
@@ -226,13 +283,16 @@ class JAXVGGTFeatureExtractor:
     @property
     def aggregator_feature_shape(self) -> tuple[int, int, int]:
         """Shape of one frame's all-token pre-head global aggregator features."""
-        return (1 + self._aggregator.num_register_tokens + self.patch_grid ** 2, self._aggregator.embed_dim)
+        return (
+            1 + self._aggregator.num_register_tokens + self.patch_grid ** 2,
+            self._aggregator.embed_dim,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _new_padded_cache_entry(self) -> tuple:
+    def _new_padded_cache_entry(self) -> CacheEntry:
         """Allocate a zero-padded (k, v, valid_len=0) entry."""
         B = 1
         k_pad = jnp.zeros(
@@ -246,7 +306,7 @@ class JAXVGGTFeatureExtractor:
         valid_len = jnp.asarray(0, dtype=jnp.int32)
         return (k_pad, v_pad, valid_len)
 
-    def _new_padded_camera_entry(self) -> tuple:
+    def _new_padded_camera_entry(self) -> CacheEntry:
         """Allocate a zero-padded camera-head (k, v, valid_len=0) entry."""
         B = 1
         k_pad = jnp.zeros(
@@ -312,7 +372,7 @@ class JAXVGGTFeatureExtractor:
     # ------------------------------------------------------------------
 
     @property
-    def _past_kvs(self):
+    def _past_kvs(self) -> list[CompactCacheEntry] | None:
         """Compact 2-tuple view of the padded cache, for test observation.
 
         Returns None if no frames have been processed. Otherwise a list of
@@ -320,7 +380,7 @@ class JAXVGGTFeatureExtractor:
         """
         if self._past_kvs_padded is None:
             return None
-        out = []
+        out: list[CompactCacheEntry] = []
         for entry in self._past_kvs_padded:
             k_pad, v_pad, valid_len = entry
             vl = int(np.asarray(valid_len))
@@ -328,7 +388,10 @@ class JAXVGGTFeatureExtractor:
         return out
 
     @_past_kvs.setter
-    def _past_kvs(self, value):
+    def _past_kvs(
+        self,
+        value: list[CacheEntry | CompactCacheEntry | None] | None,
+    ) -> None:
         """Setter supporting the ``self._past_kvs = None`` reset pattern.
 
         Writing anything non-None falls through to storing as padded state.
@@ -340,7 +403,7 @@ class JAXVGGTFeatureExtractor:
             # Caller providing either 2-tuples or 3-tuples; re-pad as needed.
             self._past_kvs_padded = [self._to_padded(e) for e in value]
 
-    def _to_padded(self, entry) -> tuple:
+    def _to_padded(self, entry: CacheEntry | CompactCacheEntry | None) -> CacheEntry:
         """Convert a compact 2-tuple (or None) into padded 3-tuple form."""
         if entry is None:
             return self._new_padded_cache_entry()
@@ -361,16 +424,18 @@ class JAXVGGTFeatureExtractor:
 
     def reset(self) -> None:
         """Clear KV-cache and frame counter. Call at episode boundaries."""
-        self._past_kvs_padded: list[Any] | None = None
+        self._past_kvs_padded: list[CacheEntry] | None = None
         self._last_scores: jnp.ndarray | None = None
-        self._past_kvs_camera: list[Any] | None = None
+        self._past_kvs_camera: list[CacheEntry] | None = None
         self._frame_idx: int = 0
 
     def _prepare_input_image(self, rgb: np.ndarray) -> jnp.ndarray:
+        """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
         img = (jnp.asarray(rgb, dtype=jnp.float32) / 255.0).astype(self._dtype)
         return jax.device_put(img[None, None], self._device)
 
     def _ensure_aggregator_cache(self) -> None:
+        """Allocate aggregator cache state lazily on the first frame after reset."""
         if self._past_kvs_padded is None:
             self._past_kvs_padded = [
                 self._new_padded_cache_entry() for _ in range(self._agg_depth)
@@ -379,7 +444,7 @@ class JAXVGGTFeatureExtractor:
             self._last_scores = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
 
     def _resolve_static_budgets(self) -> tuple[int, ...]:
-        # Compute budgets outside jit as a static tuple of Python ints.
+        """Return per-block budgets as Python ints for JIT static args."""
         if self._budgets_static_override is not None:
             return self._budgets_static_override
         return self._compute_static_budgets(np.asarray(self._last_scores))
@@ -389,6 +454,7 @@ class JAXVGGTFeatureExtractor:
         images: jnp.ndarray,
         budgets_static: tuple[int, ...],
     ) -> tuple[list[jnp.ndarray], jnp.ndarray]:
+        """Run one streaming aggregator step and update aggregator cache state."""
         out_list, patch_start_idx, self._past_kvs_padded, self._last_scores = (
             self._aggregator_apply(
                 self._agg_params,
@@ -404,12 +470,14 @@ class JAXVGGTFeatureExtractor:
         return out_list, patch_start_idx
 
     def _ensure_camera_cache(self) -> None:
+        """Allocate camera-head cache state lazily when heads are enabled."""
         if self._past_kvs_camera is None:
             self._past_kvs_camera = [
                 self._new_padded_camera_entry() for _ in range(self._cam_depth)
             ]
 
     def _check_camera_cache_capacity(self) -> None:
+        """Fail before the next camera-head write would exceed the padded cache."""
         # Guard against silent cache overflow: dynamic_update_slice_in_dim
         # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
         # produces undefined cuDNN behavior.  Fail loud here instead.
@@ -451,15 +519,21 @@ class JAXVGGTFeatureExtractor:
         pts3d: jnp.ndarray,
         camera_pose: jnp.ndarray,
         return_dense: bool,
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    ) -> HeadOutputs:
+        """Pool dense point maps and unwrap the single-frame camera pose."""
         world_points = _pool_dense_world_points(pts3d, self._wp_pool_size)
         world_points_out = world_points[0].astype(jnp.float32)
         camera_pose_out = camera_pose[0].astype(jnp.float32)
         # Pre-pool dense map (N, 518, 518, 3) -> (518, 518, 3); 3D-48.
         dense_world_points_out = pts3d[0].astype(jnp.float32) if return_dense else None
-        return world_points_out, camera_pose_out, dense_world_points_out
+        return HeadOutputs(
+            world_points=world_points_out,
+            camera_pose=camera_pose_out,
+            dense_world_points=dense_world_points_out,
+        )
 
     def _aggregator_features(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
+        """Expose the final global-stream tokens used by VGGT encoder variants."""
         # Final pre-head aggregator tokens for encoder ablations. The JAX port
         # stores frame/local and global/contextual streams concatenated as
         # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
@@ -469,32 +543,96 @@ class JAXVGGTFeatureExtractor:
         final_global = final_tokens[..., final_tokens.shape[-1] // 2:]
         return final_global[0, 0].astype(jnp.float32)
 
+    def _run_optional_heads(
+        self,
+        out_list: list[jnp.ndarray],
+        images: jnp.ndarray,
+        patch_start_idx: jnp.ndarray,
+        *,
+        return_dense: bool,
+        phase_times: PhaseTimes | None,
+        forward_start: float,
+    ) -> HeadOutputs | None:
+        """Run camera/point heads when enabled and record optional phase timings."""
+        if not self._compute_heads:
+            self._record_aggregator_only_profile(phase_times, forward_start)
+            return None
+
+        pts3d, camera_pose = self._run_heads(out_list, images, patch_start_idx)
+        wrapper_start = self._synchronize_heads_for_profile(
+            pts3d,
+            camera_pose,
+            phase_times,
+        )
+        head_outputs = self._pool_head_outputs(pts3d, camera_pose, return_dense)
+        self._record_head_profile(phase_times, forward_start, wrapper_start)
+        return head_outputs
+
+    def _synchronize_heads_for_profile(
+        self,
+        pts3d: jnp.ndarray,
+        camera_pose: jnp.ndarray,
+        phase_times: PhaseTimes | None,
+    ) -> float:
+        """Synchronize head tensors only when wall-clock profiling is active."""
+        if phase_times is None:
+            return 0.0
+        pts3d.block_until_ready()
+        camera_pose.block_until_ready()
+        return time.perf_counter()
+
+    def _record_head_profile(
+        self,
+        phase_times: PhaseTimes | None,
+        forward_start: float,
+        wrapper_start: float,
+    ) -> None:
+        """Record forward and wrapper timings for the full extractor path."""
+        if phase_times is None:
+            return
+        wrapper_end = time.perf_counter()
+        phase_times["vggt_forward"].append((wrapper_start - forward_start) * 1000.0)
+        phase_times["vggt_wrapper"].append((wrapper_end - wrapper_start) * 1000.0)
+
+    def _record_aggregator_only_profile(
+        self,
+        phase_times: PhaseTimes | None,
+        forward_start: float,
+    ) -> None:
+        """Record timings for compute_heads=False, where wrapper work is zero."""
+        if phase_times is None:
+            return
+        forward_end = time.perf_counter()
+        phase_times["vggt_forward"].append((forward_end - forward_start) * 1000.0)
+        phase_times["vggt_wrapper"].append(0.0)
+
     def _build_extract_output(
         self,
         *,
         aggregator_features: jnp.ndarray,
-        world_points: jnp.ndarray | None,
-        camera_pose: jnp.ndarray | None,
-        dense_world_points: jnp.ndarray | None,
+        head_outputs: HeadOutputs | None,
         return_dense: bool,
-    ) -> dict[str, jnp.ndarray]:
+    ) -> ExtractOutput:
+        """Build the public output dict without changing legacy key names."""
         if self._compute_heads:
+            if head_outputs is None:
+                raise RuntimeError("head outputs missing while compute_heads=True")
             out = {
-                "world_points": world_points,
-                "camera_pose": camera_pose,
+                "world_points": head_outputs.world_points,
+                "camera_pose": head_outputs.camera_pose,
                 "aggregator_features": aggregator_features,
             }
             if return_dense:
-                out["dense_world_points"] = dense_world_points
+                out["dense_world_points"] = head_outputs.dense_world_points
             return out
         return {"aggregator_features": aggregator_features}
 
     def extract(
         self,
         rgb: np.ndarray,
-        phase_times: dict[str, list[float]] | None = None,
+        phase_times: PhaseTimes | None = None,
         return_dense: bool = False,
-    ) -> dict[str, jnp.ndarray]:
+    ) -> ExtractOutput:
         """Single-frame streaming inference.
 
         When ``return_dense`` is True the result dict additionally carries
@@ -503,43 +641,25 @@ class JAXVGGTFeatureExtractor:
         "pixel-as-point" map). Diagnostic only (see issue 3D-48); the
         default path is unaffected and does not materialize it.
         """
-        profiling = phase_times is not None
-        fwd_t0 = time.perf_counter() if profiling else 0.0
+        forward_start = time.perf_counter() if phase_times is not None else 0.0
 
         images = self._prepare_input_image(rgb)
         self._ensure_aggregator_cache()
         budgets_static = self._resolve_static_budgets()
         out_list, patch_start_idx = self._run_aggregator(images, budgets_static)
 
-        world_points_out = camera_pose_out = dense_world_points_out = None
-        if self._compute_heads:
-            pts3d, camera_pose = self._run_heads(out_list, images, patch_start_idx)
-
-            if profiling:
-                pts3d.block_until_ready()
-                camera_pose.block_until_ready()
-                wrap_t0 = time.perf_counter()
-
-            world_points_out, camera_pose_out, dense_world_points_out = (
-                self._pool_head_outputs(pts3d, camera_pose, return_dense)
-            )
-
-            if profiling:
-                wrap_t1 = time.perf_counter()
-                phase_times["vggt_forward"].append((wrap_t0 - fwd_t0) * 1000.0)
-                phase_times["vggt_wrapper"].append((wrap_t1 - wrap_t0) * 1000.0)
-        elif profiling:
-            # No heads: forward timing ends right after aggregator, no wrapper work.
-            wrap_t0 = time.perf_counter()
-            phase_times["vggt_forward"].append((wrap_t0 - fwd_t0) * 1000.0)
-            phase_times["vggt_wrapper"].append(0.0)
-
+        head_outputs = self._run_optional_heads(
+            out_list,
+            images,
+            patch_start_idx,
+            return_dense=return_dense,
+            phase_times=phase_times,
+            forward_start=forward_start,
+        )
         aggregator_features = self._aggregator_features(out_list)
         self._frame_idx += 1
         return self._build_extract_output(
             aggregator_features=aggregator_features,
-            world_points=world_points_out,
-            camera_pose=camera_pose_out,
-            dense_world_points=dense_world_points_out,
+            head_outputs=head_outputs,
             return_dense=return_dense,
         )
