@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VGGT Token Transformer Encoder for R2Dreamer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f8fb;
+    --paper: #ffffff;
+    --ink: #172033;
+    --muted: #5d687a;
+    --faint: #8a94a6;
+    --line: #dfe5ef;
+    --line-2: #c9d2e1;
+    --rgb: #0f766e;
+    --rgb-soft: #d9f3ef;
+    --vggt: #4f46e5;
+    --vggt-soft: #e8e7ff;
+    --tok: #7c2d12;
+    --tok-soft: #ffeadf;
+    --rssm: #b45309;
+    --rssm-soft: #fff1cf;
+    --ok: #047857;
+    --bad: #b91c1c;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.62;
+  }
+
+  a { color: var(--vggt); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono);
+    font-size: .86em;
+    color: #334155;
+    background: #f1f4f9;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 26px; }
+
+  header {
+    color: #fff;
+    background:
+      radial-gradient(circle at 78% 18%, rgba(45, 212, 191, .24), transparent 34%),
+      linear-gradient(135deg, #172033 0%, #27304a 58%, #362f66 100%);
+    border-bottom: 1px solid #273246;
+  }
+  header .wrap { padding-top: 58px; padding-bottom: 46px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #b8c4de;
+    margin-bottom: 14px;
+  }
+  h1 {
+    max-width: 920px;
+    font-size: clamp(34px, 5vw, 58px);
+    line-height: 1.06;
+    letter-spacing: -.035em;
+    font-weight: 800;
+  }
+  .lede {
+    max-width: 820px;
+    margin-top: 18px;
+    color: #d6deed;
+    font-size: 18px;
+    font-weight: 300;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 26px; }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: #e8eefb;
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.18);
+    border-radius: 999px;
+    padding: 6px 10px;
+  }
+
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(255,255,255,.88);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; gap: 4px; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+  nav a {
+    color: var(--muted);
+    font-size: 13.5px;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 7px 11px;
+  }
+  nav a:hover { color: var(--ink); background: #eef2f8; text-decoration: none; }
+
+  section { padding: 48px 0; border-bottom: 1px solid var(--line); }
+  .section-kicker {
+    font-family: var(--mono);
+    color: var(--faint);
+    font-size: 12px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    margin-bottom: 7px;
+  }
+  h2 { font-size: 28px; line-height: 1.2; letter-spacing: -.02em; margin-bottom: 10px; }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  p { color: var(--muted); margin-bottom: 13px; }
+  strong { color: var(--ink); font-weight: 650; }
+
+  .grid { display: grid; gap: 16px; }
+  .g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 820px) {
+    .g2, .g3 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 2px rgba(18, 31, 54, .04);
+  }
+  .card h3:first-child { margin-top: 0; }
+  .card p:last-child { margin-bottom: 0; }
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    border-radius: 999px;
+    padding: 3px 8px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    background: #f4f6fb;
+    color: var(--muted);
+  }
+  .tag.vggt { color: #3730a3; background: var(--vggt-soft); border-color: #c7c3ff; }
+  .tag.rgb { color: #0f5f59; background: var(--rgb-soft); border-color: #a7ddd5; }
+  .tag.tok { color: #7c2d12; background: var(--tok-soft); border-color: #ffd0b8; }
+  .tag.rssm { color: #92400e; background: var(--rssm-soft); border-color: #f2cf78; }
+
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(108px, 1fr));
+    gap: 10px;
+    align-items: stretch;
+    margin: 20px 0;
+  }
+  @media (max-width: 980px) {
+    .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .node {
+    position: relative;
+    min-height: 124px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    background: var(--paper);
+    cursor: pointer;
+    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+  .node:hover, .node.active {
+    transform: translateY(-2px);
+    border-color: var(--vggt);
+    box-shadow: 0 10px 24px rgba(79,70,229,.12);
+  }
+  .node::after {
+    content: "→";
+    position: absolute;
+    right: -12px;
+    top: 42%;
+    color: var(--line-2);
+    font-weight: 800;
+  }
+  .node:last-child::after { content: ""; }
+  @media (max-width: 980px) { .node::after { content: ""; } }
+  .node .icon { font-size: 24px; margin-bottom: 7px; }
+  .node .name { font-weight: 700; line-height: 1.2; }
+  .node .shape { font-family: var(--mono); color: var(--faint); font-size: 11px; margin-top: 5px; }
+  .node.rgb { border-top: 4px solid var(--rgb); }
+  .node.vggt { border-top: 4px solid var(--vggt); }
+  .node.tok { border-top: 4px solid var(--tok); }
+  .node.rssm { border-top: 4px solid var(--rssm); }
+
+  .buffer-note {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 14px;
+    align-items: stretch;
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    padding: 14px;
+    margin: 16px 0;
+  }
+  .buffer-note .label {
+    font-family: var(--mono);
+    color: #9a3412;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  .buffer-note p { margin: 0; color: #514033; }
+  .storage-math {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .storage-math div {
+    background: rgba(255,255,255,.72);
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .storage-math b {
+    display: block;
+    color: #7c2d12;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-bottom: 3px;
+  }
+  .storage-math span {
+    color: #514033;
+    font-size: 13px;
+  }
+  .shape-note {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 8px;
+    padding: 13px 15px;
+    margin: 14px 0;
+  }
+  .shape-note p {
+    color: #39415f;
+    margin: 0;
+  }
+  .loss-note {
+    background: #ecfdf5;
+    border: 1px solid #a7f3d0;
+    border-radius: 8px;
+    padding: 13px 15px;
+    margin: 14px 0;
+  }
+  .loss-note p {
+    color: #23483d;
+    margin: 0 0 8px;
+  }
+  .loss-note p:last-child { margin-bottom: 0; }
+  @media (max-width: 700px) {
+    .buffer-note { grid-template-columns: 1fr; }
+    .storage-math { grid-template-columns: 1fr; }
+  }
+
+  #detail {
+    background: #111827;
+    color: #f8fafc;
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-top: 12px;
+  }
+  #detail h3 { margin: 0 0 6px; color: #fff; }
+  #detail p { color: #cbd5e1; margin: 0; }
+  #detail code { color: #dbeafe; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.15); }
+
+  .tokens {
+    display: grid;
+    grid-template-columns: 1.3fr 4fr .75fr;
+    gap: 8px;
+    margin: 18px 0 6px;
+    min-height: 88px;
+  }
+  .token-band {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .token-band b { display: block; margin-bottom: 4px; }
+  .token-band span { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+  .camera { background: #eef2ff; border-color: #c7d2fe; }
+  .patches { background: #fff7ed; border-color: #fed7aa; }
+  .pool { background: #ecfdf5; border-color: #a7f3d0; }
+  @media (max-width: 760px) { .tokens { grid-template-columns: 1fr; } }
+
+  .decision {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  .decision th, .decision td {
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+    padding: 12px 14px;
+  }
+  .decision th {
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: #f3f6fb;
+  }
+  .decision tr:last-child td { border-bottom: 0; }
+
+  .callout {
+    border-left: 4px solid var(--vggt);
+    background: #eef2ff;
+    border-radius: 0 8px 8px 0;
+    padding: 14px 17px;
+    margin: 16px 0;
+  }
+  .callout p { margin: 0; color: #39415f; }
+
+  pre {
+    overflow: auto;
+    background: #0f172a;
+    color: #dbeafe;
+    border-radius: 8px;
+    padding: 18px;
+    margin: 16px 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+  }
+  pre .dim { color: #94a3b8; }
+  pre .kw { color: #a5b4fc; }
+  pre .ok { color: #86efac; }
+
+  footer { padding: 34px 0 60px; color: var(--faint); font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Design proposal · R2Dreamer / VGGT</div>
+    <h1>Token-preserving Transformer Encoder over VGGT geometry embeddings</h1>
+    <p class="lede">
+      The current code can consume VGGT as flat world-points, pooled aggregator vectors, raw flattened tokens, or RGB+VGGT hybrids.
+      This design adds a middle path: keep the VGGT patch tokens structured, run a small Transformer encoder on them, then feed a compact
+      geometry-aware embedding into the existing Dreamer world model.
+    </p>
+    <div class="chips">
+      <span class="chip">input: 518x518 RGB</span>
+      <span class="chip">VGGT tokens: camera + 37x37 patches</span>
+      <span class="chip">new module: VGGTAggTokenTransformerEncoder</span>
+      <span class="chip">output: cfg.vggt_embed_dim</span>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap">
+    <a href="#paper">Paper idea</a>
+    <a href="#current">Current code</a>
+    <a href="#pipeline">Proposed pipeline</a>
+    <a href="#architecture">Encoder architecture</a>
+    <a href="#implementation">Implementation map</a>
+    <a href="#experiments">Experiments</a>
+  </div>
+</nav>
+
+<main>
+  <section id="paper">
+    <div class="wrap">
+      <div class="section-kicker">01 · Paper signal</div>
+      <h2>What to borrow from eVGGT</h2>
+      <div class="grid g3">
+        <div class="card">
+          <span class="tag vggt">Geometry latent</span>
+          <h3>Use the latent, not the point cloud</h3>
+          <p>
+            Vuong, Vu, and Reid integrate eVGGT by removing the prediction heads and passing the frozen geometry-aware latent
+            into ACT and Diffusion Policy. Their comparison suggests the implicit latent is more useful than unstructured point
+            clouds for manipulation policies.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag tok">Efficiency</span>
+          <h3>Keep the student path small</h3>
+          <p>
+            The paper compresses VGGT by reducing transformer blocks and using a smaller DINO backbone, reporting a much faster
+            and smaller geometry encoder. For this thesis code, that argues against a huge Dense layer over 1.4M flattened tokens.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag rssm">Policy handoff</span>
+          <h3>Adapt to the policy interface</h3>
+          <p>
+            eVGGT is inserted by adapting latent geometry features to the downstream policy dimension. In R2Dreamer, the matching
+            interface is the encoder output consumed by <code>R2RSSM.observe()</code>.
+          </p>
+        </div>
+      </div>
+      <div class="callout">
+        <p>
+          <strong>Design translation:</strong> instead of predicting VGGT heads, expose <code>aggregator_features</code>, preserve the
+          37x37 patch token grid, add a lightweight Transformer encoder, and project the resulting readout to <code>vggt_embed_dim</code>.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section id="current">
+    <div class="wrap">
+      <div class="section-kicker">02 · Current repository state</div>
+      <h2>The repo already has the right insertion point</h2>
+      <div class="grid g2">
+        <div class="card">
+          <span class="tag rgb">Adapter side</span>
+          <h3><code>VGGTObsAdapter</code></h3>
+          <p>
+            <code>code/src/r2dreamer/adapters/vggt_adapter.py</code> already exposes <code>feature_kind="agg_raw"</code>.
+            It drops the four register tokens and flattens <code>[camera token | patch tokens]</code> into a replay vector.
+          </p>
+          <p>
+            Production shape today: <code>1370 * 1024 = 1,402,880</code> values per frame. Stored as <code>float16</code>.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag vggt">World model side</span>
+          <h3><code>VGGTAggRawMLPEncoder</code></h3>
+          <p>
+            <code>code/src/r2dreamer/world_model/encoders.py</code> currently consumes the flattened raw token vector with an MLP.
+            That loses the 37x37 grid and makes the first Dense layer extremely large.
+          </p>
+          <p>
+            This is the component to replace with a token-aware encoder while keeping the adapter, replay, and RSSM interface familiar.
+          </p>
+        </div>
+      </div>
+
+      <div class="tokens" aria-label="VGGT raw token layout">
+        <div class="token-band camera">
+          <b>camera token</b>
+          <span>1 x 1024</span>
+        </div>
+        <div class="token-band patches">
+          <b>patch token grid</b>
+          <span>37 x 37 x 1024 = 1369 tokens</span>
+        </div>
+        <div class="token-band pool">
+          <b>readout</b>
+          <span>CLS / mean / attention pool</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pipeline">
+    <div class="wrap">
+      <div class="section-kicker">03 · Proposed pipeline</div>
+      <h2>Where the Transformer Encoder sits</h2>
+      <p>
+        Click each stage to inspect the shape contract. The new block sits after VGGT aggregation and before the RSSM.
+        VGGT remains frozen and headless for the token variant.
+      </p>
+      <div class="shape-note">
+        <p>
+          <strong>Shape convention:</strong> <code>1374</code> is the number of VGGT tokens, while <code>1024</code> is the feature width of each token.
+          The aggregator output is <code>(1374, 1024)</code>: <code>1 camera + 4 register + 1369 patch</code> tokens, each with a 1024-D embedding.
+          Register tokens are learned non-spatial scratch tokens: they give attention somewhere to store global context / absorb nuisance information without forcing every artifact into patch tokens.
+          The current downstream token layout drops them because it focuses on the camera summary plus spatial patch grid, leaving <code>(1370, 1024)</code>.
+          For a Token Transformer, they are cheap enough to ablate: keeping them gives <code>(1374, 1024)</code>, only <strong>0.29%</strong> more tokens/storage.
+          My recommendation is to include a thesis ablation <code>keep registers vs drop registers</code>, not assume either is correct.
+        </p>
+        <p style="margin-top: 8px;">
+          <strong>512-D option:</strong> if we project each token from <code>1024 → 512</code> before storing replay, the layout becomes
+          <code>(1370, 512)</code> and storage halves to <strong>1.40 MB</strong> per transition (<strong>140.3 GB</strong> for 100,000 slots).
+          If the projection is inside the trainable Token Transformer, replay still stores <code>(1370, 1024)</code>; only the Transformer compute after projection is reduced.
+        </p>
+      </div>
+      <div class="loss-note">
+        <p>
+          <strong>How the Token Transformer learns:</strong> it is not trained by a separate VGGT loss. VGGT is frozen, but the Token Transformer is the trainable
+          R2Dreamer encoder, stored under <code>params["encoder"]</code>. During <code>train_step()</code>, replay tokens pass through
+          <code>encoder → RSSM.observe()</code>; then <code>jax.grad(total_loss)</code> updates the Token Transformer.
+        </p>
+        <p>
+          The useful gradient comes from the world-model and representation objectives: representation KL, reward prediction, continue prediction,
+          Barlow/rep-value through the RSSM feature, and optional decoder loss for RGB-capable variants. The actor/critic behavior loss mostly trains
+          policy/value heads because imagined rollouts start from detached latent states.
+        </p>
+      </div>
+      <div class="buffer-note">
+        <div class="label">Replay buffer</div>
+        <div>
+          <p>
+            Save the <strong>adapter output</strong>: flattened raw VGGT tokens
+            <code>[camera token | 37x37 patch tokens]</code> with shape
+            <code>(1370 * 1024,)</code>, stored as <code>float16</code> per frame.
+            Do not save the Transformer output; it is recomputed by the trainable agent encoder from sampled replay batches.
+          </p>
+          <div class="storage-math">
+            <div>
+              <b>Per transition</b>
+              <span><code>1,402,880 values * 2 bytes/value</code> = <strong>2.81 MB</strong> / 2.68 MiB. The factor 2 is because <code>float16</code> is 16 bits = 2 bytes.</span>
+            </div>
+            <div>
+              <b>Capacity implication</b>
+              <span><strong>100,000 slots</strong> would be <strong>280.6 GB</strong> / 261.3 GiB for features only, so raw-token replay is not practical at normal Dreamer buffer sizes.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow">
+        <div class="node rgb active" data-title="Habitat observation" data-body="The environment renders a 518x518 RGB frame for VGGT. Hybrid variants can also downsample this same frame to 64x64 for the CNN branch." data-shape="obs_dict['image']: (3, 518, 518) uint8">
+          <div class="icon">📷</div>
+          <div class="name">RGB observation</div>
+          <div class="shape">(3, 518, 518)</div>
+        </div>
+        <div class="node vggt" data-title="Frozen VGGT aggregator" data-body="Use JAXVGGTFeatureExtractor with compute_heads=False so camera_head, point_head, depth, and world-point materialization are skipped. The output is 1374 tokens, and every token is a 1024-D vector: 1 camera token, 4 register tokens, and 37x37 = 1369 patch tokens. Register tokens are learned non-spatial scratch tokens that stabilize attention and carry global/nuisance information; they are useful inside VGGT, but the downstream replay layout drops them." data-shape="aggregator_features: (1374 tokens, 1024 dims/token)">
+          <div class="icon">🧊</div>
+          <div class="name">VGGT aggregator</div>
+          <div class="shape">1374 tokens</div>
+        </div>
+        <div class="node tok" data-title="Token adapter" data-body="Drop the four register tokens, keep the camera token and 37x37 patch tokens. That changes only the token count: 1374 -> 1370. The token width stays 1024 because each remaining token is still a 1024-D VGGT embedding. A 512-D variant is possible: pre-project before replay to store (1370, 512) and halve storage, or project inside the trainable encoder to reduce Transformer compute without reducing replay size. Store as float16 in replay, but upcast to float32 inside the agent encoder." data-shape="[cam | patches]: (1370 tokens, 1024 dims/token)">
+          <div class="icon">🧩</div>
+          <div class="name">Token layout</div>
+          <div class="shape">1370 x 1024</div>
+        </div>
+        <div class="node tok" data-title="Replay buffer contents" data-body="The replay buffer stores one flattened float16 vector per transition: camera token plus all patch tokens, shape (1,402,880,). Storage is 1,402,880 * 2 bytes = 2.81 MB per transition. At normal Dreamer capacities this becomes very large: 100,000 slots would require about 280.6 GB for features only. Transformer activations and the final 1024-D geometry embed are not cached." data-shape="features: (1402880,) float16">
+          <div class="icon">💾</div>
+          <div class="name">Replay buffer</div>
+          <div class="shape">1,402,880 fp16</div>
+        </div>
+        <div class="node tok" data-title="New Transformer Encoder" data-body="Reshape the flat replay vector back to tokens. Add a learned CLS token or reuse the camera token, add 2D positional encoding for patches, then run 2-4 lightweight self-attention blocks. This module is trainable: its parameters are part of params['encoder'] and receive gradients from R2Dreamer's total loss through RSSM.observe(), especially representation KL, reward/continue prediction, and representation losses." data-shape="tokens -> transformer -> readout">
+          <div class="icon">🔀</div>
+          <div class="name">Token Transformer</div>
+          <div class="shape">2-4 layers</div>
+        </div>
+        <div class="node rssm" data-title="Projection to Dreamer embed" data-body="Pool the Transformer output to one compact embedding, normalize it, and project to cfg.vggt_embed_dim so the rest of the R2Dreamer agent is unchanged." data-shape="embed: (B, 1024)">
+          <div class="icon">🎯</div>
+          <div class="name">Geometry embed</div>
+          <div class="shape">(B, 1024)</div>
+        </div>
+        <div class="node rssm" data-title="Existing R2Dreamer world model" data-body="Feed the embedding to R2RSSM.observe(embed, actions, is_first). World-model, behavior, Barlow, and replay-value losses stay structurally unchanged." data-shape="RSSM posterior + prior + losses">
+          <div class="icon">🧠</div>
+          <div class="name">RSSM training</div>
+          <div class="shape">existing path</div>
+        </div>
+      </div>
+
+      <div id="detail">
+        <h3>Habitat observation</h3>
+        <p><code>obs_dict['image']: (3, 518, 518) uint8</code> The environment renders a 518x518 RGB frame for VGGT. Hybrid variants can also downsample this same frame to 64x64 for the CNN branch.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="architecture">
+    <div class="wrap">
+      <div class="section-kicker">04 · Encoder architecture</div>
+      <h2>Small token encoder, not a giant flattened MLP</h2>
+      <div class="grid g2">
+        <div class="card">
+          <span class="tag tok">Recommended first variant</span>
+          <h3>Standalone token Transformer</h3>
+          <p>
+            <strong>Input:</strong> <code>(B, 1370, 1024)</code> after reshape. Use the camera token as a global scene token and patch tokens as spatial geometry evidence.
+          </p>
+          <p>
+            <strong>Blocks:</strong> <code>RMSNorm → MultiHeadDotProductAttention → residual → MLP → residual</code>, with 2 layers, 8 heads, MLP ratio 2.
+          </p>
+          <p>
+            <strong>Readout:</strong> concatenate camera token output and mean-pooled patch output, then <code>Dense(1024)</code>.
+          </p>
+        </div>
+        <div class="card">
+          <span class="tag rgb">Optional second variant</span>
+          <h3>Hybrid RGB + token Transformer</h3>
+          <p>
+            Reuse the existing <code>HybridAggRawEncoder</code> split, but replace its raw-token MLP branch with the Transformer encoder and keep the zero-init scalar gate.
+          </p>
+          <p>
+            This preserves the known-safe start condition: training begins as CNN-Dreamer, then learns how much geometry to admit.
+          </p>
+        </div>
+      </div>
+
+<pre><span class="kw">class</span> VGGTAggTokenTransformerEncoder(nn.Module):
+    embed_dim: int = 1024
+    token_dim: int = 1024
+    num_tokens: int = 1370
+    depth: int = 2
+    heads: int = 8
+    mlp_ratio: int = 2
+
+    <span class="kw">def</span> __call__(self, obs):
+        <span class="dim"># obs: (B, 1370 * 1024) from replay</span>
+        x = obs.astype(jnp.float32).reshape(obs.shape[0], self.num_tokens, self.token_dim)
+        cam = x[:, :1]
+        patches = x[:, 1:]
+        patches = patches + learned_2d_pos_embed(37, 37, self.token_dim)
+        x = jnp.concatenate([cam, patches], axis=1)
+        x = transformer_blocks(x, depth=self.depth, heads=self.heads)
+        readout = jnp.concatenate([x[:, 0], x[:, 1:].mean(axis=1)], axis=-1)
+        <span class="kw">return</span> nn.Dense(self.embed_dim, name=<span class="ok">"proj"</span>)(RMSNorm()(readout))</pre>
+    </div>
+  </section>
+
+  <section id="implementation">
+    <div class="wrap">
+      <div class="section-kicker">05 · Implementation map</div>
+      <h2>Concrete files to touch when this moves from design to code</h2>
+      <table class="decision">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Change</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>src/r2dreamer/world_model/encoders.py</code></td>
+            <td>Add <code>VGGTAggTokenTransformerEncoder</code> and optional <code>HybridAggTokenTransformerEncoder</code>.</td>
+            <td>Owns the Flax modules that produce the RSSM observation embedding.</td>
+          </tr>
+          <tr>
+            <td><code>src/r2dreamer/encoders/__init__.py</code></td>
+            <td>Add launcher-side <code>VGGTAggTokenTransformer</code> spec using <code>feature_kind="agg_raw"</code>.</td>
+            <td>Reuses existing VGGT extraction, replay shape, and compute-head skipping.</td>
+          </tr>
+          <tr>
+            <td><code>src/r2dreamer/launch/registries.py</code></td>
+            <td>Register <code>vggt_agg_token_transformer</code>.</td>
+            <td>Makes the variant selectable by train/eval launchers.</td>
+          </tr>
+          <tr>
+            <td><code>src/r2dreamer/config.py</code></td>
+            <td>Add narrow knobs: <code>vggt_tf_layers</code>, <code>vggt_tf_heads</code>, <code>vggt_tf_mlp_ratio</code>.</td>
+            <td>Keeps the experiment controlled without overloading <code>vggt_mlp_layers</code>.</td>
+          </tr>
+          <tr>
+            <td><code>src/r2dreamer/agent.py</code></td>
+            <td>Extend <code>_make_encoder()</code> mapping and constructor branch.</td>
+            <td>Threads the new config fields into the module while leaving RSSM unchanged.</td>
+          </tr>
+          <tr>
+            <td><code>tests/...</code></td>
+            <td>Add shape tests with reduced token count and a registry smoke test.</td>
+            <td>Avoids materializing production-size weights in CPU tests.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="experiments">
+    <div class="wrap">
+      <div class="section-kicker">06 · Experiment plan</div>
+      <h2>Compare against the existing VGGT baselines</h2>
+      <div class="grid g3">
+        <div class="card">
+          <span class="tag">Ablation A</span>
+          <h3><code>vggt_aggregator_mlp</code></h3>
+          <p>Current pooled-token baseline: camera, mean patch, max patch. Fast and compact, but loses spatial token relations.</p>
+        </div>
+        <div class="card">
+          <span class="tag">Ablation B</span>
+          <h3><code>vggt_agg_raw_mlp</code></h3>
+          <p>Current raw-token baseline. Preserves information in replay but destroys token structure through flattening and a huge first Dense.</p>
+        </div>
+        <div class="card">
+          <span class="tag vggt">Ablation C</span>
+          <h3><code>vggt_agg_token_transformer</code></h3>
+          <p>New design. Preserves the token grid, uses localizable geometry context, and keeps parameter count controlled.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p>
+          <strong>Acceptance metric:</strong> the token Transformer is justified if it improves ObjectNav learning or heldout world-model probes over pooled aggregator features
+          without approaching the memory and compile cost of the raw flattened MLP path.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    Paper reference from Zotero: Vuong, Vu, and Reid, <em>Improving Robotic Manipulation with Efficient Geometry-Aware Vision Encoder</em>, arXiv:2509.15880, 2025.
+    Code context inspected from <code>code/src/r2dreamer</code> and <code>code/src/vggt/jax</code>.
+  </div>
+</footer>
+
+<script>
+  const nodes = document.querySelectorAll('.node');
+  const detail = document.getElementById('detail');
+  nodes.forEach(node => {
+    node.addEventListener('click', () => {
+      nodes.forEach(n => n.classList.remove('active'));
+      node.classList.add('active');
+      detail.innerHTML = `<h3>${node.dataset.title}</h3><p><code>${node.dataset.shape}</code> ${node.dataset.body}</p>`;
+    });
+  });
+</script>
+</body>
+</html>
