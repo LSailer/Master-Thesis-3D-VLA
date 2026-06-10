@@ -47,8 +47,7 @@ def _make_frame(seed: int = 0) -> np.ndarray:
 def _real_habitat_frame(index: int = 0) -> np.ndarray:
     """Real Habitat RGB frame fixture (CHW, uint8)."""
     fixture = (
-        Path(__file__).parents[2]
-        / "tests"
+        Path(__file__).parents[1]
         / "r2dreamer"
         / "launch"
         / "fixtures"

@@ -7,6 +7,7 @@ from contextlib import nullcontext
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 # Ensure InfiniteVGGT source is importable.
 _IVGGT_SRC = str(Path(__file__).resolve().parent.parent.parent / "external" / "InfiniteVGGT" / "src")
@@ -77,10 +78,12 @@ class VGGTFeatureExtractor:
         # Prefer Flash SDP kernels when available (PyTorch 2.0+).
         if prefer_flash_sdp and self.device.type == "cuda":
             self._flash_sdp_ctx_factory = (
-                lambda: torch.backends.cuda.sdp_kernel(
-                    enable_flash=True,
-                    enable_math=True,
-                    enable_mem_efficient=True,
+                lambda: sdpa_kernel(
+                    [
+                        SDPBackend.FLASH_ATTENTION,
+                        SDPBackend.EFFICIENT_ATTENTION,
+                        SDPBackend.MATH,
+                    ]
                 )
             )
         else:
