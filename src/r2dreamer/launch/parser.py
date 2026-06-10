@@ -123,6 +123,22 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).")
 
 
+def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--vggt_token_transformer_layers", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_layers for "
+                        "vggt_agg_token_transformer.")
+    p.add_argument("--vggt_token_transformer_heads", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_heads for "
+                        "vggt_agg_token_transformer.")
+    p.add_argument("--vggt_token_projection_dim", type=int, default=None,
+                   help="Override cfg.vggt_token_projection_dim before token attention.")
+    p.add_argument("--vggt_token_transformer_mlp_ratio", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_mlp_ratio.")
+    p.add_argument("--vggt_drop_register_tokens", action="store_true",
+                   help="Drop the 4 VGGT register tokens in the token Transformer "
+                        "ablation. Default keeps registers for 3D-75.")
+
+
 def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
@@ -132,6 +148,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     _add_overfit_train_args(p)
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)
+    _add_token_transformer_train_args(p)
     return p
 
 
@@ -140,7 +157,11 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
     p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
+                   choices=[
+                       "cnn", "vggt", "vggt_aggregator_mlp",
+                       "vggt_agg_token_transformer", "vggt_wp_dense_cnn",
+                       "vggt_wp_cp_64", "hybrid",
+                   ])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

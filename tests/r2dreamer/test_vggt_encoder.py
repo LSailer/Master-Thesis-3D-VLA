@@ -7,6 +7,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import (
+    VGGTAggTokenTransformerEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     WPConvEncoder,
@@ -17,6 +18,54 @@ from src.buffer.replay_buffer import VGGTReplayBuffer
 FEATURE_DIM = 4116  # 37*37*3 + 9
 POOL_DIM = 1024
 POOLED_FEATURE_DIM = 3 * POOL_DIM  # [cam | mean_patches | max_patches]
+
+
+class TestVGGTAggTokenTransformerEncoder:
+    """Shape tests for the 3D-75 full-token Transformer encoder."""
+
+    def test_output_shape_with_reduced_token_count(self):
+        enc = VGGTAggTokenTransformerEncoder(
+            embed_dim=64,
+            token_dim=16,
+            num_tokens=10,
+            projection_dim=32,
+            layers=2,
+            heads=4,
+            mlp_ratio=2,
+            keep_register_tokens=True,
+        )
+        dummy = jnp.zeros((2, 10 * 16), dtype=jnp.float16)
+        params = enc.init(jax.random.PRNGKey(0), dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (2, 64)
+        assert jnp.isfinite(out).all()
+
+    def test_can_drop_register_tokens_for_future_ablation(self):
+        enc = VGGTAggTokenTransformerEncoder(
+            embed_dim=32,
+            token_dim=8,
+            num_tokens=10,
+            projection_dim=16,
+            layers=1,
+            heads=4,
+            keep_register_tokens=False,
+        )
+        dummy = jnp.ones((1, 80), dtype=jnp.float16)
+        params = enc.init(jax.random.PRNGKey(1), dummy)
+        out = enc.apply(params, dummy)
+        assert out.shape == (1, 32)
+        assert params["params"]["pos_embed"].shape == (1, 6, 16)
+
+    def test_rejects_wrong_flat_dim(self):
+        enc = VGGTAggTokenTransformerEncoder(
+            embed_dim=32,
+            token_dim=8,
+            num_tokens=10,
+            projection_dim=16,
+            heads=4,
+        )
+        with pytest.raises(ValueError, match="flattened VGGT aggregator tokens"):
+            enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 79), dtype=jnp.float16))
 
 
 class TestVGGTAggregatorMLPEncoder:
@@ -240,6 +289,32 @@ class TestVGGTAgentInit:
 
         obs_dict = {
             "features": np.random.randn(POOLED_FEATURE_DIM).astype(np.float32),
+            "is_first": True,
+        }
+        rng, act_key = jax.random.split(rng)
+        action = agent.act(obs_dict, act_key)
+        assert 0 <= action < 4
+
+    def test_agent_act_vggt_agg_token_transformer_reduced_shape(self):
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_agg_token_transformer",
+            obs_shape=(10 * 16,),
+            num_actions=4,
+            vggt_token_count=10,
+            vggt_token_dim=16,
+            vggt_token_projection_dim=32,
+            vggt_token_transformer_heads=4,
+            vggt_token_transformer_layers=1,
+            vggt_embed_dim=64,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+        assert agent.embed_size == 64
+
+        obs_dict = {
+            "features": np.random.randn(10 * 16).astype(np.float16),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)

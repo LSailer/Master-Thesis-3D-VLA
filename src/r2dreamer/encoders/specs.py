@@ -106,6 +106,30 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "camera-token embedding itself already carries pose information."
         ),
     ),
+    "vggt_agg_token_transformer": _vggt_variant(
+        encoder_type="vggt_agg_token_transformer",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.VGGTAggTokenTransformerEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 5_000,
+            "batch_size": 1,
+            "seq_len": 8,
+            "train_ratio": 32,
+        },
+        design_notes=(
+            "3D-75 token-preserving VGGT aggregator encoder. The frozen JAX VGGT "
+            "extractor runs headless (compute_heads=False) and emits full global "
+            "aggregator tokens: 1 camera + 4 register + 37x37 patch tokens = "
+            "(1374, 1024). The adapter stores the flattened full-token sequence "
+            "as float16 in replay; the trainable Flax Token Transformer upcasts to "
+            "float32, keeps register tokens by default, projects each token before "
+            "self-attention, pools the camera/register/patch outputs, and returns "
+            "cfg.vggt_embed_dim for the unchanged R2RSSM.observe() path. The small "
+            "default batch/sequence overrides are intentional because attention "
+            "runs over all 1374 tokens for every sampled replay position."
+        ),
+    ),
     "vggt_wp_dense_cnn": _vggt_variant(
         encoder_type="vggt_wp_dense_cnn",
         feature_kind="wp_dense",
@@ -281,6 +305,12 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     variant = VGGT_VARIANTS["vggt_aggregator_mlp"]
 
 
+class VGGTAggTokenTransformerEncoder(VGGTEncoder):
+    """Full VGGT aggregator token replay -> trainable Token Transformer."""
+
+    variant = VGGT_VARIANTS["vggt_agg_token_transformer"]
+
+
 class VGGTDenseWPEncoder(VGGTEncoder):
     """Full-resolution world-point map (518x518x3) -> Conv encoder (3D-53)."""
 
@@ -312,6 +342,7 @@ __all__ = [
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTAggTokenTransformerEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
     "VGGTWPCP64Encoder",

@@ -5,6 +5,7 @@ from typing import Callable
 from src.r2dreamer.encoders import (
     Encoder,
     CNNEncoder,
+    VGGTAggTokenTransformerEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
@@ -24,6 +25,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "cnn": CNNEncoder,
     "vggt": VGGTEncoder,
     "vggt_aggregator_mlp": VGGTAggregatorMLPEncoder,
+    "vggt_agg_token_transformer": VGGTAggTokenTransformerEncoder,
     "vggt_wp_dense_cnn": VGGTDenseWPEncoder,
     "vggt_wp_cp_64": VGGTWPCP64Encoder,
     "hybrid": HybridEncoder,
