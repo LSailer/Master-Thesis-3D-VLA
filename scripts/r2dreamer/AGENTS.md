@@ -10,24 +10,8 @@ Runnable drivers and SLURM wrappers for R2Dreamer experiments: curriculum
 live-training launchers, profiling, and publication plots. Scripts are thin —
 heavy logic lives in `src/r2dreamer/`.
 
-> **Archived (3D-25/26/45/46).** The completed offline pipeline — offline-buffer
-> collection (with VGGT feature extraction), offline-only training (JAX **and**
-> external PyTorch), and the cross-framework comparison table — is frozen under
-> [`archiv/offline-r2dreamer-20260602/`](../../archiv/offline-r2dreamer-20260602/)
-> (`collect_offline_buffer.py`, `make_synthetic_offline_buffer.py`,
-> `train_offline_ablation.py`, `train_external_offline.py`,
-> `build_offline_comparison.py`, their `slurm/` wrappers, and tests). The buffer
-> class `src/buffer/offline_buffer_dataset.py` moved with it.
-
 ## File map
 
-### Archived offline pipeline
-| Archived file | Role |
-|---------------|------|
-| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/collect_offline_buffer.py` | Roll out a CNN-policy checkpoint, extract VGGT WP/CP + aggregator features, write a crash-tolerant offline buffer. |
-| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/make_synthetic_offline_buffer.py` | Tiny random buffer for smoke-testing the offline pipeline. |
-| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/train_offline_ablation.py` | **3D-26** JAX offline trainer for the frozen comparison. |
-| `archiv/offline-r2dreamer-20260602/scripts/r2dreamer/train_external_offline.py` | **3D-45/46** offline trainer for the external PyTorch R2Dreamer baseline. |
 
 ### Live training launcher (single dispatcher → `src.r2dreamer.launch.train`)
 `run.py <run-id> [train flags...]` is the one entrypoint for every live training
