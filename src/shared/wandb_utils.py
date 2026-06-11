@@ -48,7 +48,7 @@ def init_run(
 
 
 class EpisodeTracker:
-    """Track per-episode metrics with rolling averages and per-category breakdown."""
+    """Track per-episode metrics with rolling and cumulative summaries."""
 
     # Per-category metric streams. Adding a new one is a one-line change here.
     _PER_CAT_KEYS: tuple[str, ...] = ("success", "spl", "reward")
@@ -64,6 +64,8 @@ class EpisodeTracker:
         # informative in the deterministic val setting.
         self._track_collision_rate = track_collision_rate
         self._global: dict[str, deque[float]] = defaultdict(self._new_window)
+        self._global_totals: dict[str, float] = defaultdict(float)
+        self._global_counts: dict[str, int] = defaultdict(int)
         self._per_cat: dict[str, dict[str, deque[float]]] = defaultdict(
             lambda: defaultdict(self._new_window)
         )
@@ -97,7 +99,10 @@ class EpisodeTracker:
             samples["collision_rate"] = collision_rate
 
         for k, v in samples.items():
-            self._global[k].append(v)
+            value = float(v)
+            self._global[k].append(value)
+            self._global_totals[k] += value
+            self._global_counts[k] += 1
         for k in self._PER_CAT_KEYS:
             self._per_cat[category][k].append(samples[k])
 
@@ -110,8 +115,13 @@ class EpisodeTracker:
         }
         for k, v in samples.items():
             metrics[f"episode/{k}"] = v
+        metrics["metrics/sr_last"] = float(success)
         for k, dq in self._global.items():
-            metrics[f"metrics/{self._OUTPUT_RENAME.get(k, k)}"] = float(np.mean(dq))
+            out_key = self._OUTPUT_RENAME.get(k, k)
+            metrics[f"metrics/{out_key}"] = float(np.mean(dq))
+            metrics[f"metrics/{out_key}_mean"] = (
+                self._global_totals[k] / self._global_counts[k]
+            )
         for cat, per in self._per_cat.items():
             for k, dq in per.items():
                 metrics[f"goal/{cat}/{self._OUTPUT_RENAME.get(k, k)}"] = float(np.mean(dq))
