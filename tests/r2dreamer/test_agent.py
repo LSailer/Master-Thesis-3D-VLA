@@ -6,6 +6,8 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
+from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
 
 @pytest.fixture
@@ -72,6 +74,55 @@ def make_deterministic_batch(cfg, B=2, T=4):
         "is_first": is_first,
         "is_last": is_last,
         "is_terminal": is_terminal,
+    }
+
+
+def make_small_hybrid_cfg():
+    return R2DreamerConfig(
+        encoder_type="hybrid",
+        obs_shape=(HYBRID_FEATURE_DIM,),
+        num_actions=4,
+        deter_size=32,
+        hidden_size=16,
+        stoch_classes=4,
+        stoch_discrete=4,
+        blocks=4,
+        encoder_depth=4,
+        encoder_kernel=3,
+        encoder_mults=(1, 1),
+        vggt_embed_dim=16,
+        mlp_vggt_hidden=16,
+        mlp_vggt_layers=1,
+        mlp_units=16,
+        mlp_layers_reward=1,
+        mlp_layers_cont=1,
+        mlp_layers_actor=1,
+        mlp_layers_critic=1,
+        twohot_bins=21,
+        imagination_horizon=3,
+        horizon=20,
+        lr=1e-3,
+        warmup_steps=0,
+    )
+
+
+def make_hybrid_mapping_batch(cfg, B=1, T=4):
+    image_values = np.arange(B * T * 3 * 64 * 64, dtype=np.uint32) % 256
+    image = image_values.astype(np.uint8).reshape(B, T, 3, 64, 64)
+    wp_cp = np.linspace(
+        -1.0, 1.0, B * T * VGGT_FEATURE_DIM, dtype=np.float32
+    ).reshape(B, T, VGGT_FEATURE_DIM)
+    action_ids = jnp.arange(B * T).reshape(B, T) % cfg.num_actions
+    return {
+        "obs": {
+            "image": jnp.asarray(image),
+            "wp_cp": jnp.asarray(wp_cp),
+        },
+        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        "rewards": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
+        "is_last": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_terminal": jnp.zeros((B, T), dtype=jnp.float32),
     }
 
 
@@ -151,3 +202,16 @@ class TestR2DreamerAgent:
             + cfg.scale_repval * metrics_a["loss/repval"]
         )
         assert metrics_a["total_loss"] == pytest.approx(expected_total, rel=1e-6)
+
+    def test_hybrid_train_step_accepts_mapping_obs(self):
+        cfg = make_small_hybrid_cfg()
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(5))
+        batch = make_hybrid_mapping_batch(cfg)
+
+        metrics = agent.train_step(batch, jax.random.PRNGKey(6))
+
+        assert metrics["nan_skipped"] == 0.0
+        assert "hybrid/gate" in metrics
+        assert "hybrid/cnn_frac" in metrics
+        assert "hybrid/vggt_frac" in metrics
+        assert np.isfinite(metrics["total_loss"])

@@ -91,7 +91,7 @@ entry in `scripts/r2dreamer/_run_configs.py` (launched via `run.py <run-id>`) an
 ## Data flow
 
 ```
-env obs ──ObsAdapter──> buffer(uint8 RGB | float32 VGGT/hybrid)
+env obs ──ObsAdapter──> buffer(uint8 RGB | float32 VGGT | hybrid image+WP/CP fields)
         │
 train_step(batch):
   encoder(obs) -> embed
@@ -141,9 +141,11 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
 
 - **`is_first` must be truthful.** The RSSM zeroes `stoch`/`deter` on episode boundaries;
   a mislabelled buffer silently diverges. `act()` resets internal state on `is_first`.
-- **Encoder ↔ adapter ↔ obs_shape must agree.** Hybrid expects
-  `(HYBRID_RGB_DIM + HYBRID_VGGT_DIM,) = (16404,)`; the CNN encoder rejects `vggt_mlp_layers != 1`.
-  Mismatches surface as shape assertions in `_make_encoder()`.
+- **Encoder ↔ adapter ↔ obs_shape must agree.** Hybrid replay stores explicit
+  `image` and `wp_cp` fields, but the agent packs them into
+  `(HYBRID_RGB_DIM + HYBRID_VGGT_DIM,) = (16404,)` before the encoder; the CNN
+  encoder rejects `vggt_mlp_layers != 1`. Mismatches surface as shape checks in
+  `_make_encoder()` or `obs_batch`.
 - **KL is asymmetric (DreamerV3).** Dynamics KL detaches the posterior (trains the prior);
   representation KL detaches the prior (trains the encoder). Both clipped to `cfg.kl_free`.
 - **Imagination is fully detached** — reward/cont/RSSM are read under `stop_gradient`; the

@@ -8,6 +8,7 @@ import pytest
 
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
 from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
@@ -368,9 +369,19 @@ class TestHybridEncoder:
 
         adapter = HybridObsAdapter(FakeExtractor())
         assert isinstance(adapter, ObsAdapter)
-        assert adapter.buffer_shape == (16404,)
-        assert adapter.buffer_dtype == "float32"
-        assert adapter.normalize_on_sample is False
+        assert adapter.buffer_shape == {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_WP_CP_KEY: (4116,),
+        }
+        assert adapter.buffer_dtype == {
+            HYBRID_IMAGE_KEY: "uint8",
+            HYBRID_WP_CP_KEY: "float32",
+        }
+        assert adapter.normalize_on_sample == {
+            HYBRID_IMAGE_KEY: False,
+            HYBRID_WP_CP_KEY: False,
+        }
+        assert adapter.encoder_obs_shape == (16404,)
 
         rng = np.random.default_rng(0)
         image = rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
@@ -378,24 +389,24 @@ class TestHybridEncoder:
 
         replay, agent_obs = adapter.transform(obs_dict)
 
-        assert replay.shape == (16404,)
-        assert replay.dtype == np.float32
+        assert set(replay) == {HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY}
+        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
+        assert replay[HYBRID_WP_CP_KEY].shape == (4116,)
+        assert replay[HYBRID_WP_CP_KEY].dtype == np.float32
 
-        # RGB slice: normalized 64x64 resize of the input, in [0, 1].
+        # RGB field: raw 64x64 uint8 resize of the input.
         img64 = resize_chw_uint8(image, 64)  # (3,64,64) uint8
-        expected_rgb = (img64.astype(np.float32) / 255.0).reshape(-1)
-        assert replay[:12288].min() >= 0.0
-        assert replay[:12288].max() <= 1.0
-        np.testing.assert_allclose(replay[:12288], expected_rgb)
+        np.testing.assert_array_equal(replay[HYBRID_IMAGE_KEY], img64)
 
-        # WP/CP slice: flattened world_points then camera_pose.
+        # WP/CP field: flattened world_points then camera_pose.
         expected_wp_cp = np.concatenate(
             [world_points.reshape(-1), camera_pose]
         ).astype(np.float32)
-        np.testing.assert_allclose(replay[12288:], expected_wp_cp)
+        np.testing.assert_allclose(replay[HYBRID_WP_CP_KEY], expected_wp_cp)
 
-        assert np.asarray(agent_obs["hybrid"]).shape == (16404,)
         assert agent_obs["image"].shape == (3, 64, 64)
+        assert np.asarray(agent_obs[HYBRID_WP_CP_KEY]).shape == (4116,)
 
 
 @pytest.mark.gpu
