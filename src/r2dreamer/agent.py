@@ -43,6 +43,12 @@ from .behavior.imagination import _imagine, _lambda_return
 from .behavior.loss import behavior_loss
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
+from .obs_batch import (
+    decoder_rgb_target,
+    encoder_obs_from_agent_obs,
+    encoder_obs_from_batch,
+    obs_leading_shape,
+)
 from src.shared.optim import laprop, agc
 
 # Re-export internal helpers so test_cross_framework.py keeps working.
@@ -123,6 +129,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
+            "vggt_house_context": WMHybridEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -381,9 +388,10 @@ class R2DreamerAgent:
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in ("cnn", "hybrid"):
+            if config.encoder_type not in ("cnn", "hybrid", "vggt_house_context"):
                 raise ValueError(
-                    "decoder=True requires encoder_type in {'cnn', 'hybrid'} — the "
+                    "decoder=True requires encoder_type in {'cnn', 'hybrid', "
+                    "'vggt_house_context'} — the "
                     "ConvDecoder reconstructs an RGB image, but "
                     f"{config.encoder_type!r} carries no RGB modality to reconstruct."
                 )
@@ -465,19 +473,7 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        if self.cfg.encoder_type == "hybrid":
-            # Hybrid: the adapter pre-builds the flat [rgb_norm | wp_cp] vector
-            # under "hybrid" (already float32, RGB already /255). The encoder
-            # slices it back into the CNN and WP/CP branches.
-            obs = jnp.asarray(obs_dict["hybrid"])[None]
-        elif self.cfg.encoder_type in ("vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64"):
-            # All VGGT readouts arrive pre-extracted under "features" (the dense
-            # WP map is already a float32 (3, H, W) array). No /255: the values
-            # are VGGT features / metric XYZ, not raw uint8 pixels.
-            obs = jnp.asarray(obs_dict["features"])[None]
-        else:
-            image = obs_dict["image"].astype(np.float32) / 255.0
-            obs = jnp.array(image[None])
+        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)[None]
 
         is_first = bool(obs_dict["is_first"])
         if is_first:
@@ -540,8 +536,9 @@ class R2DreamerAgent:
         if not self.cfg.decoder or self.decoder_mod is None:
             return None
         params = self.params
-        B, T = batch["obs"].shape[0], batch["obs"].shape[1]
-        obs_flat = batch["obs"].reshape(B * T, *self.cfg.obs_shape)
+        B, T = obs_leading_shape(batch["obs"])
+        encoder_obs = encoder_obs_from_batch(batch, self.cfg)
+        obs_flat = encoder_obs.reshape(B * T, *self.cfg.obs_shape)
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
         stoch0, deter0 = self.rssm_mod.apply(
             params["rssm"], B, method=self.rssm_mod.initial_state)
@@ -553,11 +550,7 @@ class R2DreamerAgent:
         feat = self.rssm_mod.apply(
             params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat)
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        if self.cfg.encoder_type == "hybrid":
-            rgb_dim = self.cfg.obs_shape[0] - self.cfg.vggt_feature_dim
-            target = obs_flat[:, :rgb_dim].reshape(B * T, 3, 64, 64)
-        else:
-            target = obs_flat.reshape(B * T, 3, 64, 64)
+        target = decoder_rgb_target(batch, self.cfg)
         return np.asarray(target), np.asarray(recon)
 
     # ------------------------------------------------------------------
@@ -639,9 +632,10 @@ class R2DreamerAgent:
         `barlow_stop_grad` toggle would no longer mean what it claims.
         """
         cfg = self.cfg
-        B, T = batch["obs"].shape[0], batch["obs"].shape[1]
+        B, T = obs_leading_shape(batch["obs"])
 
-        obs_flat = batch["obs"].reshape(B * T, *cfg.obs_shape)
+        encoder_obs = encoder_obs_from_batch(batch, cfg)
+        obs_flat = encoder_obs.reshape(B * T, *cfg.obs_shape)
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
 
         stoch0, deter0 = self.rssm_mod.apply(
@@ -684,7 +678,7 @@ class R2DreamerAgent:
             returns used for the post-step `ReturnEMA` update.
         """
         cfg = self.cfg
-        B, T = batch["obs"].shape[0], batch["obs"].shape[1]
+        B, T = obs_leading_shape(batch["obs"])
 
         rng_key, k_fwd = jax.random.split(rng_key)
         forward = self._world_model_forward(params, batch, k_fwd)
@@ -723,7 +717,7 @@ class R2DreamerAgent:
         # encoder's `branches` method (shares params with the forward pass) and
         # log how much each modality drives the latent. `gate` starts at 0 and
         # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type == "hybrid":
+        if cfg.encoder_type in ("hybrid", "vggt_house_context"):
             _add_hybrid_contribution_metrics(
                 metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
             )

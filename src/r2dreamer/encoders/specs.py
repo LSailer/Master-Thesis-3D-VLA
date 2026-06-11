@@ -142,6 +142,22 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "as hybrid/* metrics (3D-50/51/52)."
         ),
     ),
+    "vggt_house_context": _vggt_variant(
+        encoder_type="vggt_house_context",
+        feature_kind="wp_cp",
+        module_cls=wm_encoders.HybridEncoder,
+        compute_heads=True,
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+        },
+        design_notes=(
+            "L1 house-context variant: replay stores only the 64x64 RGB frame, "
+            "while a live bounded InfiniteVGGT stream remains active across "
+            "episode resets and injects the current house-level WP/CP context "
+            "at acting and training time. This tests whether persistent 3D "
+            "scene memory helps learning, not merely whether replay is smaller."
+        ),
+    ),
     "vggt_wp_cp_64": _vggt_variant(
         encoder_type="vggt_wp_cp_64",
         feature_kind="wp_cp",
@@ -200,7 +216,7 @@ class Encoder(ABC):
             )
         adapter = self.make_adapter()
         return EncoderSpec(
-            obs_shape=adapter.buffer_shape,
+            obs_shape=getattr(adapter, "agent_obs_shape", adapter.buffer_shape),
             env_render_resolution=self.env_render_resolution,
             encoder_type=self.encoder_type,
             module_cls=self.module_cls,
@@ -298,6 +314,17 @@ class HybridEncoder(VGGTEncoder):
         return HybridObsAdapter(self._extractor)
 
 
+class VGGTHouseContextEncoder(VGGTEncoder):
+    """L1 RGB replay + live bounded InfiniteVGGT house-context readout."""
+
+    variant = VGGT_VARIANTS["vggt_house_context"]
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseContextObsAdapter
+
+        return VGGTHouseContextObsAdapter(self._extractor)
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid."""
 
@@ -314,5 +341,6 @@ __all__ = [
     "VGGTAggregatorMLPEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "VGGTHouseContextEncoder",
     "VGGTWPCP64Encoder",
 ]

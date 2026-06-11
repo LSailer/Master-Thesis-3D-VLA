@@ -103,6 +103,10 @@ class TestDecoderGuard:
         assert "decoder" in a.params
         b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
+        c = R2DreamerAgent(
+            self._cfg("vggt_house_context", (16404,)), jax.random.PRNGKey(0)
+        )
+        assert "decoder" in c.params
 
     def test_hybrid_split_mismatch_raises_value_error(self):
         import jax

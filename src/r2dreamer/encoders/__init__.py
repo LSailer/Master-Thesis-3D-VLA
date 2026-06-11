@@ -8,6 +8,7 @@ from .specs import (
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
     VGGTEncoder,
+    VGGTHouseContextEncoder,
     VGGTWPCP64Encoder,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "VGGTAggregatorMLPEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "VGGTHouseContextEncoder",
     "VGGTWPCP64Encoder",
 ]

@@ -110,6 +110,19 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
+    # L1 House Context — RGB replay + live bounded InfiniteVGGT scene memory.
+    "habitat-l1-vggt-house-context": dict(
+        env="habitat",
+        encoder="vggt_house_context",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-context",
+        wandb_name="l1_rgb_replay_vggt_house_context",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "rgb-replay", "live-cache", "bounded-cache",
+            "3d-77", "jax", "3d-encoder",
+        ],
+    ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",

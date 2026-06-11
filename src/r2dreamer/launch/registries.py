@@ -10,6 +10,7 @@ from src.r2dreamer.encoders import (
     VGGTDenseWPEncoder,
     VGGTWPCP64Encoder,
     HybridEncoder,
+    VGGTHouseContextEncoder,
 )
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 
@@ -27,6 +28,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "vggt_wp_dense_cnn": VGGTDenseWPEncoder,
     "vggt_wp_cp_64": VGGTWPCP64Encoder,
     "hybrid": HybridEncoder,
+    "vggt_house_context": VGGTHouseContextEncoder,
 }
 
 env_registry: dict[str, Callable] = {

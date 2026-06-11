@@ -40,8 +40,8 @@ class Env(Protocol):
 # convert_batch
 # ---------------------------------------------------------------------------
 
-def convert_batch(batch: dict[str, jnp.ndarray],
-                  num_actions: int) -> dict[str, jnp.ndarray]:
+def convert_batch(batch: dict[str, Any],
+                  num_actions: int) -> dict[str, Any]:
     """Convert replay buffer output to agent training format.
 
     - actions: int32 (B,T) -> one_hot float32 (B,T,A)
@@ -506,6 +506,7 @@ class Trainer:
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
+                    batch = self.obs_adapter.augment_replay_batch(batch)
                     batch = convert_batch(batch, acfg.num_actions)
                     metrics = self.agent.train_step(batch, train_key)
                     train_credit -= 1.0
@@ -593,6 +594,7 @@ class Trainer:
 
         # Sample once, freeze, reuse.
         batch_raw = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
         batch = convert_batch(batch_raw, self.acfg.num_actions)
         print(
             f"Overfit mode: cached batch "

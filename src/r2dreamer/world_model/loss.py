@@ -9,6 +9,8 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from src.r2dreamer.obs_batch import decoder_rgb_target, obs_leading_shape
+
 
 def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
     """DreamerV3-style KL losses with free nats.
@@ -63,7 +65,7 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         (losses, metrics) — losses has keys {dyn, rep, rew, con}; metrics
         contains latent entropy/KL diagnostics.
     """
-    B, T = batch["obs"].shape[0], batch["obs"].shape[1]
+    B, T = obs_leading_shape(batch["obs"])
     losses, metrics = {}, {}
 
     # ---- KL losses ----
@@ -95,14 +97,7 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
     # are identical to the decoder-free baseline. 3D-51 visual-verification head.
     if cfg.decoder:
         recon = modules["decoder"].apply(params["decoder"], feat_flat)  # (BT,3,64,64)
-        if cfg.encoder_type == "hybrid":
-            # Hybrid obs is [ rgb (rgb_dim) | wp_cp (vggt_feature_dim) ]; the RGB
-            # slice is already normalised to [0, 1] by the adapter.
-            rgb_dim = cfg.obs_shape[0] - cfg.vggt_feature_dim  # 16404 - 4116 = 12288
-            rgb_target = batch["obs"].reshape(B * T, -1)[:, :rgb_dim].reshape(B * T, 3, 64, 64)
-        else:
-            # CNN path: obs is already (B, T, 3, 64, 64), normalised to [0, 1].
-            rgb_target = batch["obs"].reshape(B * T, 3, 64, 64)
+        rgb_target = decoder_rgb_target(batch, cfg)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]
 

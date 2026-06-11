@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import jax.numpy as jnp
@@ -19,20 +21,70 @@ class BufferConfig:
         normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on sample.
     """
     capacity: int
-    obs_shape: tuple[int, ...]
-    obs_dtype: str = "uint8"
-    normalize_obs: bool = True
+    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]]
+    obs_dtype: str | Mapping[str, str] = "uint8"
+    normalize_obs: bool | Mapping[str, bool] = True
+
+
+def _np_dtype(dtype_name: str) -> type:
+    if dtype_name == "uint8":
+        return np.uint8
+    if dtype_name == "float16":
+        return np.float16
+    return np.float32
+
+
+def _storage_array(capacity: int, shape: tuple[int, ...], dtype_name: str) -> np.ndarray:
+    return np.zeros((capacity, *shape), dtype=_np_dtype(dtype_name))
+
+
+def _obs_storage(config: BufferConfig, capacity: int) -> Any:
+    if isinstance(config.obs_shape, Mapping):
+        dtype_map = config.obs_dtype if isinstance(config.obs_dtype, Mapping) else {}
+        return {
+            key: _storage_array(
+                capacity,
+                tuple(shape),
+                str(dtype_map.get(key, "uint8")),
+            )
+            for key, shape in config.obs_shape.items()
+        }
+    return _storage_array(capacity, tuple(config.obs_shape), str(config.obs_dtype))
+
+
+def _normalize_flags(config: BufferConfig) -> bool | dict[str, bool]:
+    if isinstance(config.obs_shape, Mapping):
+        dtype_map = config.obs_dtype if isinstance(config.obs_dtype, Mapping) else {}
+        norm_map = config.normalize_obs if isinstance(config.normalize_obs, Mapping) else {}
+        return {
+            key: bool(norm_map.get(key, True)) and str(dtype_map.get(key, "uint8")) == "uint8"
+            for key in config.obs_shape
+        }
+    return bool(config.normalize_obs) and str(config.obs_dtype) == "uint8"
+
+
+def _gather_obs(obs: Any, indices: np.ndarray, normalize: bool | Mapping[str, bool]) -> Any:
+    if isinstance(obs, Mapping):
+        norm_map = normalize if isinstance(normalize, Mapping) else {}
+        return {
+            key: _gather_obs(value, indices, bool(norm_map.get(key, False)))
+            for key, value in obs.items()
+        }
+    obs_jnp = jnp.array(obs[indices], dtype=jnp.float32)
+    if normalize:
+        obs_jnp = obs_jnp / 255.0
+    return obs_jnp
 
 
 def _gather_sequence_batch(
     starts: np.ndarray,
     seq_len: int,
-    obs: np.ndarray,
+    obs: Any,
     actions: np.ndarray,
     rewards: np.ndarray,
     dones: np.ndarray,
     terminals: np.ndarray,
-    normalize: bool,
+    normalize: bool | Mapping[str, bool],
 ) -> dict[str, jnp.ndarray]:
     """Gather length-``seq_len`` windows at ``starts`` and pack a batch dict.
 
@@ -42,7 +94,6 @@ def _gather_sequence_batch(
     on the previous step; ``obs`` is divided by 255 when ``normalize`` is set.
     """
     indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
-    obs_b = obs[indices]
     actions_b = actions[indices]
     rewards_b = rewards[indices]
     dones_b = dones[indices]
@@ -52,12 +103,8 @@ def _gather_sequence_batch(
     is_first[:, 0] = True
     is_first[:, 1:] = dones_b[:, :-1]
 
-    obs_jnp = jnp.array(obs_b, dtype=jnp.float32)
-    if normalize:
-        obs_jnp = obs_jnp / 255.0
-
     return {
-        "obs": obs_jnp,
+        "obs": _gather_obs(obs, indices, normalize),
         "actions": jnp.array(actions_b, dtype=jnp.int32),
         "rewards": jnp.array(rewards_b, dtype=jnp.float32),
         "dones": jnp.array(dones_b, dtype=jnp.float32),
@@ -80,25 +127,25 @@ class ReplayBuffer:
                 obs_shape=config.obs_shape,
             )
         cap = config.capacity
-        if config.obs_dtype == "uint8":
-            np_dtype = np.uint8
-        elif config.obs_dtype == "float16":
-            np_dtype = np.float16
-        else:
-            np_dtype = np.float32
-        self.obs = np.zeros((cap, *config.obs_shape), dtype=np_dtype)
+        self.obs = _obs_storage(config, cap)
         self.actions = np.zeros(cap, dtype=np.int32)
         self.rewards = np.zeros(cap, dtype=np.float32)
         self.dones = np.zeros(cap, dtype=np.bool_)
         self.terminals = np.zeros(cap, dtype=np.bool_)
-        self._normalize = config.normalize_obs and config.obs_dtype == "uint8"
+        self._normalize = _normalize_flags(config)
         self.capacity = cap
         self.idx = 0
         self.size = 0
 
     def add(self, obs: np.ndarray, action: int, reward: float, done: bool,
             terminal: bool = False) -> None:
-        self.obs[self.idx] = obs
+        if isinstance(self.obs, Mapping):
+            if not isinstance(obs, Mapping):
+                raise TypeError("ReplayBuffer configured for mapping observations")
+            for key, value in obs.items():
+                self.obs[key][self.idx] = value
+        else:
+            self.obs[self.idx] = obs
         self.actions[self.idx] = action
         self.rewards[self.idx] = reward
         self.dones[self.idx] = done

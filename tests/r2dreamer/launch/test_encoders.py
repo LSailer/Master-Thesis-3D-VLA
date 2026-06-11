@@ -7,11 +7,12 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
-from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter, VGGTHouseContextObsAdapter
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
     HybridEncoder,
+    VGGTHouseContextEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
@@ -388,14 +389,82 @@ class TestHybridEncoder:
         assert replay[:12288].max() <= 1.0
         np.testing.assert_allclose(replay[:12288], expected_rgb)
 
-        # WP/CP slice: flattened world_points then camera_pose.
+
+class TestVGGTHouseContextEncoder:
+    def test_house_context_encoder_exposes_rgb_replay_spec(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHouseContextEncoder()
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert isinstance(adapter, VGGTHouseContextObsAdapter)
+        assert spec.encoder_type == "vggt_house_context"
+        assert adapter.buffer_shape == (3, 64, 64)
+        assert spec.obs_shape == (16404,)
+        assert spec.env_render_resolution == 518
+        assert spec.module_cls is wm_encoders.HybridEncoder
+        assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
+        assert adapter.on_episode_reset is None
+
+    def test_house_context_adapter_stores_rgb_and_injects_live_context(self):
+        world_points = np.arange(37 * 37 * 3, dtype=np.float32).reshape(37, 37, 3)
+        camera_pose = np.arange(9, dtype=np.float32) + 100.0
+
+        class FakeExtractor:
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {
+                    "world_points": jnp.asarray(world_points),
+                    "camera_pose": jnp.asarray(camera_pose),
+                }
+
+        adapter = VGGTHouseContextObsAdapter(FakeExtractor())
+        image = np.random.default_rng(0).integers(
+            0, 256, size=(3, 518, 518), dtype=np.uint8
+        )
+
+        replay, agent_obs = adapter.transform({"image": image, "is_first": True})
+
+        assert replay.shape == (3, 64, 64)
+        assert replay.dtype == np.uint8
+        assert set(agent_obs) == {"image", "house_context", "is_first"}
+        assert agent_obs["house_context"].shape == (4116,)
+
+        batch = {
+            "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.float32),
+            "actions": np.zeros((2, 3), dtype=np.int32),
+            "rewards": np.zeros((2, 3), dtype=np.float32),
+            "dones": np.zeros((2, 3), dtype=bool),
+            "terminals": np.zeros((2, 3), dtype=bool),
+            "is_first": np.zeros((2, 3), dtype=np.float32),
+        }
+        augmented = adapter.augment_replay_batch(batch)
+
+        assert set(augmented["obs"]) == {"image", "house_context"}
+        assert augmented["obs"]["image"].shape == (2, 3, 3, 64, 64)
+        assert augmented["obs"]["house_context"].shape == (2, 3, 4116)
+
+        # Context is flattened world_points then camera_pose, but it is not
+        # stored in replay; it is held live and injected into sampled batches.
         expected_wp_cp = np.concatenate(
             [world_points.reshape(-1), camera_pose]
         ).astype(np.float32)
-        np.testing.assert_allclose(replay[12288:], expected_wp_cp)
-
-        assert np.asarray(agent_obs["hybrid"]).shape == (16404,)
-        assert agent_obs["image"].shape == (3, 64, 64)
+        np.testing.assert_allclose(np.asarray(agent_obs["house_context"]), expected_wp_cp)
+        np.testing.assert_allclose(
+            np.asarray(augmented["obs"]["house_context"][0, 0]), expected_wp_cp
+        )
 
 
 @pytest.mark.gpu
