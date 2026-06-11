@@ -42,6 +42,32 @@ def test_per_category_spl_uses_rolling_window():
     assert out["goal/chair/spl"] == pytest.approx(1.0 / 3.0)
 
 
+def test_success_rate_logs_last_rolling_and_cumulative_mean():
+    tracker = EpisodeTracker(window=2)
+    tracker.record(**_make_episode("chair", spl=0.0, success=1.0))
+    tracker.record(**_make_episode("chair", spl=0.0, success=0.0))
+    out = tracker.record(**_make_episode("chair", spl=0.0, success=0.0))
+
+    assert out["episode/success"] == pytest.approx(0.0)
+    assert out["metrics/sr_last"] == pytest.approx(0.0)
+    # Existing training curve: rolling window over the last two episodes.
+    assert out["metrics/sr"] == pytest.approx(0.0)
+    # Paper/report summary: cumulative mean over all completed episodes.
+    assert out["metrics/sr_mean"] == pytest.approx(1.0 / 3.0)
+
+
+def test_cumulative_metric_mean_is_not_limited_by_rolling_window():
+    tracker = EpisodeTracker(window=2)
+    tracker.record(**_make_episode("chair", reward=1.0, spl=1.0))
+    tracker.record(**_make_episode("chair", reward=1.0, spl=1.0))
+    out = tracker.record(**_make_episode("chair", reward=4.0, spl=0.0))
+
+    assert out["metrics/reward"] == pytest.approx(2.5)
+    assert out["metrics/reward_mean"] == pytest.approx(2.0)
+    assert out["metrics/spl"] == pytest.approx(0.5)
+    assert out["metrics/spl_mean"] == pytest.approx(2.0 / 3.0)
+
+
 def test_collision_rate_only_emitted_when_flag_enabled():
     train_tracker = EpisodeTracker(window=100, track_collision_rate=False)
     val_tracker = EpisodeTracker(window=100, track_collision_rate=True)
