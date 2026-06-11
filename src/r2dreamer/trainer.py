@@ -457,6 +457,8 @@ class Trainer:
         obs, buffer_obs, agent_obs = self._reset_train_episode()
         episode_reward, episode_steps, action_counts = self._zero_episode_counters()
         self._t0 = time.time()
+        self._last_log_time = self._t0
+        self._last_log_step = start_step - 1
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
@@ -673,6 +675,22 @@ class Trainer:
     def _log_train_metrics(
         self, metrics: dict, step: int, writer: Any, f: Any,
     ) -> None:
+        now = time.time()
+        elapsed = now - self._t0
+        steps_this_run = step + 1 - self._resume_step
+        fps = steps_this_run / elapsed if elapsed > 0 else 0
+
+        interval_steps = max(1, step - getattr(self, "_last_log_step", step - 1))
+        interval_elapsed = now - getattr(self, "_last_log_time", now)
+        fps_interval = interval_steps / interval_elapsed if interval_elapsed > 0 else 0
+        metrics["perf/fps_cumulative"] = fps
+        metrics["perf/fps_interval"] = fps_interval
+        metrics["perf/ms_per_step_interval"] = (
+            1000.0 / fps_interval if fps_interval > 0 else 0
+        )
+        self._last_log_time = now
+        self._last_log_step = step
+
         for k, v in metrics.items():
             writer.writerow([step, k, v])
         f.flush()
@@ -680,16 +698,15 @@ class Trainer:
         if self._wandb is not None:
             self._wandb.log(metrics, step=step)
 
-        elapsed = time.time() - self._t0
-        steps_this_run = step + 1 - self._resume_step
-        fps = steps_this_run / elapsed if elapsed > 0 else 0
         print(
             f"[step {step:>8d}/{self.tcfg.total_steps}] "
             f"total={metrics.get('total_loss', 0):.3f} "
             f"dyn={metrics.get('loss/dyn', 0):.3f} "
             f"rew={metrics.get('loss/rew', 0):.3f} "
             f"policy={metrics.get('loss/policy', 0):.3f} "
-            f"fps={fps:.0f}"
+            f"fps={fps:.0f} "
+            f"fps_interval={fps_interval:.1f} "
+            f"ms_step={metrics['perf/ms_per_step_interval']:.1f}"
         )
 
     def _maybe_log_recon(self, batch: dict, step: int) -> None:
