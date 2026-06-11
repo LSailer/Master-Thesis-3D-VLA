@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from src.r2dreamer.launch.parser import _build_parser_train
 from src.r2dreamer.launch.train import _agent_overrides_from_args
 
@@ -39,3 +41,27 @@ def test_buffer_capacity_override_wins_over_encoder_default():
     overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
 
     assert overrides["buffer_capacity"] == 500_000
+
+
+def test_train_parser_does_not_expose_in_run_val_or_video_flags():
+    parser = _build_parser_train()
+    args = _build_parser_train().parse_args([])
+    help_text = parser.format_help()
+
+    assert not hasattr(args, "val_every")
+    assert not hasattr(args, "val_episodes")
+    assert not hasattr(args, "val_video_episodes")
+    assert not hasattr(args, "val_max_episode_steps")
+    assert not hasattr(args, "video_log_every")
+    assert not hasattr(args, "video_log_episodes")
+    assert "--val_every" not in help_text
+    assert "--video_log_every" not in help_text
+
+
+def test_train_parser_rejects_in_run_val_and_video_flags():
+    parser = _build_parser_train()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--val_every", "50000"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--video_log_every", "25000"])

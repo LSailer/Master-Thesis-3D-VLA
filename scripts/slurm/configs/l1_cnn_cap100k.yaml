@@ -19,5 +19,3 @@ args:
   wandb_project: 3d-vla-objectnav
   wandb_name: l1-cnn-cap100k-${SLURM_JOB_ID}
   wandb_tags: replay-capacity,3d-63,l1,cnn,cap-100k,seed-42,sr-ablation
-  video_log_every: 0
-  val_every: 0

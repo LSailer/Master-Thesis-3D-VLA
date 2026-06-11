@@ -29,27 +29,10 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
                         "default value (1).")
 
 
-def _add_val_train_args(p: argparse.ArgumentParser) -> None:
-    # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
-    # checkpoint cadence so val signals land alongside checkpoints.
-    p.add_argument("--val_every", type=int, default=50_000,
-                   help="Run a deterministic val-episode loop every N steps (0 disables)")
-    p.add_argument("--val_episodes", type=int, default=50,
-                   help="Episodes per val-loop trigger")
-    p.add_argument("--val_video_episodes", type=int, default=1,
-                   help="Number of val episodes to record as W&B videos per trigger")
-    p.add_argument("--val_max_episode_steps", type=int, default=500,
-                   help="Per-episode step cap inside the val loop")
-
-
-def _add_resume_video_train_args(p: argparse.ArgumentParser) -> None:
+def _add_resume_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
-    p.add_argument("--video_log_every", type=int, default=25_000,
-                   help="Log one Habitat episode video every N train steps")
-    p.add_argument("--video_log_episodes", type=int, default=1,
-                   help="Number of Habitat train episodes to record per interval")
     p.add_argument("--act_entropy", type=float, default=3e-2,
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
                         "baseline; the DreamerV3 paper default 3e-4 (tuned for 17-action Crafter) "
@@ -129,8 +112,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
     _add_basic_train_args(p)
-    _add_val_train_args(p)
-    _add_resume_video_train_args(p)
+    _add_resume_train_args(p)
     _add_overfit_train_args(p)
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)

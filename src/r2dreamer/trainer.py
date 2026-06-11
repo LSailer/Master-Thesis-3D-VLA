@@ -21,7 +21,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
@@ -118,16 +117,6 @@ class TrainerConfig:
     wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
     # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
     wandb_id: str | None = None
-    video_log_every: int = 25_000
-    video_log_episodes: int = 1
-
-    # Deterministic Val-Episode-Loop. val_every=0 disables. Requires a
-    # val_env to be passed to Trainer.
-    val_every: int = 50_000
-    val_episodes: int = 50
-    val_video_episodes: int = 1
-    val_max_episode_steps: int = 500
-
     # Resume from checkpoint (.pkl produced by save_checkpoint). When set,
     # restores agent.{params, opt_state, slow_critic_params, ema_state} and
     # offsets the train loop to start at the checkpoint's step.
@@ -157,7 +146,7 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
 
     Returns dict with keys "obs_adapter" and "episode_metrics_fn".
 
-    Pass track_collision_rate=True for the val-loop tracker; train rollouts
+    Pass track_collision_rate=True for standalone evaluation trackers; train rollouts
     leave it False so the dashboard isn't doubly-noisy.
     """
     from src.shared.wandb_utils import EpisodeTracker
@@ -228,9 +217,6 @@ class Trainer:
         trainer_config: TrainerConfig,
         obs_adapter: ObsAdapter | None = None,
         episode_metrics_fn: EpisodeMetricsFn | None = None,
-        val_env: Env | None = None,
-        val_obs_adapter: ObsAdapter | None = None,
-        val_episode_metrics_fn: EpisodeMetricsFn | None = None,
     ) -> None:
         self.agent = agent
         self.env = env
@@ -238,12 +224,6 @@ class Trainer:
         self.tcfg = trainer_config
         self.obs_adapter = obs_adapter or ObsAdapter()
         self.episode_metrics_fn = episode_metrics_fn
-        # Val-Episode-Loop wiring (3D-36). All three must be non-None for the
-        # loop to run; the launcher constructs them together when val is on.
-        self.val_env = val_env
-        self.val_obs_adapter = val_obs_adapter
-        self.val_episode_metrics_fn = val_episode_metrics_fn
-
         # Build buffer from adapter settings
         self.buffer = ReplayBuffer(BufferConfig(
             capacity=agent_config.buffer_capacity,
@@ -344,8 +324,7 @@ class Trainer:
                 sys.stderr.flush()
                 os._exit(0)
             self.env.close()
-            if self.val_env is not None:
-                self.val_env.close()
+
 
     # ------------------------------------------------------------------
     # Prefill
@@ -392,13 +371,6 @@ class Trainer:
     def _zero_episode_counters(self) -> tuple[float, int, np.ndarray]:
         return 0.0, 0, np.zeros(self.acfg.num_actions, dtype=int)
 
-    def _start_train_video_if_due(
-        self, step: int, next_video_step: int, obs: dict,
-    ) -> dict[str, Any] | None:
-        if self._should_record_video(step, next_video_step):
-            return self._start_video_recording(self.env, obs)
-        return None
-
     def _record_train_transition(
         self,
         *,
@@ -422,8 +394,6 @@ class Trainer:
         step: int,
         writer: Any,
         f: Any,
-        video_recording: dict[str, Any] | None,
-        video_next_step: int,
     ) -> tuple[
         dict,
         np.ndarray | dict[str, np.ndarray],
@@ -431,29 +401,16 @@ class Trainer:
         float,
         int,
         np.ndarray,
-        dict[str, Any] | None,
-        int,
     ]:
         self._on_episode_end(
             last_obs, episode_reward, episode_steps, action_counts, step, writer, f,
         )
-        if video_recording is not None:
-            log_episode_video(
-                self._wandb,
-                "train/episode_video",
-                video_recording["frames"],
-                step,
-            )
-            video_recording = None
-            video_next_step = step + max(1, self.tcfg.video_log_every)
 
         episode_reward, episode_steps, action_counts = self._zero_episode_counters()
         obs, buffer_obs, agent_obs = self._reset_train_episode()
-        if self._should_record_video(step + 1, video_next_step):
-            video_recording = self._start_video_recording(self.env, obs)
         return (
             obs, buffer_obs, agent_obs, episode_reward, episode_steps,
-            action_counts, video_recording, video_next_step,
+            action_counts,
         )
 
     def _train_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
@@ -461,16 +418,12 @@ class Trainer:
 
         start_step = self._resume_step
         print(f"Training from step {start_step} to {tcfg.total_steps}...")
-        obs, buffer_obs, agent_obs = self._reset_train_episode()
+        _obs, buffer_obs, agent_obs = self._reset_train_episode()
         episode_reward, episode_steps, action_counts = self._zero_episode_counters()
         self._t0 = time.time()
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
-        video_next_step = start_step
-        video_recording = self._start_train_video_if_due(
-            start_step, video_next_step, obs,
-        )
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -484,13 +437,11 @@ class Trainer:
             action_counts[action] += 1
             episode_reward += next_obs["reward"]
             episode_steps += 1
-            if video_recording is not None:
-                self._append_video_frame(self.env, video_recording, next_obs)
 
             if next_obs["done"]:
                 (
-                    obs, buffer_obs, agent_obs, episode_reward, episode_steps,
-                    action_counts, video_recording, video_next_step,
+                    _obs, buffer_obs, agent_obs, episode_reward, episode_steps,
+                    action_counts,
                 ) = self._finish_train_episode(
                     last_obs=next_obs,
                     episode_reward=episode_reward,
@@ -499,11 +450,9 @@ class Trainer:
                     step=step,
                     writer=writer,
                     f=f,
-                    video_recording=video_recording,
-                    video_next_step=video_next_step,
                 )
             else:
-                obs = next_obs
+                _obs = next_obs
                 buffer_obs = next_buffer_obs
                 agent_obs = next_agent_obs
 
@@ -522,59 +471,11 @@ class Trainer:
                     if getattr(acfg, "decoder", False):
                         self._maybe_log_recon(batch, step)
 
-            # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
-            if (self.val_env is not None
-                    and tcfg.val_every > 0
-                    and (step + 1) % tcfg.val_every == 0):
-                rng_key, val_key = jax.random.split(rng_key)
-                self._run_val_loop(val_key, step, writer, f)
-
             # --- Checkpoint ---
             if (step + 1) % tcfg.checkpoint_every == 0:
                 save_checkpoint(self.agent, step + 1, tcfg.output_dir)
 
         return rng_key
-
-    def _should_record_video(self, step: int, next_video_step: int) -> bool:
-        return (
-            self._wandb is not None
-            and self.tcfg.video_log_every > 0
-            and self.tcfg.video_log_episodes > 0
-            and step >= next_video_step
-            and hasattr(self.env, "_env")
-        )
-
-    def _goal_positions(self, env: Env) -> list[list[float]]:
-        positions = []
-        for goal in env._env.current_episode.goals:
-            if goal.view_points:
-                pos = goal.view_points[0].agent_state.position
-            else:
-                pos = goal.position
-            positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
-        return positions
-
-    def _agent_position(self, env: Env) -> list[float]:
-        pos = env._env.sim.get_agent_state().position
-        return pos.tolist() if hasattr(pos, "tolist") else list(pos)
-
-    def _start_video_recording(self, env: Env, obs: dict) -> dict[str, Any]:
-        recording = {
-            "trajectory": [self._agent_position(env)],
-            "goals": self._goal_positions(env),
-            "frames": [],
-        }
-        self._append_video_frame(env, recording, obs)
-        return recording
-
-    def _append_video_frame(self, env: Env, recording: dict[str, Any], obs: dict) -> None:
-        if "image" not in obs:
-            return
-        if recording["frames"]:
-            recording["trajectory"].append(self._agent_position(env))
-        topdown = render_topdown_frame(
-            env, recording["trajectory"], recording["goals"])
-        recording["frames"].append(compose_frame(obs["image"], topdown))
 
     # ------------------------------------------------------------------
     # Overfit-one-batch diagnostic loop (Karpathy step 3)
@@ -719,121 +620,3 @@ class Trainer:
             combo = np.clip(combo * 255.0, 0, 255).astype(np.uint8)
             images.append(self._wandb.Image(combo, caption=f"input | recon ({i})"))
         self._wandb.log({"decoder/reconstructions": images}, step=step)
-
-    def _run_single_val_episode(
-        self,
-        *,
-        rng_key: jnp.ndarray,
-        record_video: bool,
-        step: int,
-    ) -> tuple[dict[str, Any], jnp.ndarray]:
-        val_adapter = self.val_obs_adapter
-        obs = self.val_env.reset()
-        if val_adapter.on_episode_reset:
-            val_adapter.on_episode_reset()
-        _, agent_obs = val_adapter.transform(obs)
-
-        episode_reward = 0.0
-        episode_steps = 0
-        action_counts = np.zeros(self.acfg.num_actions, dtype=int)
-
-        recording = None
-        if record_video:
-            recording = self._start_video_recording(self.val_env, obs)
-
-        for _ in range(self.tcfg.val_max_episode_steps):
-            rng_key, act_key = jax.random.split(rng_key)
-            action = self.agent.act(agent_obs, act_key, training=False)
-            next_obs = self.val_env.step(action)
-            _, next_agent_obs = val_adapter.transform(next_obs)
-
-            action_counts[action] += 1
-            episode_reward += next_obs["reward"]
-            episode_steps += 1
-            if recording is not None:
-                self._append_video_frame(self.val_env, recording, next_obs)
-
-            if next_obs["done"]:
-                obs = next_obs
-                break
-            obs = next_obs
-            agent_obs = next_agent_obs
-
-        val_metrics = self.val_episode_metrics_fn(
-            self.val_env, obs, episode_reward, episode_steps, action_counts,
-        )
-        if recording is not None:
-            log_episode_video(
-                self._wandb, "val/episode_video", recording["frames"], step,
-            )
-        return val_metrics, rng_key
-
-    def _prefix_val_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
-        return {
-            f"val/{k}" if not k.startswith("val/") else k: v
-            for k, v in metrics.items()
-        }
-
-    def _log_val_metrics(
-        self, val_logged: dict[str, Any], step: int, writer: Any, f: Any,
-    ) -> None:
-        for k, v in val_logged.items():
-            writer.writerow([step, k, v])
-        f.flush()
-        if self._wandb is not None:
-            self._wandb.log(val_logged, step=step)
-
-    def _print_val_summary(
-        self, val_logged: dict[str, Any], step: int, elapsed: float,
-    ) -> None:
-        sr = val_logged.get("val/metrics/sr", 0.0)
-        spl = val_logged.get("val/metrics/spl", 0.0)
-        softspl = val_logged.get("val/metrics/softspl", 0.0)
-        dtg = val_logged.get("val/metrics/dtg", 0.0)
-        sr_str = f"{sr:.3f}" if isinstance(sr, float) else str(sr)
-        spl_str = f"{spl:.3f}" if isinstance(spl, float) else str(spl)
-        soft_str = f"{softspl:.3f}" if isinstance(softspl, float) else str(softspl)
-        dtg_str = f"{dtg:.3f}" if isinstance(dtg, float) else str(dtg)
-        print(
-            f"[step {step:>8d}] VAL-LOOP "
-            f"sr={sr_str} spl={spl_str} softspl={soft_str} dtg={dtg_str}m "
-            f"({self.tcfg.val_episodes} eps in {elapsed:.1f}s)"
-        )
-
-    def _run_val_loop(
-        self, rng_key: jnp.ndarray, step: int, writer: Any, f: Any,
-    ) -> None:
-        """Deterministic Val-Episode-Loop (3D-36) + video recording (3D-41).
-
-        Runs `val_episodes` greedy rollouts in the pinned eval env and logs
-        rolling val/* metrics. The first val_video_episodes are captured
-        as W&B videos (deterministic playback — same scene across runs
-        because the eval episode order is pinned by the curriculum JSON).
-        """
-        tcfg = self.tcfg
-        if (self.val_env is None or self.val_obs_adapter is None
-                or self.val_episode_metrics_fn is None):
-            return
-
-        last_val_metrics: dict[str, Any] = {}
-        videos_recorded = 0
-        val_t0 = time.time()
-
-        for ep_idx in range(tcfg.val_episodes):
-            record_video = (
-                videos_recorded < tcfg.val_video_episodes
-                and self._wandb is not None
-            )
-            last_val_metrics, rng_key = self._run_single_val_episode(
-                rng_key=rng_key, record_video=record_video, step=step,
-            )
-            if record_video:
-                videos_recorded += 1
-
-        # Prefix the final episode's tracker snapshot with `val/`. The
-        # rolling-mean fields already reflect the whole val loop (since the
-        # tracker is shared across episodes within this run).
-        val_logged = self._prefix_val_metrics(last_val_metrics)
-        self._log_val_metrics(val_logged, step, writer, f)
-        elapsed = time.time() - val_t0
-        self._print_val_summary(val_logged, step, elapsed)

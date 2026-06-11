@@ -54,6 +54,17 @@ class _MappingObsAdapter(ObsAdapter):
         }, obs_dict
 
 
+def test_trainer_config_has_no_in_run_val_or_video_controls():
+    tcfg = TrainerConfig()
+
+    assert not hasattr(tcfg, "val_every")
+    assert not hasattr(tcfg, "val_episodes")
+    assert not hasattr(tcfg, "val_video_episodes")
+    assert not hasattr(tcfg, "val_max_episode_steps")
+    assert not hasattr(tcfg, "video_log_every")
+    assert not hasattr(tcfg, "video_log_episodes")
+
+
 class TestConvertBatch:
     """convert_batch turns replay buffer output into agent-ready batches."""
 

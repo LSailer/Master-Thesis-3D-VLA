@@ -18,12 +18,5 @@ args:
   wandb_name: vggt_jax-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,vggt,vggt_jax,jax,3d-encoder
   render_resolution: 518
-  # Scalars-only during training, shared by the whole VGGT curriculum arm
-  # (l2/l3/l4_vggt inherit via extends). video_log_every=0 disables W&B
-  # episode-video rendering; val_every=0 disables the in-run val loop AND skips
-  # building the eval habitat sim (train.py only spawns val_env when val_every
-  # > 0). Videos + eval metrics are produced later from checkpoints. Keeps the
-  # VGGT arm symmetric with the CNN baseline and drops the two heaviest habitat
-  # GL paths (video re-render + second sim instance).
-  video_log_every: 0
-  val_every: 0
+  # In-run validation and episode-video rendering were removed from training;
+  # generate held-out eval metrics and videos separately from checkpoints.

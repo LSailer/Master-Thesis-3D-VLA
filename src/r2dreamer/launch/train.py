@@ -62,9 +62,8 @@ def _make_env_instances(
     curriculum_path: str | None,
     encoder_spec: Any,
     env_registry: dict[str, Any],
-) -> tuple[Any, Any | None, int]:
+) -> tuple[Any, int]:
     env_fn = env_registry[env]
-    val_env_instance = None
     if env == "habitat":
         env_instance = env_fn(
             curriculum_path=curriculum_path,
@@ -72,18 +71,9 @@ def _make_env_instances(
             seed=args.seed,
             render_resolution=encoder_spec.env_render_resolution,
         )
-        # Val env: same curriculum JSON, eval-key set. Skip when val is off
-        # or the user is in train-of-train mode (curriculum_mode != "train").
-        if args.val_every > 0 and args.curriculum_mode == "train":
-            val_env_instance = env_fn(
-                curriculum_path=curriculum_path,
-                curriculum_mode="eval",
-                seed=args.seed,
-                render_resolution=encoder_spec.env_render_resolution,
-            )
-        return env_instance, val_env_instance, 4
+        return env_instance, 4
 
-    return env_fn(seed=args.seed), None, 17
+    return env_fn(seed=args.seed), 17
 
 
 def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dict[str, dict]):
@@ -160,12 +150,6 @@ def _make_trainer_config(
         wandb_name=wandb_name,
         wandb_tags=wandb_tags,
         wandb_id=args.wandb_id,
-        video_log_every=args.video_log_every,
-        video_log_episodes=args.video_log_episodes,
-        val_every=args.val_every,
-        val_episodes=args.val_episodes,
-        val_video_episodes=args.val_video_episodes,
-        val_max_episode_steps=args.val_max_episode_steps,
         resume_from=args.resume_from,
         overfit_one_batch=args.overfit_one_batch,
         overfit_steps=args.overfit_steps,
@@ -181,10 +165,8 @@ def _make_trainer_config(
 def _make_trainer(
     *,
     env: str,
-    enc: Any,
     agent: Any,
     env_instance: Any,
-    val_env_instance: Any | None,
     agent_config: Any,
     trainer_config: Any,
     adapter: Any,
@@ -201,18 +183,6 @@ def _make_trainer(
         )
 
     hab = habitat_defaults_fn(env_instance)
-    val_kwargs: dict[str, object] = {}
-    if val_env_instance is not None:
-        # Val-Episode-Loop (3D-36) wiring: own adapter so the train
-        # VGGT video buffer isn't disturbed; own tracker so val
-        # rolling means stay independent of train rollouts.
-        val_adapter = enc.make_adapter()
-        val_hab = habitat_defaults_fn(val_env_instance, track_collision_rate=True)
-        val_kwargs = {
-            "val_env": val_env_instance,
-            "val_obs_adapter": val_adapter,
-            "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
-        }
     return trainer_cls(
         agent=agent,
         env=env_instance,
@@ -220,7 +190,6 @@ def _make_trainer(
         trainer_config=trainer_config,
         obs_adapter=adapter,
         episode_metrics_fn=hab["episode_metrics_fn"],
-        **val_kwargs,
     )
 
 
@@ -255,11 +224,11 @@ def train(
     curriculum_path = _resolve_curriculum_inputs(
         env=env, args=args, curriculum=curriculum, env_registry=env_registry,
     )
-    enc, adapter, encoder_spec = _make_encoder_bundle(encoder, args, encoder_registry)
+    _enc, adapter, encoder_spec = _make_encoder_bundle(encoder, args, encoder_registry)
     eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
         args=args, output_dir=output_dir, wandb_name=wandb_name, wandb_tags=wandb_tags,
     )
-    env_instance, val_env_instance, num_actions = _make_env_instances(
+    env_instance, num_actions = _make_env_instances(
         env=env,
         args=args,
         curriculum_path=curriculum_path,
@@ -289,10 +258,8 @@ def train(
     )
     trainer = _make_trainer(
         env=env,
-        enc=enc,
         agent=agent,
         env_instance=env_instance,
-        val_env_instance=val_env_instance,
         agent_config=agent_config,
         trainer_config=trainer_config,
         adapter=adapter,

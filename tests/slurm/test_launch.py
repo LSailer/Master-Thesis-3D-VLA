@@ -83,12 +83,10 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base / l1_vggt have since gained three intentional changes the frozen
+    # _base / l1_vggt have since gained two intentional changes the frozen
     # legacy script predates: (1) the GL-teardown hard-exit env var (so every
     # habitat variant exits 0 on completion), (2) multi-partition auto-select
-    # (gpu_h100_il,gpu_h100), and (3) the scalars-only flags video_log_every=0 /
-    # val_every=0 (videos + eval regenerated from checkpoints, not during
-    # training). Normalise all three back out before the byte-equality check so
+    # (gpu_h100_il,gpu_h100). Normalise both back out before the byte-equality check so
     # the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
     # The entrypoint migrated to the single run.py dispatcher (run id positional);
@@ -100,13 +98,6 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
     )
     rendered = rendered.replace(
         "#SBATCH --partition=gpu_h100_il,gpu_h100", "#SBATCH --partition=gpu_h100", 1
-    )
-    rendered = rendered.replace(
-        "    --render_resolution 518 \\\n"
-        "    --video_log_every 0 \\\n"
-        "    --val_every 0",
-        "    --render_resolution 518",
-        1,
     )
     assert rendered == expected
 
@@ -195,12 +186,10 @@ def test_curriculum_variants_match_legacy_args(variant: str, run_id: str, legacy
     assert r_run_id == run_id
 
     # Intentional divergence from the frozen legacy sbatch: the VGGT arm is now
-    # the flatten/WP-CP readout (`mlp_layers=0`) and scalars-only — video +
-    # in-run eval disabled (video_log_every=0 / val_every=0, inherited from
-    # l1_vggt), and the stale replay-buffer val flags (val_data /
-    # val_loss_every) dropped since the parser rejects them. Videos + eval
-    # metrics are regenerated from checkpoints. Normalise those out, then assert
-    # the rest of the training command still matches.
+    # the flatten/WP-CP readout (`mlp_layers=0`). The stale replay-buffer val
+    # flags (val_data / val_loss_every) are also absent because the parser
+    # rejects in-run validation flags. Normalise those out, then assert the rest
+    # of the training command still matches.
     assert r_flags["--mlp_layers"] == "0"
     assert "--mlp_layers" not in l_flags
     assert r_flags["--wandb_name"] == l_flags["--wandb_name"].replace(
@@ -208,8 +197,8 @@ def test_curriculum_variants_match_legacy_args(variant: str, run_id: str, legacy
         "-flatten-${SLURM_JOB_ID}",
     )
     assert r_flags["--wandb_tags"] == f"{l_flags['--wandb_tags']},flatten,wp-cp"
-    assert r_flags["--video_log_every"] == "0"
-    assert r_flags["--val_every"] == "0"
+    assert "--video_log_every" not in r_flags
+    assert "--val_every" not in r_flags
     assert "--val_data" not in r_flags
     assert "--val_loss_every" not in r_flags
 
@@ -217,8 +206,6 @@ def test_curriculum_variants_match_legacy_args(variant: str, run_id: str, legacy
         "--mlp_layers",
         "--wandb_name",
         "--wandb_tags",
-        "--video_log_every",
-        "--val_every",
         "--val_data",
         "--val_loss_every",
     }
@@ -234,9 +221,9 @@ def test_extends_chain_is_recursive() -> None:
     # Inherited from _base via l1_vggt:
     assert config.sbatch.gres == "gpu:1"
     assert config.args["render_resolution"] == 518
-    # Scalars-only flags inherited from l1_vggt (videos/eval regenerated offline):
-    assert config.args["video_log_every"] == 0
-    assert config.args["val_every"] == 0
+    # In-run val/video train flags are not part of the launch config anymore:
+    assert "video_log_every" not in config.args
+    assert "val_every" not in config.args
     # script is inherited from _base (the shared run.py dispatcher); the run is
     # selected by run_id, which l2_vggt sets as its own override:
     assert config.script.endswith("run.py")
@@ -339,8 +326,8 @@ def test_l1_replay_capacity_ablation_configs(
     assert flags["--buffer_capacity"] == capacity
     assert tag in flags["--wandb_tags"]
     assert "3d-63" in flags["--wandb_tags"]
-    assert flags["--video_log_every"] == "0"
-    assert flags["--val_every"] == "0"
+    assert "--video_log_every" not in flags
+    assert "--val_every" not in flags
 
 
 def test_l1_aggregator_capacity_ablation_keeps_encoder_batch_defaults() -> None:
