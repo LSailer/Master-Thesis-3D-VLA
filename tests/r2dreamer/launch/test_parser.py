@@ -1,6 +1,9 @@
 """Parser behavior tests for r2dreamer train launch flags."""
 
+from types import SimpleNamespace
+
 from src.r2dreamer.launch.parser import _build_parser_train
+from src.r2dreamer.launch.train import _agent_overrides_from_args
 
 
 def test_train_parser_does_not_expose_wandb_notes_file():
@@ -17,3 +20,22 @@ def test_mlp_layers_help_matches_conv_encoder_guard():
     assert "Only valid for VGGT MLP encoders" in help_text
     assert "CNN/dense-WP conv encoders require the default value (1)" in help_text
     assert "Ignored by the CNN/dense-WP conv encoders" not in help_text
+
+
+def test_buffer_capacity_override_accepts_hyphen_and_underscore_aliases():
+    parser = _build_parser_train()
+
+    hyphen = parser.parse_args(["--buffer-capacity", "500000"])
+    underscore = parser.parse_args(["--buffer_capacity", "100000"])
+
+    assert hyphen.buffer_capacity == 500_000
+    assert underscore.buffer_capacity == 100_000
+
+
+def test_buffer_capacity_override_wins_over_encoder_default():
+    args = _build_parser_train().parse_args(["--buffer-capacity", "500000"])
+    encoder_spec = SimpleNamespace(agent_overrides={"buffer_capacity": 1_000_000})
+
+    overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
+
+    assert overrides["buffer_capacity"] == 500_000
