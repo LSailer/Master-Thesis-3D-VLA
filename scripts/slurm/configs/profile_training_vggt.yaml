@@ -1,0 +1,18 @@
+extends: _profiling_base
+job_name: profile-training-vggt
+output_dir: output/profiling/training-vggt
+script: scripts/profiling/profile_training.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "Profile the VGGT training-loop phases on the L1 curriculum."
+args:
+  encoder: vggt
+  prefill_steps: 200
+  acting_steps: 200
+  output_dir: output/profiling/training-vggt/run-${SLURM_JOB_ID}
+  curriculum_path: data/curriculum/level1_1house_1goal.json
+smoke:
+  args:
+    prefill_steps: 40
+    acting_steps: 40
+    output_dir: output/profiling/training-vggt/smoke-${TIMESTAMP}

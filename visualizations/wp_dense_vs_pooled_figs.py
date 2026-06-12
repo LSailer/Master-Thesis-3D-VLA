@@ -1,6 +1,7 @@
 """Appendix figures for 3D-48: dense (518x518x3) vs pooled (37x37x3) world points.
 
-Reads the npz produced by scripts/profiling/dump_wp_dense_vs_pooled.py and renders
+Reads the npz produced by
+scripts/profiling/diagnostics/dump_wp_dense_vs_pooled.py and renders
 a set of PNGs that make the 14x14 average-pooling loss visually obvious.
 
 Usage:

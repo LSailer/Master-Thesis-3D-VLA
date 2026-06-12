@@ -1,0 +1,20 @@
+extends: _profiling_base
+job_name: profile-modal-replay
+output_dir: output/profiling/modal-replay
+script: scripts/profiling/profile_modal_replay.py
+arg_style: hyphen
+comments:
+  - "Profile flat hybrid replay against modality-aware replay without Habitat or online VGGT."
+args:
+  capacity: 8192
+  sample_iters: 40
+  train_iters: 15
+  combined_iters: 15
+  output: output/profiling/modal-replay/run-${SLURM_JOB_ID}.json
+smoke:
+  args:
+    capacity: 2048
+    sample_iters: 10
+    train_iters: 5
+    combined_iters: 5
+    output: output/profiling/modal-replay/smoke-${TIMESTAMP}.json

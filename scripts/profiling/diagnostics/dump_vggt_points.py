@@ -1,7 +1,8 @@
 """Dump VGGT world_points to NPZ for visualization.
 
 Usage:
-  uv run python -m src.vggt.scripts.dump_vggt_points --out output/vggt_points.npz
+  uv run python -m scripts.profiling.diagnostics.dump_vggt_points \
+      --out output/vggt_points.npz
 
 Optionally pass --seed to control the synthetic RGB.
 """

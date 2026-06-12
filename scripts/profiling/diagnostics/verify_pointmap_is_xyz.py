@@ -17,7 +17,7 @@ Three independent, GPU-free checks on the dumped npz
      the point map.
 
 Usage:
-  .venv/bin/python -m scripts.vggt.verify_pointmap_is_xyz \
+  .venv/bin/python -m scripts.profiling.diagnostics.verify_pointmap_is_xyz \
       --npz output/3d48/wp_dense_vs_pooled.npz \
       --out output/3d48/verify_pointmap.png
 """

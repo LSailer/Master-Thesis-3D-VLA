@@ -5,7 +5,7 @@ point map both before and after the ``_adaptive_avg_pool_518_to_37`` step,
 so we can visualise exactly what spatial detail the 14x14 pooling discards.
 
 Usage:
-  uv run python -m scripts.vggt.dump_wp_dense_vs_pooled \
+  uv run python -m scripts.profiling.diagnostics.dump_wp_dense_vs_pooled \
       --frames tests/r2dreamer/launch/fixtures/sample_habitat_obs.npz \
       --frame-index 0 \
       --out output/3d48/wp_dense_vs_pooled.npz

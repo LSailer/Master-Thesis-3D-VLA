@@ -310,6 +310,47 @@ def test_aggregator_smoke_overrides() -> None:
     assert "agg-mlp-fast-path-smoke" in flags["--wandb_tags"]
 
 
+def test_time_override_applies_to_selected_mode() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1"), mode="prod", time_override="04:00:00",
+    )
+
+    assert "#SBATCH --time=04:00:00" in rendered
+    assert "habitat-l1-vggt-house-context" in rendered
+
+
+def test_launch_wrapper_forwards_time_override() -> None:
+    result = run_launch("house_context_l1", "--prod", "--time", "04:00:00", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --time=04:00:00" in result.stdout
+
+
+def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:
+    result = run_launch("house_context_l1", "--time", "04:00:00", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --job-name=vggt-house-context-l1" in result.stdout
+    assert "#SBATCH --time=04:00:00" in result.stdout
+    assert "--steps 2000000" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "variant,script",
+    [
+        ("profile_encoder_cost", "scripts/profiling/profile_encoders_3d5253.py"),
+        ("profile_training_vggt", "scripts/profiling/profile_training.py"),
+        ("profile_agg_pipeline", "scripts/profiling/profile_pipeline_aggregator_mlp.py"),
+    ],
+)
+def test_profiling_configs_render_standalone_scripts(variant: str, script: str) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+
+    assert f".venv/bin/python {script}" in rendered
+    assert "output/profiling" in rendered
+    assert "scripts/slurm/hooks/link_external.sh" in rendered
+    assert "--steps" not in rendered
+
 def test_aggregator_prod_is_strict_bash() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     assert "set -euo pipefail" in rendered

@@ -236,7 +236,7 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
   </figure>
 
   <h3>Is the point map geometry or colour? (verification)</h3>
-  <p>Both the input image and the point map are <code>H×W×3</code>, so it's natural to ask whether the 3 channels are RGB. They are not — they are <b>XYZ coordinates</b>. This is checked by <code>scripts/profiling/verify_pointmap_is_xyz.py</code> (no GPU needed):</p>
+  <p>Both the input image and the point map are <code>H×W×3</code>, so it's natural to ask whether the 3 channels are RGB. They are not — they are <b>XYZ coordinates</b>. This is checked by <code>scripts/profiling/diagnostics/verify_pointmap_is_xyz.py</code> (no GPU needed):</p>
   <figure>
     <img src="images/3d48/verify_pointmap.png" alt="Verification: point map is XYZ, not colour">
     <figcaption><b>Fig 6 — The point map is geometry, not colour.</b> Left: cloud coloured from the input pixels (coherent room). Middle: same geometry with colours <em>shuffled</em> against position — breaking the pixel pairing turns it to noise, proving colour is an external per-pixel overlay (borrowed from the input image), not stored in the point map. Right: the point map's own values as false-colour (R=X, G=Y, B=Z) — clearly not a photo.</figcaption>
@@ -303,7 +303,7 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
     </li>
     <li><b>Inspect locally</b> — every PNG in <code>docs/images/3d48/</code> is appendix-ready; this page embeds them. The dense NPZ is portable to your laptop for an interactive viewer if desired.</li>
   </ol>
-  <p class="sub">Artifacts: <code>scripts/profiling/dump_wp_dense_vs_pooled.py</code> · <code>scripts/vggt/dump_wp_dense_vs_pooled.sbatch</code> · <code>visualizations/wp_dense_vs_pooled_figs.py</code> · capture flag in <code>src/vggt/jax/feature_extractor.py</code>.</p>
+  <p class="sub">Artifacts: <code>scripts/profiling/diagnostics/dump_wp_dense_vs_pooled.py</code> · <code>scripts/vggt/dump_wp_dense_vs_pooled.sbatch</code> · <code>visualizations/wp_dense_vs_pooled_figs.py</code> · capture flag in <code>src/vggt/jax/feature_extractor.py</code>.</p>
 </section>
 
 <!-- ============================================================ -->

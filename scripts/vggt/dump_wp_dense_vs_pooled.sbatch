@@ -23,7 +23,7 @@ echo "Branch: $(git branch --show-current)"
 echo "Commit: $(git rev-parse --short HEAD)"
 echo ""
 
-uv run python -m scripts.vggt.dump_wp_dense_vs_pooled \
+uv run python -m scripts.profiling.diagnostics.dump_wp_dense_vs_pooled \
     --frames tests/r2dreamer/launch/fixtures/sample_habitat_obs.npz \
     --frame-index 0 \
     --out output/3d48/wp_dense_vs_pooled.npz
