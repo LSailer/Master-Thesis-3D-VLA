@@ -113,6 +113,12 @@ def setup(args):
         num_actions=4,
         **spec.agent_overrides,
     )
+    if args.batch_size is not None:
+        cfg.batch_size = args.batch_size
+    if args.seq_len is not None:
+        cfg.seq_len = args.seq_len
+    if args.train_ratio is not None:
+        cfg.train_ratio = args.train_ratio
     rng = jax.random.PRNGKey(args.seed)
     agent = R2DreamerAgent(cfg, rng)
     buffer = ReplayBuffer(BufferConfig(
@@ -295,6 +301,9 @@ def main():
     p.add_argument("--min-free-gb", type=float, default=300.0)
     p.add_argument("--storage-path", type=Path, default=Path("output"))
     p.add_argument("--out", type=Path, default=Path("output/profiling/agg_token_transformer.json"))
+    p.add_argument("--batch-size", type=int, default=None)
+    p.add_argument("--seq-len", type=int, default=None)
+    p.add_argument("--train-ratio", type=int, default=None)
     args = p.parse_args()
 
     args.storage_path.mkdir(parents=True, exist_ok=True)
