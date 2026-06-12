@@ -33,8 +33,8 @@ shims: `run_parity_training.py`, `run_benchmark.py`.
 |------|------|
 | `build_l3_heldout_curriculum.py` | Build a held-out-house L3 chair-only eval curriculum disjoint from L3 train houses. |
 | `build_curriculum_slides.py` | Aggregate curriculum-progression metrics into slides/plots. |
-| `profile_training.py` | Per-phase timing of the full loop (env / vggt_forward / vggt_wrapper / jax_upload / wm_inference / buffer_add / wm_training), CNN and VGGT back-to-back. |
-| `profile_encoders_3d5253.py` | Isolated encoder cost comparison: VGGT `extract()` vs encoder `forward()` vs `train_step()`, wp_cp vs wp_dense. |
+| `../profiling/profile_training.py` | Per-phase timing of the full loop (env / vggt_forward / vggt_wrapper / jax_upload / wm_inference / buffer_add / wm_training), CNN and VGGT back-to-back. |
+| `../profiling/profile_encoders_3d5253.py` | Isolated encoder cost comparison: VGGT `extract()` vs encoder `forward()` vs `train_step()`, wp_cp vs wp_dense. |
 | `plot_curriculum_scaling.py`, `plot_baseline_analysis.py`, `plot_l1_baseline.py` | Publication plots from run `metrics.csv`. |
 
 ### `slurm/`

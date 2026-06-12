@@ -24,7 +24,7 @@ echo "Commit: $(git rev-parse --short HEAD)"
 echo "Dirty: $(git status --porcelain | wc -l) files"
 echo ""
 
-uv run python scripts/profile_pipeline_aggregator_mlp.py \
+uv run python scripts/profiling/profile_pipeline_aggregator_mlp.py \
     --prefill 200 \
     --warmup 20 \
     --measure 100 \

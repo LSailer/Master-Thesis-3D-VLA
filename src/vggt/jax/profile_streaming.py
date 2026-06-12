@@ -29,6 +29,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from src.shared.profiling import make_synthetic_rgb_frame
 from src.vggt.jax.feature_extractor import (
     JAXVGGTFeatureExtractor,
     _adaptive_avg_pool_518_to_37,
@@ -37,12 +38,6 @@ from src.vggt.jax.feature_extractor import (
 
 WARMUP_FRAMES = 3
 PHASES = ("input_prep", "aggregator", "camera_head", "point_head", "pool_transfer")
-
-
-def _make_frame(seed: int, size: int = 518) -> np.ndarray:
-    """Synthetic CHW uint8 RGB frame, deterministic by seed."""
-    rng = np.random.RandomState(seed)
-    return rng.randint(0, 256, size=(3, size, size), dtype=np.uint8)
 
 
 def _profile_one_frame(ext: JAXVGGTFeatureExtractor, rgb: np.ndarray) -> dict[str, float]:
@@ -143,20 +138,20 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
     print(f"Warmup ({WARMUP_FRAMES} frames) ...", flush=True)
     ext.reset()
     for i in range(WARMUP_FRAMES):
-        _profile_one_frame(ext, _make_frame(i))
+        _profile_one_frame(ext, make_synthetic_rgb_frame(i))
 
     # Optional trace capture (one extra frame, after warmup is hot).
     if trace_dir is not None:
         trace_dir.mkdir(parents=True, exist_ok=True)
         print(f"Capturing JAX profile trace -> {trace_dir} ...", flush=True)
         with jax.profiler.trace(str(trace_dir)):
-            _profile_one_frame(ext, _make_frame(999))
+            _profile_one_frame(ext, make_synthetic_rgb_frame(999))
 
     # Measurement: fresh cache, then n_frames timed frames.
     ext.reset()
     rows: list[dict[str, float]] = []
     for i in range(n_frames):
-        rows.append(_profile_one_frame(ext, _make_frame(1000 + i)))
+        rows.append(_profile_one_frame(ext, make_synthetic_rgb_frame(1000 + i)))
         print(f"  frame {i+1}/{n_frames}: total={sum(rows[-1].values()):.1f}ms", flush=True)
 
     # Aggregate.

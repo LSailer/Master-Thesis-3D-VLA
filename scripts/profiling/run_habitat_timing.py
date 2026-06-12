@@ -9,7 +9,6 @@ Variants:
   dreamerv3_pytorch  -- PyTorch r2dreamer with rep_loss=dreamer
 """
 
-import json
 import os
 import sys
 import time
@@ -19,6 +18,8 @@ import numpy as np
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 sys.path.insert(0, REPO_ROOT)
 R2DREAMER_DIR = os.path.join(REPO_ROOT, "external", "r2dreamer")
+
+from src.shared.profiling import write_json
 
 # Shared benchmark parameters
 OBS_SHAPE = (3, 64, 64)   # CHW (JAX) / will be transposed to HWC for PyTorch
@@ -306,9 +307,7 @@ def main():
             results[variant] = {"error": str(e)}
 
     # Save JSON
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    with open(args.output, "w") as f:
-        json.dump(results, f, indent=2)
+    write_json(args.output, results)
     print(f"\nResults written to {args.output}")
 
     # Summary table
