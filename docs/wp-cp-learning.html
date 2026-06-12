@@ -233,6 +233,11 @@
     <div class="eyebrow">DreamerV3 · 3D-VLA · ObjectNav</div>
     <h1>The <span class="wpk">WP</span> / <span class="cpk">CP</span> path<br>how the <code style="font-family:var(--mono);font-size:.7em;background:rgba(255,255,255,.1);padding:2px 10px;border-radius:8px;">vggt</code> encoder turns a frame into 4116 numbers</h1>
     <p class="lede">An RGB frame goes into VGGT and comes out as two things — a grid of 3D <b style="color:#93c5fd">World&nbsp;Points</b> and one <b style="color:#fdba74">Camera&nbsp;Pose</b>. Stitched together, that is the vector your Dreamer world model actually learns from. This page walks the whole path, end to end, and lets you poke at every stage.</p>
+    <p style="margin-top:16px; color:#dbeafe; max-width:760px;">
+      Canonical project-wide architecture/data-flow reference:
+      <a href="architecture-data-flow.html#variants" style="color:#fff; font-weight:700;">architecture-data-flow.html</a>.
+      This page remains the WP/CP-specific interactive explainer.
+    </p>
     <div class="pill-row">
       <span class="pill">RGB <b>518×518×3</b></span>
       <span class="pill">WP <b>37×37×3 = 4107</b></span>
@@ -251,6 +256,7 @@
     <a href="#points"><span class="n">04</span>World Points (37×37)</a>
     <a href="#dreamer"><span class="n">05</span>Into Dreamer</a>
     <a href="#compare"><span class="n">06</span>WP/CP vs Aggregator</a>
+    <a href="architecture-data-flow.html"><span class="n">ref</span>Global architecture</a>
   </div>
 </nav>
 
@@ -259,6 +265,11 @@
   <div class="wrap">
     <div class="sec-tag">01 — End to end</div>
     <h2>The pipeline, one click at a time</h2>
+    <div class="callout" style="border-left-color:var(--agg); background:var(--agg-soft);">
+      <b>Canonical reference.</b> The current full architecture, including all encoder/readout variants beyond WP/CP, is maintained in
+      <a href="architecture-data-flow.html" style="color:var(--agg);font-weight:700;">architecture-data-flow.html</a>.
+      The flow below is the local WP/CP path only.
+    </div>
     <p>The whole <code class="inl">vggt</code> encoder is a fixed feature extractor in front of Dreamer. It never trains — it just maps each frame to a flat vector. Click any stage to see what enters, what leaves, and where it lives in the code.</p>
 
     <div class="pipe" id="pipe">

@@ -9,6 +9,15 @@ This repo is worked on by coding agents on bwUniCluster. Follow these rules for 
 - [`scripts/r2dreamer/AGENTS.md`](scripts/r2dreamer/AGENTS.md) — experiment drivers + SLURM wrappers
 - [`tests/r2dreamer/AGENTS.md`](tests/r2dreamer/AGENTS.md) — R2Dreamer test suite
 
+## Architecture And Data Flow
+
+The canonical repo-wide architecture/data-flow reference is
+[`docs/architecture-data-flow.html`](docs/architecture-data-flow.html). Read it before
+editing encoder routing, VGGT readouts, replay layouts, RSSM training flow, or
+architecture-sensitive docs. When adding reports or notes, link to that page for
+the shared pipeline and keep local docs focused on experiment-specific deltas,
+evidence, and results.
+
 ## Thesis Writing
 
 The written thesis is a **separate LaTeX repo** at [`../writing/`](../writing/) (sibling of this checkout; absolute path `/pfs/data6/home/ul/ul_student/ul_hfj15/writing/`). It is version-controlled independently — commit there separately, never from this repo. When an experiment here produces a reportable result, the prose and figures belong there, not only in `docs/`:
