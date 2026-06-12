@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "likec4:dev": "XDG_CONFIG_HOME=/tmp/likec4-config likec4 dev docs/architecture --listen 0.0.0.0 --port 8100",
+    "likec4:validate": "XDG_CONFIG_HOME=/tmp/likec4-config likec4 validate docs/architecture",
+    "likec4:build": "XDG_CONFIG_HOME=/tmp/likec4-config likec4 build docs/architecture -o docs/likec4-dist --base ./"
+  },
+  "devDependencies": {
+    "likec4": "^1.58.0"
+  }
+}
