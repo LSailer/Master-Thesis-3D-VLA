@@ -6,30 +6,7 @@ Augmenting Vision-Language-Action models with UNITE 3D features for object navig
 
 https://LSailer.github.io/Master-Thesis-3D-VLA/
 
-## Ralph (Autonomous TDD Agent)
 
-```bash
-# Start Ralph (picks up to N ready AFK issues, implements via TDD, creates PRs)
-gh workflow run ralph.yml -f max_tasks=5 -f time_limit=120
-
-# Check run status
-gh run list --workflow=ralph.yml
-
-# See which issues Ralph is working on / finished
-gh issue list --label in-progress
-gh issue list --label in-review
-
-# See ready tasks waiting for Ralph
-gh issue list --label AFK --label ready
-
-# Promote backlog issues to ready (manual)
-gh issue edit <N> --remove-label backlog --add-label ready
-```
-**Partitions:**
-| Partition | Use Case | Max Time |
-|-----------|----------|----------|
-| `dev_gpu_h100` | Testing, validation, quick experiments | 30 min |
-| `gpu_h100` | Standard GPU jobs, training | 48h |
 
 ## GPU Execution
 
@@ -54,35 +31,41 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 <command>
 | `gpu_h100` | Standard GPU jobs, training | 48h |
 
 
-## GPU + tmux + Remote Control Workflow
+## Slurm Launcher
 
-Use `start_gpu_session.sh` to run experiments on a GPU node inside tmux, then optionally hand off to Claude remote control.
+Use the YAML-backed launcher in [`scripts/slurm/`](scripts/slurm/) for current
+training, smoke, and production jobs. Each variant lives in
+`scripts/slurm/configs/<variant>.yaml`, and
+[`scripts/slurm/launch.sh`](scripts/slurm/launch.sh) renders and submits the
+matching sbatch script.
 
-**1. Start GPU session (tmux wraps srun):**
 ```bash
-./start_gpu_session.sh                          # defaults: gpu-work, gpu_h100, 24h
-./start_gpu_session.sh my-exp dev_gpu_h100 00:30:00  # custom name/partition/time
+# Render only; submits nothing.
+bash scripts/slurm/launch.sh l1_vggt --dry-run
+bash scripts/slurm/launch.sh l1_vggt --smoke --dry-run
+
+# Submit jobs.
+bash scripts/slurm/launch.sh l1_vggt --smoke
+bash scripts/slurm/launch.sh l1_vggt --prod
+bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod
+
+# Sweep variants and override config env values.
+bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke
+bash scripts/slurm/launch.sh l1_vggt --env WANDB_MODE=offline --smoke
 ```
 
-**2. Run experiments** on the GPU node.
+Add new experiment launchers by copying an existing YAML config, editing the
+small variant-specific delta, then checking both render modes before submitting:
 
-**3. (Optional) Start Claude with remote control:**
 ```bash
-claude --remote-control "GPU Experiments"
-```
-Opens a URL + QR code — access from phone/browser at `claude.ai/code`.
-
-**4. Detach tmux** (GPU session keeps running):
-```
-Ctrl+b  d
+cp scripts/slurm/configs/l1_vggt.yaml scripts/slurm/configs/<name>.yaml
+bash scripts/slurm/launch.sh <name> --dry-run
+bash scripts/slurm/launch.sh <name> --smoke --dry-run
 ```
 
-**5. Reattach later:**
-```bash
-tmux attach -t gpu-work
-```
+See [`scripts/slurm/README.md`](scripts/slurm/README.md) for the full config
+schema, smoke/prod mode semantics, monitoring commands, and launcher tests.
 
-**Key:** tmux must wrap srun (not the reverse) — detaching tmux preserves the GPU allocation.
 
 ## Watch HTML inside the Cluster
 From the repo on the cluster (you're presumably on Remote-SSH), run in the VS Code terminal:
