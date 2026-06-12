@@ -20,6 +20,12 @@ The written thesis is a **separate LaTeX repo** at [`../writing/`](../writing/) 
 
 Match the existing `\section`/`\subsection`, `\label{sec:|fig:|tab:}`, and `natbib` (`splncs04`) conventions already in those files. The repo-side `docs/notes/` writeups are staging drafts; the thesis is the destination.
 
+## HTML Report Handoff
+
+When creating or updating local HTML reports under `docs/`, `docs/notes/`, or worktree-local `docs/` folders, always hand off a browser-openable localhost URL in the final response, not only a filesystem path. Prefer the already active in-app browser/server origin when visible (for example `http://localhost:<port>/...`), preserving the path relative to the repository root. If no active origin is visible but a Python HTTP server is known to be running from the repo root, use `http://localhost:8000/<relative-path>`. If no server is running or the serving root is unclear, state the exact relative path and the command/server root needed to serve it.
+
+Do not hard-code localhost URLs into portable HTML files. Keep links inside HTML documents relative, so the same file works from `localhost`, the Codex in-app browser port, GitHub Pages, or a static file preview. If a report should be discoverable from the docs landing page, add a relative link from the appropriate index page separately.
+
 ## Multi-Agent Worktree Policy
 
 The main checkout is the orchestrator/control checkout. Use it for status checks, SLURM/W&B/PR inspection, branch review, worktree creation/removal, and coordination.
