@@ -159,6 +159,18 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "aggregator-mlp", "variant-1", "jax", "3d-encoder",
         ],
     ),
+    # L1 VGGT full aggregator-token Transformer encoder (3D-75).
+    "habitat-l1-vggt-agg-token-transformer": dict(
+        env="habitat",
+        encoder="vggt_agg_token_transformer",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-agg-token-transformer",
+        wandb_name="vggt-agg-token-transformer",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "aggregator-tokens", "token-transformer", "3d-75", "jax", "3d-encoder",
+        ],
+    ),
     # ── Crafter (non-curriculum sanity env) ─────────────────────────────────
     "crafter-cnn": dict(
         env="crafter",

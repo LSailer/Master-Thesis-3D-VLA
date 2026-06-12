@@ -64,6 +64,7 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: Any) -> jnp.nda
     if cfg.encoder_type in (
         "vggt",
         "vggt_aggregator_mlp",
+        "vggt_agg_token_transformer",
         "vggt_wp_dense_cnn",
         "vggt_wp_cp_64",
     ):

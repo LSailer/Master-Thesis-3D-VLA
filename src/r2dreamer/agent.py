@@ -32,6 +32,7 @@ from .world_model.encoders import (
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
     VGGTEncoder as WMVGGTEncoder,
+    VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
@@ -127,6 +128,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt": WMVGGTEncoder,
             "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+            "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
@@ -202,6 +204,19 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     )
 
 
+def _make_token_transformer_encoder(cfg: R2DreamerConfig):
+    return WMVGGTAggTokenTransformerEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        projection_dim=cfg.vggt_token_projection_dim,
+        layers=cfg.vggt_token_transformer_layers,
+        heads=cfg.vggt_token_transformer_heads,
+        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        keep_register_tokens=cfg.vggt_keep_register_tokens,
+    )
+
+
 def _make_encoder(cfg: R2DreamerConfig):
     cls = _resolve_encoder_cls(cfg)
     _validate_encoder_config(cfg, cls)
@@ -211,6 +226,8 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp_conv_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
+    if cls is WMVGGTAggTokenTransformerEncoder:
+        return _make_token_transformer_encoder(cfg)
     return _make_mlp_encoder(cfg, cls)
 
 

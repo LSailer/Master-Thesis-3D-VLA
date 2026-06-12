@@ -12,6 +12,7 @@ from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
     HybridEncoder,
+    VGGTAggTokenTransformerEncoder,
     VGGTHouseContextEncoder,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
@@ -152,6 +153,39 @@ class TestVGGTEncoderConfiguration:
         }
         assert "camera token" in spec.design_notes
 
+    def test_agg_token_transformer_spec_keeps_full_tokens_fp16(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTAggTokenTransformerEncoder(resolution=256)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert adapter.buffer_shape == (10 * 4,)
+        assert adapter.buffer_dtype == "float16"
+        assert spec.obs_shape == (10 * 4,)
+        assert spec.env_render_resolution == 256
+        assert spec.encoder_type == "vggt_agg_token_transformer"
+        assert spec.module_cls is wm_encoders.VGGTAggTokenTransformerEncoder
+        assert enc.vggt_compute_heads is False
+        assert spec.agent_overrides == {
+            "buffer_capacity": 5_000,
+            "batch_size": 1,
+            "seq_len": 8,
+            "train_ratio": 32,
+        }
+        assert "1374" in spec.design_notes
+
     def test_dense_wp_encoder_exposes_image_shaped_spec(self, monkeypatch):
         class FakeExtractor:
             aggregator_feature_shape = (1374, 1024)
@@ -283,11 +317,15 @@ class TestVGGTEncoderConfiguration:
     def test_vggt_launcher_variants_are_centralized(self):
         assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
         assert VGGTAggregatorMLPEncoder.variant is VGGT_VARIANTS["vggt_aggregator_mlp"]
+        assert VGGTAggTokenTransformerEncoder.variant is VGGT_VARIANTS[
+            "vggt_agg_token_transformer"
+        ]
         assert VGGTDenseWPEncoder.variant is VGGT_VARIANTS["vggt_wp_dense_cnn"]
         assert VGGTWPCP64Encoder.variant is VGGT_VARIANTS["vggt_wp_cp_64"]
 
         assert VGGT_VARIANTS["vggt"].compute_heads is True
         assert VGGT_VARIANTS["vggt_aggregator_mlp"].compute_heads is False
+        assert VGGT_VARIANTS["vggt_agg_token_transformer"].compute_heads is False
         assert VGGT_VARIANTS["vggt_wp_cp_64"].wp_pool_size == 64
 
     def test_aggregator_adapter_emits_cam_mean_max_pools(self):
@@ -318,6 +356,29 @@ class TestVGGTEncoderConfiguration:
         assert replay_features.dtype == np.float32
         np.testing.assert_allclose(replay_features, expected)
         assert agent_obs["features"].shape == (3 * 4,)
+        assert agent_obs["features"].dtype.name == "float32"
+
+    def test_agg_token_adapter_keeps_camera_register_and_patch_tokens(self):
+        class FakeExtractor:
+            aggregator_feature_shape = (10, 4)
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                import jax.numpy as jnp
+                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
+
+        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="agg_tokens")
+        replay_features, agent_obs = adapter.transform(
+            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        )
+
+        expected = np.arange(40, dtype=np.float32)
+        assert replay_features.shape == (40,)
+        assert replay_features.dtype == np.float16
+        np.testing.assert_allclose(replay_features, expected.astype(np.float16))
+        assert agent_obs["features"].shape == (40,)
         assert agent_obs["features"].dtype.name == "float32"
 
 

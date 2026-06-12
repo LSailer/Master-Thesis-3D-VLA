@@ -42,6 +42,17 @@ class R2DreamerConfig:
     # this to 3 to match R2Dreamer's native encoder.mlp.layers (3D-52). Setting
     # 0 collapses wp_cp to the original bare-linear projection.
     vggt_mlp_layers: int = 1
+    # Token Transformer over frozen VGGT aggregator tokens (3D-75).
+    # Defaults keep the full 1374-token sequence (camera + 4 registers + 37x37
+    # patches), project 1024-d tokens down before attention, and return
+    # vggt_embed_dim for the existing RSSM observe path.
+    vggt_token_transformer_layers: int = 2
+    vggt_token_transformer_heads: int = 8
+    vggt_token_projection_dim: int = 256
+    vggt_token_transformer_mlp_ratio: int = 2
+    vggt_keep_register_tokens: bool = True
+    vggt_token_count: int = 1374
+    vggt_token_dim: int = 1024
     # --- Hybrid encoder (CNN on RGB + MLP on WP/CP, gated; 3D-50/51/52) ---
     # The hybrid's WP/CP branch has its own width/depth knobs (vggt_mlp_layers
     # above governs the standalone vggt/aggregator encoders).

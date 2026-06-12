@@ -12,12 +12,14 @@ from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatur
 
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9
-VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw"]
+VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"]
 
 # Raw aggregator readout: drop the 4 register tokens, keep camera(1) + patches.
 # At the default 518² / 37x37-patch / 1024-d config: 1 + 1369 = 1370 tokens.
 AGG_RAW_TOKENS = 1370            # cam(1) + patches(1369); registers (idx 1:5) dropped
 AGG_RAW_DIM = AGG_RAW_TOKENS * 1024  # 1,402,880 at the default 1024-d embedding
+AGG_TOKEN_TOKENS = 1374          # cam(1) + registers(4) + patches(1369)
+AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 at the default 1024-d embedding
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
@@ -89,6 +91,23 @@ def flatten_raw_aggregator(out: dict, expected_shape: tuple[int, ...]) -> jnp.nd
     return kept.reshape(-1)                       # (n_tokens * D,)
 
 
+def flatten_full_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Flatten all VGGT aggregator tokens, keeping camera, register, and patches.
+
+    This is the 3D-75 token-Transformer replay layout. It intentionally differs
+    from ``flatten_raw_aggregator`` by preserving register tokens so the trainable
+    encoder sees the full frozen VGGT token sequence: ``(1374, 1024)`` at the
+    default 518px / 37x37-patch configuration. Replay stores the flattened vector
+    as float16; the Flax encoder upcasts before attention.
+    """
+    features = out["aggregator_features"]
+    if features.shape != expected_shape:
+        raise ValueError(
+            f"expected aggregator_features shape {expected_shape}, got {features.shape}"
+        )
+    return features.astype(jnp.float32).reshape(-1)
+
+
 class VGGTObsAdapter(ObsAdapter):
     """Runs VGGT extraction, returns features for both buffer and agent."""
 
@@ -118,6 +137,12 @@ class VGGTObsAdapter(ObsAdapter):
             embed_dim = int(shp[-1])
             buffer_shape = (n_tokens * embed_dim,)
             buffer_dtype = "float16"
+        elif feature_kind == "agg_tokens":
+            # Full flattened aggregator tokens: keep cam + 4 registers + patches.
+            # ~1.41M float16 = ~2.81 MB/frame at defaults.
+            shp = extractor.aggregator_feature_shape
+            buffer_shape = (int(shp[0]) * int(shp[-1]),)
+            buffer_dtype = "float16"
         else:
             raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
         super().__init__(
@@ -141,6 +166,8 @@ class VGGTObsAdapter(ObsAdapter):
             features_jax = pool_aggregator_tokens(out, self._aggregator_feature_shape)
         elif self._feature_kind == "agg_raw":
             features_jax = flatten_raw_aggregator(out, self._aggregator_feature_shape)
+        elif self._feature_kind == "agg_tokens":
+            features_jax = flatten_full_aggregator_tokens(out, self._aggregator_feature_shape)
         elif self._feature_kind == "wp_dense":
             features_jax = dense_world_points_chw(out)
             if tuple(features_jax.shape) != tuple(self.buffer_shape):
@@ -160,6 +187,9 @@ class VGGTObsAdapter(ObsAdapter):
         if self._feature_kind == "aggregator":
             replay_features = replay_features.astype(np.float32)
         elif self._feature_kind == "agg_raw":
+            # Match the float16 buffer storage declared in __init__.
+            replay_features = replay_features.astype(np.float16)
+        elif self._feature_kind == "agg_tokens":
             # Match the float16 buffer storage declared in __init__.
             replay_features = replay_features.astype(np.float16)
         elif self._feature_kind == "wp_dense":

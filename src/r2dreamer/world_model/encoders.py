@@ -21,7 +21,10 @@ HYBRID_VGGT_DIM = 4116        # world_points 37*37*3 + camera_pose 9
 # these agree with the adapter's constants and the live extractor shape.
 AGG_RAW_TOKENS = 1370                  # cam(1) + patches(1369); 4 register tokens dropped
 AGG_RAW_DIM = AGG_RAW_TOKENS * 1024    # 1,402,880 — raw flattened aggregator
+AGG_TOKEN_TOKENS = 1374                # cam(1) + registers(4) + patches(1369)
+AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 — full flattened aggregator
 AGG_POOLED_DIM = 3 * 1024              # 3,072 — pooled [cam | mean | max]
+AGG_REGISTER_TOKENS = 4
 
 
 def _symlog(x: jnp.ndarray) -> jnp.ndarray:
@@ -153,6 +156,103 @@ class VGGTAggRawMLPEncoder(nn.Module):
         x = obs.astype(jnp.float32)
         x = _mlp_body(x, self.num_layers, self.hidden)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class _TokenTransformerBlock(nn.Module):
+    """Small pre-norm Transformer block for frozen VGGT token sequences."""
+
+    hidden: int
+    heads: int
+    mlp_ratio: int = 2
+
+    @nn.compact
+    def __call__(self, x):
+        attn_in = RMSNorm(name="attn_norm")(x)
+        attn = nn.SelfAttention(
+            num_heads=self.heads,
+            qkv_features=self.hidden,
+            out_features=self.hidden,
+            use_bias=False,
+            name="attn",
+        )(attn_in)
+        x = x + attn
+
+        mlp_in = RMSNorm(name="mlp_norm")(x)
+        y = nn.Dense(self.hidden * self.mlp_ratio, name="mlp_in")(mlp_in)
+        y = nn.silu(y)
+        y = nn.Dense(self.hidden, name="mlp_out")(y)
+        return x + y
+
+
+class VGGTAggTokenTransformerEncoder(nn.Module):
+    """Trainable Transformer over frozen VGGT aggregator tokens (3D-75).
+
+    Replay stores flattened float16 full-token features. This encoder upcasts to
+    float32, restores ``(tokens, token_dim)``, optionally drops register tokens
+    for future ablations, projects each token to a smaller attention width, and
+    returns one ``embed_dim`` vector for the existing ``R2RSSM.observe()`` path.
+    """
+
+    embed_dim: int = 1024
+    token_dim: int = 1024
+    num_tokens: int = AGG_TOKEN_TOKENS
+    projection_dim: int = 256
+    layers: int = 2
+    heads: int = 8
+    mlp_ratio: int = 2
+    keep_register_tokens: bool = True
+
+    def _kept_tokens(self) -> int:
+        if self.keep_register_tokens:
+            return self.num_tokens
+        return self.num_tokens - AGG_REGISTER_TOKENS
+
+    @nn.compact
+    def __call__(self, obs):
+        expected_dim = self.num_tokens * self.token_dim
+        if obs.ndim != 2 or obs.shape[-1] != expected_dim:
+            raise ValueError(
+                "VGGTAggTokenTransformerEncoder expects "
+                f"(B, {expected_dim}) flattened VGGT aggregator tokens, got {obs.shape}"
+            )
+        if self.projection_dim % self.heads != 0:
+            raise ValueError(
+                f"projection_dim={self.projection_dim} must be divisible by heads={self.heads}"
+            )
+
+        tokens = obs.astype(jnp.float32).reshape(obs.shape[0], self.num_tokens, self.token_dim)
+        if self.keep_register_tokens:
+            x = tokens
+            patch_start = 1 + AGG_REGISTER_TOKENS
+        else:
+            x = jnp.concatenate([tokens[:, :1], tokens[:, 1 + AGG_REGISTER_TOKENS:]], axis=1)
+            patch_start = 1
+
+        x = nn.Dense(self.projection_dim, name="token_proj")(x)
+        pos = self.param(
+            "pos_embed",
+            nn.initializers.normal(stddev=0.02),
+            (1, self._kept_tokens(), self.projection_dim),
+        )
+        x = x + pos
+
+        for i in range(self.layers):
+            x = _TokenTransformerBlock(
+                hidden=self.projection_dim,
+                heads=self.heads,
+                mlp_ratio=self.mlp_ratio,
+                name=f"block{i}",
+            )(x)
+
+        cam = x[:, 0]
+        patches = x[:, patch_start:].mean(axis=1)
+        if self.keep_register_tokens:
+            regs = x[:, 1:patch_start].mean(axis=1)
+            readout = jnp.concatenate([cam, regs, patches], axis=-1)
+        else:
+            readout = jnp.concatenate([cam, patches], axis=-1)
+        readout = RMSNorm(name="readout_norm")(readout)
+        return nn.Dense(self.embed_dim, name="proj")(readout)
 
 
 class WPConvEncoder(nn.Module):
