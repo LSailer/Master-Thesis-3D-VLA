@@ -1,4 +1,9 @@
-"""Helpers for observation batches that may carry multiple modalities."""
+"""Helpers for modality-aware replay observations.
+
+Replay storage may keep modalities under explicit keys, while the current
+Flax encoders still consume a single tensor. This module is the narrow bridge
+between those two contracts.
+"""
 
 from __future__ import annotations
 
@@ -6,80 +11,106 @@ from collections.abc import Mapping
 from typing import Any
 
 import jax.numpy as jnp
-import numpy as np
 
 
 HYBRID_IMAGE_KEY = "image"
 HYBRID_WP_CP_KEY = "wp_cp"
 HOUSE_CONTEXT_KEY = "house_context"
-HYBRID_RGB_DIM = 3 * 64 * 64
 
 
-def obs_leading_shape(obs: Any) -> tuple[int, ...]:
-    """Return the shared leading shape of an array or observation mapping."""
+def obs_leading_shape(obs: Any) -> tuple[int, int]:
+    """Return the ``(B, T)`` prefix of a replay observation batch."""
     if isinstance(obs, Mapping):
         first = next(iter(obs.values()))
-        return tuple(first.shape[:2])
-    return tuple(obs.shape[:2])
+        return first.shape[0], first.shape[1]
+    return obs.shape[0], obs.shape[1]
 
 
-def _normalize_image(image: Any) -> jnp.ndarray:
+def normalize_image_obs(image: Any) -> jnp.ndarray:
+    """Return CHW image observations as float32 in ``[0, 1]``.
+
+    Direct unit tests often pass already-normalized float arrays, while replay
+    can now pass compact uint8 images. Branch on dtype so both inputs work.
+    """
     image = jnp.asarray(image)
     if image.dtype == jnp.uint8:
         return image.astype(jnp.float32) / 255.0
     return image.astype(jnp.float32)
 
 
-def pack_rgb_context_obs(obs: Mapping[str, Any], *, context_key: str) -> jnp.ndarray:
-    """Pack ``{"image": ..., context_key: ...}`` as flat ``[rgb | context]``."""
-    if HYBRID_IMAGE_KEY not in obs:
-        raise KeyError(f"missing observation field {HYBRID_IMAGE_KEY!r}")
-    if context_key not in obs:
-        raise KeyError(f"missing observation field {context_key!r}")
-
-    image = _normalize_image(obs[HYBRID_IMAGE_KEY])
-    context = jnp.asarray(obs[context_key], dtype=jnp.float32)
-    rgb = image.reshape(*image.shape[:-3], HYBRID_RGB_DIM)
-    return jnp.concatenate([rgb, context], axis=-1)
+def _features(obs: Mapping[str, Any], context_key: str) -> Any:
+    if context_key in obs:
+        return obs[context_key]
+    if context_key == HYBRID_WP_CP_KEY and "features" in obs:
+        return obs["features"]
+    raise KeyError(f"obs must contain {context_key!r}")
 
 
-def encoder_obs_from_batch(batch: Mapping[str, Any], cfg: Any) -> jnp.ndarray:
-    """Return the array consumed by the configured encoder from a train batch."""
+def pack_rgb_context_obs(obs: Any, *, context_key: str) -> jnp.ndarray:
+    """Pack dict observations into the legacy flat ``[rgb | context]`` tensor."""
+    if not isinstance(obs, Mapping):
+        return jnp.asarray(obs, dtype=jnp.float32)
+    image = normalize_image_obs(obs[HYBRID_IMAGE_KEY])
+    features = jnp.asarray(_features(obs, context_key), dtype=jnp.float32)
+    prefix = image.shape[:-3]
+    image_flat = image.reshape(*prefix, -1)
+    features_flat = features.reshape(*features.shape[:-1], -1)
+    return jnp.concatenate([image_flat, features_flat], axis=-1)
+
+
+def pack_hybrid_obs(obs: Any) -> jnp.ndarray:
+    """Pack hybrid dict observations into the legacy flat encoder tensor."""
+    return pack_rgb_context_obs(obs, context_key=HYBRID_WP_CP_KEY)
+
+
+def encoder_obs_from_batch(batch: dict[str, Any], cfg: Any) -> jnp.ndarray:
+    """Return flattened per-step observations consumed by ``agent.encoder_mod``."""
     obs = batch["obs"]
-    if cfg.encoder_type == "vggt_house_context":
-        return pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
-    if cfg.encoder_type == "hybrid" and isinstance(obs, Mapping):
-        return pack_rgb_context_obs(obs, context_key=HYBRID_WP_CP_KEY)
-    return obs
+    B, T = obs_leading_shape(obs)
+    if cfg.encoder_type == "hybrid":
+        obs = pack_hybrid_obs(obs)
+    elif cfg.encoder_type == "vggt_house_context":
+        obs = pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
+    elif cfg.encoder_type == "cnn":
+        obs = normalize_image_obs(obs)
+    else:
+        obs = jnp.asarray(obs, dtype=jnp.float32)
+    return obs.reshape(B * T, *cfg.obs_shape)
 
 
 def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: Any) -> jnp.ndarray:
-    """Return a single-step encoder observation from an env adapter output."""
-    if cfg.encoder_type == "vggt_house_context":
-        return pack_rgb_context_obs(obs_dict, context_key=HOUSE_CONTEXT_KEY)
-    if cfg.encoder_type == "hybrid" and HYBRID_WP_CP_KEY in obs_dict:
-        return pack_rgb_context_obs(obs_dict, context_key=HYBRID_WP_CP_KEY)
+    """Return one-step encoder input for acting."""
     if cfg.encoder_type == "hybrid":
-        return jnp.asarray(obs_dict["hybrid"])
-    if cfg.encoder_type in (
+        if "hybrid" in obs_dict:
+            obs = jnp.asarray(obs_dict["hybrid"], dtype=jnp.float32)
+        else:
+            obs = pack_hybrid_obs(obs_dict)
+    elif cfg.encoder_type == "vggt_house_context":
+        obs = pack_rgb_context_obs(obs_dict, context_key=HOUSE_CONTEXT_KEY)
+    elif cfg.encoder_type in (
         "vggt",
         "vggt_aggregator_mlp",
         "vggt_agg_token_transformer",
         "vggt_wp_dense_cnn",
         "vggt_wp_cp_64",
     ):
-        return jnp.asarray(obs_dict["features"])
-    image = np.asarray(obs_dict["image"]).astype(np.float32) / 255.0
-    return jnp.asarray(image)
+        obs = jnp.asarray(obs_dict["features"], dtype=jnp.float32)
+    else:
+        obs = normalize_image_obs(obs_dict["image"])
+    return obs[None]
 
 
-def decoder_rgb_target(batch: Mapping[str, Any], cfg: Any) -> jnp.ndarray:
-    """Return ``(B*T, 3, 64, 64)`` decoder targets from a train batch."""
+def decoder_rgb_target(batch: dict[str, Any], cfg: Any) -> jnp.ndarray:
+    """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch["obs"]
-    if isinstance(obs, Mapping):
-        image = _normalize_image(obs[HYBRID_IMAGE_KEY])
-        return image.reshape(-1, 3, 64, 64)
+    B, T = obs_leading_shape(obs)
     if cfg.encoder_type in ("hybrid", "vggt_house_context"):
+        if isinstance(obs, Mapping):
+            image = normalize_image_obs(obs[HYBRID_IMAGE_KEY])
+            return image.reshape(B * T, 3, 64, 64)
         rgb_dim = cfg.obs_shape[0] - cfg.vggt_feature_dim
-        return obs.reshape(-1, obs.shape[-1])[:, :rgb_dim].reshape(-1, 3, 64, 64)
-    return obs.reshape(-1, 3, 64, 64)
+        return jnp.asarray(obs, dtype=jnp.float32).reshape(B * T, -1)[
+            :, :rgb_dim
+        ].reshape(B * T, 3, 64, 64)
+    image = normalize_image_obs(obs)
+    return image.reshape(B * T, 3, 64, 64)

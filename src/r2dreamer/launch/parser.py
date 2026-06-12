@@ -97,6 +97,8 @@ def _add_loss_override_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--train_ratio", type=int, default=None,
                    help="Override cfg.train_ratio (production default 512). Lower "
                         "values bound train_step count for short smoke runs.")
+    p.add_argument("--buffer_capacity", "--buffer-capacity", type=int, default=None,
+                   help="Override cfg.buffer_capacity for replay-capacity ablations.")
 
 
 def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:

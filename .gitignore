@@ -10,7 +10,6 @@ output/slurm/
 output/observations/
 outputs/
 data/
-worktrees/
 *.pth
 *.h5
 *.hdf5
@@ -20,7 +19,7 @@ worktrees/
 *.log
 
 # external repos — cloned locally, not committed
-external/*/
+external/*
 !external/.gitkeep
 
 # uv lockfile

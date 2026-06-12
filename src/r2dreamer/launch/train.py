@@ -107,6 +107,8 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
         agent_overrides["vggt_mlp_layers"] = args.mlp_layers
     if getattr(args, "train_ratio", None) is not None:
         agent_overrides["train_ratio"] = args.train_ratio
+    if getattr(args, "buffer_capacity", None) is not None:
+        agent_overrides["buffer_capacity"] = args.buffer_capacity
 
     # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
     # explicit flags win.

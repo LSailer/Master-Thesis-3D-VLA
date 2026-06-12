@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from src.r2dreamer.obs_batch import decoder_rgb_target, obs_leading_shape
+from src.r2dreamer.obs_batch import decoder_rgb_target
 
 
 def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
@@ -65,7 +65,7 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         (losses, metrics) — losses has keys {dyn, rep, rew, con}; metrics
         contains latent entropy/KL diagnostics.
     """
-    B, T = obs_leading_shape(batch["obs"])
+    B, T = forward["embed"].shape[0], forward["embed"].shape[1]
     losses, metrics = {}, {}
 
     # ---- KL losses ----

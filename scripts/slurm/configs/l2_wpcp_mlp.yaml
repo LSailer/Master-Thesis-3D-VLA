@@ -1,0 +1,12 @@
+extends: l2_vggt
+job_name: r2d-L2-wpcp-mlp
+output_dir: output/r2dreamer-curriculum-l2-vggt-wp-cp-mlp
+comments:
+  - "Level 2 with VGGT WP/CP readout and depth-3 MLP encoder"
+  - "Matches the L1 wp_cp_mlp variant: 37x37 world points + camera pose"
+  - "No in-run validation or train videos; regenerate eval/video from checkpoints"
+args:
+  output_dir: output/r2dreamer-curriculum-l2-vggt-wp-cp-mlp/run-${SLURM_JOB_ID}
+  wandb_name: r2d-L2-wpcp-mlp-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,vggt,jax,3d-encoder,wp-cp,mlp-3layer
+  mlp_layers: 3

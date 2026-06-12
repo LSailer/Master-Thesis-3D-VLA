@@ -89,6 +89,7 @@ While editing:
 
 Before opening a PR:
 - Run the relevant checks for the files touched.
+- Run `scripts/check_policy.sh` from the repository root before pushing, publishing, opening, or updating a PR. The policy currently runs Semgrep Code through `semgrep ci --code` only on `src/**` and `scripts/**`; agents must not push or create/update a PR if this check fails.
 - Review the diff for unrelated changes.
 - Confirm the PR description follows `.github/pull_request_template.md` when that template exists.
 - Add a Linear issue comment summarizing what changed, acceptance criteria checked, verification run, known blockers, and anything intentionally not done. If the implementation cannot satisfy an acceptance criterion because of local hardware, credentials, or missing dependencies, state that explicitly in the comment.

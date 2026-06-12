@@ -313,3 +313,55 @@ def test_aggregator_smoke_overrides() -> None:
 def test_aggregator_prod_is_strict_bash() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     assert "set -euo pipefail" in rendered
+
+
+@pytest.mark.parametrize(
+    "variant,run_id,capacity,tag",
+    [
+        ("l1_cnn_cap1m", "habitat-l1-cnn", "1000000", "cap-1m"),
+        ("l1_cnn_cap500k", "habitat-l1-cnn", "500000", "cap-500k"),
+        ("l1_cnn_cap100k", "habitat-l1-cnn", "100000", "cap-100k"),
+        ("l1_cnn_cap10k", "habitat-l1-cnn", "10000", "cap-10k"),
+        ("l1_vggt_wpcp37_cap500k", "habitat-l1-vggt", "500000", "cap-500k"),
+        ("l1_vggt_wpcp64_cap500k", "habitat-l1-vggt-wp-cp-64", "500000", "cap-500k"),
+        ("l1_agg_mlp_cap500k", "habitat-l1-vggt-aggregator-mlp", "500000", "cap-500k"),
+    ],
+)
+def test_l1_replay_capacity_ablation_configs(
+    variant: str, run_id: str, capacity: str, tag: str,
+) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
+    _, script, rendered_run_id, flags = training_command(rendered)
+
+    assert script.endswith("run.py")
+    assert rendered_run_id == run_id
+    assert flags["--seed"] == "42"
+    assert flags["--buffer_capacity"] == capacity
+    assert tag in flags["--wandb_tags"]
+    assert "3d-63" in flags["--wandb_tags"]
+    assert flags["--video_log_every"] == "0"
+    assert flags["--val_every"] == "0"
+
+
+def test_l1_aggregator_capacity_ablation_keeps_encoder_batch_defaults() -> None:
+    rendered = launch.render_sbatch(launch.load_config("l1_agg_mlp_cap500k"), mode="prod")
+    _, _, _, flags = training_command(rendered)
+
+    assert flags["--buffer_capacity"] == "500000"
+    assert "--batch_size" not in flags
+    assert "--seq_len" not in flags
+    assert "--train_ratio" not in flags
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        "l1_vggt_wpcp37_cap500k",
+        "l1_vggt_wpcp64_cap500k",
+        "l1_agg_mlp_cap500k",
+    ],
+)
+def test_l1_vggt_capacity_ablation_links_external_repos(variant: str) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+
+    assert "./scripts/slurm/hooks/link_external.sh" in rendered

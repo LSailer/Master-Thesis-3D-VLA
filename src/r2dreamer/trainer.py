@@ -382,7 +382,7 @@ class Trainer:
     # Train loop
     # ------------------------------------------------------------------
 
-    def _reset_train_episode(self) -> tuple[dict, np.ndarray, dict]:
+    def _reset_train_episode(self) -> tuple[dict, np.ndarray | dict[str, np.ndarray], dict]:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
@@ -402,7 +402,7 @@ class Trainer:
     def _record_train_transition(
         self,
         *,
-        buffer_obs: np.ndarray,
+        buffer_obs: np.ndarray | dict[str, np.ndarray],
         action: int,
         next_obs: dict,
     ) -> None:
@@ -425,7 +425,14 @@ class Trainer:
         video_recording: dict[str, Any] | None,
         video_next_step: int,
     ) -> tuple[
-        dict, np.ndarray, dict, float, int, np.ndarray, dict[str, Any] | None, int
+        dict,
+        np.ndarray | dict[str, np.ndarray],
+        dict,
+        float,
+        int,
+        np.ndarray,
+        dict[str, Any] | None,
+        int,
     ]:
         self._on_episode_end(
             last_obs, episode_reward, episode_steps, action_counts, step, writer, f,

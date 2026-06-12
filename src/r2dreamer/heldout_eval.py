@@ -31,6 +31,8 @@ from typing import Any, Iterable
 import jax
 import jax.numpy as jnp
 
+from src.r2dreamer.obs_batch import obs_leading_shape
+
 
 def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     """One batch -> scalar reward MSE between the head's mean and the GT reward.
@@ -40,7 +42,7 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     """
     params = agent.params
     forward = agent._world_model_forward(params, batch, rng_key)
-    B, T = batch["obs"].shape[0], batch["obs"].shape[1]
+    B, T = obs_leading_shape(batch["obs"])
     feat = forward["feat"]
     rew_logits = agent._modules["reward"].apply(
         params["reward"], feat.reshape(B * T, -1),

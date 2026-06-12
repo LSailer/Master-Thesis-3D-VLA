@@ -1,0 +1,23 @@
+extends: _base
+job_name: l1-cnn-cap1m
+output_dir: output/r2dreamer-l1-replay-capacity/cnn-cap1m
+run_id: habitat-l1-cnn
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "3D-63: L1 CNN replay-capacity baseline control at 1M transitions."
+  - "Fixed seed 42; matches 500k/100k/10k configs except for replay capacity."
+sbatch:
+  time: "24:00:00"
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/r2dreamer-l1-replay-capacity/cnn-cap1m/run-${SLURM_JOB_ID}
+  seed: 42
+  log_every: 250
+  buffer_capacity: 1000000
+  wandb_project: 3d-vla-objectnav
+  wandb_name: l1-cnn-cap1m-${SLURM_JOB_ID}
+  wandb_tags: replay-capacity,3d-63,l1,cnn,cap-1m,seed-42,sr-ablation
+  video_log_every: 0
+  val_every: 0

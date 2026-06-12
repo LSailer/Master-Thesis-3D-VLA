@@ -171,10 +171,9 @@ def _make_wp_conv_encoder(cfg: R2DreamerConfig):
 
 def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-    # Guard the buffer-layout contract: the encoder splits obs at
-    # HYBRID_RGB_DIM, while the decoder/loss derive the RGB slice as
-    # obs_shape[0] - vggt_feature_dim. Both must agree, or the RGB target
-    # and the encoder's RGB slice would silently diverge.
+    # Guard the packed encoder-layout contract: replay may store modalities in
+    # separate fields, but obs_batch packs them into this flat shape before the
+    # Flax encoder and decoder see them.
     if not (
         cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
         and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
@@ -482,15 +481,17 @@ class R2DreamerAgent:
         """Select an action for a single environment step.
 
         Args:
-            obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN, or
-                      {"features": float32 (D,), "is_first": bool} for VGGT.
+            obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN,
+                      {"features": float32 (D,), "is_first": bool} for VGGT,
+                      or {"image": uint8 (3,64,64), "wp_cp": float32 (4116,)}
+                      for hybrid.
             rng_key: PRNG key.
             training: if False, use argmax (greedy).
 
         Returns:
             Integer action in [0, num_actions).
         """
-        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)[None]
+        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)
 
         is_first = bool(obs_dict["is_first"])
         if is_first:
@@ -554,8 +555,7 @@ class R2DreamerAgent:
             return None
         params = self.params
         B, T = obs_leading_shape(batch["obs"])
-        encoder_obs = encoder_obs_from_batch(batch, self.cfg)
-        obs_flat = encoder_obs.reshape(B * T, *self.cfg.obs_shape)
+        obs_flat = encoder_obs_from_batch(batch, self.cfg)
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
         stoch0, deter0 = self.rssm_mod.apply(
             params["rssm"], B, method=self.rssm_mod.initial_state)
@@ -651,8 +651,7 @@ class R2DreamerAgent:
         cfg = self.cfg
         B, T = obs_leading_shape(batch["obs"])
 
-        encoder_obs = encoder_obs_from_batch(batch, cfg)
-        obs_flat = encoder_obs.reshape(B * T, *cfg.obs_shape)
+        obs_flat = encoder_obs_from_batch(batch, cfg)
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
 
         stoch0, deter0 = self.rssm_mod.apply(
