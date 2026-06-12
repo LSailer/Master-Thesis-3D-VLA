@@ -143,6 +143,7 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
         "vggt_token_transformer_layers", "vggt_token_transformer_heads",
         "vggt_token_projection_dim", "vggt_token_transformer_mlp_ratio",
+        "vggt_token_transformer_dropout",
         "vggt_keep_register_tokens", "vggt_token_count", "vggt_token_dim",
         "mlp_vggt_layers", "mlp_units", "mlp_layers_reward",
         "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",

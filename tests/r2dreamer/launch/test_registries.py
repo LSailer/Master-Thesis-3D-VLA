@@ -30,6 +30,7 @@ class TestEncoderRegistry:
         assert "vggt_agg_token_transformer" in encoder_registry
         assert "vggt_wp_dense_cnn" in encoder_registry
         assert "hybrid" in encoder_registry
+        assert "vggt_house_context" in encoder_registry
 
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
         assert encoder_registry["hybrid"] is HybridEncoder

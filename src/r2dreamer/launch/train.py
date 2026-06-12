@@ -127,6 +127,7 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
         "vggt_token_transformer_heads",
         "vggt_token_projection_dim",
         "vggt_token_transformer_mlp_ratio",
+        "vggt_token_transformer_dropout",
     ):
         value = getattr(args, name, None)
         if value is not None:

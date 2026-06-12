@@ -50,6 +50,7 @@ class R2DreamerConfig:
     vggt_token_transformer_heads: int = 8
     vggt_token_projection_dim: int = 256
     vggt_token_transformer_mlp_ratio: int = 2
+    vggt_token_transformer_dropout: float = 0.0
     vggt_keep_register_tokens: bool = True
     vggt_token_count: int = 1374
     vggt_token_dim: int = 1024

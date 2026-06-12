@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+import jax
 import numpy as np
 
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.adapters.vggt_adapter import (
+    AGG_TOKEN_TOKENS,
     VGGT_FEATURE_DIM,
+    full_aggregator_tokens,
     flatten_world_points_camera_pose,
 )
 from src.r2dreamer.obs_batch import (
@@ -16,6 +19,10 @@ from src.r2dreamer.obs_batch import (
     HYBRID_WP_CP_KEY,
 )
 from src.shared.video_utils import resize_chw_uint8
+from src.r2dreamer.world_model.encoders import (
+    HOUSE_CONTEXT_DIM,
+    VGGTFullTokenContextTransformer,
+)
 
 
 # Derived, not hand-typed: RGB branch (3*64*64, flattened) + the VGGT WP/CP vector.
@@ -23,6 +30,8 @@ from src.shared.video_utils import resize_chw_uint8
 # so a grid-size ablation that changes it stays consistent here automatically.
 HYBRID_FEATURE_DIM = 3 * 64 * 64 + VGGT_FEATURE_DIM  # 12288 RGB + 4116 WP/CP = 16404
 HYBRID_IMAGE_SHAPE = (3, 64, 64)
+HOUSE_CONTEXT_FEATURE_DIM = 3 * 64 * 64 + HOUSE_CONTEXT_DIM
+FULL_TOKEN_SHAPE = (AGG_TOKEN_TOKENS, 2048)
 
 
 class HybridObsAdapter(ObsAdapter):
@@ -67,11 +76,18 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
     """RGB replay plus live InfiniteVGGT house context for L1 experiments.
 
     Replay stores only the 64x64 RGB frame. The VGGT extractor remains live
-    across episode resets; its bounded streaming cache supplies a current
-    house-level WP/CP readout that is injected into sampled replay windows.
+    across episode resets; its bounded streaming cache supplies full
+    1374x2048 tokens. A context Transformer maps those tokens to a cached
+    1024-d context that is injected into sampled replay windows.
     """
 
-    def __init__(self, extractor):
+    def __init__(
+        self,
+        extractor,
+        *,
+        context_transformer: VGGTFullTokenContextTransformer | None = None,
+        rng_seed: int = 0,
+    ):
         super().__init__(
             buffer_dtype="uint8",
             buffer_shape=(3, 64, 64),
@@ -79,17 +95,39 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             on_episode_reset=None,
         )
         self._extractor = extractor
+        self._context_transformer = context_transformer or VGGTFullTokenContextTransformer()
+        self._context_params = None
+        self._rng = jax.random.PRNGKey(rng_seed)
         self._context: np.ndarray | None = None
-        self.agent_obs_shape = (HYBRID_FEATURE_DIM,)
+        self.agent_obs_shape = (HOUSE_CONTEXT_FEATURE_DIM,)
+
+    def _ensure_context_params(self, tokens: jnp.ndarray):
+        if self._context_params is None:
+            self._context_params = self._context_transformer.init(
+                self._rng,
+                jnp.zeros((1, *tokens.shape), dtype=jnp.float32),
+                train=False,
+            )
+        return self._context_params
+
+    def _project_context(self, tokens: jnp.ndarray) -> np.ndarray:
+        params = self._ensure_context_params(tokens)
+        context = self._context_transformer.apply(params, tokens, train=False)
+        context = np.asarray(context, dtype=np.float32)
+        if context.shape != (HOUSE_CONTEXT_DIM,):
+            raise ValueError(
+                f"expected VGGT context shape {(HOUSE_CONTEXT_DIM,)}, got {context.shape}"
+            )
+        return context
 
     def _extract_context(self, image: np.ndarray) -> np.ndarray:
         out = self._extractor.extract(image)
-        context = np.asarray(flatten_world_points_camera_pose(out), dtype=np.float32)
-        if context.shape != (VGGT_FEATURE_DIM,):
+        tokens = full_aggregator_tokens(out, FULL_TOKEN_SHAPE)
+        if tuple(tokens.shape) != FULL_TOKEN_SHAPE:
             raise ValueError(
-                f"expected VGGT house context shape {(VGGT_FEATURE_DIM,)}, "
-                f"got {context.shape}"
+                f"expected VGGT full-token shape {FULL_TOKEN_SHAPE}, got {tokens.shape}"
             )
+        context = self._project_context(tokens)
         self._context = context
         return context
 
@@ -111,7 +149,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             )
         image = batch["obs"]
         context = jnp.asarray(self._context, dtype=jnp.float32)
-        context = jnp.broadcast_to(context, (*image.shape[:2], VGGT_FEATURE_DIM))
+        context = jnp.broadcast_to(context, (*image.shape[:2], HOUSE_CONTEXT_DIM))
         return {
             **batch,
             "obs": {

@@ -110,7 +110,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
-    # L1 House Context — RGB replay + live bounded InfiniteVGGT scene memory.
+    # L1 House Context — RGB replay + live full-token InfiniteVGGT scene memory.
     "habitat-l1-vggt-house-context": dict(
         env="habitat",
         encoder="vggt_house_context",
@@ -119,7 +119,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_name="l1_rgb_replay_vggt_house_context",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-context", "rgb-replay", "live-cache", "bounded-cache",
+            "house-context", "full-token-transformer", "rgb-replay", "live-cache", "bounded-cache",
             "3d-77", "jax", "3d-encoder",
         ],
     ),

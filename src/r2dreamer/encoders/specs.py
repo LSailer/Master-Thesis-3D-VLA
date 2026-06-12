@@ -168,18 +168,23 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
     ),
     "vggt_house_context": _vggt_variant(
         encoder_type="vggt_house_context",
-        feature_kind="wp_cp",
+        feature_kind="agg_tokens",
         module_cls=wm_encoders.HybridEncoder,
-        compute_heads=True,
+        compute_heads=False,
         agent_overrides={
             "buffer_capacity": 1_000_000,
+            "vggt_feature_dim": wm_encoders.HOUSE_CONTEXT_DIM,
+            "vggt_token_dim": 2048,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
         },
         design_notes=(
             "L1 house-context variant: replay stores only the 64x64 RGB frame, "
             "while a live bounded InfiniteVGGT stream remains active across "
-            "episode resets and injects the current house-level WP/CP context "
-            "at acting and training time. This tests whether persistent 3D "
-            "scene memory helps learning, not merely whether replay is smaller."
+            "episode resets and exposes the full 1374x2048 frozen aggregator "
+            "tokens. A 2048-wide token Transformer consumes those tokens directly, "
+            "projects the resulting context to 1024, and injects that cached "
+            "context at acting and training time. Replay remains RGB-only and the "
+            "existing hybrid gate fuses RGB 1024 + VGGT context 1024."
         ),
     ),
     "vggt_wp_cp_64": _vggt_variant(
@@ -349,10 +354,68 @@ class VGGTHouseContextEncoder(VGGTEncoder):
 
     variant = VGGT_VARIANTS["vggt_house_context"]
 
+    @classmethod
+    def from_train_args(cls, args: Any) -> "VGGTHouseContextEncoder":
+        return cls(
+            resolution=args.render_resolution,
+            transformer_layers=(
+                args.vggt_token_transformer_layers
+                if args.vggt_token_transformer_layers is not None else 2
+            ),
+            transformer_heads=(
+                args.vggt_token_transformer_heads
+                if args.vggt_token_transformer_heads is not None else 8
+            ),
+            transformer_mlp_ratio=(
+                args.vggt_token_transformer_mlp_ratio
+                if args.vggt_token_transformer_mlp_ratio is not None else 2
+            ),
+            transformer_dropout=(
+                args.vggt_token_transformer_dropout
+                if args.vggt_token_transformer_dropout is not None else 0.0
+            ),
+        )
+
+    def __init__(
+        self,
+        resolution: int = 518,
+        *,
+        transformer_layers: int = 2,
+        transformer_heads: int = 8,
+        transformer_mlp_ratio: int = 2,
+        transformer_dropout: float = 0.0,
+    ):
+        super().__init__(resolution)
+        self._context_transformer = wm_encoders.VGGTFullTokenContextTransformer(
+            context_dim=wm_encoders.HOUSE_CONTEXT_DIM,
+            token_dim=2048,
+            num_tokens=wm_encoders.AGG_TOKEN_TOKENS,
+            layers=transformer_layers,
+            heads=transformer_heads,
+            mlp_ratio=transformer_mlp_ratio,
+            dropout=transformer_dropout,
+        )
+
+    @property
+    def agent_overrides(self) -> Mapping[str, Any]:
+        overrides = dict(self.variant.agent_overrides)
+        overrides.update(
+            {
+                "vggt_token_transformer_layers": self._context_transformer.layers,
+                "vggt_token_transformer_heads": self._context_transformer.heads,
+                "vggt_token_transformer_mlp_ratio": self._context_transformer.mlp_ratio,
+                "vggt_token_transformer_dropout": self._context_transformer.dropout,
+            }
+        )
+        return MappingProxyType(overrides)
+
     def _build_adapter(self) -> ObsAdapter:
         from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseContextObsAdapter
 
-        return VGGTHouseContextObsAdapter(self._extractor)
+        return VGGTHouseContextObsAdapter(
+            self._extractor,
+            context_transformer=self._context_transformer,
+        )
 
 
 class VGGTWPCP64Encoder(VGGTEncoder):

@@ -20,6 +20,7 @@ AGG_RAW_TOKENS = 1370            # cam(1) + patches(1369); registers (idx 1:5) d
 AGG_RAW_DIM = AGG_RAW_TOKENS * 1024  # 1,402,880 at the default 1024-d embedding
 AGG_TOKEN_TOKENS = 1374          # cam(1) + registers(4) + patches(1369)
 AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 at the default 1024-d embedding
+FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * 2048  # 2,813,952 full frame+global tokens
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
@@ -106,6 +107,16 @@ def flatten_full_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -
             f"expected aggregator_features shape {expected_shape}, got {features.shape}"
         )
     return features.astype(jnp.float32).reshape(-1)
+
+
+def full_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+    """Return full-width VGGT aggregator tokens for the 3D-77 context path."""
+    features = out["aggregator_full_tokens"]
+    if features.shape != expected_shape:
+        raise ValueError(
+            f"expected aggregator_full_tokens shape {expected_shape}, got {features.shape}"
+        )
+    return features.astype(jnp.float32)
 
 
 class VGGTObsAdapter(ObsAdapter):

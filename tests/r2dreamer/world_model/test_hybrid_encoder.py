@@ -76,6 +76,18 @@ class TestHybridEncoder:
         expected = jnp.concatenate([cnn_e, vggt_e], axis=-1)
         assert jnp.allclose(fused, expected)
 
+    def test_house_context_width_fuses_1024_plus_1024_to_2048(self, rng):
+        enc = HybridEncoder(vggt_dim=1024, vggt_embed_dim=1024)
+        obs = jnp.zeros((2, HYBRID_RGB_DIM + 1024), dtype=jnp.float32)
+        params = enc.init(rng, obs)
+
+        fused = enc.apply(params, obs)
+        cnn_e, vggt_e, _ = enc.apply(params, obs, method=enc.branches)
+
+        assert cnn_e.shape == (2, 1024)
+        assert vggt_e.shape == (2, 1024)
+        assert fused.shape == (2, 2048)
+
 
 class TestDecoderGuard:
     """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
@@ -103,9 +115,9 @@ class TestDecoderGuard:
         assert "decoder" in a.params
         b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
-        c = R2DreamerAgent(
-            self._cfg("vggt_house_context", (16404,)), jax.random.PRNGKey(0)
-        )
+        cfg = self._cfg("vggt_house_context", (13312,))
+        cfg.vggt_feature_dim = 1024
+        c = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         assert "decoder" in c.params
 
     def test_hybrid_split_mismatch_raises_value_error(self):

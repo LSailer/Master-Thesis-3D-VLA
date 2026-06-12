@@ -35,7 +35,6 @@ from .world_model.encoders import (
     VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
-    HYBRID_VGGT_DIM,
 )
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
@@ -174,14 +173,15 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # Guard the packed encoder-layout contract: replay may store modalities in
     # separate fields, but obs_batch packs them into this flat shape before the
     # Flax encoder and decoder see them.
+    expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
     if not (
-        cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
+        cfg.obs_shape == expected_shape
         and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
     ):
         raise ValueError(
             "hybrid obs_shape/split mismatch: expected "
-            f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
-            f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
+            f"{expected_shape} with vggt_feature_dim={cfg.vggt_feature_dim}, "
+            f"got obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
     return WMHybridEncoder(
@@ -191,6 +191,7 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
         vggt_embed_dim=cfg.vggt_embed_dim,
         mlp_hidden=cfg.mlp_vggt_hidden,
         mlp_layers=cfg.mlp_vggt_layers,
+        vggt_dim=cfg.vggt_feature_dim,
     )
 
 

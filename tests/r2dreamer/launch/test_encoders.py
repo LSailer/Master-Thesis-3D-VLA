@@ -500,25 +500,39 @@ class TestVGGTHouseContextEncoder:
         assert isinstance(adapter, VGGTHouseContextObsAdapter)
         assert spec.encoder_type == "vggt_house_context"
         assert adapter.buffer_shape == (3, 64, 64)
-        assert spec.obs_shape == (16404,)
+        assert spec.obs_shape == (13312,)
         assert spec.env_render_resolution == 518
         assert spec.module_cls is wm_encoders.HybridEncoder
-        assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
+        assert spec.agent_overrides["buffer_capacity"] == 1_000_000
+        assert spec.agent_overrides["vggt_feature_dim"] == 1024
+        assert spec.agent_overrides["vggt_token_dim"] == 2048
+        assert spec.agent_overrides["vggt_token_transformer_layers"] == 2
+        assert spec.agent_overrides["vggt_token_transformer_heads"] == 8
+        assert spec.agent_overrides["vggt_token_transformer_dropout"] == 0.0
         assert adapter.on_episode_reset is None
 
     def test_house_context_adapter_stores_rgb_and_injects_live_context(self):
-        world_points = np.arange(37 * 37 * 3, dtype=np.float32).reshape(37, 37, 3)
-        camera_pose = np.arange(9, dtype=np.float32) + 100.0
+        full_tokens = np.arange(1374 * 2048, dtype=np.float32).reshape(1374, 2048)
+        context = np.arange(1024, dtype=np.float32)
 
         class FakeExtractor:
             def extract(self, image):
                 import jax.numpy as jnp
-                return {
-                    "world_points": jnp.asarray(world_points),
-                    "camera_pose": jnp.asarray(camera_pose),
-                }
+                return {"aggregator_full_tokens": jnp.asarray(full_tokens)}
 
-        adapter = VGGTHouseContextObsAdapter(FakeExtractor())
+        class FakeContextTransformer:
+            def init(self, rng, tokens, *, train=False):
+                assert tokens.shape == (1, 1374, 2048)
+                return {"params": {}}
+
+            def apply(self, params, tokens, *, train=False):
+                assert tokens.shape == (1374, 2048)
+                import jax.numpy as jnp
+                return jnp.asarray(context)
+
+        adapter = VGGTHouseContextObsAdapter(
+            FakeExtractor(), context_transformer=FakeContextTransformer()
+        )
         image = np.random.default_rng(0).integers(
             0, 256, size=(3, 518, 518), dtype=np.uint8
         )
@@ -528,7 +542,7 @@ class TestVGGTHouseContextEncoder:
         assert replay.shape == (3, 64, 64)
         assert replay.dtype == np.uint8
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
-        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (4116,)
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
 
         batch = {
             "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.float32),
@@ -542,18 +556,15 @@ class TestVGGTHouseContextEncoder:
 
         assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
         assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
-        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 3, 4116)
+        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
 
-        # Context is flattened world_points then camera_pose, but it is not
-        # stored in replay; it is held live and injected into sampled batches.
-        expected_wp_cp = np.concatenate(
-            [world_points.reshape(-1), camera_pose]
-        ).astype(np.float32)
+        # The 1024-d Transformer context is cached outside replay and injected
+        # into sampled batches.
         np.testing.assert_allclose(
-            np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), expected_wp_cp
+            np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context
         )
         np.testing.assert_allclose(
-            np.asarray(augmented["obs"][HOUSE_CONTEXT_KEY][0, 0]), expected_wp_cp
+            np.asarray(augmented["obs"][HOUSE_CONTEXT_KEY][0, 0]), context
         )
 
 

@@ -8,10 +8,12 @@ import pytest
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import (
     VGGTAggTokenTransformerEncoder,
+    VGGTFullTokenContextTransformer,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
     WPConvEncoder,
 )
+from src.r2dreamer.adapters.vggt_adapter import full_aggregator_tokens
 from src.buffer.replay_buffer import VGGTReplayBuffer
 
 
@@ -66,6 +68,46 @@ class TestVGGTAggTokenTransformerEncoder:
         )
         with pytest.raises(ValueError, match="flattened VGGT aggregator tokens"):
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 79), dtype=jnp.float16))
+
+
+class TestVGGTFullTokenContextTransformer:
+    """Shape tests for the 3D-77 full-token context Transformer."""
+
+    def test_full_token_source_shape(self):
+        tokens = jnp.zeros((1374, 2048), dtype=jnp.float32)
+        out = full_aggregator_tokens(
+            {"aggregator_full_tokens": tokens},
+            expected_shape=(1374, 2048),
+        )
+        assert out.shape == (1374, 2048)
+
+    def test_output_shape_with_reduced_dims_and_no_token_projection(self):
+        enc = VGGTFullTokenContextTransformer(
+            context_dim=32,
+            token_dim=16,
+            num_tokens=10,
+            layers=2,
+            heads=4,
+            mlp_ratio=2,
+            dropout=0.0,
+        )
+        dummy = jnp.zeros((2, 10, 16), dtype=jnp.float32)
+        params = enc.init(jax.random.PRNGKey(0), dummy, train=False)
+        out = enc.apply(params, dummy, train=False)
+
+        assert out.shape == (2, 32)
+        assert "token_proj" not in params["params"]
+        assert params["params"]["context_proj"]["kernel"].shape == (16, 32)
+
+    def test_rejects_wrong_full_token_shape(self):
+        enc = VGGTFullTokenContextTransformer(
+            context_dim=32,
+            token_dim=16,
+            num_tokens=10,
+            heads=4,
+        )
+        with pytest.raises(ValueError, match="full VGGT tokens"):
+            enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 10, 15), dtype=jnp.float32))
 
 
 class TestVGGTAggregatorMLPEncoder:

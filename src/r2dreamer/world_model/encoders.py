@@ -24,6 +24,8 @@ AGG_RAW_TOKENS = 1370                  # cam(1) + patches(1369); 4 register toke
 AGG_RAW_DIM = AGG_RAW_TOKENS * 1024    # 1,402,880 — raw flattened aggregator
 AGG_TOKEN_TOKENS = 1374                # cam(1) + registers(4) + patches(1369)
 AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 — full flattened aggregator
+FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * 2048  # 2,813,952 — frame + global streams
+HOUSE_CONTEXT_DIM = 1024
 AGG_POOLED_DIM = 3 * 1024              # 3,072 — pooled [cam | mean | max]
 AGG_REGISTER_TOKENS = 4
 
@@ -254,6 +256,94 @@ class VGGTAggTokenTransformerEncoder(nn.Module):
             readout = jnp.concatenate([cam, patches], axis=-1)
         readout = RMSNorm(name="readout_norm")(readout)
         return nn.Dense(self.embed_dim, name="proj")(readout)
+
+
+class _FullTokenTransformerBlock(nn.Module):
+    """Pre-norm Transformer block that keeps the 2048-d VGGT token width."""
+
+    token_dim: int
+    heads: int
+    mlp_ratio: int = 2
+    dropout: float = 0.0
+
+    @nn.compact
+    def __call__(self, x, *, train: bool = False):
+        attn_in = nn.LayerNorm(name="attn_norm")(x)
+        attn = nn.SelfAttention(
+            num_heads=self.heads,
+            qkv_features=self.token_dim,
+            out_features=self.token_dim,
+            dropout_rate=self.dropout,
+            deterministic=not train,
+            use_bias=False,
+            name="attn",
+        )(attn_in)
+        x = x + attn
+
+        mlp_in = nn.LayerNorm(name="mlp_norm")(x)
+        y = nn.Dense(self.token_dim * self.mlp_ratio, name="mlp_in")(mlp_in)
+        y = nn.gelu(y)
+        y = nn.Dropout(self.dropout, deterministic=not train, name="dropout")(y)
+        y = nn.Dense(self.token_dim, name="mlp_out")(y)
+        y = nn.Dropout(self.dropout, deterministic=not train, name="out_dropout")(y)
+        return x + y
+
+
+class VGGTFullTokenContextTransformer(nn.Module):
+    """3D-77 full-token context encoder.
+
+    Consumes frozen VGGT tokens directly at ``(1374, 2048)`` by default, keeps
+    attention at ``d_model == token_dim``, and owns the final ``2048 -> 1024``
+    context projection used by the RGB+VGGT hybrid gate. There is intentionally
+    no pre-attention token projection.
+    """
+
+    context_dim: int = HOUSE_CONTEXT_DIM
+    token_dim: int = 2048
+    num_tokens: int = AGG_TOKEN_TOKENS
+    layers: int = 2
+    heads: int = 8
+    mlp_ratio: int = 2
+    dropout: float = 0.0
+
+    @nn.compact
+    def __call__(self, tokens, *, train: bool = False):
+        squeeze = tokens.ndim == 2
+        if squeeze:
+            tokens = tokens[None]
+        if tokens.ndim != 3 or tokens.shape[-2:] != (self.num_tokens, self.token_dim):
+            raise ValueError(
+                "VGGTFullTokenContextTransformer expects "
+                f"(B, {self.num_tokens}, {self.token_dim}) or "
+                f"({self.num_tokens}, {self.token_dim}) full VGGT tokens, got {tokens.shape}"
+            )
+        if self.token_dim % self.heads != 0:
+            raise ValueError(
+                f"token_dim={self.token_dim} must be divisible by heads={self.heads}"
+            )
+
+        x = tokens.astype(jnp.float32)
+        pos = self.param(
+            "pos_embed",
+            nn.initializers.normal(stddev=0.02),
+            (1, self.num_tokens, self.token_dim),
+        )
+        x = x + pos
+
+        for i in range(self.layers):
+            x = _FullTokenTransformerBlock(
+                token_dim=self.token_dim,
+                heads=self.heads,
+                mlp_ratio=self.mlp_ratio,
+                dropout=self.dropout,
+                name=f"block{i}",
+            )(x, train=train)
+
+        context_2048 = nn.LayerNorm(name="context_norm")(x.mean(axis=1))
+        context = nn.Dense(self.context_dim, name="context_proj")(context_2048)
+        if squeeze:
+            context = context[0]
+        return context
 
 
 class WPConvEncoder(nn.Module):

@@ -170,7 +170,7 @@ class TestR2DreamerAgent:
     def test_train_step_accepts_vggt_house_context_batch(self):
         cfg = R2DreamerConfig(
             encoder_type="vggt_house_context",
-            obs_shape=(16404,),
+            obs_shape=(13312,),
             num_actions=4,
             deter_size=32,
             hidden_size=16,
@@ -180,6 +180,7 @@ class TestR2DreamerAgent:
             encoder_depth=8,
             encoder_kernel=3,
             encoder_mults=(1, 1),
+            vggt_feature_dim=1024,
             vggt_embed_dim=8,
             mlp_vggt_hidden=8,
             mlp_vggt_layers=1,
@@ -198,7 +199,7 @@ class TestR2DreamerAgent:
         batch = {
             "obs": {
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
-                "house_context": jnp.zeros((1, 2, 4116), dtype=jnp.float32),
+                "house_context": jnp.zeros((1, 2, 1024), dtype=jnp.float32),
             },
             "actions": jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions

@@ -136,6 +136,8 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override cfg.vggt_token_projection_dim before token attention.")
     p.add_argument("--vggt_token_transformer_mlp_ratio", type=int, default=None,
                    help="Override cfg.vggt_token_transformer_mlp_ratio.")
+    p.add_argument("--vggt_token_transformer_dropout", type=float, default=None,
+                   help="Override cfg.vggt_token_transformer_dropout. Default 0.0.")
     p.add_argument("--vggt_drop_register_tokens", action="store_true",
                    help="Drop the 4 VGGT register tokens in the token Transformer "
                         "ablation. Default keeps registers for 3D-75.")
@@ -162,7 +164,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
                    choices=[
                        "cnn", "vggt", "vggt_aggregator_mlp",
                        "vggt_agg_token_transformer", "vggt_wp_dense_cnn",
-                       "vggt_wp_cp_64", "hybrid",
+                       "vggt_wp_cp_64", "hybrid", "vggt_house_context",
                    ])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")

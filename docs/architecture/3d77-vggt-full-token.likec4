@@ -157,8 +157,8 @@ model {
       }
 
       transformer = model 'Transformer encoder' {
-        technology 'Config: d_model 2048, layers N in {1,2,4}, default 2'
-        description 'Configurable full-token encoder. It consumes the full frozen VGGT aggregator tokens directly, keeps internal d_model at 2048, then uses a context projection to emit one 1024-d VGGT context vector. No separate camera/mean-register/mean-patch readout from the old pooled design. Config key: vggt_token_transformer_layers = N. Heads must divide 2048.'
+        technology 'Config: d_model 2048, heads 8, layers N in {1,2,4}, default 2'
+        description 'Configurable full-token encoder. It consumes the full frozen VGGT aggregator tokens directly, keeps internal d_model at 2048, then uses a context projection to emit one 1024-d VGGT context vector. No separate camera/mean-register/mean-patch readout from the old pooled design. Config key: vggt_token_transformer_layers = N. Default heads: 8; heads must divide 2048.'
 
         token_input = tensor '1374 x 2048 token input' {
           technology 'Config: no token projection'
@@ -205,8 +205,8 @@ model {
           description 'Controls how many Transformer encoder layers are active.'
         }
         cfg_heads = decision 'vggt_token_transformer_heads' {
-          technology 'Required: int, divides 2048'
-          description 'Number of attention heads. The value must divide the 2048 token width.'
+          technology 'Required: int, default 8, divides 2048'
+          description 'Number of attention heads. Default is 8 for the first implementation; any sweep value must divide the 2048 token width.'
         }
         cfg_dims = decision 'Fixed token/model/context dims' {
           technology 'Required: token_dim 2048, d_model 2048, context_dim 1024'
