@@ -319,11 +319,28 @@ def test_time_override_applies_to_selected_mode() -> None:
     assert "habitat-l1-vggt-house-context" in rendered
 
 
+def test_partition_override_applies_to_selected_mode() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1"), mode="prod", partition_override="gpu_h100",
+    )
+
+    assert "#SBATCH --partition=gpu_h100" in rendered
+    assert "#SBATCH --partition=gpu_h100_il,gpu_h100" not in rendered
+
+
 def test_launch_wrapper_forwards_time_override() -> None:
     result = run_launch("house_context_l1", "--prod", "--time", "04:00:00", "--dry-run")
 
     assert result.returncode == 0, result.stderr
     assert "#SBATCH --time=04:00:00" in result.stdout
+
+
+def test_launch_wrapper_forwards_partition_override() -> None:
+    result = run_launch("house_context_l1", "--prod", "--partition", "gpu_h100", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --partition=gpu_h100" in result.stdout
+    assert "#SBATCH --partition=gpu_h100_il,gpu_h100" not in result.stdout
 
 
 def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:

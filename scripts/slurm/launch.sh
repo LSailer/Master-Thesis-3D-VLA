@@ -15,6 +15,8 @@ Modes:
   --smoke-then-prod  submit smoke, then production with an afterok dependency
   --time SLURM_TIME  override the selected mode's walltime, e.g. 02:00:00
                      (with --smoke-then-prod, applies to both submitted jobs)
+  --partition NAME   override the selected mode's partition, e.g. gpu_h100
+                     (with --smoke-then-prod, applies to both submitted jobs)
   --env K=V          override a config env var (repeatable); wins over the YAML
   --dry-run          render the sbatch script(s) instead of calling sbatch
 EOF
@@ -30,6 +32,7 @@ fi
 variants=()
 env_args=()
 time_args=()
+partition_args=()
 mode="prod"
 dry_run=0
 
@@ -45,6 +48,12 @@ while [[ $# -gt 0 ]]; do
             time_args+=(--time "$1")
             ;;
         --time=*)           time_args+=(--time "${1#--time=}") ;;
+        --partition)
+            shift
+            [[ $# -gt 0 ]] || { echo "--partition requires a Slurm partition name" >&2; exit 2; }
+            partition_args+=(--partition "$1")
+            ;;
+        --partition=*)      partition_args+=(--partition "${1#--partition=}") ;;
         --env)
             shift
             [[ $# -gt 0 ]] || { echo "--env requires KEY=VALUE" >&2; exit 2; }
@@ -67,6 +76,7 @@ render() {
     local variant="$1" render_mode="$2"
     "$python_bin" scripts/slurm/launch.py "$variant" --mode "$render_mode" \
         ${time_args[@]+"${time_args[@]}"} \
+        ${partition_args[@]+"${partition_args[@]}"} \
         ${env_args[@]+"${env_args[@]}"}
 }
 
