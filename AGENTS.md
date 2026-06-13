@@ -9,6 +9,20 @@ This repo is worked on by coding agents on bwUniCluster. Follow these rules for 
 - [`scripts/r2dreamer/AGENTS.md`](scripts/r2dreamer/AGENTS.md) — experiment drivers + SLURM wrappers
 - [`tests/r2dreamer/AGENTS.md`](tests/r2dreamer/AGENTS.md) — R2Dreamer test suite
 
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in Linear on the `3D-WM-ObjectNAV` team; GitHub PRs are linked implementation artifacts. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage roles map to Linear workflow states and issue comments, not dedicated labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout: read root `CONTEXT.md` and `docs/adr/` when present. See `docs/agents/domain.md`.
+
 ## Thesis Writing
 
 The written thesis is a **separate LaTeX repo** at [`../writing/`](../writing/) (sibling of this checkout; absolute path `/pfs/data6/home/ul/ul_student/ul_hfj15/writing/`). It is version-controlled independently — commit there separately, never from this repo. When an experiment here produces a reportable result, the prose and figures belong there, not only in `docs/`:
