@@ -1,0 +1,12 @@
+key,e9esa15p,y5a0upzd
+barlow_stop_grad,True,'<missing>'
+decoder,False,'<missing>'
+design_notes,'','<missing>'
+encoder_module_cls,'src.r2dreamer.world_model.encoders.ConvEncoder','<missing>'
+logdir,'output/r2dreamer-l1-replay-capacity/cnn-cap1m-seed4367942/run-4974622','output/r2dreamer-curriculum-l1-rerun/run-3957651'
+mlp_vggt_hidden,1024,'<missing>'
+mlp_vggt_layers,2,'<missing>'
+scale_decoder,1,'<missing>'
+seed,4367942,3957651
+total_steps,2000000,2400000
+vggt_mlp_layers,1,'<missing>'
