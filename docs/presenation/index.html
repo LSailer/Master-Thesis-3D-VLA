@@ -1,0 +1,1877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Scene Understanding for Object Navigation</title>
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #ffffff;
+    --surface: #f8fafc;
+    --accent: #6366f1;
+    --accent2: #4338ca;
+    --accent-green: #059669;
+    --accent-amber: #d97706;
+    --accent-red: #dc2626;
+    --accent-cyan: #0e7490;
+    --text: #1e293b;
+    --text-dim: #475569;
+    --border: #e2e8f0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .slide-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .slide {
+    display: none;
+    width: 100%;
+    height: 100%;
+    padding: 50px 70px;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    animation: fadeIn 0.4s ease;
+  }
+
+  .slide.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-number {
+    position: fixed;
+    bottom: 20px;
+    right: 30px;
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+    transition: width 0.3s ease;
+    z-index: 100;
+  }
+
+  h1 {
+    font-size: 3.2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #0f172a 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  h2 {
+    font-size: 2.2rem;
+    font-weight: 600;
+    margin-bottom: 28px;
+    color: #0f172a;
+  }
+
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--accent2);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    line-height: 1.6;
+    max-width: 800px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 4px 4px 4px 0;
+  }
+
+  .tag-accent { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
+  .tag-green { background: rgba(52,211,153,0.12); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.25); }
+  .tag-amber { background: rgba(251,191,36,0.12); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.25); }
+  .tag-red { background: rgba(248,113,113,0.12); color: var(--accent-red); border: 1px solid rgba(248,113,113,0.25); }
+  .tag-cyan { background: rgba(34,211,238,0.12); color: var(--accent-cyan); border: 1px solid rgba(34,211,238,0.25); }
+
+  .card-grid {
+    display: grid;
+    gap: 16px;
+    margin-top: 14px;
+  }
+
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--accent); }
+
+  .card h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #0f172a;
+  }
+
+  .card p, .card li {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .card ul li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  .card ul li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--accent2);
+  }
+
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(34,211,238,0.05));
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 14px;
+    padding: 22px 28px;
+    margin: 14px 0;
+  }
+
+  .highlight-box.green {
+    background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(34,211,238,0.05));
+    border-color: rgba(52,211,153,0.25);
+  }
+
+  .highlight-box.amber {
+    background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(248,113,113,0.05));
+    border-color: rgba(251,191,36,0.25);
+  }
+
+  .highlight-box.red {
+    background: linear-gradient(135deg, rgba(248,113,113,0.08), rgba(251,191,36,0.05));
+    border-color: rgba(248,113,113,0.25);
+  }
+
+  .arrow-flow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .flow-arrow {
+    color: var(--accent2);
+    font-size: 1.3rem;
+  }
+
+  .timeline {
+    display: flex;
+    gap: 14px;
+    margin-top: 16px;
+  }
+
+  .timeline-item {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+
+  .timeline-item .month {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+  }
+
+  .timeline-item h4 {
+    font-size: 0.95rem;
+    margin-bottom: 6px;
+    color: #0f172a;
+  }
+
+  .timeline-item p {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.85rem;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface);
+    color: var(--accent2);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .nav-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 30px;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .question-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+  }
+
+  .question-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 1rem;
+    color: var(--text);
+    line-height: 1.5;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .question-list li .q-num {
+    color: var(--accent2);
+    font-weight: 600;
+    min-width: 28px;
+  }
+
+  .figure-img {
+    max-width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 20px rgba(15,23,42,0.08);
+  }
+
+  .figure-caption {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-top: 6px;
+    font-style: italic;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 58% 40%;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .math-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 8px 0;
+    font-size: 1rem;
+    overflow-x: auto;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 8px;
+  }
+
+  .badge-best { background: rgba(251,191,36,0.2); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.3); }
+  .badge-new { background: rgba(52,211,153,0.15); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.25); }
+  .badge-standard { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
+
+  .discussion-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: 100%;
+  }
+
+  .discussion-center h2 {
+    font-size: 2.8rem;
+    margin-bottom: 40px;
+  }
+
+  .discussion-question {
+    font-size: 1.6rem;
+    color: var(--text);
+    font-weight: 400;
+    line-height: 1.6;
+    max-width: 700px;
+  }
+
+  .compact-list li {
+    padding: 2px 0 !important;
+    font-size: 0.82rem !important;
+  }
+
+  /* horizontal stage pipeline (from wp-cp-learning.html) */
+  .pipe {
+    display: flex; align-items: stretch; gap: 0; flex-wrap: wrap;
+    margin: 8px 0 4px;
+  }
+  .stage {
+    flex: 1 1 0; min-width: 92px;
+    background: var(--bg); border: 2px solid var(--border);
+    border-radius: 12px; padding: 14px 10px; text-align: center;
+    position: relative;
+  }
+  .stage .ic { font-size: 22px; }
+  .stage .nm { font-size: 13px; font-weight: 650; color: var(--text); margin-top: 6px; }
+  .stage .sh { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-dim); margin-top: 3px; }
+  .stage.wpcol { border-color: var(--accent-cyan); box-shadow: 0 6px 18px rgba(14,116,144,0.12); }
+  .stage.cpcol { border-color: var(--accent-amber); box-shadow: 0 6px 18px rgba(217,119,6,0.12); }
+  .stage.aggcol { border-color: var(--accent2); box-shadow: 0 6px 18px rgba(67,56,202,0.14); }
+  .pipe .arrow { display: flex; align-items: center; color: var(--text-dim); font-size: 20px; padding: 0 4px; }
+  .branch-note {
+    text-align: center; font-size: 12px; color: var(--text-dim);
+    margin-top: 6px; font-style: italic;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress"></div>
+
+<div class="slide-container">
+
+<!-- SLIDE 1: Title -->
+<div class="slide active" id="slide-1">
+  <h3>Supervisor Meeting · May 28, 2026</h3>
+  <h1>3D Scene Understanding<br>for Object Navigation</h1>
+  <div class="subtitle" style="margin-top: 16px;">
+    VGGT exploration results + thesis approach — augmenting VLAs with dense 3D semantic features
+  </div>
+  <div style="margin-top: 32px;">
+    <span class="tag tag-accent">VGGT</span>
+    <span class="tag tag-green">3D Scene Understanding</span>
+    <span class="tag tag-cyan">ObjectNav</span>
+  </div>
+</div>
+
+<!-- SLIDE 2: What is UNITE? -->
+<div class="slide" id="slide-2">
+  <h3>UNITE</h3>
+  <h2>What Is UNITE?</h2>
+  <div class="two-col">
+    <div>
+      <img src="images/unite_fig1_overview.png" alt="UNITE Overview — Fig 1 from Koch et al. 2025" class="figure-img">
+      <div class="figure-caption">Fig 1 from Koch et al. (2025) — UNITE takes posed images and outputs a semantically rich 3D point cloud.</div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <p style="font-size: 1rem; line-height: 1.7; color: var(--text);">
+          Takes a set of RGB images → reconstructs the full 3D scene → labels every 3D point with <em>what</em> it is, <em>which object</em> it belongs to, and <em>how it moves</em>.
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Key Properties</h4>
+        <ul>
+          <li>Works from RGB only — no depth sensor needed</li>
+          <li>Single forward pass, a few seconds per scene</li>
+          <li>Outputs are language-queryable (CLIP-aligned)</li>
+          <li>Instance-level segmentation in 3D</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Per-Point Output</h4>
+        <ul>
+          <li><strong>3D coordinates</strong> — geometry</li>
+          <li><strong>CLIP features</strong> — open-vocabulary semantics</li>
+          <li><strong>Instance ID</strong> — object grouping</li>
+          <li><strong>Articulation vector</strong> — how parts move</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 3: How UNITE Works -->
+<div class="slide" id="slide-3">
+  <h3>UNITE</h3>
+  <h2>How It Works</h2>
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="images/unite_fig2_architecture.png" alt="UNITE Architecture — Fig 2 from Koch et al. 2025" class="figure-img" style="max-width: 85%;">
+    <div class="figure-caption">Fig 2 from Koch et al. (2025) — Architecture overview</div>
+  </div>
+
+  <div class="card-grid grid-4">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>1. Input</h4>
+      <p>Set of RGB images from different viewpoints of the same scene</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>2. Backbone (VGGT)</h4>
+      <p>Pre-trained vision transformer encodes images, fuses across views via attention → predicts 3D geometry</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>3. Semantic Heads (DPT)</h4>
+      <p>Task-specific DPT heads on shared backbone predict semantics, instances, and articulation per point</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-cyan);">
+      <h4>4. Output</h4>
+      <p>Dense 3D point cloud where each point has: coordinates, CLIP features, instance ID, articulation vector</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: VGGT -->
+<div class="slide" id="slide-4">
+  <h3>Foundation</h3>
+  <h2>VGGT: Visual Geometry Grounded Transformer <span class="badge badge-best">CVPR 2025 Best Paper</span></h2>
+
+  <div style="text-align: center; margin-bottom: 20px;">
+    <img src="images/vggt_fig2_architecture.png" alt="VGGT Architecture" class="figure-img" style="width: 100%; max-height: 280px; object-fit: contain;">
+    <div class="figure-caption">Fig 2 from Wang et al. — Alternating global/frame-wise attention (no frame index embedding needed).</div>
+  </div>
+
+  <div class="two-col" style="grid-template-columns: 42% 56%; gap: 20px; align-items: stretch;">
+    <div style="display: flex; flex-direction: column;">
+      <div style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 20px rgba(15,23,42,0.08); flex-grow: 1; display: flex; flex-direction: column;">
+        <video src="images/teaser_vggt_v3_compressed_short.mp4" style="width: 100%; height: auto; display: block;" autoplay loop muted playsinline></video>
+        <div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: rgba(15,23,42,0.04);">
+          <strong>Result Demo:</strong>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="border-top: 3px solid var(--accent-green); padding: 18px;">
+        <h4 style="margin-bottom: 10px;">Parameter Breakdown (1.26B total)</h4>
+        <table style="margin: 0; font-size: 0.8rem;">
+          <tr><td style="padding: 4px 10px;">Aggregator</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">909M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">72.4%</td></tr>
+          <tr><td style="padding: 4px 10px;">Camera Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">216M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">17.2%</td></tr>
+          <tr><td style="padding: 4px 10px;">Depth Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Point Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">33M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">2.6%</td></tr>
+          <tr><td style="padding: 4px 10px;">Track Head</td><td style="padding: 4px 10px; text-align: right; font-weight: 600;">66M</td><td style="padding: 4px 10px; text-align: right; color: var(--accent2);">5.2%</td></tr>
+        </table>
+        <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-dim); display: flex; justify-content: space-between;">
+          <span><strong>Inference:</strong> 2.37s/frame (MPS)</span>
+          <span>64× A100 training</span>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <div>
+          <img src="images/vggt_depth_confidence.png" alt="VGGT depth + confidence maps" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">Depth (plasma) + confidence (viridis) — 5 views</div>
+        </div>
+        <div>
+          <img src="images/vggt_pca_rgb.png" alt="VGGT PCA-RGB backbone features" class="figure-img" style="width: 100%;">
+          <div class="figure-caption">PCA-RGB backbone features — 5 frames</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Research Question -->
+<div class="slide" id="slide-question">
+  <h3 style="text-align: center;">Research Question</h3>
+  <h2 style="text-align: center; font-size: 1.6em; margin-top: 12px;">Can 3D scene understanding improve world models for navigation?</h2>
+
+  <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+    <span style="background: rgba(129,140,248,0.15); border: 1px solid #4338ca; color: #4338ca; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">VGGT</span>
+    <span style="background: rgba(34,211,238,0.15); border: 1px solid #0e7490; color: #0e7490; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">DPT Depth</span>
+    <span style="background: rgba(52,211,153,0.15); border: 1px solid #059669; color: #059669; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">CLIP Semantics</span>
+    <span style="background: rgba(251,191,36,0.15); border: 1px solid #d97706; color: #d97706; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">+ DreamerV3 RSSM</span>
+  </div>
+
+  <div class="card" style="border-left: 4px solid var(--accent-amber); margin-top: 24px; max-width: 780px; margin-left: auto; margin-right: auto;">
+    <h4 style="color: var(--accent-amber);">Hypothesis</h4>
+    <p style="color: var(--text); line-height: 1.6;">Replacing DreamerV3's CNN encoder with frozen VGGT + DPT features gives the world model an explicit geometric and semantic prior — leading to better <strong>sample efficiency</strong> and <strong>navigation success</strong> on HM3D ObjectNav.</p>
+  </div>
+
+  <p style="text-align: center; color: var(--text-dim); font-size: 0.88em; margin-top: 18px; max-width: 680px; margin-left: auto; margin-right: auto;">
+    Standard DreamerV3 learns all 3D structure implicitly from 2D pixels. We provide it directly via a frozen VGGT backbone.
+  </p>
+</div>
+
+<!-- DreamerV3 RSSM Background -->
+<div class="slide" id="slide-dreamer">
+  <h3>Background</h3>
+  <h2>DreamerV3 — Recurrent State-Space Model (RSSM)</h2>
+
+  <div class="two-col" style="grid-template-columns: 56% 42%; align-items: start;">
+    <!-- Left: RSSM loop diagram -->
+    <svg viewBox="0 0 500 410" xmlns="http://www.w3.org/2000/svg"
+       style="width:100%;display:block;">
+      <defs>
+        <marker id="dm-coral" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+        </marker>
+        <marker id="dm-green" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#059669"/>
+        </marker>
+        <marker id="dm-amber" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706"/>
+        </marker>
+        <marker id="dm-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#0e7490"/>
+        </marker>
+        <marker id="dm-indigo" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#4338ca"/>
+        </marker>
+        <filter id="dm-g-coral" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#dc2626" flood-opacity="0.45"/>
+        </filter>
+        <filter id="dm-g-green" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#059669" flood-opacity="0.45"/>
+        </filter>
+        <filter id="dm-g-amber" x="-30%" y="-30%" width="160%" height="160%">
+          <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#d97706" flood-opacity="0.45"/>
+        </filter>
+      </defs>
+
+      <rect width="500" height="410" fill="#ffffff"/>
+
+      <!-- ═══ Input labels (left edge) ═══ -->
+      <text x="12" y="68" font-family="Inter,sans-serif" font-size="10" fill="#dc2626" opacity="0.8">h&#x2091;&#x208B;&#x2081;</text>
+      <text x="12" y="84" font-family="Inter,sans-serif" font-size="10" fill="#dc2626" opacity="0.8">z&#x2091;&#x208B;&#x2081;</text>
+      <line x1="48" y1="75" x2="130" y2="75"
+            stroke="#dc2626" stroke-width="1.5" marker-end="url(#dm-coral)" opacity="0.7"/>
+
+      <!-- a_{t-1} from top -->
+      <text x="232" y="28" font-family="Inter,sans-serif" font-size="10" fill="#059669" font-weight="600">a&#x2091;&#x208B;&#x2081;</text>
+      <line x1="250" y1="32" x2="250" y2="50"
+            stroke="#059669" stroke-width="1.5" marker-end="url(#dm-green)"/>
+
+      <!-- ═══ GRU Box ═══ -->
+      <rect x="132" y="52" width="236" height="48" rx="10"
+            fill="rgba(248,113,113,0.12)" stroke="#dc2626" stroke-width="1.8"
+            filter="url(#dm-g-coral)"/>
+      <text x="250" y="72" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="13" font-weight="700" fill="#dc2626">GRU Sequence Model</text>
+      <text x="250" y="90" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#dc2626" opacity="0.65">h&#x2091; = f(h&#x2091;&#x208B;&#x2081;, z&#x2091;&#x208B;&#x2081;, a&#x2091;&#x208B;&#x2081;)</text>
+
+      <!-- h_t label + arrow down to branch -->
+      <line x1="250" y1="100" x2="250" y2="148"
+            stroke="#dc2626" stroke-width="1.5"/>
+      <text x="262" y="118" font-family="Inter,sans-serif"
+            font-size="11" fill="#dc2626" font-weight="600">h&#x2091;</text>
+      <!-- small dot at branch point -->
+      <circle cx="250" cy="148" r="3" fill="#dc2626"/>
+
+      <!-- ═══ Posterior (left branch) ═══ -->
+      <line x1="250" y1="148" x2="145" y2="170"
+            stroke="#dc2626" stroke-width="1.3" marker-end="url(#dm-coral)"/>
+      <rect x="55" y="172" width="180" height="52" rx="10"
+            fill="rgba(248,113,113,0.10)" stroke="#dc2626" stroke-width="1.5"
+            filter="url(#dm-g-coral)"/>
+      <text x="145" y="194" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="12" font-weight="600" fill="#dc2626">Posterior</text>
+      <text x="145" y="213" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#dc2626" opacity="0.65">z&#x2091; &#x223C; q(z&#x2091; | h&#x2091;, x&#x2091;)</text>
+
+      <!-- x_t observation input (amber, from left) -->
+      <text x="8" y="198" font-family="Inter,sans-serif"
+            font-size="10" fill="#d97706" font-weight="600">x&#x2091;</text>
+      <line x1="28" y1="196" x2="55" y2="196"
+            stroke="#d97706" stroke-width="1.5" marker-end="url(#dm-amber)"/>
+
+      <!-- ═══ Prior (right branch, dashed) ═══ -->
+      <line x1="250" y1="148" x2="355" y2="170"
+            stroke="#dc2626" stroke-width="1.3" stroke-dasharray="5,3"
+            marker-end="url(#dm-coral)" opacity="0.7"/>
+      <rect x="265" y="172" width="180" height="52" rx="10"
+            fill="rgba(248,113,113,0.06)" stroke="#dc2626" stroke-width="1.5"
+            stroke-dasharray="6,3" opacity="0.8"/>
+      <text x="355" y="194" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="12" font-weight="600" fill="#dc2626" opacity="0.8">Prior</text>
+      <text x="355" y="213" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9" fill="#dc2626" opacity="0.5">&#x17A;&#x2091; &#x223C; p(&#x17A;&#x2091; | h&#x2091;)</text>
+
+      <!-- z_t output from posterior -->
+      <line x1="145" y1="224" x2="145" y2="260"
+            stroke="#dc2626" stroke-width="1.5"/>
+      <text x="157" y="248" font-family="Inter,sans-serif"
+            font-size="10" fill="#dc2626" font-weight="600">z&#x2091;</text>
+
+      <!-- combined state label -->
+      <rect x="80" y="262" width="130" height="22" rx="6"
+            fill="rgba(248,113,113,0.06)" stroke="#dc2626" stroke-width="0.8" opacity="0.5"/>
+      <text x="145" y="278" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="9.5" fill="#1e293b" opacity="0.7">(h&#x2091;, z&#x2091;) → heads</text>
+
+      <!-- ẑ_t from prior (imagination) -->
+      <line x1="355" y1="224" x2="355" y2="260"
+            stroke="#dc2626" stroke-width="1.2" stroke-dasharray="5,3" opacity="0.6"/>
+      <text x="367" y="248" font-family="Inter,sans-serif"
+            font-size="10" fill="#dc2626" font-weight="600" opacity="0.6">&#x17A;&#x2091;</text>
+
+      <!-- ═══ Prediction Heads ═══ -->
+      <!-- Decoder -->
+      <line x1="100" y1="284" x2="75" y2="304"
+            stroke="#0e7490" stroke-width="1" marker-end="url(#dm-cyan)" opacity="0.7"/>
+      <rect x="22" y="306" width="105" height="38" rx="8"
+            fill="rgba(34,211,238,0.10)" stroke="#0e7490" stroke-width="1.2"/>
+      <text x="74" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#0e7490">Decoder</text>
+      <text x="74" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#0e7490" opacity="0.6">reconstruct x&#x0302;&#x2091;</text>
+
+      <!-- Reward -->
+      <line x1="145" y1="284" x2="180" y2="304"
+            stroke="#d97706" stroke-width="1" marker-end="url(#dm-amber)" opacity="0.7"/>
+      <rect x="135" y="306" width="90" height="38" rx="8"
+            fill="rgba(251,191,36,0.10)" stroke="#d97706" stroke-width="1.2"/>
+      <text x="180" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#d97706">Reward</text>
+      <text x="180" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#d97706" opacity="0.6">r&#x0302;&#x2091;</text>
+
+      <!-- Continue -->
+      <line x1="185" y1="284" x2="275" y2="304"
+            stroke="#4338ca" stroke-width="1" marker-end="url(#dm-indigo)" opacity="0.7"/>
+      <rect x="240" y="306" width="90" height="38" rx="8"
+            fill="rgba(129,140,248,0.10)" stroke="#4338ca" stroke-width="1.2"/>
+      <text x="285" y="323" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="600" fill="#4338ca">Continue</text>
+      <text x="285" y="338" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#4338ca" opacity="0.6">&#x0109;&#x2091;</text>
+
+      <!-- ═══ Actor-Critic (from imagination, green) ═══ -->
+      <line x1="355" y1="260" x2="400" y2="304"
+            stroke="#059669" stroke-width="1.3" stroke-dasharray="5,3"
+            marker-end="url(#dm-green)" opacity="0.7"/>
+      <rect x="350" y="306" width="130" height="38" rx="8"
+            fill="rgba(52,211,153,0.10)" stroke="#059669" stroke-width="1.5"
+            filter="url(#dm-g-green)"/>
+      <text x="415" y="322" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" font-weight="700" fill="#059669">Actor-Critic</text>
+      <text x="415" y="337" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#059669" opacity="0.7">learns in imagination</text>
+
+      <!-- a_t output -->
+      <line x1="415" y1="344" x2="415" y2="370"
+            stroke="#059669" stroke-width="1.3" marker-end="url(#dm-green)"/>
+      <text x="415" y="386" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="11" fill="#059669" font-weight="600">a&#x2091;</text>
+
+      <!-- ═══ Recurrence loop (right side, faint) ═══ -->
+      <path d="M 200,265 C 220,265 485,250 485,150 C 485,50 380,28 270,28"
+            fill="none" stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3"
+            opacity="0.35" marker-end="url(#dm-coral)"/>
+      <text x="492" y="155" font-family="Inter,sans-serif"
+            font-size="7.5" fill="#dc2626" opacity="0.4"
+            transform="rotate(90,492,155)">recurrence</text>
+
+      <!-- ═══ Annotation: imagination zone ═══ -->
+      <rect x="260" y="162" width="190" height="192" rx="10"
+            fill="none" stroke="#059669" stroke-width="0.8"
+            stroke-dasharray="4,4" opacity="0.25"/>
+      <text x="355" y="362" text-anchor="middle" font-family="Inter,sans-serif"
+            font-size="8" fill="#059669" opacity="0.4">imagination rollout (no obs)</text>
+    </svg>
+
+    <!-- Right: key properties -->
+    <div>
+      <div class="card" style="margin-bottom: 14px; border-color: rgba(248,113,113,0.3);">
+        <h4 style="color: #dc2626;">World Model (RSSM)</h4>
+        <ul>
+          <li><strong>Deterministic</strong> — GRU carries long-range memory via \(h_t\)</li>
+          <li><strong>Stochastic</strong> — categorical latent \(z_t\) (32 classes × 32 dims)</li>
+          <li><strong>Posterior</strong> uses real observations; <strong>Prior</strong> imagines without them</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-bottom: 14px; border-color: rgba(52,211,153,0.3);">
+        <h4 style="color: #059669;">Actor-Critic in Imagination</h4>
+        <ul>
+          <li>Unroll prior 15 steps — no environment needed</li>
+          <li>Actor maximises \(\lambda\)-returns over imagined trajectories</li>
+          <li>Critic predicts discounted value</li>
+        </ul>
+      </div>
+      <div class="card" style="border-color: rgba(251,191,36,0.3);">
+        <h4 style="color: #d97706;">DreamerV3 Innovations</h4>
+        <ul>
+          <li><strong>Symlog predictions</strong> — scale-free losses across tasks</li>
+          <li><strong>Discrete latents</strong> — 32 × 32 categorical (no KL balancing needed)</li>
+          <li><strong>Unimix entropy</strong> — 1% uniform mix prevents posterior collapse</li>
+          <li>Single hyperparameter set works across 150+ tasks</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Architecture Approach -->
+<div class="slide" id="slide-newarch">
+  <h3>Proposed Architecture</h3>
+  <h2>VGGT + DPT + DreamerV3 RSSM World Model</h2>
+
+    <svg viewBox="0 0 900 530" xmlns="http://www.w3.org/2000/svg"
+       style="max-width:100%;max-height:76vh;display:block;margin:0 auto;">
+    <defs>
+      <marker id="na-amber" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#d97706"/>
+      </marker>
+      <marker id="na-cyan" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#0e7490"/>
+      </marker>
+      <marker id="na-indigo" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#4338ca"/>
+      </marker>
+      <marker id="na-green" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#059669"/>
+      </marker>
+      <marker id="na-coral" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"/>
+      </marker>
+      <marker id="na-purple" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+      </marker>
+      <marker id="na-orange" viewBox="0 0 10 10" refX="8" refY="5"
+              markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#ea580c"/>
+      </marker>
+
+      <filter id="ng-amber" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#d97706" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-cyan" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#0e7490" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-indigo" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#4338ca" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-green" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#059669" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-coral" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#dc2626" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-purple" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#7c3aed" flood-opacity="0.55"/>
+      </filter>
+      <filter id="ng-orange" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#ea580c" flood-opacity="0.55"/>
+      </filter>
+    </defs>
+
+    <!-- Background -->
+    <rect width="900" height="530" fill="#ffffff"/>
+
+    <!-- ══════════ ROW A: Obs Chunk ══════════ -->
+    <rect x="275" y="8" width="350" height="36" rx="8"
+          fill="rgba(251,191,36,0.10)" stroke="#d97706" stroke-width="1.5"
+          filter="url(#ng-amber)"/>
+    <text x="450" y="24" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#d97706">Obs Chunk</text>
+    <text x="450" y="38" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#d97706" opacity="0.7">RGB frames [t&#x2212;B+1 &#x2026; t] (batch B&#x2248;16)</text>
+
+    <line x1="450" y1="45" x2="450" y2="57"
+          stroke="#4338ca" stroke-width="2" marker-end="url(#na-indigo)"/>
+
+    <!-- ══════════ ROW B: VGGT (frozen, batch) ══════════ -->
+    <rect x="130" y="60" width="740" height="40" rx="10"
+          fill="rgba(129,140,248,0.12)" stroke="#4338ca" stroke-width="2"
+          filter="url(#ng-indigo)"/>
+    <text x="500" y="77" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="14" font-weight="700" fill="#4338ca">VGGT (frozen)</text>
+    <text x="500" y="93" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9.5" fill="#4338ca" opacity="0.7">Multi-View 3D Feature Extraction &#x2014; batch over obs chunk</text>
+
+    <line x1="450" y1="101" x2="450" y2="112"
+          stroke="#0e7490" stroke-width="1.5" marker-end="url(#na-cyan)"/>
+
+    <!-- ══════════ ROW C: DPT Block ══════════ -->
+    <rect x="130" y="114" width="740" height="70" rx="12"
+          fill="rgba(34,211,238,0.03)" stroke="#0e7490"
+          stroke-width="1.2" stroke-dasharray="6,4" opacity="0.65"/>
+    <text x="500" y="111" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="700" fill="#0e7490" letter-spacing="2" opacity="0.7">DPT BLOCK (MODULAR, EXTENSIBLE)</text>
+
+    <!-- Semantic DPT (dashed stroke, lower opacity — planned) -->
+    <rect x="145" y="123" width="185" height="52" rx="8"
+          fill="rgba(34,211,238,0.06)" stroke="#0e7490" stroke-width="1.2"
+          stroke-dasharray="5,3" opacity="0.5"/>
+    <text x="237" y="143" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#0e7490" opacity="0.6">Semantic DPT</text>
+    <text x="237" y="158" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#0e7490" opacity="0.5">dense CLIP features</text>
+    <text x="237" y="170" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#d97706" opacity="0.7">(planned)</text>
+
+    <!-- Geometric DPT (solid) -->
+    <rect x="345" y="123" width="160" height="52" rx="8"
+          fill="rgba(34,211,238,0.10)" stroke="#0e7490" stroke-width="1.5"
+          filter="url(#ng-cyan)"/>
+    <text x="425" y="145" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="11" font-weight="600" fill="#0e7490">Geometric DPT</text>
+    <text x="425" y="161" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#0e7490" opacity="0.7">depth + world pts</text>
+
+    <!-- Extensible placeholder -->
+    <rect x="690" y="123" width="100" height="52" rx="8"
+          fill="rgba(34,211,238,0.04)" stroke="#0e7490"
+          stroke-width="1" stroke-dasharray="4,3" opacity="0.40"/>
+    <text x="740" y="155" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="28" fill="#0e7490" opacity="0.30">&#x2026;</text>
+
+    <!-- Arrows: DPT boxes → Fusion (converging) -->
+    <line x1="237" y1="175" x2="330" y2="196"
+          stroke="#0e7490" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.5"/>
+    <line x1="425" y1="175" x2="410" y2="196"
+          stroke="#0e7490" stroke-width="1.2" marker-end="url(#na-cyan)" opacity="0.65"/>
+
+    <!-- ══════════ ROW D: Fusion Module ══════════ -->
+    <rect x="130" y="198" width="560" height="34" rx="10"
+          fill="rgba(167,139,250,0.10)" stroke="#7c3aed" stroke-width="1.8"
+          filter="url(#ng-purple)"/>
+    <text x="410" y="213" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="700" fill="#7c3aed">Fusion Module</text>
+    <text x="410" y="227" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#7c3aed" opacity="0.7">geometry (&#x2295; semantics) &#x2192; cond</text>
+
+    <!-- Arrow: Fusion → RSSM (cond) -->
+    <line x1="410" y1="233" x2="345" y2="248"
+          stroke="#dc2626" stroke-width="1.8" marker-end="url(#na-coral)"/>
+    <text x="388" y="244" font-family="Inter,sans-serif"
+          font-size="7.5" fill="#7c3aed" opacity="0.7" font-style="italic">cond</text>
+
+    <!-- ══════════ ROW E: RSSM World Model + Imagination ══════════ -->
+
+    <!-- RSSM main box -->
+    <rect x="130" y="250" width="430" height="92" rx="10"
+          fill="rgba(248,113,113,0.10)" stroke="#dc2626" stroke-width="2"
+          filter="url(#ng-coral)"/>
+    <text x="345" y="265" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="700" fill="#dc2626">RSSM World Model</text>
+
+    <!-- GRU sub-box -->
+    <rect x="140" y="272" width="130" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#dc2626" stroke-width="1" opacity="0.8"/>
+    <text x="205" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#dc2626">GRU Seq. Model</text>
+    <text x="205" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#dc2626" opacity="0.65">h&#x209C; = f(h&#x209C;&#x208B;&#x2081;, z&#x209C;&#x208B;&#x2081;, a&#x209C;&#x208B;&#x2081;)</text>
+    <text x="205" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#dc2626" opacity="0.8">deterministic state</text>
+
+    <!-- Recurrence loop on GRU -->
+    <path d="M 148,324 C 130,324 130,280 148,280" fill="none"
+          stroke="#dc2626" stroke-width="1" marker-end="url(#na-coral)" opacity="0.5"/>
+    <text x="126" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="5.5" fill="#dc2626" opacity="0.45">t&#x2212;1</text>
+
+    <!-- Posterior sub-box -->
+    <rect x="278" y="272" width="130" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#dc2626" stroke-width="1" opacity="0.8"/>
+    <text x="343" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#dc2626">Posterior</text>
+    <text x="343" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#dc2626" opacity="0.65">z&#x209C; ~ q(z&#x209C; | h&#x209C;, cond)</text>
+    <text x="343" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#7c3aed" opacity="0.7">&#x2191; uses observation</text>
+
+    <!-- Prior sub-box -->
+    <rect x="416" y="272" width="134" height="58" rx="6"
+          fill="rgba(248,113,113,0.15)" stroke="#dc2626" stroke-width="1" opacity="0.8"/>
+    <text x="483" y="290" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="600" fill="#dc2626">Prior</text>
+    <text x="483" y="305" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#dc2626" opacity="0.65">z&#x0302;&#x209C; ~ p(z&#x0302;&#x209C; | h&#x209C;)</text>
+    <text x="483" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" font-weight="500" fill="#dc2626" opacity="0.6">imagination only</text>
+
+    <!-- Internal arrows: GRU h_t → Posterior, GRU h_t → Prior -->
+    <line x1="270" y1="298" x2="276" y2="298"
+          stroke="#dc2626" stroke-width="1.2" marker-end="url(#na-coral)" opacity="0.5"/>
+    <line x1="270" y1="285" x2="414" y2="285"
+          stroke="#dc2626" stroke-width="0.8" stroke-dasharray="3,2" opacity="0.3"/>
+
+    <!-- Decoder box (branches left) -->
+    <rect x="10" y="282" width="108" height="32" rx="6"
+          fill="rgba(248,113,113,0.06)" stroke="#dc2626" stroke-width="1.2"
+          stroke-dasharray="4,3" opacity="0.65"/>
+    <text x="64" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" font-weight="600" fill="#dc2626" opacity="0.75">Decoder</text>
+    <text x="64" y="309" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#dc2626" opacity="0.55">reconstruct cond</text>
+    <!-- Arrow: RSSM → Decoder -->
+    <line x1="128" y1="298" x2="120" y2="298"
+          stroke="#dc2626" stroke-width="1" marker-end="url(#na-coral)" opacity="0.45"/>
+
+    <!-- ─── Imagination branch (dashed, right of RSSM) ─── -->
+    <rect x="580" y="250" width="290" height="92" rx="10"
+          fill="rgba(248,113,113,0.04)" stroke="#dc2626"
+          stroke-width="1.5" stroke-dasharray="6,4" opacity="0.65"/>
+    <text x="725" y="265" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="10" font-weight="700" fill="#dc2626" opacity="0.8">Imagination</text>
+    <text x="725" y="277" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7.5" fill="#dc2626" opacity="0.45">(no env interaction)</text>
+
+    <!-- Imagination predictor boxes -->
+    <rect x="595" y="284" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#dc2626" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#dc2626" opacity="0.8">Reward r&#x0302;&#x209C;</text>
+
+    <rect x="595" y="303" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#dc2626" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="315" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#dc2626" opacity="0.8">Continue &#x0109;&#x209C;</text>
+
+    <rect x="595" y="322" width="120" height="16" rx="4"
+          fill="rgba(248,113,113,0.12)" stroke="#dc2626" stroke-width="0.8" opacity="0.65"/>
+    <text x="655" y="334" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" fill="#dc2626" opacity="0.8">Value V(s&#x209C;)</text>
+
+    <!-- Actor-Critic label in imagination -->
+    <text x="770" y="296" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8" font-weight="600" fill="#059669" opacity="0.65">Actor-Critic</text>
+    <text x="770" y="308" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#059669" opacity="0.45">learns here</text>
+    <text x="770" y="320" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="7" fill="#059669" opacity="0.45">via prior z&#x0302;&#x209C;</text>
+
+    <!-- Arrow: Prior → Imagination -->
+    <line x1="550" y1="298" x2="578" y2="298"
+          stroke="#dc2626" stroke-width="1.8" marker-end="url(#na-coral)" opacity="0.65"/>
+    <text x="564" y="292" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="6.5" fill="#dc2626" opacity="0.55">z&#x0302;&#x209C;</text>
+
+    <!-- ══════════ ARROW E → F ══════════ -->
+    <line x1="345" y1="342" x2="345" y2="356"
+          stroke="#059669" stroke-width="2" marker-end="url(#na-green)"/>
+
+    <!-- ══════════ ROW F: MLP Actor ══════════ -->
+    <rect x="130" y="358" width="430" height="34" rx="8"
+          fill="rgba(52,211,153,0.10)" stroke="#059669" stroke-width="2"
+          filter="url(#ng-green)"/>
+    <text x="345" y="374" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="700" fill="#059669">MLP Actor &#x03C0;(a&#x209C; | h&#x209C;, z&#x209C;)</text>
+    <text x="345" y="388" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#059669" opacity="0.6">DreamerV3 default</text>
+
+    <!-- Arrow: Actor → Agent -->
+    <line x1="345" y1="393" x2="345" y2="408"
+          stroke="#059669" stroke-width="2" marker-end="url(#na-green)"/>
+    <text x="360" y="405" font-family="Inter,sans-serif"
+          font-size="8" fill="#059669" opacity="0.7" font-style="italic">a&#x209C;</text>
+
+    <!-- ══════════ ROW G: Agent ↔ Environment (no buffer) ══════════ -->
+    <rect x="260" y="410" width="220" height="34" rx="8"
+          fill="rgba(129,140,248,0.12)" stroke="#4338ca" stroke-width="1.8"
+          filter="url(#ng-indigo)"/>
+    <text x="370" y="431" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="13" font-weight="600" fill="#4338ca">Agent</text>
+
+    <rect x="260" y="472" width="220" height="34" rx="8"
+          fill="rgba(251,146,60,0.10)" stroke="#ea580c" stroke-width="1.5"
+          filter="url(#ng-orange)"/>
+    <text x="370" y="487" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="12" font-weight="600" fill="#ea580c">Environment</text>
+    <text x="370" y="500" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="9" fill="#ea580c" opacity="0.6">HM3D Habitat</text>
+
+    <!-- Bidirectional curved arrows (direct, no buffer) -->
+    <path d="M 480,444 C 530,444 530,472 480,472"
+          fill="none" stroke="#4338ca" stroke-width="1.8" marker-end="url(#na-indigo)"/>
+    <text x="545" y="462" text-anchor="start" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#4338ca" opacity="0.85">action a&#x209C;</text>
+
+    <path d="M 260,472 C 210,472 210,444 260,444"
+          fill="none" stroke="#ea580c" stroke-width="1.8" marker-end="url(#na-orange)"/>
+    <text x="178" y="462" text-anchor="middle" font-family="Inter,sans-serif"
+          font-size="8.5" fill="#ea580c" opacity="0.85">obs + reward</text>
+  </svg>
+</div>
+
+<!-- SLIDE: VGGT Internals (Aggregator / WP / CP) -->
+<div class="slide" id="slide-vggt-internals">
+  <h3>VGGT Internals</h3>
+  <h2>Aggregator &middot; WP Head &middot; CP Head</h2>
+
+  <div class="pipe" style="margin-top: 10px;">
+    <div class="stage"><div class="ic">🖼️</div><div class="nm">RGB frame</div><div class="sh">518&times;518&times;3</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage aggcol"><div class="ic">🧩</div><div class="nm">Aggregator</div><div class="sh">1374&times;2048</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage cpcol"><div class="ic">📷</div><div class="nm">Camera Head</div><div class="sh">&rarr; 9 (CP)</div></div>
+    <div class="stage wpcol"><div class="ic">📐</div><div class="nm">Point Head</div><div class="sh">&rarr; 37&times;37&times;3 (WP)</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage"><div class="ic">🪢</div><div class="nm">Flatten + concat</div><div class="sh">4116</div></div>
+    <div class="arrow">&rarr;</div>
+    <div class="stage"><div class="ic">🧠</div><div class="nm">Dreamer encoder</div><div class="sh">Dense &rarr; 1024</div></div>
+  </div>
+  <div class="branch-note">Camera Head and Point Head read the <em>same</em> aggregator tokens in parallel &mdash; one yields CP, the other WP.</div>
+
+  <div class="card-grid grid-3" style="margin-top: 10px;">
+    <div class="card" style="border-top: 3px solid var(--accent2);">
+      <h4 style="color: var(--accent2);">Aggregator</h4>
+      <div style="margin-bottom: 8px;">
+        <span class="tag tag-accent">24 layers</span>
+        <span class="tag tag-accent">909M params</span>
+      </div>
+      <p style="font-size: 0.86rem; margin-bottom: 8px;"><strong>Alternating attention:</strong> global &harr; frame-wise (no frame-index embedding).</p>
+      <ul style="font-size: 0.82rem;">
+        <li>Input: \(B \times S \times 3 \times 518 \times 518\)</li>
+        <li>Hidden 1024 &middot; 16 heads &middot; MLP &times; 4</li>
+        <li>Tokens/frame: 1 cam &oplus; 4 register &oplus; 1369 patch = <strong>1374</strong></li>
+        <li>Per-layer out: \((B, S, 1374, 2048)\) <em>(frame &oplus; global stream)</em></li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-cyan);">
+      <h4 style="color: var(--accent-cyan);">WP Head &mdash; World-Pointmap</h4>
+      <div style="margin-bottom: 8px;">
+        <span class="tag tag-cyan">DPT decoder</span>
+        <span class="tag tag-cyan">33M params</span>
+      </div>
+      <p style="font-size: 0.86rem; margin-bottom: 8px;"><strong>Dense 3D prediction</strong> per pixel from aggregator tokens.</p>
+      <ul style="font-size: 0.82rem;">
+        <li>Reads patch tokens at layers [4, 11, 17, 23]</li>
+        <li>4 fusion blocks &middot; 2&times; bilinear upsample</li>
+        <li>Output: \(\mathrm{pts3d} \in \mathbb{R}^{B \times S \times H \times W \times 3}\)</li>
+        <li>+ per-pixel confidence (exp+1)</li>
+        <li>Pooled 518&rarr;37: <code>world_points</code> = \((37, 37, 3)\)</li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4 style="color: var(--accent-amber);">CP Head &mdash; Camera-Pose</h4>
+      <div style="margin-bottom: 8px;">
+        <span class="tag tag-amber">Iterative refiner</span>
+        <span class="tag tag-amber">216M params</span>
+      </div>
+      <p style="font-size: 0.86rem; margin-bottom: 8px;"><strong>Iterative pose regression</strong> from the camera token.</p>
+      <ul style="font-size: 0.82rem;">
+        <li>4 refinement iterations &middot; AdaLN modulation</li>
+        <li>Trunk: 4-block self-attention over cam tokens</li>
+        <li>Per iter predicts 9D delta, accumulated</li>
+        <li>Output: \([T_x, T_y, T_z,\, q_x, q_y, q_z, q_w,\, f_x, f_y]\)</li>
+        <li>Last iter only: <code>camera_pose</code> &isin; \(\mathbb{R}^9\)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 14px;">
+    <strong>Currently consumed:</strong>
+    <span style="color: var(--text-dim);"> head outputs flattened &mdash; <code>world_points</code> \((1369 \times 3 = 4107)\) &oplus; <code>camera_pose</code> \((9)\) = <strong>4116-D observation</strong> &rarr; DreamerV3 RSSM.</span>
+  </div>
+</div>
+
+<!-- SLIDE: Current Baseline Result (run er5ze5m6) -->
+<div class="slide" id="slide-vggt-results">
+  <h3>Current Baseline Result</h3>
+  <h2>VGGT WP+CP Flatten &mdash; <code style="font-size: 0.7em; color: var(--accent2);">er5ze5m6</code></h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 12px; border-top: 3px solid var(--accent-cyan);">
+        <h4>Run summary</h4>
+        <ul style="font-size: 0.85rem;">
+          <li>Display name: <code>vggt_jax-4216462</code></li>
+          <li>Curriculum: <strong>L1 &middot; 1 house &middot; chair-only</strong></li>
+          <li>Encoder: <code>vggt</code> &middot; <code>obs_shape = [4116]</code></li>
+          <li>State: <span style="color: var(--accent-red); font-weight: 600;">crashed</span> at <strong>2.14M / 2.4M</strong> steps (89%)</li>
+          <li>6 518 episodes &middot; ~48 h wall-clock</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Final-window metrics</h4>
+        <table>
+          <tr><th>Metric</th><th>Value</th><th>vs 2D baseline</th></tr>
+          <tr><td>SR (chair)</td><td><strong style="color: var(--accent-amber);">0.62</strong></td><td style="color: var(--accent-red);">&minus;13 pp (vs 0.75)</td></tr>
+          <tr><td>SPL</td><td><strong style="color: var(--accent-amber);">0.426</strong></td><td style="color: var(--accent-red);">&minus;0.12 (vs 0.55)</td></tr>
+          <tr><td>Mean ep reward</td><td>5.25</td><td>&mdash;</td></tr>
+          <tr><td>Path ratio</td><td>1.39</td><td>longer than optimal</td></tr>
+        </table>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 12px;">
+        <h4>Loss decomposition (terminal)</h4>
+        <table style="font-size: 0.78rem;">
+          <tr><th>Term</th><th>Value</th><th>Note</th></tr>
+          <tr><td>repr / dyn (KL)</td><td>5.95</td><td>post H = 1.38 &middot; prior H = 1.57</td></tr>
+          <tr><td>value</td><td>1.63</td><td>twohot, 255 bins</td></tr>
+          <tr><td>repval</td><td>1.94</td><td>scale 0.3</td></tr>
+          <tr><td>policy</td><td>&minus;0.036</td><td>act_entropy 0.03</td></tr>
+          <tr><td>reward</td><td>0.24</td><td>step_penalty &minus;0.01</td></tr>
+          <tr><td>barlow</td><td><strong style="color: var(--accent-red);">29.85</strong></td><td>&times;0.05 &rarr; 1.49 contrib.</td></tr>
+        </table>
+      </div>
+      <div class="highlight-box red" style="padding: 12px 18px;">
+        <strong style="color: var(--accent-red);">Takeaway:</strong>
+        <span style="color: var(--text-dim); font-size: 0.88rem;"> Lossy 3D-coordinate observations &mdash; even with explicit geometry &mdash; under-perform the 2D CNN on L1. Motivates richer aggregator embeddings.</span>
+      </div>
+      <p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 8px;">
+        <a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/er5ze5m6" style="color: var(--accent2);">W&amp;B run &rarr;</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: Aggregator vs Heads (planned ablation) -->
+<div class="slide" id="slide-aggregator-vs-heads">
+  <h3>Planned Ablation</h3>
+  <h2>Aggregator Embeddings vs Head Outputs</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="border-left: 4px solid var(--accent-cyan); margin-bottom: 12px;">
+        <h4 style="color: var(--accent-cyan);">Current &mdash; WP + CP Flatten</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;"><strong style="color: var(--text);">4116-D</strong> = 1369&times;3 world points &oplus; 9D camera pose</p>
+        <ul style="font-size: 0.83rem;">
+          <li>Discards 37&times;37 spatial token structure (flat)</li>
+          <li>Discards camera + register tokens (pose / instance summary)</li>
+          <li>Lossy: 1024-D feature collapsed to 3-D coordinate per patch</li>
+          <li>No mid-layer semantics &mdash; only the head's geometric readout</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left: 4px solid var(--accent-green);">
+        <h4 style="color: var(--accent-green);">Proposed &mdash; Aggregator Tokens</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;"><strong style="color: var(--text);">1374 &times; 1024</strong> tokens from last aggregator layer (global stream)</p>
+        <ul style="font-size: 0.83rem;">
+          <li>Keep cam token separately &mdash; pose / instance summary</li>
+          <li>Pool patches via mean &amp; max &rarr; compact 3072-D obs</li>
+          <li>Geometry implicit in features (not coords) &mdash; no compression bottleneck</li>
+          <li>Compatible with later semantic-DPT add-on</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 12px;">
+        <h4>Papers consuming the aggregator (not the heads)</h4>
+        <table style="font-size: 0.78rem;">
+          <tr><th>Paper</th><th>What it uses</th></tr>
+          <tr><td><strong>VGGT-DP</strong> <span style="color: var(--text-dim);">(Ge et&nbsp;al. 2025)</span></td><td>aggregator tokens &rarr; diffusion policy</td></tr>
+          <tr><td><strong>VGGT-World</strong> <span style="color: var(--text-dim);">(Sun et&nbsp;al. 2026)</span></td><td>autoregressive on aggregator features</td></tr>
+          <tr><td><strong>eVGGT</strong> <span style="color: var(--text-dim);">(Vuong et&nbsp;al. 2025)</span></td><td>distilled aggregator for ACT / DP</td></tr>
+          <tr><td><strong>MG-Nav</strong> <span style="color: var(--text-dim);">(Wang et&nbsp;al. 2025)</span></td><td>aggregator-side memory for navigation</td></tr>
+        </table>
+        <p style="font-size: 0.75rem; margin-top: 8px; color: var(--text-dim);">All four downstream-policy / world-model works skip the WP+CP readout and feed raw aggregator tokens forward.</p>
+      </div>
+      <div class="highlight-box" style="padding: 14px 18px;">
+        <strong style="color: var(--accent2);">Research question:</strong>
+        <span style="color: var(--text-dim);"> Recent VGGT-based policies all consume aggregator embeddings rather than head outputs. I want to understand <em>what changes</em> in DreamerV3 when the encoder switches from the WP+CP readout to the raw aggregator tokens &mdash; sample efficiency, representation collapse, downstream SR/SPL.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: Offline Learning Methodology -->
+<div class="slide" id="slide-offline-learning">
+  <h3>Methodology</h3>
+  <h2>Offline Learning &mdash; Fair Encoder Comparison</h2>
+
+  <div class="two-col" style="grid-template-columns: 50% 48%; gap: 18px;">
+    <div>
+      <img src="images/r2dreamer_loop.png" alt="R2Dreamer training loop: HM3D house &rarr; VGGT 3D encoder &rarr; replay buffer &rarr; world model &rarr; actor-critic" class="figure-img" style="width: 100%;">
+      <div class="figure-caption">Training loop &mdash; rollouts in HM3D are encoded by the frozen VGGT and stored as <code>z3D</code> in the replay buffer. The world model trains on cached embeddings; the actor-critic learns from imagined rollouts and steps back into the house.</div>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom: 10px;">
+        <h4>Pipeline steps</h4>
+        <ul style="font-size: 0.82rem;">
+          <li><strong>Collect</strong> &mdash; <code>collect_offline_buffer.py</code> rolls episodes once, caches <code>z_wp_cp.npz</code> &amp; <code>z_aggregator.npz</code></li>
+          <li><strong>Train</strong> &mdash; <code>train_offline_ablation.py</code> samples (B&times;T) batches, runs <code>agent.train_step</code>; encoder is frozen</li>
+          <li><strong>Eval</strong> &mdash; held-out episodes, <code>agent.eval_loss</code> every 10k steps</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left: 4px solid var(--accent-amber); margin-bottom: 10px;">
+        <h4>Fairness contract</h4>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;">Only <strong style="color: var(--text);">encoder_type</strong> and <strong style="color: var(--text);">train_seed</strong> vary.</p>
+        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+          <span class="tag tag-accent">B = 16</span>
+          <span class="tag tag-accent">seq_len = 64</span>
+          <span class="tag tag-accent">train_ratio = 512</span>
+          <span class="tag tag-accent">imag. horizon = 15</span>
+          <span class="tag tag-accent">same held-out split</span>
+        </div>
+      </div>
+      <div class="highlight-box amber" style="padding: 10px 14px;">
+        <strong style="color: var(--accent-amber);">Why offline?</strong>
+        <span style="color: var(--text-dim); font-size: 0.84rem;"> Removes VGGT extraction throughput as a confounder. Each variant trains on identical observation sequences &mdash; only the representation changes.</span>
+      </div>
+      <p style="margin-top: 8px; font-size: 0.76rem; color: var(--text-dim); font-style: italic;">Status: implementation in progress (3D-26)</p>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: VGGT Variant Comparison -->
+<div class="slide" id="slide-vggt-comparison">
+  <h3>Encoder Selection</h3>
+  <h2>VGGT Variant Comparison</h2>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
+    <!-- Left: Table + Summary Bars -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border);">
+            <th style="padding: 6px 8px; text-align: left; color: var(--text-dim);">Variant</th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>100</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>500</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Scaling</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">VGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">SceneVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">FastVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">16.1 GB</td>
+            <td style="padding: 5px 8px; text-align: right;">54.7 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">StreamVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">25.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr>
+            <td style="padding: 5px 8px; font-weight: 600; color: var(--accent-green);">InfiniteVGGT</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">16.6 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">18.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace; color: var(--accent-green);">O(1)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div>
+        <img src="images/vggt_summary_bars.png" alt="VGGT latency and memory bars" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+        <div class="figure-caption">Latency &amp; peak memory at N &isin; {10, 50, 100}</div>
+      </div>
+    </div>
+
+    <!-- Right: Sequential benchmark -->
+    <div>
+      <img src="images/vggt_seq.png" alt="DreamerV3 integration benchmark" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+      <div class="figure-caption">DreamerV3 integration: 16 parallel envs, 20 RL steps (16 &rarr; 320 frames)</div>
+      <div class="highlight-box" style="margin-top: 14px; padding: 12px 16px;">
+        <strong style="color: var(--accent-green);">Result:</strong>
+        <span style="color: var(--text-dim);"> Only InfiniteVGGT guarantees bounded memory at arbitrary episode lengths while maintaining stable throughput (~15 fps).</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: Output Quality Comparison -->
+<div class="slide" id="slide-vggt-depth">
+  <h3>Encoder Selection</h3>
+  <h2>Output Quality — All Variants Equivalent</h2>
+
+  <div style="text-align: center;">
+    <img src="images/vggt_depth_comparision.png" alt="Depth maps across all VGGT variants" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border);">
+    <div class="figure-caption" style="margin-top: 12px;">Depth maps from all five variants on identical input frames — outputs are visually indistinguishable.</div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: var(--accent-green);">Selection:</strong>
+    <span style="color: var(--text-dim);"> InfiniteVGGT selected as 3D encoder — bounded memory, stable throughput, no quality loss.</span>
+  </div>
+</div>
+
+<!-- SLIDE 7: ObjectNav Task Definition -->
+<div class="slide" id="slide-8">
+  <h3>Benchmark</h3>
+  <h2>ObjectNav Task</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Task Definition</h4>
+        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
+          Agent spawns at random pose in an <strong>unseen environment</strong>. Given a target object category (e.g., "chair"), navigate to <strong>any instance</strong> and call <code style="color: var(--accent-green); background: rgba(52,211,153,0.1); padding: 2px 6px; border-radius: 4px;">STOP</code> within 0.1m.
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Observations (Egocentric)</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <div style="background: rgba(99,102,241,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <strong style="color: var(--accent2); font-size: 0.85rem;">RGB</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(34,211,238,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <strong style="color: var(--accent-cyan); font-size: 0.85rem;">Depth</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(251,191,36,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <strong style="color: var(--accent-amber); font-size: 0.85rem;">GPS+Compass</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Relative to start pose</div>
+          </div>
+          <div style="background: rgba(52,211,153,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <strong style="color: var(--accent-green); font-size: 0.85rem;">Goal</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Category ID (1 of 6)</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>Action Space</h4>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">MOVE_FORWARD 0.25m</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_LEFT 30°</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_RIGHT 30°</span>
+          <span class="tag" style="background: rgba(52,211,153,0.15); color: var(--accent-green);">STOP</span>
+        </div>
+        <p style="margin-top: 8px; font-size: 0.85rem; color: var(--text-dim);">Episode budget: <strong style="color: var(--text);">500 steps</strong> max. Success = STOP called within 0.1m of any target instance.</p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="text-align: center;">
+        <img src="https://aihabitat.org/static/challenge/objectnav_spec_2023.gif" alt="Habitat ObjectNav Demo" class="figure-img" style="max-width: 100%; border-radius: 12px;">
+        <div class="figure-caption">Habitat ObjectNav — agent navigates to target object in photorealistic 3D scan</div>
+      </div>
+      <div class="card">
+        <h4>Key Metrics</h4>
+        <table style="width: 100%; margin-top: 8px;">
+          <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Measures</th></tr>
+          <tr><td style="color: var(--accent-green); font-weight: 600;">Success Rate</td><td style="color: var(--text-dim);">Did agent find the target?</td></tr>
+          <tr><td style="color: var(--accent); font-weight: 600;">SPL</td><td style="color: var(--text-dim);">Success weighted by path efficiency</td></tr>
+          <tr><td style="color: var(--accent-cyan); font-weight: 600;">SoftSPL</td><td style="color: var(--text-dim);">Progress toward goal (partial credit)</td></tr>
+          <tr><td style="color: var(--accent-amber); font-weight: 600;">DTG</td><td style="color: var(--text-dim);">Distance to goal at episode end</td></tr>
+        </table>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #0f172a;">No map, no oracle:</strong>
+        <span style="color: var(--text-dim);"> Agent has zero prior knowledge of the environment. Must build spatial understanding from egocentric observations alone.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7b: HM3D Environment + Geodesic Distances -->
+<div class="slide" id="slide-8b">
+  <h3>Benchmark</h3>
+  <h2>HM3D Environment &amp; Episode Distribution</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>HM3D Dataset</h4>
+        <ul>
+          <li><strong>1,000</strong> real-world 3D scans of residential spaces</li>
+          <li>Photorealistic rendering via Habitat simulator</li>
+          <li><strong>216</strong> object categories with semantic annotations</li>
+          <li>Multi-room layouts: kitchens, bedrooms, bathrooms, living rooms, hallways</li>
+          <li>Standard benchmark since 2023 Habitat Challenge</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>6 Target Object Categories</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px;">
+          <div style="text-align: center; background: rgba(99,102,241,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <div style="font-size: 1.4rem;">🪑</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Chair</div>
+          </div>
+          <div style="text-align: center; background: rgba(52,211,153,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <div style="font-size: 1.4rem;">🛏️</div>
+            <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">Bed</div>
+          </div>
+          <div style="text-align: center; background: rgba(251,191,36,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <div style="font-size: 1.4rem;">🪴</div>
+            <div style="font-size: 0.8rem; color: var(--accent-amber); font-weight: 600;">Plant</div>
+          </div>
+          <div style="text-align: center; background: rgba(34,211,238,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <div style="font-size: 1.4rem;">🚽</div>
+            <div style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">Toilet</div>
+          </div>
+          <div style="text-align: center; background: rgba(248,113,113,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(248,113,113,0.2);">
+            <div style="font-size: 1.4rem;">📺</div>
+            <div style="font-size: 0.8rem; color: var(--accent-red); font-weight: 600;">TV Monitor</div>
+          </div>
+          <div style="text-align: center; background: rgba(129,140,248,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(129,140,248,0.2);">
+            <div style="font-size: 1.4rem;">🛋️</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Sofa</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>What's in the Environment</h4>
+        <p style="font-size: 0.85rem; line-height: 1.7; color: var(--text);">
+          Realistic clutter: furniture, appliances, decorations, doors, stairs. Scenes contain <strong>50–300+ objects</strong> per scan. Agent must distinguish target from distractors in cluttered, multi-room layouts with varying lighting and occlusion.
+        </p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="padding: 20px;">
+        <h4 style="margin-bottom: 12px;">Geodesic Distance Distribution</h4>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px;">Shortest navigable path from spawn to nearest target instance (HM3D ObjectNav v2 val split)</p>
+        <svg viewBox="0 0 420 200" style="width: 100%; font-family: 'Inter', sans-serif;">
+          <!-- Axes -->
+          <line x1="50" y1="170" x2="400" y2="170" stroke="#cbd5e1" stroke-width="1"/>
+          <line x1="50" y1="10" x2="50" y2="170" stroke="#cbd5e1" stroke-width="1"/>
+          <!-- Y-axis labels -->
+          <text x="45" y="170" fill="#475569" font-size="9" text-anchor="end">0</text>
+          <text x="45" y="130" fill="#475569" font-size="9" text-anchor="end">10%</text>
+          <text x="45" y="90" fill="#475569" font-size="9" text-anchor="end">20%</text>
+          <text x="45" y="50" fill="#475569" font-size="9" text-anchor="end">30%</text>
+          <!-- Grid lines -->
+          <line x1="50" y1="130" x2="400" y2="130" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="90" x2="400" y2="90" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="50" x2="400" y2="50" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <!-- Bars: geodesic distance bins (approximate distribution) -->
+          <!-- 0-1m: ~5% -->
+          <rect x="55" y="150" width="28" height="20" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 1-2m: ~12% -->
+          <rect x="90" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 2-3m: ~18% -->
+          <rect x="125" y="98" width="28" height="72" rx="3" fill="#4338ca" opacity="0.8"/>
+          <!-- 3-5m: ~25% (peak) -->
+          <rect x="160" y="70" width="28" height="100" rx="3" fill="#4338ca" opacity="0.9"/>
+          <!-- 5-7m: ~17% -->
+          <rect x="195" y="102" width="28" height="68" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 7-10m: ~12% -->
+          <rect x="230" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.7"/>
+          <!-- 10-15m: ~7% -->
+          <rect x="265" y="142" width="28" height="28" rx="3" fill="#6366f1" opacity="0.6"/>
+          <!-- 15-20m: ~3% -->
+          <rect x="300" y="158" width="28" height="12" rx="3" fill="#6366f1" opacity="0.5"/>
+          <!-- 20m+: ~1% -->
+          <rect x="335" y="166" width="28" height="4" rx="3" fill="#6366f1" opacity="0.4"/>
+          <!-- X-axis labels -->
+          <text x="69" y="184" fill="#475569" font-size="8" text-anchor="middle">0-1</text>
+          <text x="104" y="184" fill="#475569" font-size="8" text-anchor="middle">1-2</text>
+          <text x="139" y="184" fill="#475569" font-size="8" text-anchor="middle">2-3</text>
+          <text x="174" y="184" fill="#475569" font-size="8" text-anchor="middle">3-5</text>
+          <text x="209" y="184" fill="#475569" font-size="8" text-anchor="middle">5-7</text>
+          <text x="244" y="184" fill="#475569" font-size="8" text-anchor="middle">7-10</text>
+          <text x="279" y="184" fill="#475569" font-size="8" text-anchor="middle">10-15</text>
+          <text x="314" y="184" fill="#475569" font-size="8" text-anchor="middle">15-20</text>
+          <text x="349" y="184" fill="#475569" font-size="8" text-anchor="middle">20+</text>
+          <!-- Axis label -->
+          <text x="225" y="198" fill="#475569" font-size="9" text-anchor="middle">Geodesic Distance (meters)</text>
+          <!-- Annotation -->
+          <line x1="174" y1="65" x2="174" y2="40" stroke="#059669" stroke-width="1" stroke-dasharray="3"/>
+          <text x="174" y="35" fill="#059669" font-size="8" text-anchor="middle">peak: 3-5m</text>
+          <text x="174" y="25" fill="#059669" font-size="7" text-anchor="middle">(multi-room nav)</text>
+        </svg>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #0f172a;">Why geodesic distance matters:</strong>
+        <span style="color: var(--text-dim);"> Most episodes require navigating 3–7m through multiple rooms. This is where 3D spatial understanding becomes critical — the agent must reason about room connectivity and navigate around obstacles, not just recognize objects.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: DreamerV3 Baseline -->
+<div class="slide" id="slide-7">
+  <h3>Baseline</h3>
+  <h2>DreamerV3 — Pixel-Only World Model</h2>
+
+  <div class="two-col" style="grid-template-columns: 56% 42%; gap: 20px; align-items: start;">
+    <div>
+      <div class="arrow-flow">
+        <div class="flow-box">RGB (224×224)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">CNN Encoder</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box" style="border-color: var(--accent-amber); background: rgba(251,191,36,0.1);">RSSM World Model</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">Actor-Critic</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">Nav Action</div>
+      </div>
+
+      <div class="card" style="margin-top: 16px;">
+        <h4>DreamerV3 — Pixel-Only</h4>
+        <span class="tag tag-amber" style="margin-bottom: 10px;">Baseline · JAX · 2M steps</span>
+        <ul>
+          <li>Standard CNN encoder on 2D RGB only</li>
+          <li>Learns geometry implicitly from pixels — no depth, no 3D, no semantics</li>
+          <li>State-of-the-art general RL agent (150+ tasks, Nature 2025)</li>
+          <li>First application to HM3D ObjectNav (no prior work)</li>
+          <li>Same RSSM architecture as our approach — only encoder differs</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <div style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 20px rgba(15,23,42,0.08);">
+        <video src="images/cnn_baseline_episode.mp4" style="width: 100%; height: auto; display: block;" autoplay loop muted playsinline controls></video>
+        <div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: rgba(15,23,42,0.04);">
+          <strong style="color: var(--text);">CNN baseline episode</strong> — <code>cnn-2M-512</code> agent on L1 chair-only
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 14px;">
+    <strong style="color: #0f172a;">Our approach:</strong> keeps DreamerV3's RSSM unchanged but replaces the CNN encoder with frozen VGGT features — providing explicit 3D geometry the pixel-only baseline lacks.
+  </div>
+</div>
+
+
+<!-- SLIDE: Curriculum Scaling Results -->
+<div class="slide" id="slide-curriculum">
+  <h3>Results So Far</h3>
+  <h2>Curriculum Scaling — What Happens When We Add Complexity?</h2>
+  <div class="card-grid grid-4" style="margin-top: 8px;">
+    <div class="card" style="border-top: 3px solid var(--accent2);">
+      <h4 style="color: var(--accent2);">L1 · 1 House, Chair</h4>
+      <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; margin-bottom: 8px;">
+        <span class="tag tag-accent" style="font-size: 0.72rem;">1 house</span>
+        <span class="tag tag-accent" style="font-size: 0.72rem;">1 goal</span>
+        <span class="tag tag-accent" style="font-size: 0.72rem;">8,333 eps</span>
+      </div>
+      <span class="metric-big" style="color: var(--accent2); font-size: 1.6rem; font-weight: 700;">75%</span>
+      <div class="metric-label" style="font-size: 0.78rem; color: var(--text-dim);">SR (19.5x random)</div>
+      <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);">Buffer fix + step penalty. WM learns single-scene navigation.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4 style="color: var(--accent-amber);">L2 · 1 House, 6 Goals</h4>
+      <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; margin-bottom: 8px;">
+        <span class="tag tag-amber" style="font-size: 0.72rem;">1 house</span>
+        <span class="tag tag-amber" style="font-size: 0.72rem;">6 goals</span>
+        <span class="tag tag-amber" style="font-size: 0.72rem;">49,998 eps</span>
+      </div>
+      <span class="metric-big" style="color: var(--accent-amber); font-size: 1.6rem; font-weight: 700;">36%</span>
+      <div class="metric-label" style="font-size: 0.78rem; color: var(--text-dim);">Avg SR (plant 66% &rarr; tv 3%)</div>
+      <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);">Geo/Euc ratio drives difficulty &mdash; not distance.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4 style="color: var(--accent-green);">L3 · 10 Houses, Chair</h4>
+      <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; margin-bottom: 8px;">
+        <span class="tag tag-green" style="font-size: 0.72rem;">10 houses</span>
+        <span class="tag tag-green" style="font-size: 0.72rem;">1 goal</span>
+        <span class="tag tag-green" style="font-size: 0.72rem;">83,330 eps</span>
+      </div>
+      <span class="metric-big" style="color: var(--accent-green); font-size: 1.6rem; font-weight: 700;">32%</span>
+      <div class="metric-label" style="font-size: 0.78rem; color: var(--text-dim);">SR (8.3x random)</div>
+      <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);">Multi-scene generalization costs ~43pp SR.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--text-dim); opacity: 0.85;">
+      <h4 style="color: var(--text-dim);">L4 · 10 Houses, 6 Goals</h4>
+      <div style="display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; margin-bottom: 8px;">
+        <span class="tag" style="background: rgba(71,85,105,0.12); color: var(--text-dim); border: 1px solid rgba(71,85,105,0.25); font-size: 0.72rem;">10 houses</span>
+        <span class="tag" style="background: rgba(71,85,105,0.12); color: var(--text-dim); border: 1px solid rgba(71,85,105,0.25); font-size: 0.72rem;">6 goals</span>
+        <span class="tag" style="background: rgba(71,85,105,0.12); color: var(--text-dim); border: 1px solid rgba(71,85,105,0.25); font-size: 0.72rem;">499,980 eps</span>
+      </div>
+      <span class="metric-big" style="color: var(--text-dim); font-size: 1.6rem; font-weight: 700;">&mdash;</span>
+      <div class="metric-label" style="font-size: 0.78rem; color: var(--text-dim);">Full curriculum &middot; not yet trained</div>
+      <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);">All houses &times; all categories &mdash; final eval target.</p>
+    </div>
+  </div>
+  <p style="margin-top: 6px; font-size: 0.74rem; color: var(--text-dim); text-align: center;">All levels: ~8,333 episodes per (house &times; goal) combination &mdash; train / val split 90 / 10.</p>
+  <div class="highlight-box" style="margin-top: 12px;">
+    <strong style="color: #0f172a;">Key insight:</strong>
+    <span style="color: var(--text-dim);"> The semantic floor plan reveals that object accessibility — not distance — determines success. Goals behind walls/doorways (Geo/Euc &gt; 1.3) are near-impossible for the 2D-only agent. This motivates 3D scene understanding.</span>
+  </div>
+</div>
+
+<!-- SLIDE: Curriculum Scope (house x goal heatmap) -->
+<div class="slide" id="slide-curriculum-scope">
+  <h3>Curriculum Scope</h3>
+  <h2>House &times; Goal Heatmap &mdash; Train + Eval</h2>
+
+  <div style="margin-top: 12px; overflow: auto;">
+    <table style="width: 100%; font-size: 0.78rem; border-collapse: separate; border-spacing: 3px;">
+      <thead>
+        <tr>
+          <th style="background: var(--surface); color: var(--text-dim); text-align: left; padding: 8px 12px;">house \ goal</th>
+          <th style="background: rgba(14,116,144,0.10); color: var(--accent-cyan); text-align: center; padding: 8px;">bed</th>
+          <th style="background: rgba(67,56,202,0.10); color: var(--accent2); text-align: center; padding: 8px;">chair</th>
+          <th style="background: rgba(5,150,105,0.10); color: var(--accent-green); text-align: center; padding: 8px;">plant</th>
+          <th style="background: rgba(217,119,6,0.10); color: var(--accent-amber); text-align: center; padding: 8px;">sofa</th>
+          <th style="background: rgba(220,38,38,0.10); color: var(--accent-red); text-align: center; padding: 8px;">toilet</th>
+          <th style="background: rgba(124,58,237,0.10); color: #7c3aed; text-align: center; padding: 8px;">tv_monitor</th>
+          <th style="background: var(--surface); color: var(--text); text-align: right; padding: 8px 12px;">total</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- 10 house rows, each cell 8,333 -->
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">fK2vEV32Lag</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">W9YAR9qcuvN</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">wPLokgvCnuk</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">ACZZiU6BXLz</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">XfUxBGTFQQb</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">9h5JJxM6E5S</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">qz3829g1Lzf</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">oPj9qMxrDEa</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">u5atqC7vRCY</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr><td style="font-family: monospace; color: var(--text-dim); padding: 6px 12px;">j2EJhFEQGCL</td><td style="background: rgba(14,116,144,0.16); color: var(--accent-cyan); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(67,56,202,0.16); color: var(--accent2); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(5,150,105,0.16); color: var(--accent-green); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(217,119,6,0.16); color: var(--accent-amber); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(220,38,38,0.16); color: var(--accent-red); text-align: center; padding: 6px;">8,333</td><td style="background: rgba(124,58,237,0.16); color: #7c3aed; text-align: center; padding: 6px;">8,333</td><td style="text-align: right; color: var(--text); padding: 6px 12px; font-weight: 600;">49,998</td></tr>
+        <tr style="border-top: 2px solid var(--border);">
+          <td style="color: var(--text-dim); padding: 8px 12px; font-weight: 600;">total</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: var(--accent-cyan);">83,330</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: var(--accent2);">83,330</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: var(--accent-green);">83,330</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: var(--accent-amber);">83,330</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: var(--accent-red);">83,330</td>
+          <td style="text-align: center; padding: 8px; font-weight: 600; color: #7c3aed;">83,330</td>
+          <td style="text-align: right; padding: 8px 12px; font-weight: 700; color: var(--accent2);">499,980</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top: 10px; font-size: 0.78rem; color: var(--text-dim); text-align: center;">L4 full curriculum &mdash; 10 houses &times; 6 goals &times; 8,333 episodes = <strong style="color: var(--text);">499,980 episodes</strong> (train + eval).</p>
+</div>
+
+<!-- SLIDE: L2 per-object SR chart -->
+<div class="slide" id="slide-l2-per-object">
+  <h3>Level 2 &mdash; Per-Object SR</h3>
+  <h2>Where the CNN Baseline Breaks Down</h2>
+
+  <div class="two-col" style="grid-template-columns: 60% 38%;">
+    <div>
+      <svg viewBox="0 0 560 320" xmlns="http://www.w3.org/2000/svg" style="width:100%; display:block;">
+        <!-- Axes -->
+        <line x1="120" y1="20" x2="120" y2="280" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="120" y1="280" x2="540" y2="280" stroke="#cbd5e1" stroke-width="1"/>
+
+        <!-- X-axis grid + labels (0, 25, 50, 75, 100 %) -->
+        <line x1="225" y1="20" x2="225" y2="280" stroke="#e2e8f0" stroke-width="0.7" stroke-dasharray="3,3"/>
+        <line x1="330" y1="20" x2="330" y2="280" stroke="#e2e8f0" stroke-width="0.7" stroke-dasharray="3,3"/>
+        <line x1="435" y1="20" x2="435" y2="280" stroke="#e2e8f0" stroke-width="0.7" stroke-dasharray="3,3"/>
+        <line x1="540" y1="20" x2="540" y2="280" stroke="#e2e8f0" stroke-width="0.7" stroke-dasharray="3,3"/>
+        <text x="120" y="298" fill="#475569" font-size="10" text-anchor="middle">0%</text>
+        <text x="225" y="298" fill="#475569" font-size="10" text-anchor="middle">25%</text>
+        <text x="330" y="298" fill="#475569" font-size="10" text-anchor="middle">50%</text>
+        <text x="435" y="298" fill="#475569" font-size="10" text-anchor="middle">75%</text>
+        <text x="540" y="298" fill="#475569" font-size="10" text-anchor="middle">100%</text>
+        <text x="330" y="315" fill="#475569" font-size="11" text-anchor="middle">Success Rate</text>
+
+        <!-- Bars (4.2 px per percent; row height 32; first bar y=30) -->
+        <!-- bed 54% -->
+        <text x="115" y="48" fill="#0e7490" font-size="12" text-anchor="end" font-weight="600">bed</text>
+        <rect x="120" y="34" width="226.8" height="22" rx="3" fill="#0e7490" opacity="0.85"/>
+        <text x="354" y="50" fill="#0f172a" font-size="12" font-weight="600">54%</text>
+
+        <!-- plant 49% -->
+        <text x="115" y="78" fill="#059669" font-size="12" text-anchor="end" font-weight="600">plant</text>
+        <rect x="120" y="64" width="205.8" height="22" rx="3" fill="#059669" opacity="0.85"/>
+        <text x="333" y="80" fill="#0f172a" font-size="12" font-weight="600">49%</text>
+
+        <!-- sofa 47% -->
+        <text x="115" y="108" fill="#d97706" font-size="12" text-anchor="end" font-weight="600">sofa</text>
+        <rect x="120" y="94" width="197.4" height="22" rx="3" fill="#d97706" opacity="0.85"/>
+        <text x="325" y="110" fill="#0f172a" font-size="12" font-weight="600">47%</text>
+
+        <!-- chair 40% -->
+        <text x="115" y="138" fill="#4338ca" font-size="12" text-anchor="end" font-weight="600">chair</text>
+        <rect x="120" y="124" width="168" height="22" rx="3" fill="#4338ca" opacity="0.85"/>
+        <text x="295" y="140" fill="#0f172a" font-size="12" font-weight="600">40%</text>
+
+        <!-- tv_monitor 3% -->
+        <text x="115" y="168" fill="#7c3aed" font-size="12" text-anchor="end" font-weight="600">tv_monitor</text>
+        <rect x="120" y="154" width="12.6" height="22" rx="3" fill="#7c3aed" opacity="0.85"/>
+        <text x="140" y="170" fill="#0f172a" font-size="12" font-weight="600">3%</text>
+
+        <!-- toilet 0% -->
+        <text x="115" y="198" fill="#dc2626" font-size="12" text-anchor="end" font-weight="600">toilet</text>
+        <rect x="120" y="184" width="2" height="22" rx="2" fill="#dc2626" opacity="0.85"/>
+        <text x="128" y="200" fill="#0f172a" font-size="12" font-weight="600">0%</text>
+
+        <!-- Average line at 33% -->
+        <line x1="258.6" y1="22" x2="258.6" y2="210" stroke="#1e293b" stroke-width="1.2" stroke-dasharray="4,3"/>
+        <text x="262" y="32" fill="#1e293b" font-size="10" font-weight="600">avg 33%</text>
+      </svg>
+      <div class="figure-caption" style="text-align: center;">CNN baseline on L2 (1 house &middot; 6 goals) &mdash; <code>r2d-L2-buffix-4194044</code> @ 2.4M steps (finished).</div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom: 12px; border-left: 4px solid var(--accent-green);">
+        <h4 style="color: var(--accent-green);">Easy goals (&gt; 40% SR)</h4>
+        <ul style="font-size: 0.85rem;">
+          <li><strong>bed</strong> &mdash; large, central rooms</li>
+          <li><strong>plant</strong> &mdash; mostly visible from doorways</li>
+          <li><strong>sofa</strong> &mdash; living rooms, direct paths</li>
+          <li><strong>chair</strong> &mdash; common, partially occluded</li>
+        </ul>
+      </div>
+      <div class="card" style="border-left: 4px solid var(--accent-red);">
+        <h4 style="color: var(--accent-red);">Failure goals (&lt; 5% SR)</h4>
+        <ul style="font-size: 0.85rem;">
+          <li><strong>toilet</strong> &mdash; behind bathroom doors</li>
+          <li><strong>tv_monitor</strong> &mdash; occluded, small</li>
+        </ul>
+        <p style="margin-top: 8px; font-size: 0.8rem; color: var(--text-dim);">Both have <strong>Geo / Euc &gt; 1.3</strong> &mdash; requires multi-room navigation through doorways.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 11: Timeline -->
+<div class="slide" id="slide-13">
+  <h3>Timeline · First 3 Months Done</h3>
+  <h2>6-Month Execution Plan</h2>
+
+  <div class="timeline">
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
+      <div class="month">Month 1 · Done</div>
+      <h4>Cluster Setup + Baseline Start</h4>
+      <p>BWUniCluster environment working · DreamerV3 ObjectNav baseline started · 3D representation options scoped</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent);">
+      <div class="month">Month 2 · Done</div>
+      <h4>Functional Baseline</h4>
+      <p>Baseline training pipeline stable · Curriculum levels defined · First L1/L2/L3 pixel-only results collected</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-green);">
+      <div class="month">Month 3 · Done</div>
+      <h4>3D Prototype + WordPoint Streamer</h4>
+      <p>3D baseline path running on L1 · WordPoint streamer trained to ~70% · Aggregate embedding input experiments started</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
+      <div class="month">Month 4</div>
+      <h4>Aggregate Embeddings + L2-L4 Runs</h4>
+      <p>Use aggregated 3D embeddings as Dreamer input · Run 3D representation experiments on L2, L3, and L4 · Create fourth baseline result set</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-amber);">
+      <div class="month">Month 5</div>
+      <h4>Compare + Refine</h4>
+      <p>Write up results as they stand · Compare pixel-only vs. 3D variants across curriculum levels · Rerun weak or unstable settings</p>
+    </div>
+    <div class="timeline-item" style="border-top: 3px solid var(--accent-cyan);">
+      <div class="month">Month 6</div>
+      <h4>Writing</h4>
+      <p>Finalize thesis chapters · Consolidate figures and experiment tables · Final analysis and defense prep</p>
+    </div>
+  </div>
+</div>
+
+
+
+</div><!-- end slide-container -->
+
+<div class="slide-number" id="slideNum">1 / 14</div>
+<div class="nav-hint">← → arrow keys to navigate</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+  const total = slides.length;
+
+  function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(n, total - 1));
+    slides[current].classList.add('active');
+    document.getElementById('slideNum').textContent = `${current + 1} / ${total}`;
+    document.getElementById('progress').style.width = `${((current + 1) / total) * 100}%`;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); showSlide(current + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); showSlide(current - 1); }
+    if (e.key === 'Home') showSlide(0);
+    if (e.key === 'End') showSlide(total - 1);
+  });
+
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) { diff > 0 ? showSlide(current + 1) : showSlide(current - 1); }
+  });
+
+  showSlide(0);
+</script>
+
+</body>
+</html>
