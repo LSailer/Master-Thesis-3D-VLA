@@ -565,8 +565,8 @@ class ConvDecoder(nn.Module):
     in [0, 1]. Mirrors ``ConvEncoder``: a Dense lifts ``feat`` to a 4x4 grid,
     then four stride-2 ``ConvTranspose`` stages (4->8->16->32->64) with
     RMSNorm+SiLU, and a final 1-conv to 3 channels + sigmoid. R2-Dreamer is
-    decoder-free by default; this is only built when ``cfg.decoder`` is set, so
-    existing CNN/VGGT runs are unaffected.
+    decoder-free by default; when enabled, the loss detaches ``feat`` so this
+    stays a visualisation probe rather than an agent objective.
     """
     depth: int = 16
     kernel_size: int = 5

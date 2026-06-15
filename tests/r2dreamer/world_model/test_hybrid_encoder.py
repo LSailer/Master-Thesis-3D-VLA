@@ -1,4 +1,4 @@
-"""Pure-CPU Flax tests for the hybrid encoder and the co-trained decoder (3D-50/51/52).
+"""Pure-CPU Flax tests for the hybrid encoder and debug decoder probe (3D-50/51/52).
 
 No GPU and no VGGT extractor are needed: every test operates on zeros/random
 arrays of the right shape. Determinism comes from fixed ``jax.random.PRNGKey``.

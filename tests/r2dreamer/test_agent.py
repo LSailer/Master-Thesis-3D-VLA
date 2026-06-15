@@ -77,6 +77,32 @@ def make_deterministic_batch(cfg, B=2, T=4):
     }
 
 
+def make_small_decoder_cfg(*, decoder=False):
+    return R2DreamerConfig(
+        obs_shape=(3, 64, 64),
+        num_actions=5,
+        deter_size=32,
+        hidden_size=16,
+        stoch_classes=4,
+        stoch_discrete=4,
+        blocks=4,
+        encoder_depth=4,
+        encoder_kernel=3,
+        encoder_mults=(1, 1, 1, 1),
+        mlp_units=16,
+        mlp_layers_reward=1,
+        mlp_layers_cont=1,
+        mlp_layers_actor=1,
+        mlp_layers_critic=1,
+        twohot_bins=21,
+        imagination_horizon=2,
+        horizon=10,
+        lr=1e-3,
+        warmup_steps=0,
+        decoder=decoder,
+    )
+
+
 def make_small_hybrid_cfg():
     return R2DreamerConfig(
         encoder_type="hybrid",
@@ -263,3 +289,41 @@ class TestR2DreamerAgent:
         assert "hybrid/cnn_frac" in metrics
         assert "hybrid/vggt_frac" in metrics
         assert np.isfinite(metrics["total_loss"])
+
+    def test_decoder_probe_updates_only_decoder_params(self):
+        cfg = make_small_decoder_cfg(decoder=False)
+        dec_cfg = make_small_decoder_cfg(decoder=True)
+        batch = make_deterministic_batch(cfg, B=1, T=2)
+        init_rng = jax.random.PRNGKey(17)
+        train_rng = jax.random.PRNGKey(19)
+
+        baseline = R2DreamerAgent(cfg, init_rng)
+        with_decoder = R2DreamerAgent(dec_cfg, init_rng)
+        before_decoder_params = jax.tree.map(jnp.copy, with_decoder.params["decoder"])
+
+        baseline_metrics = baseline.train_step(batch, train_rng)
+        decoder_metrics = with_decoder.train_step(batch, train_rng)
+
+        assert "loss/decoder" in decoder_metrics
+        assert np.isfinite(decoder_metrics["loss/decoder"])
+        expected_agent_loss = (
+            dec_cfg.scale_dyn * decoder_metrics["loss/dyn"]
+            + dec_cfg.scale_rep * decoder_metrics["loss/rep"]
+            + dec_cfg.scale_barlow * decoder_metrics["loss/barlow"]
+            + dec_cfg.scale_rew * decoder_metrics["loss/rew"]
+            + dec_cfg.scale_con * decoder_metrics["loss/con"]
+            + dec_cfg.scale_policy * decoder_metrics["loss/policy"]
+            + dec_cfg.scale_value * decoder_metrics["loss/value"]
+            + dec_cfg.scale_repval * decoder_metrics["loss/repval"]
+        )
+        assert decoder_metrics["total_loss"] == pytest.approx(expected_agent_loss, rel=1e-6)
+        assert decoder_metrics["opt_loss"] == pytest.approx(
+            expected_agent_loss + dec_cfg.scale_decoder * decoder_metrics["loss/decoder"],
+            rel=1e-6,
+        )
+        assert tree_any_changed(before_decoder_params, with_decoder.params["decoder"])
+        for name in baseline.params:
+            assert tree_allclose(
+                baseline.params[name], with_decoder.params[name], atol=1e-6
+            ), f"decoder probe changed non-decoder subtree {name}"
+        assert baseline_metrics["nan_skipped"] == decoder_metrics["nan_skipped"] == 0.0

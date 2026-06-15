@@ -59,11 +59,12 @@ class R2DreamerConfig:
     # above governs the standalone vggt/aggregator encoders).
     mlp_vggt_hidden: int = 1024   # hidden width of the hybrid VGGT-branch MLP
     mlp_vggt_layers: int = 2      # depth of the hybrid VGGT-branch MLP
-    # --- Co-trained decoder (image reconstruction; OFF by default; 3D-51) ---
-    # When False (default) no decoder params are built and no reconstruction
-    # term is added, so CNN/VGGT runs are byte-for-byte unchanged.
-    decoder: bool = False         # build a ConvDecoder + add a reconstruction loss
-    scale_decoder: float = 1.0    # weight of the reconstruction MSE in total loss
+    # --- Debug decoder probe (image reconstruction; OFF by default; 3D-51) ---
+    # When enabled, trains a ConvDecoder from stop-gradient RSSM features for
+    # W&B visualisation. It does not backprop reconstruction loss into the
+    # encoder/RSSM/actor-critic objective.
+    decoder: bool = False         # build a ConvDecoder visualisation probe
+    scale_decoder: float = 1.0    # weight of decoder-only reconstruction loss
     design_notes: str = ""
 
     # --- MLP heads ---

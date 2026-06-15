@@ -35,6 +35,7 @@ shims: `run_parity_training.py`, `run_benchmark.py`.
 | `build_curriculum_slides.py` | Aggregate curriculum-progression metrics into slides/plots. |
 | `../profiling/profile_training.py` | Per-phase timing of the full loop (env / vggt_forward / vggt_wrapper / jax_upload / wm_inference / buffer_add / wm_training), CNN and VGGT back-to-back. |
 | `../profiling/profile_encoders_3d5253.py` | Isolated encoder cost comparison: VGGT `extract()` vs encoder `forward()` vs `train_step()`, wp_cp vs wp_dense. |
+| `run_decoder_probe_overfit_gpu.sh` | Thin `srun` wrapper for the GPU-only decoder overfit probe (`tests/r2dreamer/world_model/test_decoder_probe_overfit_gpu.py`). |
 | `plot_curriculum_scaling.py`, `plot_baseline_analysis.py`, `plot_l1_baseline.py` | Publication plots from run `metrics.csv`. |
 
 ### `slurm/`

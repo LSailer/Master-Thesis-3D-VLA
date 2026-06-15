@@ -92,11 +92,14 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         optax.sigmoid_binary_cross_entropy(cont_logits[..., 0], cont_target)
     )
 
-    # ---- Co-trained decoder (image reconstruction; only when cfg.decoder) ----
-    # Off by default → no `decoder` loss key, so the total-loss sum and metrics
-    # are identical to the decoder-free baseline. 3D-51 visual-verification head.
+    # ---- Debug decoder probe (image reconstruction; only when cfg.decoder) ----
+    # The decoder is a visualisation probe, not an agent objective: detach the
+    # RSSM feature so reconstruction gradients train only decoder params. The
+    # agent loss/metrics stay comparable to decoder-free runs; see agent.py for
+    # the auxiliary opt loss that keeps the probe itself learning.
     if cfg.decoder:
-        recon = modules["decoder"].apply(params["decoder"], feat_flat)  # (BT,3,64,64)
+        decoder_feat = jax.lax.stop_gradient(feat_flat)
+        recon = modules["decoder"].apply(params["decoder"], decoder_feat)  # (BT,3,64,64)
         rgb_target = decoder_rgb_target(batch, cfg)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]

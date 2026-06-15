@@ -232,7 +232,8 @@ def _make_encoder(cfg: R2DreamerConfig):
 
 
 def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
-    total_loss = (
+    """Agent objective, excluding the optional debug decoder probe."""
+    return (
         cfg.scale_dyn * losses["dyn"]
         + cfg.scale_rep * losses["rep"]
         + cfg.scale_barlow * losses["barlow"]
@@ -242,10 +243,6 @@ def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
         + cfg.scale_value * losses["value"]
         + cfg.scale_repval * losses["repval"]
     )
-    # Co-trained decoder term (only present when cfg.decoder; 3D-51).
-    if cfg.decoder:
-        total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
-    return total_loss
 
 
 def _add_loss_metrics(metrics: dict[str, Any], losses: dict[str, Any]) -> None:
@@ -398,9 +395,9 @@ class R2DreamerAgent:
         )
         cri_params = self.critic_mod.init(k_cri, feat0)
 
-        # ---- Co-trained decoder (3D-51): built ONLY when cfg.decoder ----
-        # Reconstructs the RGB image from `feat` for visual verification. Left
-        # unbuilt by default so the params pytree (and thus checkpoints) of
+        # ---- Debug decoder probe (3D-51): built ONLY when cfg.decoder ----
+        # Reconstructs RGB from stop-gradient `feat` for visual verification.
+        # Left unbuilt by default so the params pytree (and thus checkpoints) of
         # CNN/VGGT runs is unchanged.
         self.decoder_mod = None
         dec_params = None
@@ -541,7 +538,7 @@ class R2DreamerAgent:
         return action_int, new_stoch, new_deter
 
     # ------------------------------------------------------------------
-    # Decoder reconstruction (visual verification; only when cfg.decoder)
+    # Decoder reconstruction probe (visual verification; only when cfg.decoder)
     # ------------------------------------------------------------------
 
     def reconstruct(self, batch: Dict[str, jnp.ndarray]):
@@ -634,7 +631,8 @@ class R2DreamerAgent:
             lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
 
         metrics = aux["metrics"]
-        metrics["total_loss"] = total_loss
+        metrics["opt_loss"] = total_loss
+        metrics["total_loss"] = aux["agent_loss"]
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_params, new_opt_state, new_slow, new_ema_state, metrics
 
@@ -722,7 +720,14 @@ class R2DreamerAgent:
         )
 
         losses = {**wm_losses, **bh_losses, **rep_losses}
-        total_loss = _weighted_total_loss(cfg, losses)
+        agent_loss = _weighted_total_loss(cfg, losses)
+        # The decoder is a stop-gradient visualisation probe. Add its detached
+        # reconstruction loss only to the optimiser objective so the decoder
+        # learns to read the current latent, while the agent/RSSM/encoder see
+        # exactly the same objective as decoder-free runs.
+        total_loss = agent_loss
+        if cfg.decoder:
+            total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
 
         # ---- Metrics ----
         metrics = {**wm_metrics, **bh_metrics, **rep_metrics}
@@ -739,5 +744,9 @@ class R2DreamerAgent:
                 metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
             )
 
-        aux = {"metrics": metrics, "imag_returns": imag_ret.reshape(-1)}
+        aux = {
+            "metrics": metrics,
+            "imag_returns": imag_ret.reshape(-1),
+            "agent_loss": agent_loss,
+        }
         return total_loss, aux

@@ -113,11 +113,11 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override cfg.stoch_classes (explicit; wins over --latent_preset).")
     p.add_argument("--stoch_discrete", type=int, default=None,
                    help="Override cfg.stoch_discrete (explicit; wins over --latent_preset).")
-    # --- Co-trained decoder (3D-51) ---
+    # --- Debug decoder probe (3D-51) ---
     p.add_argument("--decoder", action="store_true",
-                   help="Co-train a ConvDecoder + add a reconstruction loss (3D-51).")
+                   help="Train a stop-gradient ConvDecoder probe for reconstruction logging (3D-51).")
     p.add_argument("--scale_decoder", type=float, default=None,
-                   help="Override cfg.scale_decoder (reconstruction loss weight).")
+                   help="Override cfg.scale_decoder (decoder-only reconstruction weight).")
     # --- Hybrid VGGT-branch MLP knobs ---
     p.add_argument("--mlp_vggt_hidden", type=int, default=None,
                    help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).")
