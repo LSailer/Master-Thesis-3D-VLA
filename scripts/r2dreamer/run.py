@@ -6,10 +6,11 @@ Usage::
     uv run python scripts/r2dreamer/run.py <run-id> [train flags...]
 
 The leading positional selects an entry from ``_run_configs.RUN_CONFIGS`` (the
-single source of truth for env/encoder/curriculum/output_dir/wandb_*). Every
-flag after it is forwarded verbatim to ``src.main.train`` and overrides the
-config's defaults, exactly as the old shims did. Slurm configs render this
-positional from their ``run_id:`` field (see ``scripts/slurm/launch.py``).
+single source of truth for env/Observation Preparation/curriculum/output_dir/
+wandb_*). Every flag after it is forwarded verbatim to ``src.main.train`` and
+overrides the config's defaults, exactly as the old shims did. Slurm configs
+render this positional from their ``run_id:`` field (see
+``scripts/slurm/launch.py``).
 """
 import sys
 

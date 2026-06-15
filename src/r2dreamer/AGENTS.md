@@ -53,11 +53,13 @@ src/r2dreamer/
 ├── encoders/__init__.py launcher-side Encoder/EncoderSpec specs (CNN, VGGT*, Hybrid)
 │
 └── launch/             entrypoints + wiring
-    ├── train.py ........ train() — resolves env/encoder/curriculum, builds Trainer, runs
+    ├── train.py ........ train() — resolves env/Observation Preparation/curriculum,
+    │                     builds Trainer, runs
     ├── evaluate.py ..... evaluate() — load checkpoint, run episodes, log to W&B
     ├── parser.py ....... shared argparse for the launcher shims
-    ├── registries.py ... encoder_registry {cnn, vggt, vggt_aggregator_mlp,
-    │                     vggt_wp_dense_cnn, vggt_wp_cp_64, hybrid}, env_registry {habitat, crafter}
+    ├── registries.py ... observation_preparation_registry {cnn, vggt,
+    │                     vggt_aggregator_mlp, vggt_wp_dense_cnn, vggt_wp_cp_64,
+    │                     hybrid}, env_registry {habitat, crafter}
     ├── curricula.py .... CURRICULA {L1..L4} → data/curriculum/*.json
     ├── habitat_setup.py  make_habitat_env() (HabitatObjectNavEnv factory)
     └── parity/ ......... train_parity.py, batch_utils.py, benchmark.py — JAX↔PyTorch parity
@@ -68,11 +70,11 @@ src/r2dreamer/
 ```python
 # Train (driven by the scripts/r2dreamer/run.py dispatcher via _run_configs.launch_run)
 from src.r2dreamer.launch.train import train
-train(env="habitat", encoder="cnn", curriculum="L1", output_dir=..., wandb_name=...)
+train(env="habitat", observation_preparation="cnn", curriculum="L1", output_dir=..., wandb_name=...)
 
 # Evaluate a checkpoint
 from src.r2dreamer.launch.evaluate import evaluate
-evaluate(checkpoint_path=".../step_xxxxxx.pkl", env="habitat", encoder="cnn")
+evaluate(checkpoint_path=".../step_xxxxxx.pkl", env="habitat", observation_preparation="cnn")
 
 # Direct agent use
 from src.r2dreamer.agent import R2DreamerAgent
@@ -82,9 +84,9 @@ metrics = agent.train_step(batch, rng_key)   # JIT'd
 action  = agent.act(obs_dict, rng_key)
 ```
 
-`encoder` and `env` strings resolve through `launch/registries.py`; `curriculum`
-through `launch/curricula.py`. To add an encoder: implement an `Encoder`/`EncoderSpec`
-in `encoders/__init__.py`, register it in `registries.py`, then add a `RUN_CONFIGS`
+Observation Preparation and `env` strings resolve through `launch/registries.py`;
+`curriculum` through `launch/curricula.py`. To add an Observation Preparation mode:
+implement an `Encoder`/`EncoderSpec` in `encoders/__init__.py`, register it in `registries.py`, then add a `RUN_CONFIGS`
 entry in `scripts/r2dreamer/_run_configs.py` (launched via `run.py <run-id>`) and a
 `test_presets.py` entry.
 

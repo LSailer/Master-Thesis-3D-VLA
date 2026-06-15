@@ -36,7 +36,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.r2dreamer.launch.registries import encoder_registry
+from src.r2dreamer.launch.registries import observation_preparation_registry
 from src.r2dreamer.adapters import VGGT_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
 from src.r2dreamer.agent import R2DreamerAgent
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> dict:
     )
 
     # --- encoder + adapter (VGGT) ---
-    encoder_cls = encoder_registry["vggt"]
+    encoder_cls = observation_preparation_registry["vggt"]
     enc = encoder_cls(resolution=render_resolution)
     adapter = enc.make_adapter()
     extractor = adapter._extractor  # un-flattened access

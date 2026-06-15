@@ -170,7 +170,7 @@ def run_loop(
             compile_mode=compile_mode,
         )
     else:
-        raise ValueError(f"Unknown encoder: {encoder!r}")
+        raise ValueError(f"Unknown Observation Preparation mode: {encoder!r}")
 
     phase_times = init_phase_times()
     reset_count = 0
@@ -398,7 +398,13 @@ def save_json(results_by_encoder: dict[str, RunResult], output_dir: Path) -> Pat
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="R2-Dreamer training-loop profiler")
-    parser.add_argument("--encoder", choices=("cnn", "vggt"), required=True)
+    parser.add_argument(
+        "--observation-preparation",
+        choices=("cnn", "vggt"),
+        required=True,
+        dest="observation_preparation",
+        help="Observation Preparation input mode to profile.",
+    )
     parser.add_argument("--prefill_steps", type=int, default=2000)
     parser.add_argument("--acting_steps", type=int, default=2000)
     parser.add_argument("--output_dir", type=str, default="output/methods/profiling")
@@ -425,7 +431,7 @@ def main() -> None:
     args = parser.parse_args()
 
     result = run_loop(
-        encoder=args.encoder,
+        encoder=args.observation_preparation,
         prefill_steps=args.prefill_steps,
         acting_steps=args.acting_steps,
         seed=args.seed,
@@ -435,9 +441,9 @@ def main() -> None:
         compile_mode=args.compile_mode,
     )
 
-    json_path = save_json({args.encoder: result}, Path(args.output_dir))
+    json_path = save_json({args.observation_preparation: result}, Path(args.output_dir))
     print()
-    print(format_report({args.encoder: result}))
+    print(format_report({args.observation_preparation: result}))
     print()
     print(f"JSON saved to: {json_path}")
 

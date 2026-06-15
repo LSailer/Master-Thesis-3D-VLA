@@ -20,7 +20,7 @@ def make_crafter_env(*, seed: int = 0, **kwargs):
     return CrafterEnv(size=(64, 64), seed=seed)
 
 
-encoder_registry: dict[str, type[Encoder]] = {
+observation_preparation_registry: dict[str, type[Encoder]] = {
     "cnn": CNNEncoder,
     "vggt": VGGTEncoder,
     "vggt_aggregator_mlp": VGGTAggregatorMLPEncoder,
@@ -28,6 +28,10 @@ encoder_registry: dict[str, type[Encoder]] = {
     "vggt_wp_cp_64": VGGTWPCP64Encoder,
     "hybrid": HybridEncoder,
 }
+
+# Compatibility for internal callers that still talk to the Dreamer-side encoder
+# module contract. Public launchers should use observation_preparation_registry.
+encoder_registry = observation_preparation_registry
 
 env_registry: dict[str, Callable] = {
     "habitat": make_habitat_env,

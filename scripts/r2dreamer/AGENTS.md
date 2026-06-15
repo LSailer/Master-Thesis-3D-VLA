@@ -16,9 +16,10 @@ heavy logic lives in `src/r2dreamer/`.
 ### Live training launcher (single dispatcher → `src.r2dreamer.launch.train`)
 `run.py <run-id> [train flags...]` is the one entrypoint for every live training
 run (the per-run `run_jax_*.py` shims were folded into it). The per-run `(env,
-encoder, curriculum, output_dir, wandb_name, wandb_tags)` lives in the
+Observation Preparation, curriculum, output_dir, wandb_name, wandb_tags)` lives in the
 `RUN_CONFIGS` table in [`_run_configs.py`](_run_configs.py) (single source of
-truth; `launch_run` validates the encoder against `encoder_registry` at launch).
+truth; `launch_run` validates Observation Preparation against
+`observation_preparation_registry` at launch).
 Run ids: `habitat-l{1,2,3,4}-cnn`, `habitat-l{1,2,3,4}-vggt`,
 `habitat-l1-{hybrid,vggt-aggregator-mlp,vggt-wp-cp-64,vggt-wp-dense}`,
 `crafter-cnn`. **To add a run:** add one `RUN_CONFIGS` entry + a

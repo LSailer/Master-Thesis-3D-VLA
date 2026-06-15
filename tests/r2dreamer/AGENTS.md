@@ -34,7 +34,7 @@ real VGGT extractor.
 | File | Covers | GPU |
 |------|--------|-----|
 | `test_encoders.py` | encoder construction/specs/adapters; `TestVGGTEncoder` loads the real model | **GPU (that class)** |
-| `test_registries.py` | `encoder_registry`, `env_registry`, `CURRICULA` entries | CPU |
+| `test_registries.py` | `observation_preparation_registry`, `env_registry`, `CURRICULA` entries | CPU |
 | `test_presets.py` | `(env, encoder, curriculum)` preset matrix resolves (parametrized) | CPU |
 | `test_parser.py` | train parser does not expose `wandb_notes_file` | CPU |
 | `test_shim_invocation.py` | every `run.py <run-id>` (parametrized over `RUN_CONFIGS`) + each standalone `eval_*`/validation shim `--help` exits 0 (subprocess) | CPU |

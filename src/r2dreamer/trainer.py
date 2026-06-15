@@ -23,7 +23,11 @@ import numpy as np
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
-from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
+from src.r2dreamer.manifest import (
+    public_config_snapshot,
+    write_manifest_end,
+    write_manifest_start,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +284,9 @@ class Trainer:
             init_kwargs: dict[str, Any] = dict(
                 project=trainer_config.wandb_project,
                 name=trainer_config.wandb_name,
-                config=vars(agent_config) if hasattr(agent_config, "__dict__") else {},
+                config=public_config_snapshot(
+                    vars(agent_config) if hasattr(agent_config, "__dict__") else {}
+                ),
                 tags=trainer_config.wandb_tags,
             )
             if trainer_config.wandb_id is not None:

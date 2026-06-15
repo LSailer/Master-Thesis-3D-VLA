@@ -29,7 +29,7 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # canonical set: encoder_registry in src.r2dreamer.launch.registries
+    encoder_type: str = "cnn"  # internal Encoder Module identity; launched via Observation Preparation registry
     encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
     encoder_depth: int = 16
     encoder_kernel: int = 5

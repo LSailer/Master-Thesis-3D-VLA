@@ -3,6 +3,16 @@
 import argparse
 
 
+OBSERVATION_PREPARATION_CHOICES = (
+    "cnn",
+    "vggt",
+    "vggt_aggregator_mlp",
+    "vggt_wp_dense_cnn",
+    "vggt_wp_cp_64",
+    "hybrid",
+)
+
+
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
@@ -19,13 +29,14 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override shim curriculum path (escape hatch)")
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument("--render_resolution", type=int, default=518,
-                   help="Render resolution for VGGT encoder")
+                   help="Render resolution for VGGT Feature Extractor based "
+                        "Observation Preparation modes")
     p.add_argument("--mlp_layers", type=int, default=None,
-                   help="Depth of the VGGT MLP encoders (wp_cp + aggregator): number "
+                   help="Depth of the VGGT MLP Encoder Modules (wp_cp + aggregator): number "
                         "of hidden Dense->RMSNorm->SiLU blocks before the linear readout. "
                         "None keeps the config default (1). The experiment runs pass 3 to "
                         "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
-                        "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
+                        "for VGGT MLP Encoder Modules; CNN/dense-WP conv Encoder Modules require the "
                         "default value (1).")
 
 
@@ -84,7 +95,7 @@ def _add_loss_override_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override cfg.scale_repval. Set 0 to disable replay value loss.")
     # Protocol D toggle
     p.add_argument("--barlow_grad_to_encoder", action="store_true",
-                   help="Let Barlow Twins gradient reach the encoder (removes the "
+                   help="Let Barlow Twins gradient reach the Encoder Module (removes the "
                         "stop_gradient at agent._loss_fn). Default off matches "
                         "PyTorch reference.")
     # Small-batch knobs for the overfit run
@@ -141,8 +152,10 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
+    p.add_argument("--observation-preparation", type=str, default=None,
+                   choices=OBSERVATION_PREPARATION_CHOICES,
+                   dest="observation_preparation",
+                   help="Observation Preparation input mode")
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)
@@ -153,7 +166,8 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p.add_argument("--curriculum_path", type=str, default=None,
                    help="Override shim curriculum path (escape hatch)")
     p.add_argument("--render_resolution", type=int, default=None,
-                   help="Render resolution (default: 518 for vggt, 64 for cnn)")
+                   help="Render resolution (default: 518 for VGGT Feature Extractor "
+                        "based Observation Preparation modes, 64 for cnn)")
     p.add_argument("--split", type=str, default="val")
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")

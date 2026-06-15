@@ -7,6 +7,6 @@ from src.main import evaluate
 
 if __name__ == "__main__":
     evaluate(
-        env="habitat", encoder="vggt", curriculum=None,
+        env="habitat", observation_preparation="vggt", curriculum=None,
         output_dir="output/runs/r2dreamer-eval-vggt",
     )

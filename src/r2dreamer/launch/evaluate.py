@@ -68,9 +68,19 @@ def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
     return None
 
 
-def _resolve_eval_settings(args, *, encoder: str, checkpoint: str | None, output_dir: str | None):
-    # CLI --encoder overrides shim kwarg if user passed it explicitly.
-    eff_encoder = args.encoder if args.encoder is not None else encoder
+def _resolve_eval_settings(
+    args,
+    *,
+    observation_preparation: str,
+    checkpoint: str | None,
+    output_dir: str | None,
+):
+    # CLI value overrides shim kwarg if user passed it explicitly.
+    eff_observation_preparation = (
+        args.observation_preparation
+        if args.observation_preparation is not None
+        else observation_preparation
+    )
 
     eff_checkpoint = args.checkpoint if args.checkpoint is not None else checkpoint
     if not args.random and eff_checkpoint is None:
@@ -81,7 +91,7 @@ def _resolve_eval_settings(args, *, encoder: str, checkpoint: str | None, output
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
     if eff_output_dir is None:
         raise ValueError("output_dir must be set via evaluate(..., output_dir=...) or --output_dir")
-    return eff_encoder, eff_checkpoint, eff_output_dir
+    return eff_observation_preparation, eff_checkpoint, eff_output_dir
 
 
 def _init_eval_wandb(args):
@@ -92,14 +102,17 @@ def _init_eval_wandb(args):
     return wandb
 
 
-def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
+def _make_eval_env(*, args, curriculum_path: str | None, eff_observation_preparation: str):
     from src.shared.configs import DreamerConfig
     from src.environments.habitat import HabitatObjectNavEnv
 
-    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
-    # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
-    # driven off the EncoderSpec below.
-    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
+    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid
+    # Observation Preparation mode need 518x518 frames; the plain CNN baseline
+    # uses 64. Everything else is driven off the EncoderSpec below.
+    needs_hires = (
+        eff_observation_preparation.startswith("vggt")
+        or eff_observation_preparation == "hybrid"
+    )
     default_resolution = 518 if needs_hires else 64
     render_resolution = (
         args.render_resolution if args.render_resolution is not None else default_resolution
@@ -119,8 +132,13 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
     return env_instance, needs_hires, render_resolution
 
 
-def _make_eval_encoder(eff_encoder: str, encoder_registry: dict, needs_hires: bool, render_resolution: int):
-    encoder_cls = encoder_registry[eff_encoder]
+def _make_eval_encoder(
+    eff_observation_preparation: str,
+    observation_preparation_registry: dict,
+    needs_hires: bool,
+    render_resolution: int,
+):
+    encoder_cls = observation_preparation_registry[eff_observation_preparation]
     enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
     return enc, enc.make_adapter(), enc.spec()
 
@@ -345,28 +363,34 @@ def _print_eval_summary(results: list[dict], episodes: int) -> None:
 def evaluate(
     *,
     env: str,
-    encoder: str,
+    observation_preparation: str,
     curriculum: str | None = None,
     checkpoint: str | None = None,
     output_dir: str | None = None,
     argv: list[str] | None = None,
 ) -> dict:
-    """Resolve (env, encoder, curriculum) via registries; parse CLI; run eval loop.
+    """Resolve env, Observation Preparation, curriculum; parse CLI; run eval loop.
 
     Kwargs (checkpoint, output_dir) are shim-supplied defaults — CLI flags override.
 
     Returns metrics dict with 'results' and 'meta' keys.
     """
-    from src.r2dreamer.launch.registries import encoder_registry
+    from src.r2dreamer.launch.registries import observation_preparation_registry
 
     parser = _build_parser_eval()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    eff_encoder, eff_checkpoint, eff_output_dir = _resolve_eval_settings(
-        args, encoder=encoder, checkpoint=checkpoint, output_dir=output_dir,
+    eff_observation_preparation, eff_checkpoint, eff_output_dir = _resolve_eval_settings(
+        args,
+        observation_preparation=observation_preparation,
+        checkpoint=checkpoint,
+        output_dir=output_dir,
     )
-    if eff_encoder not in encoder_registry:
-        raise KeyError(f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}")
+    if eff_observation_preparation not in observation_preparation_registry:
+        raise KeyError(
+            f"Unknown observation_preparation {eff_observation_preparation!r}. "
+            f"Available: {list(observation_preparation_registry)}"
+        )
 
     # --- Resolve curriculum path (shared with train via launch._helpers) ---
     curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
@@ -379,12 +403,17 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
     env_instance, needs_hires, render_resolution = _make_eval_env(
-        args=args, curriculum_path=curriculum_path, eff_encoder=eff_encoder,
+        args=args,
+        curriculum_path=curriculum_path,
+        eff_observation_preparation=eff_observation_preparation,
     )
 
     # --- Build encoder + adapter ---
     enc, adapter, encoder_spec = _make_eval_encoder(
-        eff_encoder, encoder_registry, needs_hires, render_resolution,
+        eff_observation_preparation,
+        observation_preparation_registry,
+        needs_hires,
+        render_resolution,
     )
 
     # --- Build agent ---

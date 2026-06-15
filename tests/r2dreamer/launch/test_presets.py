@@ -2,7 +2,7 @@
 
 import pytest
 
-# Every (env, encoder, curriculum) combination in active sbatch files.
+# Every (env, Observation Preparation, curriculum) combination in active sbatch files.
 PRESETS = [
     ("habitat", "cnn",  "L1"),
     ("habitat", "cnn",  "L2"),
@@ -14,15 +14,19 @@ PRESETS = [
 ]
 
 
-@pytest.mark.parametrize("env_name, encoder_name, curriculum_name", PRESETS)
-def test_preset_resolves(env_name, encoder_name, curriculum_name):
-    """Every (env, encoder, curriculum) combo from active sbatch files must
-    resolve through registries + curricula without raising."""
-    from src.r2dreamer.launch.registries import env_registry, encoder_registry
+@pytest.mark.parametrize("env_name, observation_preparation_name, curriculum_name", PRESETS)
+def test_preset_resolves(env_name, observation_preparation_name, curriculum_name):
+    """Every active preset resolves through registries + curricula."""
+    from src.r2dreamer.launch.registries import (
+        env_registry,
+        observation_preparation_registry,
+    )
     from src.r2dreamer.launch.curricula import CURRICULA
 
     assert env_name in env_registry, f"{env_name!r} not in env_registry"
-    assert encoder_name in encoder_registry, f"{encoder_name!r} not in encoder_registry"
+    assert observation_preparation_name in observation_preparation_registry, (
+        f"{observation_preparation_name!r} not in observation_preparation_registry"
+    )
     if curriculum_name is not None:
         assert curriculum_name in CURRICULA, f"{curriculum_name!r} not in CURRICULA"
         assert CURRICULA[curriculum_name].exists(), (

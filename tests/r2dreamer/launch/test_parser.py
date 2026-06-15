@@ -2,7 +2,10 @@
 
 from types import SimpleNamespace
 
-from src.r2dreamer.launch.parser import _build_parser_train
+import pytest
+
+from src.main import _build_parser as _build_main_parser
+from src.r2dreamer.launch.parser import _build_parser_eval, _build_parser_train
 from src.r2dreamer.launch.train import _agent_overrides_from_args
 
 
@@ -17,8 +20,8 @@ def test_train_parser_does_not_expose_wandb_notes_file():
 def test_mlp_layers_help_matches_conv_encoder_guard():
     help_text = " ".join(_build_parser_train().format_help().split())
 
-    assert "Only valid for VGGT MLP encoders" in help_text
-    assert "CNN/dense-WP conv encoders require the default value (1)" in help_text
+    assert "Only valid for VGGT MLP Encoder Modules" in help_text
+    assert "CNN/dense-WP conv Encoder Modules require the default value (1)" in help_text
     assert "Ignored by the CNN/dense-WP conv encoders" not in help_text
 
 
@@ -39,3 +42,39 @@ def test_buffer_capacity_override_wins_over_encoder_default():
     overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
 
     assert overrides["buffer_capacity"] == 500_000
+
+
+def test_eval_parser_uses_observation_preparation_flag():
+    parser = _build_parser_eval()
+
+    args = parser.parse_args(["--observation-preparation", "vggt"])
+
+    assert args.observation_preparation == "vggt"
+    assert not hasattr(args, "encoder")
+    assert "--observation-preparation" in parser.format_help()
+    assert "--encoder" not in parser.format_help()
+
+
+def test_eval_parser_rejects_old_encoder_flag():
+    parser = _build_parser_eval()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--encoder", "vggt"])
+
+
+@pytest.mark.parametrize("command", ["train", "evaluate"])
+def test_main_parser_uses_observation_preparation_flag(command):
+    parser = _build_main_parser()
+
+    args = parser.parse_args([command, "--observation-preparation", "hybrid"])
+
+    assert args.observation_preparation == "hybrid"
+    assert not hasattr(args, "encoder")
+
+
+@pytest.mark.parametrize("command", ["train", "evaluate"])
+def test_main_parser_rejects_old_encoder_flag(command):
+    parser = _build_main_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args([command, "--encoder", "hybrid"])

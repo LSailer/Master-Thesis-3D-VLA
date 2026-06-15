@@ -29,10 +29,17 @@ def _resolve_curriculum_inputs(
     return curriculum_path
 
 
-def _make_encoder_bundle(encoder: str, args: Any, encoder_registry: dict[str, Any]):
-    if encoder not in encoder_registry:
-        raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
-    enc = encoder_registry[encoder].from_train_args(args)
+def _make_observation_preparation_bundle(
+    observation_preparation: str,
+    args: Any,
+    observation_preparation_registry: dict[str, Any],
+):
+    if observation_preparation not in observation_preparation_registry:
+        raise KeyError(
+            f"Unknown observation_preparation {observation_preparation!r}. "
+            f"Available: {list(observation_preparation_registry)}"
+        )
+    enc = observation_preparation_registry[observation_preparation].from_train_args(args)
     return enc, enc.make_adapter(), enc.spec()
 
 
@@ -227,14 +234,14 @@ def _make_trainer(
 def train(
     *,
     env: str,
-    encoder: str,
+    observation_preparation: str,
     curriculum: str | None = None,
     output_dir: str | None = None,
     wandb_name: str | None = None,
     wandb_tags: list[str] | None = None,
     argv: list[str] | None = None,
 ) -> "Trainer":
-    """Resolve (env, encoder, curriculum) via registries; parse CLI; run Trainer.run().
+    """Resolve env, Observation Preparation, curriculum; parse CLI; run Trainer.run().
 
     Kwargs (output_dir, wandb_name, wandb_tags) are shim-supplied defaults — CLI
     flags from argparse override if provided.
@@ -246,7 +253,10 @@ def train(
     from src.r2dreamer.agent import R2DreamerAgent
     from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
     from src.r2dreamer.launch.parser import _build_parser_train
-    from src.r2dreamer.launch.registries import env_registry, encoder_registry
+    from src.r2dreamer.launch.registries import (
+        env_registry,
+        observation_preparation_registry,
+    )
     from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
 
     parser = _build_parser_train()
@@ -255,7 +265,11 @@ def train(
     curriculum_path = _resolve_curriculum_inputs(
         env=env, args=args, curriculum=curriculum, env_registry=env_registry,
     )
-    enc, adapter, encoder_spec = _make_encoder_bundle(encoder, args, encoder_registry)
+    enc, adapter, encoder_spec = _make_observation_preparation_bundle(
+        observation_preparation,
+        args,
+        observation_preparation_registry,
+    )
     eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
         args=args, output_dir=output_dir, wandb_name=wandb_name, wandb_tags=wandb_tags,
     )

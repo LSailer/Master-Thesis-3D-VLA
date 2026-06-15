@@ -7,6 +7,7 @@ import sys
 from typing import Sequence
 
 from src.r2dreamer.launch.evaluate import evaluate
+from src.r2dreamer.launch.parser import OBSERVATION_PREPARATION_CHOICES
 from src.r2dreamer.launch.train import train
 
 
@@ -33,18 +34,22 @@ def _build_parser() -> argparse.ArgumentParser:
     train_parser = subparsers.add_parser("train", help="Train R2Dreamer end to end.")
     train_parser.add_argument("--env", default="habitat", choices=["habitat", "crafter"])
     train_parser.add_argument(
-        "--encoder",
+        "--observation-preparation",
+        dest="observation_preparation",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=OBSERVATION_PREPARATION_CHOICES,
+        help="Observation Preparation input mode",
     )
     train_parser.add_argument("--curriculum", default=None)
 
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained agent.")
     eval_parser.add_argument("--env", default="habitat", choices=["habitat"])
     eval_parser.add_argument(
-        "--encoder",
+        "--observation-preparation",
+        dest="observation_preparation",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=OBSERVATION_PREPARATION_CHOICES,
+        help="Observation Preparation input mode",
     )
     eval_parser.add_argument("--curriculum", default=None)
     eval_parser.add_argument("--checkpoint", default=None)
@@ -63,14 +68,14 @@ def main(argv: Sequence[str] | None = None) -> object:
     if args.command == "train":
         return train(
             env=args.env,
-            encoder=args.encoder,
+            observation_preparation=args.observation_preparation,
             curriculum=args.curriculum,
             argv=rest,
         )
     if args.command == "evaluate":
         return evaluate(
             env=args.env,
-            encoder=args.encoder,
+            observation_preparation=args.observation_preparation,
             curriculum=args.curriculum,
             checkpoint=args.checkpoint,
             output_dir=args.output_dir,

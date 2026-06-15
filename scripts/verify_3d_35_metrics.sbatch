@@ -47,7 +47,7 @@ echo ""
 
 uv run python -m src.main train \
     --env habitat \
-    --encoder cnn \
+    --observation-preparation cnn \
     --curriculum L1 \
     --steps 15000 \
     --prefill 2000 \

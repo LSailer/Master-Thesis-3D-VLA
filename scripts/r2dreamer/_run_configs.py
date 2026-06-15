@@ -2,16 +2,16 @@
 
 DRY: the per-run ``run_jax_*.py`` shims used to each repeat the same ~5-line
 ``sys.path`` bootstrap plus a hardcoded ``train(...)`` call differing only in
-env/encoder/curriculum/output_dir/wandb_name/wandb_tags. That metadata now lives
+env/Observation Preparation/curriculum/output_dir/wandb_name/wandb_tags. That metadata now lives
 here as one ``RUN_CONFIGS`` table, launched by the single ``run.py`` dispatcher::
 
     uv run python scripts/r2dreamer/run.py <run-id> [train flags...]
 
 Slurm configs select a run via the ``run_id:`` field (rendered as that leading
 positional by ``scripts/slurm/launch.py``); ad-hoc / legacy ``*.sbatch`` files
-call ``run.py <run-id>`` directly. ``launch_run`` validates the encoder against
-the canonical ``encoder_registry`` at launch, so a typo fails fast instead of at
-train-time.
+call ``run.py <run-id>`` directly. ``launch_run`` validates the Observation
+Preparation mode against the canonical registry at launch, so a typo fails fast
+instead of at train-time.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # ── CNN curriculum baselines (L1–L4) ────────────────────────────────────
     "habitat-l1-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        observation_preparation="cnn",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1",
         wandb_name="r2d-L1-1house-chair",
@@ -39,7 +39,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l2-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        observation_preparation="cnn",
         curriculum="L2",
         output_dir="output/runs/r2dreamer-curriculum-l2",
         wandb_name="r2d-L2-buffix",
@@ -47,7 +47,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l3-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        observation_preparation="cnn",
         curriculum="L3",
         output_dir="output/runs/r2dreamer-curriculum-l3",
         wandb_name="r2d-L3-buffix",
@@ -55,16 +55,16 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l4-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        observation_preparation="cnn",
         curriculum="L4",
         output_dir="output/runs/r2dreamer-curriculum-l4",
         wandb_name="r2d-L4-buffix",
         wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
     ),
-    # ── VGGT 3D-encoder curriculum (L1–L4) ──────────────────────────────────
+    # ── VGGT Observation Preparation curriculum (L1–L4) ─────────────────────
     "habitat-l1-vggt": dict(
         env="habitat",
-        encoder="vggt",
+        observation_preparation="vggt",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt",
         wandb_name="vggt_jax",
@@ -75,7 +75,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l2-vggt": dict(
         env="habitat",
-        encoder="vggt",
+        observation_preparation="vggt",
         curriculum="L2",
         output_dir="output/runs/r2dreamer-curriculum-l2-vggt",
         wandb_name="r2d-L2-vggt",
@@ -83,7 +83,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l3-vggt": dict(
         env="habitat",
-        encoder="vggt",
+        observation_preparation="vggt",
         curriculum="L3",
         output_dir="output/runs/r2dreamer-curriculum-l3-vggt",
         wandb_name="r2d-L3-vggt",
@@ -91,17 +91,17 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l4-vggt": dict(
         env="habitat",
-        encoder="vggt",
+        observation_preparation="vggt",
         curriculum="L4",
         output_dir="output/runs/r2dreamer-curriculum-l4-vggt",
         wandb_name="r2d-L4-vggt",
         wandb_tags=["curriculum", "level4", "10houses", "6goals", "vggt", "jax", "3d-encoder"],
     ),
-    # ── VGGT encoder variants / ablations ───────────────────────────────────
-    # L1 Hybrid — CNN(RGB) + gated MLP(WP/CP) hybrid encoder (3D-50/51/52).
+    # ── VGGT Observation Preparation variants / ablations ───────────────────
+    # L1 Hybrid — CNN(RGB) + gated MLP(WP/CP) hybrid Encoder Module (3D-50/51/52).
     "habitat-l1-hybrid": dict(
         env="habitat",
-        encoder="hybrid",
+        observation_preparation="hybrid",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-hybrid",
         wandb_name="hybrid-cnn-vggt",
@@ -113,7 +113,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",
-        encoder="vggt_wp_cp_64",
+        observation_preparation="vggt_wp_cp_64",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp-cp-64",
         wandb_name="wp-cp-mlp-64",
@@ -125,7 +125,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # L1 VGGT — full-resolution 518x518x3 world-point CNN encoder (3D-53).
     "habitat-l1-vggt-wp-dense": dict(
         env="habitat",
-        encoder="vggt_wp_dense_cnn",
+        observation_preparation="vggt_wp_dense_cnn",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp-dense",
         wandb_name="vggt_wp_dense_cnn",
@@ -137,7 +137,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # L1 VGGT aggregator-MLP encoder (variant-1).
     "habitat-l1-vggt-aggregator-mlp": dict(
         env="habitat",
-        encoder="vggt_aggregator_mlp",
+        observation_preparation="vggt_aggregator_mlp",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-aggregator-mlp",
         wandb_name="variant-1-aggregator-mlp",
@@ -149,7 +149,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # ── Crafter (non-curriculum sanity env) ─────────────────────────────────
     "crafter-cnn": dict(
         env="crafter",
-        encoder="cnn",
+        observation_preparation="cnn",
         curriculum=None,
         output_dir="output/runs/r2dreamer-crafter",
         wandb_name="r2d-crafter",
@@ -170,13 +170,14 @@ def launch_run(name: str, *, argv: list[str] | None = None):
         raise KeyError(f"Unknown run {name!r}. Available: {sorted(RUN_CONFIGS)}")
     cfg = RUN_CONFIGS[name]
 
-    # Fail fast on an encoder typo, against the canonical registry.
-    from src.r2dreamer.launch.registries import encoder_registry
+    # Fail fast on an Observation Preparation typo, against the canonical registry.
+    from src.r2dreamer.launch.registries import observation_preparation_registry
 
-    if cfg["encoder"] not in encoder_registry:
+    if cfg["observation_preparation"] not in observation_preparation_registry:
         raise KeyError(
-            f"Run {name!r} uses unknown encoder {cfg['encoder']!r}. "
-            f"Available: {sorted(encoder_registry)}"
+            f"Run {name!r} uses unknown observation_preparation "
+            f"{cfg['observation_preparation']!r}. "
+            f"Available: {sorted(observation_preparation_registry)}"
         )
 
     from src.main import train

@@ -1,37 +1,40 @@
-"""L1 structural tests — registry contents and curriculum paths."""
+"""L1 structural tests: Observation Preparation registry and curriculum paths."""
 
 import inspect
 import pytest
 
 from src.r2dreamer.encoders import Encoder, HybridEncoder
-from src.r2dreamer.launch.registries import encoder_registry, env_registry
+from src.r2dreamer.launch.registries import (
+    env_registry,
+    observation_preparation_registry,
+)
 from src.r2dreamer.launch.curricula import CURRICULA
 
 
-class TestEncoderRegistry:
+class TestObservationPreparationRegistry:
     def test_all_values_are_encoder_subclasses(self):
-        for name, cls in encoder_registry.items():
+        for name, cls in observation_preparation_registry.items():
             assert inspect.isclass(cls), f"{name!r} is not a class"
             assert issubclass(cls, Encoder), f"{name!r} is not a subclass of Encoder"
 
     def test_all_encoder_subclasses_implement_make_adapter(self):
-        for name, cls in encoder_registry.items():
+        for name, cls in observation_preparation_registry.items():
             assert hasattr(cls, "make_adapter"), f"{name!r} missing make_adapter"
             assert callable(cls.make_adapter), f"{name!r}.make_adapter not callable"
 
     def test_missing_key_raises_key_error(self):
         with pytest.raises(KeyError):
-            _ = encoder_registry["nonexistent"]
+            _ = observation_preparation_registry["nonexistent"]
 
     def test_known_keys_present(self):
-        assert "cnn" in encoder_registry
-        assert "vggt" in encoder_registry
-        assert "vggt_aggregator_mlp" in encoder_registry
-        assert "vggt_wp_dense_cnn" in encoder_registry
-        assert "hybrid" in encoder_registry
+        assert "cnn" in observation_preparation_registry
+        assert "vggt" in observation_preparation_registry
+        assert "vggt_aggregator_mlp" in observation_preparation_registry
+        assert "vggt_wp_dense_cnn" in observation_preparation_registry
+        assert "hybrid" in observation_preparation_registry
 
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
-        assert encoder_registry["hybrid"] is HybridEncoder
+        assert observation_preparation_registry["hybrid"] is HybridEncoder
 
 
 class TestEnvRegistry:

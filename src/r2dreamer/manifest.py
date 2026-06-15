@@ -21,6 +21,14 @@ from typing import Any
 MANIFEST_NAME = "MANIFEST.json"
 
 
+def public_config_snapshot(config: dict) -> dict:
+    """Return the public config snapshot written to new run manifests."""
+    snapshot = dict(config)
+    if "encoder_type" in snapshot:
+        snapshot["observation_preparation_type"] = snapshot.pop("encoder_type")
+    return snapshot
+
+
 def _git(*args: str) -> str:
     """Run a git command and return stdout stripped. Lets git failures propagate."""
     return subprocess.run(
@@ -49,7 +57,7 @@ def write_manifest_start(run_dir: Path, config: dict) -> Path:
         "git_sha": _git("rev-parse", "HEAD"),
         "git_branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
         "git_dirty": bool(_git("status", "--porcelain")),
-        "config": config,
+        "config": public_config_snapshot(config),
         "wandb_id": _wandb_id(),
         "slurm_id": os.environ.get("SLURM_JOB_ID"),
         "started_at": datetime.now(timezone.utc).isoformat(),
