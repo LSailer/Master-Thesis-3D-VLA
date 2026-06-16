@@ -244,12 +244,24 @@ class Trainer:
         self.val_obs_adapter = val_obs_adapter
         self.val_episode_metrics_fn = val_episode_metrics_fn
 
-        # Build buffer from adapter settings
+        # Build buffer from the Observation Preparation contract when present;
+        # legacy adapters keep using their adapter attributes during migration.
+        replay_contract = getattr(
+            getattr(self.obs_adapter, "contract", None), "replay_observation", None,
+        )
+        if replay_contract is not None:
+            obs_shape = replay_contract.buffer_shape()
+            obs_dtype = replay_contract.buffer_dtype()
+            normalize_obs = replay_contract.buffer_normalize()
+        else:
+            obs_shape = self.obs_adapter.buffer_shape
+            obs_dtype = self.obs_adapter.buffer_dtype
+            normalize_obs = self.obs_adapter.normalize_on_sample
         self.buffer = ReplayBuffer(BufferConfig(
             capacity=agent_config.buffer_capacity,
-            obs_shape=self.obs_adapter.buffer_shape,
-            obs_dtype=self.obs_adapter.buffer_dtype,
-            normalize_obs=self.obs_adapter.normalize_on_sample,
+            obs_shape=obs_shape,
+            obs_dtype=obs_dtype,
+            normalize_obs=normalize_obs,
         ))
 
         # Resume from checkpoint (overwrite freshly-initialised agent state).
@@ -351,6 +363,12 @@ class Trainer:
     # Prefill
     # ------------------------------------------------------------------
 
+    def _prepare_observation(self, adapter: ObsAdapter, obs: dict) -> tuple[Any, dict]:
+        if hasattr(adapter, "prepare_env_step"):
+            prepared = adapter.prepare_env_step(obs)
+            return prepared.replay_obs, prepared.agent_obs
+        return adapter.transform(obs)
+
     def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> None:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
@@ -358,12 +376,12 @@ class Trainer:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
-        buffer_obs, _ = self.obs_adapter.transform(obs)
+        buffer_obs, _ = self._prepare_observation(self.obs_adapter, obs)
 
         for _ in range(tcfg.prefill_steps):
             action = np.random.randint(0, acfg.num_actions)
             next_obs = self.env.step(action)
-            next_buffer_obs, _ = self.obs_adapter.transform(next_obs)
+            next_buffer_obs, _ = self._prepare_observation(self.obs_adapter, next_obs)
 
             success = next_obs.get("success", 0.0) > 0
             self.buffer.add(buffer_obs, action, next_obs["reward"],
@@ -373,7 +391,7 @@ class Trainer:
                 obs = self.env.reset()
                 if self.obs_adapter.on_episode_reset:
                     self.obs_adapter.on_episode_reset()
-                buffer_obs, _ = self.obs_adapter.transform(obs)
+                buffer_obs, _ = self._prepare_observation(self.obs_adapter, obs)
             else:
                 obs = next_obs
                 buffer_obs = next_buffer_obs
@@ -386,7 +404,7 @@ class Trainer:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
-        buffer_obs, agent_obs = self.obs_adapter.transform(obs)
+        buffer_obs, agent_obs = self._prepare_observation(self.obs_adapter, obs)
         return obs, buffer_obs, agent_obs
 
     def _zero_episode_counters(self) -> tuple[float, int, np.ndarray]:
@@ -476,7 +494,9 @@ class Trainer:
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(agent_obs, act_key)
             next_obs = self.env.step(action)
-            next_buffer_obs, next_agent_obs = self.obs_adapter.transform(next_obs)
+            next_buffer_obs, next_agent_obs = self._prepare_observation(
+                self.obs_adapter, next_obs,
+            )
 
             self._record_train_transition(
                 buffer_obs=buffer_obs, action=action, next_obs=next_obs,
@@ -731,7 +751,7 @@ class Trainer:
         obs = self.val_env.reset()
         if val_adapter.on_episode_reset:
             val_adapter.on_episode_reset()
-        _, agent_obs = val_adapter.transform(obs)
+        _, agent_obs = self._prepare_observation(val_adapter, obs)
 
         episode_reward = 0.0
         episode_steps = 0
@@ -745,7 +765,7 @@ class Trainer:
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(agent_obs, act_key, training=False)
             next_obs = self.val_env.step(action)
-            _, next_agent_obs = val_adapter.transform(next_obs)
+            _, next_agent_obs = self._prepare_observation(val_adapter, next_obs)
 
             action_counts[action] += 1
             episode_reward += next_obs["reward"]
