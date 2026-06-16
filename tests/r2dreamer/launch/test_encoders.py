@@ -18,6 +18,7 @@ from src.r2dreamer.obs_batch import (
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
 )
+from src.r2dreamer.observation_preparation import CNNObservationPreparation
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
@@ -64,6 +65,7 @@ class TestCNNEncoder:
         enc = CNNEncoder()
         adapter = enc.make_adapter()
         assert isinstance(adapter, ObsAdapter)
+        assert isinstance(adapter, CNNObservationPreparation)
 
     def test_cnn_encoder_exposes_spec(self):
         spec = CNNEncoder().spec()
@@ -71,6 +73,7 @@ class TestCNNEncoder:
         assert spec.encoder_type == "cnn"
         assert spec.obs_shape == (3, 64, 64)
         assert spec.env_render_resolution == 64
+        assert spec.module_cls is wm_encoders.ConvEncoder
         assert spec.agent_overrides == {}
 
     def test_cnn_adapter_passthrough(self):
@@ -78,9 +81,10 @@ class TestCNNEncoder:
         dummy_img = np.zeros((3, 64, 64), dtype=np.uint8)
         obs = {"image": dummy_img, "is_first": True}
         buf_obs, agent_obs = adapter.transform(obs)
-        # Default ObsAdapter returns the image unchanged and the full obs dict
+        # CNN Observation Preparation returns explicit replay and agent observations.
         np.testing.assert_array_equal(buf_obs, dummy_img)
-        assert agent_obs is obs
+        assert agent_obs["image"] is dummy_img
+        assert agent_obs["is_first"] is True
 
 
 class TestVGGTEncoderConfiguration:

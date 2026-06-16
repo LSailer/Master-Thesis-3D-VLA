@@ -18,6 +18,7 @@ import flax.linen as nn
 
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.adapters.vggt_adapter import VGGTFeatureKind, VGGTObsAdapter
+from src.r2dreamer.observation_preparation import CNNObservationPreparation
 from src.r2dreamer.world_model import encoders as wm_encoders
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
 
@@ -262,6 +263,16 @@ class Encoder(ABC):
                 f"{type(self).__name__} must set module_cls (a Flax nn.Module class)"
             )
         adapter = self.make_adapter()
+        contract = getattr(adapter, "contract", None)
+        if contract is not None:
+            return EncoderSpec(
+                obs_shape=contract.encoder_input.shape,
+                env_render_resolution=contract.env_render_resolution,
+                encoder_type=contract.encoder_type,
+                module_cls=contract.encoder_module_cls,
+                agent_overrides=dict(contract.agent_overrides),
+                design_notes=contract.design_notes,
+            )
         return EncoderSpec(
             obs_shape=adapter.encoder_obs_shape,
             env_render_resolution=self.env_render_resolution,
@@ -273,13 +284,13 @@ class Encoder(ABC):
 
 
 class CNNEncoder(Encoder):
-    """Identity encoder - agent's internal CNN handles RGB -> embedding -> RSSM."""
+    """CNN Observation Preparation feeding the internal ConvEncoder."""
 
     encoder_type = "cnn"
     module_cls = wm_encoders.ConvEncoder
 
     def _build_adapter(self) -> ObsAdapter:
-        return ObsAdapter()  # passthrough, default behavior
+        return CNNObservationPreparation()
 
 
 class VGGTEncoder(Encoder):

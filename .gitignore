@@ -34,6 +34,7 @@ uv.lock
 
 # agent-loop workspace
 .agent_loop/
+.agent/
 
 # Manim partial movie files
 media/videos/*/partial_movie_files/

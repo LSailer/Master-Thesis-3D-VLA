@@ -1,0 +1,3 @@
+# Use local Linear-grounded review automation for autonomous merges
+
+We will run pull request review automation first as a local or HPC tmux loop, not as a GitHub Actions cron, because the workflow needs Linear task authority, GitHub merge rights, local worktree isolation, and GPU-backed Slurm validation. The automation may squash-merge low- and medium-risk pull requests when it can prove correctness against the linked Linear issue and repository review standard; high-risk changes and unresolved defects are escalated to Linear with `needs-human`. The merge-authority reviewer uses `gpt-5.5` with medium reasoning effort initially, so we can raise effort later based on observed review misses instead of paying maximum reasoning cost from the start.

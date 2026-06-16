@@ -11,6 +11,10 @@ import pytest
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.adapters import ObsAdapter
+from src.r2dreamer.observation_preparation import (
+    CNNObservationPreparation,
+    PreparedObservation,
+)
 from src.r2dreamer.trainer import (
     Trainer,
     TrainerConfig,
@@ -38,6 +42,35 @@ class _DummyEnv:
         pass
 
 
+class _TinyCNNEnv:
+    """Small deterministic env for a full CNN Trainer pipeline smoke test."""
+
+    def __init__(self):
+        self.t = 0
+        self.closed = False
+
+    def reset(self) -> dict:
+        self.t = 0
+        return {
+            "image": np.zeros((3, 64, 64), dtype=np.uint8),
+            "is_first": True,
+        }
+
+    def step(self, action: int) -> dict:
+        self.t += 1
+        done = self.t >= 4
+        return {
+            "image": np.full((3, 64, 64), self.t, dtype=np.uint8),
+            "reward": 1.0,
+            "done": done,
+            "success": 0.0,
+            "is_first": False,
+        }
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class _MappingObsAdapter(ObsAdapter):
     def __init__(self):
         super().__init__(
@@ -52,6 +85,60 @@ class _MappingObsAdapter(ObsAdapter):
             "image": obs_dict["image"],
             "wp_cp": np.ones((4116,), dtype=np.float32),
         }, obs_dict
+
+
+class _PrepareOnlyAdapter(ObsAdapter):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def prepare_env_step(self, obs_dict: dict) -> PreparedObservation:
+        self.calls += 1
+        return PreparedObservation(
+            replay_obs=obs_dict["image"],
+            agent_obs={"image": obs_dict["image"], "is_first": True},
+        )
+
+    def transform(self, obs_dict: dict):
+        raise AssertionError("trainer should route through prepare_env_step")
+
+
+def _tiny_cnn_cfg(tmp_path):
+    return R2DreamerConfig(
+        encoder_type="cnn",
+        obs_shape=(3, 64, 64),
+        num_actions=4,
+        buffer_capacity=64,
+        batch_size=1,
+        seq_len=2,
+        train_ratio=2,
+        deter_size=32,
+        hidden_size=16,
+        stoch_classes=4,
+        stoch_discrete=4,
+        blocks=4,
+        encoder_depth=4,
+        encoder_kernel=3,
+        encoder_mults=(1, 1),
+        mlp_units=16,
+        mlp_layers_reward=1,
+        mlp_layers_cont=1,
+        mlp_layers_actor=1,
+        mlp_layers_critic=1,
+        twohot_bins=21,
+        imagination_horizon=2,
+        horizon=20,
+        lr=1e-3,
+        warmup_steps=0,
+        logdir=str(tmp_path),
+    )
+
+
+def _tree_any_changed(before, after, *, atol=1e-7):
+    return any(
+        not np.allclose(np.asarray(a), np.asarray(b), atol=atol)
+        for a, b in zip(before, jax.tree.leaves(after))
+    )
 
 
 class TestConvertBatch:
@@ -215,6 +302,59 @@ class TestResume:
             Trainer(
                 agent=agent, env=_DummyEnv(), agent_config=cfg, trainer_config=tcfg,
             )
+
+
+class TestTrainerObservationPreparation:
+    def test_reset_train_episode_uses_prepare_env_step_when_available(self, tmp_path):
+        cfg = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4, buffer_capacity=8)
+        tcfg = TrainerConfig(
+            output_dir=str(tmp_path / "logdir"),
+            total_steps=1,
+            wandb_project=None,
+        )
+        obs_adapter = _PrepareOnlyAdapter()
+        trainer = Trainer(
+            agent=object(),
+            env=_DummyEnv(),
+            agent_config=cfg,
+            trainer_config=tcfg,
+            obs_adapter=obs_adapter,
+        )
+
+        _, buffer_obs, agent_obs = trainer._reset_train_episode()
+
+        assert obs_adapter.calls == 1
+        assert buffer_obs.shape == (3, 64, 64)
+        assert agent_obs["is_first"] is True
+
+
+class TestTrainerFullPipeline:
+    def test_cnn_observation_preparation_runs_through_training_pipeline(self, tmp_path):
+        cfg = _tiny_cnn_cfg(tmp_path)
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        env = _TinyCNNEnv()
+        trainer = Trainer(
+            agent=agent,
+            env=env,
+            agent_config=cfg,
+            trainer_config=TrainerConfig(
+                output_dir=str(tmp_path / "run"),
+                total_steps=4,
+                prefill_steps=4,
+                log_every=1,
+                checkpoint_every=100,
+                wandb_project=None,
+                val_every=0,
+            ),
+            obs_adapter=CNNObservationPreparation(),
+        )
+        before = [np.asarray(x).copy() for x in jax.tree.leaves(agent.params)]
+
+        trainer.run()
+
+        assert env.closed is True
+        assert trainer.buffer.size > 0
+        assert _tree_any_changed(before, agent.params)
 
 
 class TestTrainerMappingReplay:
