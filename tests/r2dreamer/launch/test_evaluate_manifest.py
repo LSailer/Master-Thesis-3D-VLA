@@ -1,9 +1,15 @@
+import json
 from types import SimpleNamespace
 
 import jax
 
 from src.r2dreamer.launch import evaluate as eval_module
-from src.r2dreamer.launch.evaluate import _find_manifest_for_checkpoint
+from src.r2dreamer.launch.evaluate import (
+    _find_manifest_for_checkpoint,
+    _load_arch_overrides_from_manifest,
+)
+from src.r2dreamer.observation_preparation import CNNObservationPreparation
+from src.r2dreamer.world_model import encoders as wm_encoders
 
 
 def test_find_manifest_next_to_checkpoint(tmp_path):
@@ -24,6 +30,26 @@ def test_find_manifest_in_run_dir_for_checkpoints_subdir(tmp_path):
     manifest.write_text('{"config": {}}')
 
     assert _find_manifest_for_checkpoint(ckpt) == manifest.resolve()
+
+
+def test_load_arch_overrides_recovers_encoder_input_contract_from_manifest(tmp_path):
+    ckpt_dir = tmp_path / "checkpoints"
+    ckpt_dir.mkdir()
+    ckpt = ckpt_dir / "step_000000010.pkl"
+    ckpt.touch()
+    manifest = tmp_path / "MANIFEST.json"
+    manifest.write_text(json.dumps({
+        "config": {
+            "encoder_input_contract": CNNObservationPreparation().contract.to_snapshot(),
+        }
+    }))
+
+    overrides = _load_arch_overrides_from_manifest(str(ckpt))
+
+    assert overrides["obs_shape"] == (3, 64, 64)
+    assert overrides["encoder_type"] == "cnn"
+    assert overrides["encoder_module_cls"] is wm_encoders.ConvEncoder
+    assert overrides["encoder_input_contract"]["encoder_module_kwargs"] == {}
 
 
 def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_path):

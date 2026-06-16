@@ -24,6 +24,12 @@ from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
+from src.r2dreamer.observation_preparation import (
+    CNNObservationPreparation,
+    encoder_module_kwargs_from_config,
+    module_class_path,
+    recover_encoder_input_contract,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -34,6 +40,42 @@ class Env(Protocol):
     def reset(self) -> dict: ...
     def step(self, action: int) -> dict: ...
     def close(self) -> None: ...
+
+
+# ---------------------------------------------------------------------------
+# Serializable metadata snapshots
+# ---------------------------------------------------------------------------
+
+def config_snapshot(config: Any) -> dict[str, Any]:
+    """Return a JSON-serializable run config snapshot for manifests/W&B."""
+    snapshot = (
+        asdict(config)
+        if is_dataclass(config)
+        else dict(vars(config)) if hasattr(config, "__dict__") else {}
+    )
+    encoder_module_cls = snapshot.pop("encoder_module_cls", None)
+    runtime_cls = getattr(config, "encoder_module_cls", None)
+    if runtime_cls is not None:
+        snapshot["encoder_module"] = module_class_path(runtime_cls)
+    elif encoder_module_cls is not None:
+        snapshot["encoder_module"] = str(encoder_module_cls)
+    snapshot["encoder_input_contract"] = encoder_input_contract_snapshot(config)
+    return snapshot
+
+
+def encoder_input_contract_snapshot(config: Any) -> dict[str, Any] | None:
+    """Extract or derive the durable Encoder Input Contract snapshot from config."""
+    snapshot = getattr(config, "encoder_input_contract", None)
+    if snapshot is None:
+        if getattr(config, "encoder_type", None) != "cnn":
+            return None
+        snapshot = CNNObservationPreparation().contract.to_snapshot()
+    snapshot = dict(snapshot)
+    contract = recover_encoder_input_contract(snapshot)
+    snapshot["encoder_module_kwargs"] = encoder_module_kwargs_from_config(
+        config, contract.encoder_module_cls,
+    )
+    return snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +119,9 @@ def save_checkpoint(agent: Any, step: int, output_dir: str) -> str:
         "slow_critic_params": jax.tree.map(np.array, agent.slow_critic_params),
         "ema_state": jax.tree.map(np.array, agent.ema_state),
     }
+    contract_snapshot = encoder_input_contract_snapshot(agent.cfg)
+    if contract_snapshot is not None:
+        data["encoder_input_contract"] = contract_snapshot
     with open(path, "wb") as f:
         pickle.dump(data, f)
     print(f"Checkpoint saved: {path}")
@@ -292,7 +337,7 @@ class Trainer:
             init_kwargs: dict[str, Any] = dict(
                 project=trainer_config.wandb_project,
                 name=trainer_config.wandb_name,
-                config=vars(agent_config) if hasattr(agent_config, "__dict__") else {},
+                config=config_snapshot(agent_config),
                 tags=trainer_config.wandb_tags,
             )
             if trainer_config.wandb_id is not None:
@@ -309,8 +354,7 @@ class Trainer:
         csv_path = os.path.join(tcfg.output_dir, "metrics.csv")
 
         # MANIFEST.json — emit on start, finalize in finally with run status.
-        cfg_snapshot = asdict(acfg) if is_dataclass(acfg) else dict(vars(acfg))
-        write_manifest_start(Path(tcfg.output_dir), cfg_snapshot)
+        write_manifest_start(Path(tcfg.output_dir), config_snapshot(acfg))
         status = "failed"
 
         rng_key = jax.random.PRNGKey(tcfg.seed)

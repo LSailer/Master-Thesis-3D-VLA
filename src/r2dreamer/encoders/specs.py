@@ -38,6 +38,7 @@ class EncoderSpec:
     module_cls: type[nn.Module]
     agent_overrides: dict[str, Any] = field(default_factory=dict)
     design_notes: str = ""
+    contract_snapshot: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -209,6 +210,7 @@ class Encoder(ABC):
                 module_cls=contract.encoder_module_cls,
                 agent_overrides=dict(contract.agent_overrides),
                 design_notes=contract.design_notes,
+                contract_snapshot=contract.to_snapshot(),
             )
         return EncoderSpec(
             obs_shape=adapter.encoder_obs_shape,

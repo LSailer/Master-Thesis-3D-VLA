@@ -17,6 +17,7 @@ from src.r2dreamer.launch.registries import env_registry
 from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (
     compose_frame,
     log_episode_video,
@@ -145,11 +146,21 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",
         "twohot_bins", "decoder",
     )
-    return {
+    overrides = {
         key: tuple(saved[key]) if key == "encoder_mults" else saved[key]
         for key in arch_fields
         if key in saved
     }
+    contract_snapshot = saved.get("encoder_input_contract")
+    if contract_snapshot is not None:
+        contract = recover_encoder_input_contract(contract_snapshot)
+        overrides.update(
+            encoder_type=contract.encoder_type,
+            encoder_module_cls=contract.encoder_module_cls,
+            obs_shape=contract.encoder_input.shape,
+            encoder_input_contract=contract_snapshot,
+        )
+    return overrides
 
 
 def _agent_config_kwargs(encoder_spec, *, args, eff_checkpoint: str | None) -> dict:

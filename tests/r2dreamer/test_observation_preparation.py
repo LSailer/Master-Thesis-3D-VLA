@@ -1,5 +1,7 @@
 """Observation Preparation contract tests."""
 
+import json
+
 import numpy as np
 
 from src.r2dreamer.observation_preparation import (
@@ -10,6 +12,7 @@ from src.r2dreamer.observation_preparation import (
     build_hybrid_contract,
     build_vggt_contract,
     PreparedObservation,
+    recover_encoder_input_contract,
 )
 from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY
 from src.r2dreamer.world_model import encoders as wm_encoders
@@ -38,6 +41,26 @@ class TestCNNObservationPreparation:
         assert decoder is not None
         assert decoder.shape == (3, 64, 64)
         assert decoder.dtype == "float32"
+
+    def test_contract_snapshot_is_json_serializable_and_recoverable(self):
+        contract = CNNObservationPreparation().contract
+
+        snapshot = contract.to_snapshot()
+        encoded = json.loads(json.dumps(snapshot))
+        recovered = recover_encoder_input_contract(encoded)
+
+        assert encoded["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert "encoder_module_cls" not in encoded
+        assert encoded["encoder_module_kwargs"] == {}
+        assert encoded["replay_observation"] == {
+            "kind": "single",
+            "field": {
+                "shape": [3, 64, 64],
+                "dtype": "uint8",
+                "normalize_on_sample": True,
+            },
+        }
+        assert recovered == contract
 
     def test_prepare_env_step_returns_replay_and_agent_observations(self):
         prep = CNNObservationPreparation()
