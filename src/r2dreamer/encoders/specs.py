@@ -283,7 +283,15 @@ class VGGTEncoder(Encoder):
         )  # device="cuda" default
 
     def _build_adapter(self) -> ObsAdapter:
-        return VGGTObsAdapter(self._extractor, feature_kind=self.feature_kind)
+        return VGGTObsAdapter(
+            self._extractor,
+            feature_kind=self.feature_kind,
+            env_render_resolution=self.env_render_resolution,
+            encoder_type=self.encoder_type,
+            encoder_module_cls=self.module_cls,
+            agent_overrides=self.agent_overrides,
+            design_notes=self.design_notes,
+        )
 
 
 class VGGTAggregatorMLPEncoder(VGGTEncoder):
@@ -306,7 +314,13 @@ class HybridEncoder(VGGTEncoder):
     def _build_adapter(self) -> ObsAdapter:
         from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
 
-        return HybridObsAdapter(self._extractor)
+        return HybridObsAdapter(
+            self._extractor,
+            env_render_resolution=self.env_render_resolution,
+            encoder_module_cls=self.module_cls,
+            agent_overrides=self.agent_overrides,
+            design_notes=self.design_notes,
+        )
 
 
 class VGGTWPCP64Encoder(VGGTEncoder):
