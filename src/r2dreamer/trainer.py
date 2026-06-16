@@ -23,6 +23,7 @@ import numpy as np
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
+from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
@@ -34,6 +35,32 @@ class Env(Protocol):
     def reset(self) -> dict: ...
     def step(self, action: int) -> dict: ...
     def close(self) -> None: ...
+
+
+class R2DreamerAgentLike(Protocol):
+    """Interface the trainer needs from an R2Dreamer-style agent.
+
+    Using a protocol is stricter than ``Any`` while avoiding a hard dependency
+    on the concrete ``R2DreamerAgent`` class. Tests and future agent variants can
+    still be passed to ``Trainer`` if they expose the same public contract.
+    """
+
+    params: Any
+    opt_state: Any
+    slow_critic_params: Any
+    ema_state: Any
+
+    def train_step(
+        self, batch: dict[str, jnp.ndarray], rng_key: jnp.ndarray
+    ) -> dict[str, float]: ...
+
+    def act(
+        self, obs_dict: dict[str, Any], rng_key: jnp.ndarray, training: bool = True
+    ) -> int: ...
+
+    def reconstruct(
+        self, batch: dict[str, jnp.ndarray]
+    ) -> tuple[np.ndarray, np.ndarray] | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +89,7 @@ def convert_batch(batch: dict[str, Any],
 # Checkpointing
 # ---------------------------------------------------------------------------
 
-def save_checkpoint(agent: Any, step: int, output_dir: str) -> str:
+def save_checkpoint(agent: R2DreamerAgentLike, step: int, output_dir: str) -> str:
     """Save full agent state including ema_state. Returns path."""
     ckpt_dir = os.path.join(output_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
@@ -222,9 +249,9 @@ class Trainer:
 
     def __init__(
         self,
-        agent: Any,
+        agent: R2DreamerAgentLike,
         env: Env,
-        agent_config: Any,
+        agent_config: R2DreamerConfig,
         trainer_config: TrainerConfig,
         obs_adapter: ObsAdapter | None = None,
         episode_metrics_fn: EpisodeMetricsFn | None = None,
