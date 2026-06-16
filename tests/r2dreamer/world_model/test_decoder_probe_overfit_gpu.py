@@ -6,10 +6,13 @@ on the agent losses: all non-decoder loss scales are zero, so the only useful
 update is the decoder-only reconstruction objective.
 """
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from PIL import Image
 
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
@@ -78,24 +81,109 @@ def _structured_rgb_batch(cfg: R2DreamerConfig, *, B: int = 2, T: int = 3) -> di
     }
 
 
+def _habitat_rgb_batch(cfg: R2DreamerConfig, *, B: int = 1, T: int = 8) -> dict:
+    fixture = (
+        Path(__file__).parents[1]
+        / "launch"
+        / "fixtures"
+        / "sample_habitat_obs.npz"
+    )
+    frames = np.load(fixture)["frames"][: B * T]
+    resized = []
+    for frame in frames:
+        hwc = np.transpose(frame, (1, 2, 0))
+        resized_hwc = Image.fromarray(hwc).resize(
+            (64, 64), Image.Resampling.BILINEAR
+        )
+        resized.append(np.transpose(np.asarray(resized_hwc), (2, 0, 1)))
+    obs = jnp.asarray(np.stack(resized).reshape(B, T, 3, 64, 64), dtype=jnp.uint8)
+    action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
+    return {
+        "obs": obs,
+        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        "rewards": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
+        "is_last": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
+        "is_terminal": jnp.zeros((B, T), dtype=jnp.float32),
+    }
+
+
 def _recon_mse(agent: R2DreamerAgent, batch: dict) -> float:
     target, recon = agent.reconstruct(batch)
     return float(np.mean((recon - target) ** 2))
 
 
-def test_decoder_probe_overfits_fixed_latents_on_gpu():
+def _save_recon_grid(agent: R2DreamerAgent, batch: dict, path: Path) -> None:
+    target, recon = agent.reconstruct(batch)
+    rows = []
+    for i in range(target.shape[0]):
+        tgt = np.transpose(target[i], (1, 2, 0))
+        rec = np.transpose(recon[i], (1, 2, 0))
+        rows.append(np.concatenate([tgt, rec], axis=1))
+    grid = np.concatenate(rows, axis=0)
+    image = np.clip(grid * 255.0, 0, 255).astype(np.uint8)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(image).save(path)
+
+
+def _run_decoder_overfit_probe(
+    *,
+    batch: dict,
+    steps: int,
+    max_final_fraction: float,
+    artifact_prefix: Path | None = None,
+) -> tuple[float, float]:
     cfg = _decoder_probe_cfg()
     agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-    batch = _structured_rgb_batch(cfg)
 
     initial = _recon_mse(agent, batch)
+    if artifact_prefix is not None:
+        _save_recon_grid(
+            agent,
+            batch,
+            artifact_prefix.with_name(
+                f"{artifact_prefix.name}_step_000_input_left_recon_right.png"
+            ),
+        )
+
     rng = jax.random.PRNGKey(1)
     metrics = {}
-    for _ in range(120):
+    for _ in range(steps):
         rng, step_key = jax.random.split(rng)
         metrics = agent.train_step(batch, step_key)
     final = _recon_mse(agent, batch)
 
+    if artifact_prefix is not None:
+        final_path = artifact_prefix.with_name(
+            f"{artifact_prefix.name}_step_{steps:03d}_input_left_recon_right.png"
+        )
+        _save_recon_grid(agent, batch, final_path)
+        assert final_path.exists()
+
     assert metrics["total_loss"] == pytest.approx(0.0, abs=1e-6)
     assert metrics["opt_loss"] == pytest.approx(metrics["loss/decoder"], rel=1e-6)
-    assert final < initial * 0.75, (initial, final)
+    assert final < initial * max_final_fraction, (initial, final)
+    return initial, final
+
+
+def test_decoder_probe_overfits_fixed_latents_on_gpu():
+    cfg = _decoder_probe_cfg()
+    batch = _structured_rgb_batch(cfg)
+
+    _run_decoder_overfit_probe(
+        batch=batch,
+        steps=120,
+        max_final_fraction=0.75,
+    )
+
+
+def test_decoder_probe_saves_qualitative_habitat_reconstructions_on_gpu():
+    cfg = _decoder_probe_cfg()
+    batch = _habitat_rgb_batch(cfg, B=1, T=8)
+
+    _run_decoder_overfit_probe(
+        batch=batch,
+        steps=5000,
+        max_final_fraction=1.0,
+        artifact_prefix=Path("artifacts/decoder_probe/habitat_decoder_overfit"),
+    )

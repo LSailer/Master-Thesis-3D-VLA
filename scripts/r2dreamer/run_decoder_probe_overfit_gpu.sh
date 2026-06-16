@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Run the GPU-only decoder overfit probe through SLURM.
 # Optional overrides:
-#   PARTITION=gpu_h100_short TIME=00:20:00 GRES=gpu:1 ./scripts/r2dreamer/run_decoder_probe_overfit_gpu.sh -vv
+#   PARTITION=gpu_h100_short TIME=00:30:00 GRES=gpu:1 ./scripts/r2dreamer/run_decoder_probe_overfit_gpu.sh -vv
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PARTITION="${PARTITION:-dev_gpu_h100}"

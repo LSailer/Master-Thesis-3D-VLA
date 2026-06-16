@@ -53,3 +53,5 @@ node_modules/@likec4/
 
 docs/likec4-dist/
 node_modules/
+logs/
+artifacts/
