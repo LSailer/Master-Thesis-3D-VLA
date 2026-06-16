@@ -165,6 +165,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
                        "cnn", "vggt", "vggt_aggregator_mlp",
                        "vggt_agg_token_transformer", "vggt_wp_dense_cnn",
                        "vggt_wp_cp_64", "hybrid", "vggt_house_context",
+                       "vggt_house_full_tokens_nogate",
                    ])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")

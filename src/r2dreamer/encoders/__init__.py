@@ -10,6 +10,7 @@ from .specs import (
     VGGTDenseWPEncoder,
     VGGTEncoder,
     VGGTHouseContextEncoder,
+    VGGTHouseFullTokenNoGateEncoder,
     VGGTWPCP64Encoder,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "VGGTDenseWPEncoder",
     "HybridEncoder",
     "VGGTHouseContextEncoder",
+    "VGGTHouseFullTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
 ]

@@ -352,6 +352,43 @@ def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:
     assert "--steps 2000000" in result.stdout
 
 
+def test_house_full_tokens_nogate_smoke_uses_new_run_id() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_full_tokens_nogate_l1"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-vggt-house-full-tokens-nogate"
+    assert "#SBATCH --job-name=smoke-vggt-house-full-tokens-nogate-l1" in rendered
+    assert flags["--output_dir"] == "output/smoke/vggt-house-full-tokens-nogate-${TIMESTAMP}"
+    assert flags["--wandb_name"] == "vggt-house-full-tokens-nogate-smoke-${TIMESTAMP}"
+    assert "no-gate" in flags["--wandb_tags"]
+    assert "=== Smoke PASS ===" in rendered
+
+
+def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1_long_smoke"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-vggt-house-context"
+    assert "#SBATCH --job-name=smoke-vggt-house-context-l1-long-smoke" in rendered
+    assert "#SBATCH --partition=gpu_h100_short" in rendered
+    assert "#SBATCH --time=00:30:00" in rendered
+    assert flags["--steps"] == "12000"
+    assert flags["--prefill"] == "200"
+    assert flags["--batch_size"] == "4"
+    assert flags["--seq_len"] == "16"
+    assert flags["--train_ratio"] == "16"
+    assert flags["--log_every"] == "500"
+    assert flags["--checkpoint_every"] == "100000"
+    assert flags["--output_dir"] == "output/smoke-long/vggt-house-context-${TIMESTAMP}"
+    assert flags["--wandb_name"] == "vggt-house-context-long-smoke-${TIMESTAMP}"
+    assert "long-smoke" in flags["--wandb_tags"]
+    assert "=== Smoke PASS ===" in rendered
+
+
 @pytest.mark.parametrize(
     "variant,script",
     [

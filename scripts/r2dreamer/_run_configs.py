@@ -123,6 +123,19 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "3d-77", "jax", "3d-encoder",
         ],
     ),
+    # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
+    "habitat-l1-vggt-house-full-tokens-nogate": dict(
+        env="habitat",
+        encoder="vggt_house_full_tokens_nogate",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-full-tokens-nogate",
+        wandb_name="l1_rgb_replay_vggt_house_full_tokens_nogate",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "full-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-77", "jax", "3d-encoder",
+        ],
+    ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",

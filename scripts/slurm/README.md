@@ -17,6 +17,8 @@ bash scripts/slurm/launch.sh l1_vggt --smoke               # short dev job
 bash scripts/slurm/launch.sh l1_vggt --prod                # full run
 bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod     # prod runs only if smoke passes
 bash scripts/slurm/launch.sh l1_vggt --time 04:00:00       # prod-shaped profiling run
+bash scripts/slurm/launch.sh house_context_l1_long_smoke --smoke  # long post-warm smoke
+bash scripts/slurm/launch.sh house_full_tokens_nogate_l1 --smoke  # live full-token no-gate
 
 # Sweep several variants in one shell call (bash brace expansion)
 bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke

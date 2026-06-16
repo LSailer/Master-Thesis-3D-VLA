@@ -16,6 +16,7 @@ import jax.numpy as jnp
 HYBRID_IMAGE_KEY = "image"
 HYBRID_WP_CP_KEY = "wp_cp"
 HOUSE_CONTEXT_KEY = "house_context"
+FULL_TOKENS_KEY = "full_tokens"
 
 
 def obs_leading_shape(obs: Any) -> tuple[int, int]:
@@ -63,7 +64,7 @@ def pack_hybrid_obs(obs: Any) -> jnp.ndarray:
     return pack_rgb_context_obs(obs, context_key=HYBRID_WP_CP_KEY)
 
 
-def encoder_obs_from_batch(batch: dict[str, Any], cfg: Any) -> jnp.ndarray:
+def encoder_obs_from_batch(batch: dict[str, Any], cfg: Any):
     """Return flattened per-step observations consumed by ``agent.encoder_mod``."""
     obs = batch["obs"]
     B, T = obs_leading_shape(obs)
@@ -71,6 +72,14 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: Any) -> jnp.ndarray:
         obs = pack_hybrid_obs(obs)
     elif cfg.encoder_type == "vggt_house_context":
         obs = pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
+    elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
+        if not isinstance(obs, Mapping):
+            raise TypeError("vggt_house_full_tokens_nogate expects dict obs")
+        image = normalize_image_obs(obs[HYBRID_IMAGE_KEY]).reshape(B * T, 3, 64, 64)
+        tokens = jnp.asarray(obs[FULL_TOKENS_KEY], dtype=jnp.float32).reshape(
+            B * T, cfg.vggt_token_count, cfg.vggt_token_dim
+        )
+        return {HYBRID_IMAGE_KEY: image, FULL_TOKENS_KEY: tokens}
     elif cfg.encoder_type == "cnn":
         obs = normalize_image_obs(obs)
     else:
@@ -87,6 +96,14 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: Any) -> jnp.nda
             obs = pack_hybrid_obs(obs_dict)
     elif cfg.encoder_type == "vggt_house_context":
         obs = pack_rgb_context_obs(obs_dict, context_key=HOUSE_CONTEXT_KEY)
+    elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
+        obs = {
+            HYBRID_IMAGE_KEY: normalize_image_obs(obs_dict[HYBRID_IMAGE_KEY])[None],
+            FULL_TOKENS_KEY: jnp.asarray(
+                obs_dict[FULL_TOKENS_KEY], dtype=jnp.float32
+            )[None],
+        }
+        return obs
     elif cfg.encoder_type in (
         "vggt",
         "vggt_aggregator_mlp",
@@ -104,7 +121,7 @@ def decoder_rgb_target(batch: dict[str, Any], cfg: Any) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch["obs"]
     B, T = obs_leading_shape(obs)
-    if cfg.encoder_type in ("hybrid", "vggt_house_context"):
+    if cfg.encoder_type in ("hybrid", "vggt_house_context", "vggt_house_full_tokens_nogate"):
         if isinstance(obs, Mapping):
             image = normalize_image_obs(obs[HYBRID_IMAGE_KEY])
             return image.reshape(B * T, 3, 64, 64)

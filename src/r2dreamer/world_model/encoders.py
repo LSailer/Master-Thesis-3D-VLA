@@ -346,6 +346,56 @@ class VGGTFullTokenContextTransformer(nn.Module):
         return context
 
 
+class RGBFullTokenTransformerEncoder(nn.Module):
+    """RGB + live full-token VGGT encoder without a learned fusion gate.
+
+    Replay stores only RGB64. The adapter injects the latest live VGGT full
+    aggregator tokens as a separate observation field at act/train time. This
+    module keeps the full-token Transformer inside the agent params, so one-batch
+    overfit verifies gradients through the learned token encoder itself.
+    """
+
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    context_dim: int = HOUSE_CONTEXT_DIM
+    token_dim: int = 2048
+    num_tokens: int = AGG_TOKEN_TOKENS
+    transformer_layers: int = 2
+    transformer_heads: int = 8
+    transformer_mlp_ratio: int = 2
+    transformer_dropout: float = 0.0
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        self.token_transformer = VGGTFullTokenContextTransformer(
+            context_dim=self.context_dim,
+            token_dim=self.token_dim,
+            num_tokens=self.num_tokens,
+            layers=self.transformer_layers,
+            heads=self.transformer_heads,
+            mlp_ratio=self.transformer_mlp_ratio,
+            dropout=self.transformer_dropout,
+        )
+
+    def _branches(self, obs):
+        image = obs["image"]
+        tokens = obs["full_tokens"]
+        cnn_e = self.cnn(image)
+        token_e = self.token_transformer(tokens, train=False)
+        return cnn_e, token_e
+
+    def __call__(self, obs):
+        cnn_e, token_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, token_e], axis=-1)
+
+    def branches(self, obs):
+        """Diagnostic split: (cnn_embed, token_transformer_embed)."""
+        return self._branches(obs)
+
+
 class WPConvEncoder(nn.Module):
     """Conv encoder over full-resolution VGGT world-point maps (3D-53).
 

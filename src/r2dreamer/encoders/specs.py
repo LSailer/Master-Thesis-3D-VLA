@@ -31,7 +31,7 @@ class EncoderSpec:
     instance keeps the launcher on the non-JIT side of the boundary.
     """
 
-    obs_shape: tuple[int, ...]
+    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]]
     env_render_resolution: int
     encoder_type: str
     module_cls: type[nn.Module]
@@ -185,6 +185,24 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "projects the resulting context to 1024, and injects that cached "
             "context at acting and training time. Replay remains RGB-only and the "
             "existing hybrid gate fuses RGB 1024 + VGGT context 1024."
+        ),
+    ),
+    "vggt_house_full_tokens_nogate": _vggt_variant(
+        encoder_type="vggt_house_full_tokens_nogate",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.RGBFullTokenTransformerEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_token_dim": 2048,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes=(
+            "L1 no-gate full-token variant: replay stores only RGB64 while a live "
+            "bounded InfiniteVGGT stream exposes the full 1374x2048 aggregator "
+            "tokens. The trainable agent encoder consumes image+full_tokens as "
+            "separate fields, runs CNN(image) and a full-token Transformer, then "
+            "concatenates them directly without the hybrid scalar gate or WP/CP MLP."
         ),
     ),
     "vggt_wp_cp_64": _vggt_variant(
@@ -418,6 +436,17 @@ class VGGTHouseContextEncoder(VGGTEncoder):
         )
 
 
+class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
+    """L1 RGB replay + live full-token Transformer inside the agent, no gate."""
+
+    variant = VGGT_VARIANTS["vggt_house_full_tokens_nogate"]
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseFullTokenObsAdapter
+
+        return VGGTHouseFullTokenObsAdapter(self._extractor)
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid."""
 
@@ -436,5 +465,6 @@ __all__ = [
     "VGGTDenseWPEncoder",
     "HybridEncoder",
     "VGGTHouseContextEncoder",
+    "VGGTHouseFullTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
 ]

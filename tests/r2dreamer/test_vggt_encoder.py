@@ -7,6 +7,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import (
+    RGBFullTokenTransformerEncoder,
     VGGTAggTokenTransformerEncoder,
     VGGTFullTokenContextTransformer,
     VGGTEncoder,
@@ -108,6 +109,36 @@ class TestVGGTFullTokenContextTransformer:
         )
         with pytest.raises(ValueError, match="full VGGT tokens"):
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 10, 15), dtype=jnp.float32))
+
+
+class TestRGBFullTokenTransformerEncoder:
+    """Shape tests for live full-token RGB+VGGT context fusion without a gate."""
+
+    def test_accepts_image_and_live_full_tokens_without_gate(self):
+        enc = RGBFullTokenTransformerEncoder(
+            token_dim=16,
+            num_tokens=10,
+            context_dim=32,
+            transformer_layers=1,
+            transformer_heads=4,
+            transformer_mlp_ratio=2,
+            cnn_depth=2,
+            cnn_kernel=3,
+            cnn_mults=(1, 1, 1, 1),
+        )
+        obs = {
+            "image": jnp.zeros((2, 3, 64, 64), dtype=jnp.float32),
+            "full_tokens": jnp.zeros((2, 10, 16), dtype=jnp.float32),
+        }
+        params = enc.init(jax.random.PRNGKey(0), obs)
+
+        fused = enc.apply(params, obs)
+        cnn_e, token_e = enc.apply(params, obs, method=enc.branches)
+
+        assert cnn_e.shape == (2, 32)
+        assert token_e.shape == (2, 32)
+        assert fused.shape == (2, 64)
+        assert "gate" not in params["params"]
 
 
 class TestVGGTAggregatorMLPEncoder:
