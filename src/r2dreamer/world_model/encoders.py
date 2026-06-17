@@ -9,6 +9,7 @@ from typing import Literal
 import jax.numpy as jnp
 import flax.linen as nn
 
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from .heads import R2MLP
 from .rssm import RMSNorm
 
@@ -124,6 +125,34 @@ class VGGTEncoder(nn.Module):
         # obs: (B, 4116) float32 — already flat
         x = _mlp_body(obs, self.num_layers, self.hidden)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class WP64CNNCPMLPEncoder(nn.Module):
+    """CNN over 64x64 VGGT world points plus MLP over camera pose (3D-89)."""
+    embed_dim: int = 1024
+    conv_depth: int = 16
+    conv_kernel: int = 5
+    conv_mults: tuple = (2, 3, 4, 4)
+    cp_hidden: int = 128
+    cp_layers: int = 1
+
+    @nn.compact
+    def __call__(self, obs):
+        if not isinstance(obs, dict):
+            raise TypeError("WP64CNNCPMLPEncoder expects structured obs")
+        wp = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=jnp.float32)
+        cp = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=jnp.float32)
+        wp_e = ConvEncoder(
+            depth=self.conv_depth,
+            kernel_size=self.conv_kernel,
+            mults=self.conv_mults,
+            input_kind="world_points",
+            name="wp_conv",
+        )(wp)
+        cp_e = _mlp_body(cp, self.cp_layers, self.cp_hidden)
+        cp_e = nn.Dense(self.cp_hidden, name="cp_proj")(cp_e)
+        fused = jnp.concatenate([wp_e, cp_e], axis=-1)
+        return nn.Dense(self.embed_dim, name="proj")(fused)
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):

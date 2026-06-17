@@ -6,6 +6,12 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.obs_batch import (
+    CAMERA_POSE_KEY,
+    WORLD_POINTS_KEY,
+    encoder_obs_from_batch,
+    encoder_obs_from_agent_obs,
+)
 from src.r2dreamer.world_model.encoders import (
     ConvEncoder,
     RGBFullTokenTransformerEncoder,
@@ -13,6 +19,7 @@ from src.r2dreamer.world_model.encoders import (
     VGGTFullTokenContextTransformer,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
+    WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.adapters.vggt_adapter import full_aggregator_tokens
 from src.buffer.replay_buffer import VGGTReplayBuffer
@@ -248,6 +255,56 @@ class TestVGGTEncoder:
         assert set(params["params"].keys()) == {"proj"}
 
 
+class TestWP64CNNCPMLPObservationBatch:
+    def test_batch_and_agent_obs_keep_structured_fields(self):
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_wp64_cnn_cp_mlp",
+            obs_shape={WORLD_POINTS_KEY: (3, 64, 64), CAMERA_POSE_KEY: (9,)},
+        )
+        batch = {
+            "obs": {
+                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
+                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
+            }
+        }
+
+        enc_obs = encoder_obs_from_batch(batch, cfg)
+        act_obs = encoder_obs_from_agent_obs(
+            {
+                WORLD_POINTS_KEY: jnp.ones((3, 64, 64), dtype=jnp.float16),
+                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
+            },
+            cfg,
+        )
+
+        assert enc_obs[WORLD_POINTS_KEY].shape == (6, 3, 64, 64)
+        assert enc_obs[WORLD_POINTS_KEY].dtype == jnp.float32
+        assert enc_obs[CAMERA_POSE_KEY].shape == (6, 9)
+        assert act_obs[WORLD_POINTS_KEY].shape == (1, 3, 64, 64)
+        assert act_obs[CAMERA_POSE_KEY].shape == (1, 9)
+
+
+class TestWP64CNNCPMLPEncoder:
+    def test_world_points_and_camera_pose_fuse_to_embed(self):
+        enc = WP64CNNCPMLPEncoder(
+            embed_dim=64,
+            conv_depth=4,
+            conv_mults=(2, 2, 2, 2),
+            cp_hidden=32,
+            cp_layers=1,
+        )
+        obs = {
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 64, 64), dtype=jnp.float32),
+            CAMERA_POSE_KEY: jnp.ones((2, 9), dtype=jnp.float32),
+        }
+
+        params = enc.init(jax.random.PRNGKey(0), obs)
+        out = enc.apply(params, obs)
+
+        assert out.shape == (2, 64)
+        assert jnp.isfinite(out).all()
+
+
 class TestConvEncoderWorldPoints:
     """World-point mode for the shared spatial CNN encoder (3D-53)."""
 
@@ -393,6 +450,31 @@ class TestVGGTAgentInit:
 
         obs_dict = {
             "features": np.random.randn(10 * 16).astype(np.float16),
+            "is_first": True,
+        }
+        rng, act_key = jax.random.split(rng)
+        action = agent.act(obs_dict, act_key)
+        assert 0 <= action < 4
+
+    def test_agent_act_wp64_cnn_cp_mlp(self):
+        from src.r2dreamer.agent import R2DreamerAgent
+
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_wp64_cnn_cp_mlp",
+            obs_shape={WORLD_POINTS_KEY: (3, 64, 64), CAMERA_POSE_KEY: (9,)},
+            num_actions=4,
+            vggt_embed_dim=64,
+            encoder_depth=4,
+            encoder_mults=(2, 2, 2, 2),
+            mlp_vggt_hidden=32,
+            mlp_vggt_layers=1,
+        )
+        rng = jax.random.PRNGKey(42)
+        agent = R2DreamerAgent(cfg, rng)
+
+        obs_dict = {
+            WORLD_POINTS_KEY: np.zeros((3, 64, 64), dtype=np.float16),
+            CAMERA_POSE_KEY: np.zeros((9,), dtype=np.float16),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)

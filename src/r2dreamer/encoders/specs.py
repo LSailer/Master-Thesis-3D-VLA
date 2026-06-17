@@ -223,6 +223,20 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "controlled resolution ablation, at the RGB-CNN baseline resolution."
         ),
     ),
+    "vggt_wp64_cnn_cp_mlp": _vggt_variant(
+        encoder_type="vggt_wp64_cnn_cp_mlp",
+        feature_kind="wp64_cp",
+        module_cls=wm_encoders.WP64CNNCPMLPEncoder,
+        compute_heads=True,
+        wp_pool_size=64,
+        agent_overrides={"buffer_capacity": 1_000_000},
+        design_notes=(
+            "3D-89 hypothesis encoder: VGGT world points are pooled to a 64x64x3 "
+            "metric XYZ image and stored separately from the 9-D camera pose, both "
+            "as float16 replay fields. The trainable encoder applies the point-cloud "
+            "ConvEncoder path to world points and a small MLP to camera pose before fusion."
+        ),
+    ),
 }
 
 
@@ -267,7 +281,7 @@ class Encoder(ABC):
         contract = getattr(adapter, "contract", None)
         if contract is not None:
             return EncoderSpec(
-                obs_shape=contract.encoder_input.shape,
+                obs_shape=contract.encoder_input.buffer_shape(),
                 env_render_resolution=contract.env_render_resolution,
                 encoder_type=contract.encoder_type,
                 module_cls=contract.encoder_module_cls,
@@ -480,6 +494,12 @@ class VGGTWPCP64Encoder(VGGTEncoder):
     variant = VGGT_VARIANTS["vggt_wp_cp_64"]
 
 
+class VGGTWP64CNNCPMLPEncoder(VGGTEncoder):
+    """64x64 world-point image through CNN plus camera-pose MLP (3D-89)."""
+
+    variant = VGGT_VARIANTS["vggt_wp64_cnn_cp_mlp"]
+
+
 __all__ = [
     "EncoderSpec",
     "VGGTVariantSpec",
@@ -494,4 +514,5 @@ __all__ = [
     "VGGTHouseContextEncoder",
     "VGGTHouseFullTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
+    "VGGTWP64CNNCPMLPEncoder",
 ]

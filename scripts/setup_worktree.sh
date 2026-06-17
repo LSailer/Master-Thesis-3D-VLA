@@ -2,10 +2,11 @@
 # Bootstrap a git worktree for ML runs.
 #
 # Symlinks the heavy, gitignored shared dirs (`data/`, `.venv/`, `output/`)
-# from the main checkout into the current worktree so that CWD-relative paths
-# (e.g. Habitat dataset configs) and the shared Python env work without
-# re-downloading or re-installing, and run artifacts written under `output/`
-# survive the worktree being removed (they live in the main checkout).
+# and external model repos from the main checkout into the current worktree so
+# that CWD-relative paths (e.g. Habitat dataset configs), external model repos,
+# and the shared Python env work without re-downloading or re-installing, and run
+# artifacts written under `output/` survive the worktree being removed (they
+# live in the main checkout).
 #
 # Idempotent: re-running on an already-bootstrapped worktree is a no-op
 # that prints the current state of each link.
@@ -69,6 +70,13 @@ echo
 for name in data .venv output; do
     link_shared "$name"
 done
+
+if [[ -x scripts/slurm/hooks/link_external.sh ]]; then
+    echo "  - external repos: linking via scripts/slurm/hooks/link_external.sh"
+    bash scripts/slurm/hooks/link_external.sh
+else
+    echo "  - external repos: skipped (missing scripts/slurm/hooks/link_external.sh)"
+fi
 
 echo
 echo "Done."

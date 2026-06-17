@@ -148,6 +148,18 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "wp-cp", "mlp-3layer", "wp-64", "3d-52", "jax", "3d-encoder",
         ],
     ),
+    # L1 VGGT — 64x64 world-point CNN + camera-pose MLP encoder (3D-89).
+    "habitat-l1-vggt-wp64-cnn-cp-mlp": dict(
+        env="habitat",
+        encoder="vggt_wp64_cnn_cp_mlp",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp64-cnn-cp-mlp",
+        wandb_name="wp64-cnn-cp-mlp",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "wp-64", "wp-cnn", "cp-mlp", "3d-89", "jax", "3d-encoder",
+        ],
+    ),
     # L1 VGGT — full-resolution 518x518x3 world-point CNN encoder (3D-53).
     "habitat-l1-vggt-wp-dense": dict(
         env="habitat",
