@@ -120,7 +120,7 @@ def _default_module_cls(encoder_type: str, feature_kind: VGGTFeatureKind) -> typ
     if encoder_type == "vggt_aggregator_mlp" or feature_kind == "aggregator":
         return wm_encoders.VGGTAggregatorMLPEncoder
     if encoder_type == "vggt_wp_dense_cnn" or feature_kind == "wp_dense":
-        return wm_encoders.WPConvEncoder
+        return wm_encoders.ConvEncoder
     if encoder_type == "vggt_agg_token_transformer" or feature_kind == "agg_tokens":
         return wm_encoders.VGGTAggTokenTransformerEncoder
     if encoder_type == "hybrid":

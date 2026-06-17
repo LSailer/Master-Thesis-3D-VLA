@@ -7,12 +7,12 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import (
+    ConvEncoder,
     RGBFullTokenTransformerEncoder,
     VGGTAggTokenTransformerEncoder,
     VGGTFullTokenContextTransformer,
     VGGTEncoder,
     VGGTAggregatorMLPEncoder,
-    WPConvEncoder,
 )
 from src.r2dreamer.adapters.vggt_adapter import full_aggregator_tokens
 from src.buffer.replay_buffer import VGGTReplayBuffer
@@ -248,11 +248,11 @@ class TestVGGTEncoder:
         assert set(params["params"].keys()) == {"proj"}
 
 
-class TestWPConvEncoder:
-    """Full-resolution world-point CNN encoder (3D-53)."""
+class TestConvEncoderWorldPoints:
+    """World-point mode for the shared spatial CNN encoder (3D-53)."""
 
-    def test_output_shape_518(self):
-        enc = WPConvEncoder(embed_dim=256)
+    def test_world_points_output_shape_518(self):
+        enc = ConvEncoder(input_kind="world_points", embed_dim=256)
         rng = jax.random.PRNGKey(0)
         # (B, 3, H, W) metric XYZ world-point map.
         dummy = jnp.zeros((2, 3, 518, 518))
@@ -261,15 +261,20 @@ class TestWPConvEncoder:
         assert out.shape == (2, 256)
         assert jnp.isfinite(out).all()
 
-    def test_handles_metric_xyz_range(self):
+    def test_world_points_handles_metric_xyz_range(self):
         # Values far outside [0, 1] (metric coords) must not blow up (symlog).
-        enc = WPConvEncoder(embed_dim=32)
+        enc = ConvEncoder(input_kind="world_points", embed_dim=32)
         rng = jax.random.PRNGKey(0)
         big = jnp.full((1, 3, 518, 518), 1e3)
         params = enc.init(rng, big)
         out = enc.apply(params, big)
         assert out.shape == (1, 32)
         assert jnp.isfinite(out).all()
+
+    def test_rejects_unknown_input_kind(self):
+        enc = ConvEncoder(input_kind="depth")
+        with pytest.raises(ValueError, match="input_kind"):
+            enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 3, 64, 64)))
 
 
 class TestVGGTReplayBuffer:
@@ -396,7 +401,7 @@ class TestVGGTAgentInit:
 
     def test_agent_act_vggt_wp_dense(self):
         # Full wiring smoke for the dense-WP CNN path (3D-53). Small image keeps
-        # the conv forward cheap on CPU; WPConvEncoder is resolution-agnostic.
+        # the conv forward cheap on CPU; ConvEncoder(world_points) is resolution-agnostic.
         from src.r2dreamer.agent import R2DreamerAgent
 
         cfg = R2DreamerConfig(

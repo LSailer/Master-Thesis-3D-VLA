@@ -113,7 +113,7 @@ class TestVGGTObservationPreparationContracts:
     def test_variants_derive_contract_shapes_from_extractor_metadata(self):
         cases: list[tuple[VGGTFeatureKind, str, tuple[int, ...], str, type]] = [
             ("aggregator", "vggt_aggregator_mlp", (3 * 128,), "float32", wm_encoders.VGGTAggregatorMLPEncoder),
-            ("wp_dense", "vggt_wp_dense_cnn", (3, 518, 518), "float16", wm_encoders.WPConvEncoder),
+            ("wp_dense", "vggt_wp_dense_cnn", (3, 518, 518), "float16", wm_encoders.ConvEncoder),
         ]
 
         for feature_kind, encoder_type, shape, dtype, module_cls in cases:

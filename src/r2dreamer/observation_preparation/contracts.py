@@ -49,18 +49,17 @@ def encoder_module_kwargs_from_config(
     """Resolve Encoder Module constructor kwargs from an effective config."""
     class_name = encoder_module_cls.__name__
     if class_name == "ConvEncoder":
-        return {
+        kwargs = {
             "depth": int(config.encoder_depth),
             "kernel_size": int(config.encoder_kernel),
             "mults": _tuple_value(config, "encoder_mults"),
         }
-    if class_name == "WPConvEncoder":
-        return {
-            "embed_dim": int(config.vggt_embed_dim),
-            "depth": int(config.encoder_depth),
-            "kernel_size": int(config.encoder_kernel),
-            "mults": _tuple_value(config, "encoder_mults"),
-        }
+        if getattr(config, "encoder_type", None) == "vggt_wp_dense_cnn":
+            kwargs.update({
+                "input_kind": "world_points",
+                "embed_dim": int(config.vggt_embed_dim),
+            })
+        return kwargs
     if class_name == "HybridEncoder":
         return {
             "cnn_depth": int(config.encoder_depth),

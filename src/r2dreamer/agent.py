@@ -32,7 +32,6 @@ from .observation_preparation.contracts import (
 from .world_model.rssm import R2RSSM
 from .world_model.encoders import (
     ConvEncoder,
-    WPConvEncoder,
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
     RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
@@ -149,7 +148,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
             "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
-            "vggt_wp_dense_cnn": WPConvEncoder,
+            "vggt_wp_dense_cnn": ConvEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
             "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
@@ -160,7 +159,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
 
 
 def _validate_encoder_config(cfg: R2DreamerConfig, cls) -> None:
-    if cls in (ConvEncoder, WPConvEncoder) and cfg.vggt_mlp_layers != 1:
+    if cls is ConvEncoder and cfg.vggt_mlp_layers != 1:
         # Fail loud instead of silently dropping the knob: conv encoders have no
         # MLP depth, so a non-default vggt_mlp_layers here is a misconfiguration.
         raise ValueError(
@@ -194,8 +193,9 @@ def _make_wp_conv_encoder(cfg: R2DreamerConfig):
     # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
-        return WPConvEncoder(**kwargs)
-    return WPConvEncoder(
+        return ConvEncoder(**kwargs)
+    return ConvEncoder(
+        input_kind="world_points",
         embed_dim=cfg.vggt_embed_dim,
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -277,9 +277,9 @@ def _make_encoder(cfg: R2DreamerConfig):
     cls = _resolve_encoder_cls(cfg)
     _validate_encoder_config(cfg, cls)
     if cls is ConvEncoder:
+        if cfg.encoder_type == "vggt_wp_dense_cnn":
+            return _make_wp_conv_encoder(cfg)
         return _make_conv_encoder(cfg)
-    if cls is WPConvEncoder:
-        return _make_wp_conv_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
     if cls is WMVGGTAggTokenTransformerEncoder:

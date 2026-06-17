@@ -135,7 +135,7 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
     "vggt_wp_dense_cnn": _vggt_variant(
         encoder_type="vggt_wp_dense_cnn",
         feature_kind="wp_dense",
-        module_cls=wm_encoders.WPConvEncoder,
+        module_cls=wm_encoders.ConvEncoder,
         compute_heads=True,
         agent_overrides={
             "buffer_capacity": 5_000,
@@ -147,7 +147,7 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "Variant: full-resolution VGGT world points. The DPT point head's dense "
             "518x518x3 per-pixel map (one metric XYZ point per pixel) is NOT pooled "
             "to 37x37; it is stored channel-first as a (3, 518, 518) float16 image "
-            "and fed to WPConvEncoder, which symlog-normalises the metric XYZ range "
+            "and fed to ConvEncoder(input_kind='world_points'), which symlog-normalises the metric XYZ range "
             "and runs the RGB Conv+MaxPool+RMSNorm+SiLU stack before a linear "
             "readout to embed_dim. WP-only (no camera pose): a 9-vector cannot be a "
             "spatial channel. See issue 3D-53."
