@@ -142,7 +142,8 @@ class TestVGGTEncoderConfiguration:
 
         assert isinstance(adapter.contract, EncoderInputContract)
         assert adapter.contract.encoder_input.shape == (4116,)
-        assert adapter.contract.replay_observation.shape == (4116,)
+        assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 37, 37)
+        assert adapter.contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert spec.encoder_type == "vggt"
         assert spec.obs_shape == (4116,)
         assert spec.env_render_resolution == 518
@@ -237,10 +238,16 @@ class TestVGGTEncoderConfiguration:
 
         assert isinstance(adapter.contract, EncoderInputContract)
         assert adapter.contract.encoder_type == "vggt_wp_dense_cnn"
-        assert adapter.contract.replay_observation.dtype == "float16"
-        # Dense WP is stored channel-first as a (3, 518, 518) float16 image.
-        assert adapter.buffer_shape == (3, 518, 518)
-        assert adapter.buffer_dtype == "float16"
+        assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].dtype == "float16"
+        # Dense WP is stored channel-first as a (3, 518, 518) float16 image plus pose.
+        assert adapter.buffer_shape == {
+            WORLD_POINTS_KEY: (3, 518, 518),
+            CAMERA_POSE_KEY: (9,),
+        }
+        assert adapter.buffer_dtype == {
+            WORLD_POINTS_KEY: "float16",
+            CAMERA_POSE_KEY: "float16",
+        }
         assert spec.obs_shape == (3, 518, 518)
         assert spec.env_render_resolution == 518
         assert spec.encoder_type == "vggt_wp_dense_cnn"
@@ -266,7 +273,7 @@ class TestVGGTEncoderConfiguration:
                 import jax.numpy as jnp
                 assert return_dense is True, "wp_dense must request the dense map"
                 dense = jnp.arange(4 * 4 * 3, dtype=jnp.float32).reshape(4, 4, 3)
-                return {"dense_world_points": dense}
+                return {"dense_world_points": dense, "camera_pose": jnp.arange(9, dtype=jnp.float32)}
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_dense")
         replay_features, agent_obs = adapter.transform(
@@ -274,11 +281,13 @@ class TestVGGTEncoderConfiguration:
         )
 
         expected = np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
-        assert replay_features.shape == (3, 4, 4)
-        assert replay_features.dtype == np.float16
-        np.testing.assert_allclose(replay_features, expected.astype(np.float16))
-        assert agent_obs["features"].shape == (3, 4, 4)
-        assert agent_obs["features"].dtype.name == "float32"
+        assert replay_features[WORLD_POINTS_KEY].shape == (3, 4, 4)
+        assert replay_features[WORLD_POINTS_KEY].dtype == np.float16
+        np.testing.assert_allclose(replay_features[WORLD_POINTS_KEY], expected.astype(np.float16))
+        assert replay_features[CAMERA_POSE_KEY].shape == (9,)
+        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 4, 4)
+        assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float32"
+        assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp_cp_64_encoder_spec(self, monkeypatch):
         class FakeExtractor:
@@ -303,8 +312,14 @@ class TestVGGTEncoderConfiguration:
         assert adapter.contract.encoder_input.shape == (12297,)
         # 64x64 WP grid: obs = 64*64*3 + 9 = 12297 (vs 4116 at 37x37).
         assert enc.wp_pool_size == 64
-        assert adapter.buffer_shape == (64 * 64 * 3 + 9,)
-        assert adapter.buffer_dtype == "float32"
+        assert adapter.buffer_shape == {
+            WORLD_POINTS_KEY: (3, 64, 64),
+            CAMERA_POSE_KEY: (9,),
+        }
+        assert adapter.buffer_dtype == {
+            WORLD_POINTS_KEY: "float16",
+            CAMERA_POSE_KEY: "float16",
+        }
         assert spec.obs_shape == (12297,)
         assert spec.encoder_type == "vggt_wp_cp_64"
         # Same MLP module + 1M buffer as the 37x37 WP+CP run -> resolution-only ablation.
@@ -342,13 +357,16 @@ class TestVGGTEncoderConfiguration:
                 }
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_cp")
-        assert adapter.buffer_shape == (12297,)
+        assert adapter.buffer_shape == {
+            WORLD_POINTS_KEY: (3, 64, 64),
+            CAMERA_POSE_KEY: (9,),
+        }
         rep, agent_obs = adapter.transform({"image": np.zeros((3, 518, 518), np.uint8)})
-        assert rep.shape == (12297,)
-        assert rep.dtype == np.float32
-        # last 9 entries are the pose vector 0..8
-        np.testing.assert_allclose(rep[-9:], np.arange(9, dtype=np.float32))
-        assert agent_obs["features"].shape == (12297,)
+        assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert rep[WORLD_POINTS_KEY].dtype == np.float16
+        np.testing.assert_allclose(rep[CAMERA_POSE_KEY], np.arange(9, dtype=np.float16))
+        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp64_cnn_cp_mlp_adapter_emits_float16_world_points_and_pose(self):
         import jax.numpy as jnp

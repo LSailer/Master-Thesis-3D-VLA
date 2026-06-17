@@ -10,6 +10,7 @@ from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt import (
     VGGTFeatureKind,
     build_vggt_contract,
+    head_readout_spec,
     wp_cp_dim,
 )
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
@@ -27,36 +28,35 @@ FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * 2048  # 2,813,952 full frame+global tokens
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
-    """Flatten VGGT outputs into a single feature vector (JAX)."""
-    wp = out["world_points"].reshape(-1)  # (4107,)
-    cp = out["camera_pose"]              # (9,)
+    """Flatten structured VGGT world-points + camera-pose for MLP encoders."""
+    wp = out[WORLD_POINTS_KEY].reshape(-1)
+    cp = out[CAMERA_POSE_KEY].reshape(-1)
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
-def world_points_chw(out: dict) -> jnp.ndarray:
-    """Return pooled VGGT world points in channel-first layout."""
-    return jnp.transpose(out["world_points"], (2, 0, 1)).astype(jnp.float32)
+def structured_world_points_camera_pose(
+    out: dict,
+    *,
+    dimension: int = 64,
+    world_points_key: str = "world_points",
+) -> dict[str, jnp.ndarray]:
+    """Return VGGT world points and camera pose as explicit fields.
 
-
-def structured_world_points_camera_pose(out: dict) -> dict[str, jnp.ndarray]:
-    """Return separate WP image and camera-pose tensors for the 3D-89 path."""
+    ``dimension`` names the expected spatial side length of the selected point
+    map. Use ``world_points_key=\"dense_world_points\"`` with ``dimension=518``
+    (or the extractor image size) for the dense readout; the default covers the
+    pooled 64x64 readout.
+    """
+    world_points = out[world_points_key]
+    if tuple(world_points.shape) != (dimension, dimension, 3):
+        raise ValueError(
+            f"expected {world_points_key} shape {(dimension, dimension, 3)}, "
+            f"got {tuple(world_points.shape)}"
+        )
     return {
-        WORLD_POINTS_KEY: world_points_chw(out),
+        WORLD_POINTS_KEY: jnp.transpose(world_points, (2, 0, 1)).astype(jnp.float32),
         CAMERA_POSE_KEY: out["camera_pose"].astype(jnp.float32),
     }
-
-
-def dense_world_points_chw(out: dict) -> jnp.ndarray:
-    """Return the full-resolution world-point map in (3, H, W) layout (3D-53).
-
-    ``out["dense_world_points"]`` is the pre-pool DPT point map at (H, W, 3) —
-    one metric XYZ point per pixel. We transpose to channel-first so it matches
-    the ``(B, C, H, W)`` layout the conv encoder expects (XYZ as a 3-channel
-    image). No camera pose is appended: a 9-vector cannot be a spatial channel,
-    so this variant is intentionally WP-only (a WP+CP hybrid is a follow-up).
-    """
-    dense = out["dense_world_points"]          # (H, W, 3)
-    return jnp.transpose(dense, (2, 0, 1)).astype(jnp.float32)  # (3, H, W)
 
 
 _PATCH_START_IDX = 5  # 1 camera token + 4 register tokens, then patches
@@ -169,37 +169,41 @@ class VGGTObsAdapter(ObsAdapter):
         self._feature_kind: VGGTFeatureKind = feature_kind
         self._aggregator_feature_shape = tuple(getattr(extractor, "aggregator_feature_shape", ()))
 
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
-        # wp_dense needs the pre-pool 518² point map; the other kinds don't, so
-        # only request (and pay for materializing) the dense map when consumed.
-        if self._feature_kind == "wp_dense":
-            out = self._extractor.extract(obs_dict["image"], return_dense=True)
-        else:
-            out = self._extractor.extract(obs_dict["image"])
-        if self._feature_kind == "aggregator":
-            features_jax = pool_aggregator_tokens(out, self._aggregator_feature_shape)
-        elif self._feature_kind == "agg_raw":
-            features_jax = flatten_raw_aggregator(out, self._aggregator_feature_shape)
-        elif self._feature_kind == "agg_tokens":
-            features_jax = flatten_full_aggregator_tokens(out, self._aggregator_feature_shape)
-        elif self._feature_kind == "wp64_cp":
-            features_jax = structured_world_points_camera_pose(out)
-        elif self._feature_kind == "wp_dense":
-            features_jax = dense_world_points_chw(out)
-            if tuple(features_jax.shape) != tuple(self.buffer_shape):
-                # Guards against a render_resolution / extractor-image-size mismatch:
-                # fail loud here rather than via a cryptic broadcast error in the buffer.
-                raise ValueError(
-                    f"dense world-point map {tuple(features_jax.shape)} != declared "
-                    f"buffer shape {tuple(self.buffer_shape)}; the env render resolution "
-                    f"must equal the VGGT extractor image size ({self.buffer_shape[-1]})."
-                )
-        else:
-            features_jax = flatten_world_points_camera_pose(out)
+    def _extract(self, image: np.ndarray) -> dict:
+        spec = head_readout_spec(self._feature_kind)
+        if spec is not None and spec.use_dense_world_points:
+            return self._extractor.extract(image, return_dense=True)
+        return self._extractor.extract(image)
 
+    def _readout(self, out: dict) -> jnp.ndarray | dict[str, jnp.ndarray]:
+        if spec := head_readout_spec(self._feature_kind):
+            return structured_world_points_camera_pose(
+                out,
+                dimension=self._head_world_points_dimension(spec.use_dense_world_points),
+                world_points_key="dense_world_points" if spec.use_dense_world_points else "world_points",
+            )
+        if self._feature_kind == "aggregator":
+            return pool_aggregator_tokens(out, self._aggregator_feature_shape)
+        if self._feature_kind == "agg_raw":
+            return flatten_raw_aggregator(out, self._aggregator_feature_shape)
+        if self._feature_kind == "agg_tokens":
+            return flatten_full_aggregator_tokens(out, self._aggregator_feature_shape)
+        raise ValueError(f"unknown VGGT feature_kind {self._feature_kind!r}")
+
+    def _head_world_points_dimension(self, use_dense_world_points: bool) -> int:
+        if use_dense_world_points:
+            return int(getattr(self._extractor, "image_size", 518))
+        return int(getattr(self._extractor, "wp_pool_size", 64))
+
+    def _to_replay_agent_obs(
+        self,
+        features_jax: jnp.ndarray | dict[str, jnp.ndarray],
+        *,
+        is_first: bool,
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
         # float32 features so it can feed the JIT-compiled agent directly.
-        if self._feature_kind == "wp64_cp":
+        if isinstance(features_jax, dict):
             replay_features = {
                 WORLD_POINTS_KEY: np.asarray(features_jax[WORLD_POINTS_KEY], dtype=np.float16),
                 CAMERA_POSE_KEY: np.asarray(features_jax[CAMERA_POSE_KEY], dtype=np.float16),
@@ -207,23 +211,25 @@ class VGGTObsAdapter(ObsAdapter):
             agent_obs = {
                 WORLD_POINTS_KEY: features_jax[WORLD_POINTS_KEY].astype(jnp.float32),
                 CAMERA_POSE_KEY: features_jax[CAMERA_POSE_KEY].astype(jnp.float32),
-                "is_first": obs_dict.get("is_first", False),
+                "is_first": is_first,
             }
             return replay_features, agent_obs
 
         replay_features = np.asarray(features_jax)
         if self._feature_kind == "aggregator":
             replay_features = replay_features.astype(np.float32)
-        elif self._feature_kind == "agg_raw":
-            # Match the float16 buffer storage declared in __init__.
-            replay_features = replay_features.astype(np.float16)
-        elif self._feature_kind == "agg_tokens":
-            # Match the float16 buffer storage declared in __init__.
-            replay_features = replay_features.astype(np.float16)
-        elif self._feature_kind == "wp_dense":
-            # Match the float16 buffer storage declared in __init__.
+        else:
+            # Match the float16 buffer storage declared for token readouts.
             replay_features = replay_features.astype(np.float16)
 
         agent_features = features_jax.astype(jnp.float32)
-        agent_obs = {"features": agent_features, "is_first": obs_dict.get("is_first", False)}
+        agent_obs = {"features": agent_features, "is_first": is_first}
         return replay_features, agent_obs
+
+    def transform(self, obs_dict: dict) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
+        out = self._extract(obs_dict["image"])
+        features_jax = self._readout(out)
+        return self._to_replay_agent_obs(
+            features_jax,
+            is_first=obs_dict.get("is_first", False),
+        )

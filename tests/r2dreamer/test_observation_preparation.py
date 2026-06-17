@@ -107,18 +107,18 @@ class TestVGGTObservationPreparationContracts:
         assert contract.env_observation.fields["is_first"].dtype == "bool"
 
         replay = contract.replay_observation
-        assert replay.shape == (37 * 37 * 3 + 9,)
-        assert replay.dtype == "float32"
-        assert replay.normalize_on_sample is False
-        assert contract.agent_observation.fields["features"].shape == replay.shape
-        assert contract.encoder_input.shape == replay.shape
+        assert replay.fields[WORLD_POINTS_KEY].shape == (3, 37, 37)
+        assert replay.fields[WORLD_POINTS_KEY].dtype == "float16"
+        assert replay.fields[CAMERA_POSE_KEY].shape == (9,)
+        assert replay.fields[CAMERA_POSE_KEY].dtype == "float16"
+        assert contract.agent_observation.fields[WORLD_POINTS_KEY].shape == (3, 37, 37)
+        assert contract.encoder_input.shape == (37 * 37 * 3 + 9,)
         assert contract.decoder_target is None
         assert contract.agent_overrides == {"buffer_capacity": 1_000_000}
 
     def test_variants_derive_contract_shapes_from_extractor_metadata(self):
         cases: list[tuple[VGGTFeatureKind, str, tuple[int, ...], str, type]] = [
             ("aggregator", "vggt_aggregator_mlp", (3 * 128,), "float32", wm_encoders.VGGTAggregatorMLPEncoder),
-            ("wp_dense", "vggt_wp_dense_cnn", (3, 518, 518), "float16", wm_encoders.ConvEncoder),
         ]
 
         for feature_kind, encoder_type, shape, dtype, module_cls in cases:
@@ -140,9 +140,19 @@ class TestVGGTObservationPreparationContracts:
 
         assert contract.observation_preparation_type == "vggt_wp_cp_64"
         assert contract.encoder_type == "vggt_wp_cp_64"
-        assert contract.replay_observation.shape == (64 * 64 * 3 + 9,)
+        assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert contract.encoder_input.shape == (64 * 64 * 3 + 9,)
         assert contract.encoder_module_cls is wm_encoders.VGGTEncoder
+
+    def test_wp_dense_contract_stores_structured_wp_cp_but_encodes_world_points(self):
+        contract = build_vggt_contract(self._Extractor(), feature_kind="wp_dense")
+
+        assert contract.observation_preparation_type == "vggt_wp_dense_cnn"
+        assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 518, 518)
+        assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
+        assert contract.encoder_input.shape == (3, 518, 518)
+        assert contract.encoder_module_cls is wm_encoders.ConvEncoder
 
     def test_wp64_cnn_cp_mlp_contract_uses_structured_float16_replay(self):
         class Extractor64(self._Extractor):
