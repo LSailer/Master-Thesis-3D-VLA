@@ -110,6 +110,32 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
+    # L1 House Context — RGB replay + live full-token InfiniteVGGT scene memory.
+    "habitat-l1-vggt-house-context": dict(
+        env="habitat",
+        encoder="vggt_house_context",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-context",
+        wandb_name="l1_rgb_replay_vggt_house_context",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "full-token-transformer", "rgb-replay", "live-cache", "bounded-cache",
+            "3d-77", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
+    "habitat-l1-vggt-house-full-tokens-nogate": dict(
+        env="habitat",
+        encoder="vggt_house_full_tokens_nogate",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-full-tokens-nogate",
+        wandb_name="l1_rgb_replay_vggt_house_full_tokens_nogate",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "full-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-77", "jax", "3d-encoder",
+        ],
+    ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",
@@ -144,6 +170,18 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
             "aggregator-mlp", "variant-1", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 VGGT full aggregator-token Transformer encoder (3D-75).
+    "habitat-l1-vggt-agg-token-transformer": dict(
+        env="habitat",
+        encoder="vggt_agg_token_transformer",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-agg-token-transformer",
+        wandb_name="vggt-agg-token-transformer",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "aggregator-tokens", "token-transformer", "3d-75", "jax", "3d-encoder",
         ],
     ),
     # ── Crafter (non-curriculum sanity env) ─────────────────────────────────

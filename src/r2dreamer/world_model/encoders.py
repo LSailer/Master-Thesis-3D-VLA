@@ -22,7 +22,12 @@ HYBRID_VGGT_DIM = 4116        # WP/CP width: world_points 37*37*3 + camera_pose 
 # these agree with the adapter's constants and the live extractor shape.
 AGG_RAW_TOKENS = 1370                  # cam(1) + patches(1369); 4 register tokens dropped
 AGG_RAW_DIM = AGG_RAW_TOKENS * 1024    # 1,402,880 — raw flattened aggregator
+AGG_TOKEN_TOKENS = 1374                # cam(1) + registers(4) + patches(1369)
+AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 — full flattened aggregator
+FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * 2048  # 2,813,952 — frame + global streams
+HOUSE_CONTEXT_DIM = 1024
 AGG_POOLED_DIM = 3 * 1024              # 3,072 — pooled [cam | mean | max]
+AGG_REGISTER_TOKENS = 4
 
 
 def _symlog(x: jnp.ndarray) -> jnp.ndarray:
@@ -154,6 +159,241 @@ class VGGTAggRawMLPEncoder(nn.Module):
         x = obs.astype(jnp.float32)
         x = _mlp_body(x, self.num_layers, self.hidden)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class _TokenTransformerBlock(nn.Module):
+    """Small pre-norm Transformer block for frozen VGGT token sequences."""
+
+    hidden: int
+    heads: int
+    mlp_ratio: int = 2
+
+    @nn.compact
+    def __call__(self, x):
+        attn_in = RMSNorm(name="attn_norm")(x)
+        attn = nn.SelfAttention(
+            num_heads=self.heads,
+            qkv_features=self.hidden,
+            out_features=self.hidden,
+            use_bias=False,
+            name="attn",
+        )(attn_in)
+        x = x + attn
+
+        mlp_in = RMSNorm(name="mlp_norm")(x)
+        y = nn.Dense(self.hidden * self.mlp_ratio, name="mlp_in")(mlp_in)
+        y = nn.silu(y)
+        y = nn.Dense(self.hidden, name="mlp_out")(y)
+        return x + y
+
+
+class VGGTAggTokenTransformerEncoder(nn.Module):
+    """Trainable Transformer over frozen VGGT aggregator tokens (3D-75).
+
+    Replay stores flattened float16 full-token features. This encoder upcasts to
+    float32, restores ``(tokens, token_dim)``, optionally drops register tokens
+    for future ablations, projects each token to a smaller attention width, and
+    returns one ``embed_dim`` vector for the existing ``R2RSSM.observe()`` path.
+    """
+
+    embed_dim: int = 1024
+    token_dim: int = 1024
+    num_tokens: int = AGG_TOKEN_TOKENS
+    projection_dim: int = 256
+    layers: int = 2
+    heads: int = 8
+    mlp_ratio: int = 2
+    keep_register_tokens: bool = True
+
+    def _kept_tokens(self) -> int:
+        if self.keep_register_tokens:
+            return self.num_tokens
+        return self.num_tokens - AGG_REGISTER_TOKENS
+
+    @nn.compact
+    def __call__(self, obs):
+        expected_dim = self.num_tokens * self.token_dim
+        if obs.ndim != 2 or obs.shape[-1] != expected_dim:
+            raise ValueError(
+                "VGGTAggTokenTransformerEncoder expects "
+                f"(B, {expected_dim}) flattened VGGT aggregator tokens, got {obs.shape}"
+            )
+        if self.projection_dim % self.heads != 0:
+            raise ValueError(
+                f"projection_dim={self.projection_dim} must be divisible by heads={self.heads}"
+            )
+
+        tokens = obs.astype(jnp.float32).reshape(obs.shape[0], self.num_tokens, self.token_dim)
+        if self.keep_register_tokens:
+            x = tokens
+            patch_start = 1 + AGG_REGISTER_TOKENS
+        else:
+            x = jnp.concatenate([tokens[:, :1], tokens[:, 1 + AGG_REGISTER_TOKENS:]], axis=1)
+            patch_start = 1
+
+        x = nn.Dense(self.projection_dim, name="token_proj")(x)
+        pos = self.param(
+            "pos_embed",
+            nn.initializers.normal(stddev=0.02),
+            (1, self._kept_tokens(), self.projection_dim),
+        )
+        x = x + pos
+
+        for i in range(self.layers):
+            x = _TokenTransformerBlock(
+                hidden=self.projection_dim,
+                heads=self.heads,
+                mlp_ratio=self.mlp_ratio,
+                name=f"block{i}",
+            )(x)
+
+        cam = x[:, 0]
+        patches = x[:, patch_start:].mean(axis=1)
+        if self.keep_register_tokens:
+            regs = x[:, 1:patch_start].mean(axis=1)
+            readout = jnp.concatenate([cam, regs, patches], axis=-1)
+        else:
+            readout = jnp.concatenate([cam, patches], axis=-1)
+        readout = RMSNorm(name="readout_norm")(readout)
+        return nn.Dense(self.embed_dim, name="proj")(readout)
+
+
+class _FullTokenTransformerBlock(nn.Module):
+    """Pre-norm Transformer block that keeps the 2048-d VGGT token width."""
+
+    token_dim: int
+    heads: int
+    mlp_ratio: int = 2
+    dropout: float = 0.0
+
+    @nn.compact
+    def __call__(self, x, *, train: bool = False):
+        attn_in = nn.LayerNorm(name="attn_norm")(x)
+        attn = nn.SelfAttention(
+            num_heads=self.heads,
+            qkv_features=self.token_dim,
+            out_features=self.token_dim,
+            dropout_rate=self.dropout,
+            deterministic=not train,
+            use_bias=False,
+            name="attn",
+        )(attn_in)
+        x = x + attn
+
+        mlp_in = nn.LayerNorm(name="mlp_norm")(x)
+        y = nn.Dense(self.token_dim * self.mlp_ratio, name="mlp_in")(mlp_in)
+        y = nn.gelu(y)
+        y = nn.Dropout(self.dropout, deterministic=not train, name="dropout")(y)
+        y = nn.Dense(self.token_dim, name="mlp_out")(y)
+        y = nn.Dropout(self.dropout, deterministic=not train, name="out_dropout")(y)
+        return x + y
+
+
+class VGGTFullTokenContextTransformer(nn.Module):
+    """3D-77 full-token context encoder.
+
+    Consumes frozen VGGT tokens directly at ``(1374, 2048)`` by default, keeps
+    attention at ``d_model == token_dim``, and owns the final ``2048 -> 1024``
+    context projection used by the RGB+VGGT hybrid gate. There is intentionally
+    no pre-attention token projection.
+    """
+
+    context_dim: int = HOUSE_CONTEXT_DIM
+    token_dim: int = 2048
+    num_tokens: int = AGG_TOKEN_TOKENS
+    layers: int = 2
+    heads: int = 8
+    mlp_ratio: int = 2
+    dropout: float = 0.0
+
+    @nn.compact
+    def __call__(self, tokens, *, train: bool = False):
+        squeeze = tokens.ndim == 2
+        if squeeze:
+            tokens = tokens[None]
+        if tokens.ndim != 3 or tokens.shape[-2:] != (self.num_tokens, self.token_dim):
+            raise ValueError(
+                "VGGTFullTokenContextTransformer expects "
+                f"(B, {self.num_tokens}, {self.token_dim}) or "
+                f"({self.num_tokens}, {self.token_dim}) full VGGT tokens, got {tokens.shape}"
+            )
+        if self.token_dim % self.heads != 0:
+            raise ValueError(
+                f"token_dim={self.token_dim} must be divisible by heads={self.heads}"
+            )
+
+        x = tokens.astype(jnp.float32)
+        pos = self.param(
+            "pos_embed",
+            nn.initializers.normal(stddev=0.02),
+            (1, self.num_tokens, self.token_dim),
+        )
+        x = x + pos
+
+        for i in range(self.layers):
+            x = _FullTokenTransformerBlock(
+                token_dim=self.token_dim,
+                heads=self.heads,
+                mlp_ratio=self.mlp_ratio,
+                dropout=self.dropout,
+                name=f"block{i}",
+            )(x, train=train)
+
+        context_2048 = nn.LayerNorm(name="context_norm")(x.mean(axis=1))
+        context = nn.Dense(self.context_dim, name="context_proj")(context_2048)
+        if squeeze:
+            context = context[0]
+        return context
+
+
+class RGBFullTokenTransformerEncoder(nn.Module):
+    """RGB + live full-token VGGT encoder without a learned fusion gate.
+
+    Replay stores only RGB64. The adapter injects the latest live VGGT full
+    aggregator tokens as a separate observation field at act/train time. This
+    module keeps the full-token Transformer inside the agent params, so one-batch
+    overfit verifies gradients through the learned token encoder itself.
+    """
+
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple = (2, 3, 4, 4)
+    context_dim: int = HOUSE_CONTEXT_DIM
+    token_dim: int = 2048
+    num_tokens: int = AGG_TOKEN_TOKENS
+    transformer_layers: int = 2
+    transformer_heads: int = 8
+    transformer_mlp_ratio: int = 2
+    transformer_dropout: float = 0.0
+
+    def setup(self):
+        self.cnn = ConvEncoder(
+            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
+        )
+        self.token_transformer = VGGTFullTokenContextTransformer(
+            context_dim=self.context_dim,
+            token_dim=self.token_dim,
+            num_tokens=self.num_tokens,
+            layers=self.transformer_layers,
+            heads=self.transformer_heads,
+            mlp_ratio=self.transformer_mlp_ratio,
+            dropout=self.transformer_dropout,
+        )
+
+    def _branches(self, obs):
+        image = obs["image"]
+        tokens = obs["full_tokens"]
+        cnn_e = self.cnn(image)
+        token_e = self.token_transformer(tokens, train=False)
+        return cnn_e, token_e
+
+    def __call__(self, obs):
+        cnn_e, token_e = self._branches(obs)
+        return jnp.concatenate([cnn_e, token_e], axis=-1)
+
+    def branches(self, obs):
+        """Diagnostic split: (cnn_embed, token_transformer_embed)."""
+        return self._branches(obs)
 
 
 class WPConvEncoder(nn.Module):
@@ -375,8 +615,8 @@ class ConvDecoder(nn.Module):
     in [0, 1]. Mirrors ``ConvEncoder``: a Dense lifts ``feat`` to a 4x4 grid,
     then four stride-2 ``ConvTranspose`` stages (4->8->16->32->64) with
     RMSNorm+SiLU, and a final 1-conv to 3 channels + sigmoid. R2-Dreamer is
-    decoder-free by default; this is only built when ``cfg.decoder`` is set, so
-    existing CNN/VGGT runs are unaffected.
+    decoder-free by default; when enabled, the loss detaches ``feat`` so this
+    stays a visualisation probe rather than an agent objective.
     """
     depth: int = 16
     kernel_size: int = 5

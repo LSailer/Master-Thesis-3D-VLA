@@ -17,7 +17,7 @@ gradient signal under one `jax.grad`.
 import functools
 import pickle
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -35,10 +35,11 @@ from .world_model.encoders import (
     WPConvEncoder,
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
+    RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
     VGGTEncoder as WMVGGTEncoder,
+    VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
-    HYBRID_VGGT_DIM,
 )
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
@@ -58,11 +59,27 @@ from src.shared.optim import laprop, agc
 # Re-export internal helpers so test_cross_framework.py keeps working.
 __all__ = [
     "R2DreamerAgent",
+    "R2DTrainState",
     "load_policy_checkpoint",
     "_kl_loss",
     "_lambda_return",
     "_imagine",
 ]
+
+
+class R2DTrainState(NamedTuple):
+    """Mutable-on-Python-side training state bundled for the JIT step.
+
+    The public ``R2DreamerAgent`` keeps exposing ``params``/``opt_state``/
+    ``slow_critic_params``/``ema_state`` properties for checkpoint and test
+    compatibility, but the compiled training kernel receives and returns this
+    single pytree so its interface stays compact.
+    """
+
+    params: Dict[str, Any]
+    opt_state: optax.OptState
+    slow_critic_params: Dict[str, Any]
+    ema_state: Any
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +148,11 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt": WMVGGTEncoder,
             "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
+            "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
             "vggt_wp_dense_cnn": WPConvEncoder,
             "hybrid": WMHybridEncoder,
+            "vggt_house_context": WMHybridEncoder,
+            "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -188,14 +208,15 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # Guard the packed encoder-layout contract: replay may store modalities in
     # separate fields, but obs_batch packs them into this flat shape before the
     # Flax encoder and decoder see them.
+    expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
     if not (
-        cfg.obs_shape == (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,)
+        cfg.obs_shape == expected_shape
         and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
     ):
         raise ValueError(
             "hybrid obs_shape/split mismatch: expected "
-            f"({HYBRID_RGB_DIM + HYBRID_VGGT_DIM},) with vggt_feature_dim="
-            f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
+            f"{expected_shape} with vggt_feature_dim={cfg.vggt_feature_dim}, "
+            f"got obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
     kwargs = _contract_encoder_kwargs(cfg)
@@ -208,6 +229,7 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
         vggt_embed_dim=cfg.vggt_embed_dim,
         mlp_hidden=cfg.mlp_vggt_hidden,
         mlp_layers=cfg.mlp_vggt_layers,
+        vggt_dim=cfg.vggt_feature_dim,
     )
 
 
@@ -223,6 +245,34 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     )
 
 
+def _make_full_token_nogate_encoder(cfg: R2DreamerConfig):
+    return WMRGBFullTokenTransformerEncoder(
+        cnn_depth=cfg.encoder_depth,
+        cnn_kernel=cfg.encoder_kernel,
+        cnn_mults=cfg.encoder_mults,
+        context_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        transformer_layers=cfg.vggt_token_transformer_layers,
+        transformer_heads=cfg.vggt_token_transformer_heads,
+        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        transformer_dropout=cfg.vggt_token_transformer_dropout,
+    )
+
+
+def _make_token_transformer_encoder(cfg: R2DreamerConfig):
+    return WMVGGTAggTokenTransformerEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        projection_dim=cfg.vggt_token_projection_dim,
+        layers=cfg.vggt_token_transformer_layers,
+        heads=cfg.vggt_token_transformer_heads,
+        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        keep_register_tokens=cfg.vggt_keep_register_tokens,
+    )
+
+
 def _make_encoder(cfg: R2DreamerConfig):
     cls = _resolve_encoder_cls(cfg)
     _validate_encoder_config(cfg, cls)
@@ -232,11 +282,27 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp_conv_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
+    if cls is WMVGGTAggTokenTransformerEncoder:
+        return _make_token_transformer_encoder(cfg)
+    if cls is WMRGBFullTokenTransformerEncoder:
+        return _make_full_token_nogate_encoder(cfg)
     return _make_mlp_encoder(cfg, cls)
 
 
+def _dummy_encoder_obs(cfg: R2DreamerConfig):
+    if cfg.encoder_type == "vggt_house_full_tokens_nogate":
+        return {
+            "image": jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            "full_tokens": jnp.zeros(
+                (1, cfg.vggt_token_count, cfg.vggt_token_dim), dtype=jnp.float32
+            ),
+        }
+    return jnp.zeros((1, *cfg.obs_shape))
+
+
 def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
-    total_loss = (
+    """Agent objective, excluding the optional debug decoder probe."""
+    return (
         cfg.scale_dyn * losses["dyn"]
         + cfg.scale_rep * losses["rep"]
         + cfg.scale_barlow * losses["barlow"]
@@ -246,10 +312,6 @@ def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
         + cfg.scale_value * losses["value"]
         + cfg.scale_repval * losses["repval"]
     )
-    # Co-trained decoder term (only present when cfg.decoder; 3D-51).
-    if cfg.decoder:
-        total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
-    return total_loss
 
 
 def _add_loss_metrics(metrics: dict[str, Any], losses: dict[str, Any]) -> None:
@@ -306,10 +368,51 @@ class R2DreamerAgent:
     """R2-Dreamer agent with a single LaProp optimizer over all parameters.
 
     All Flax modules are *stateless* — parameters live in a flat pytree dict
-    ``self.params``.  Training is done via ``jax.grad`` of a single loss
-    function (``_loss_fn``) that composes the world-model, behavior, and
-    representation sub-losses.
+    exposed as ``self.params``.  Training state is bundled in
+    ``self.train_state`` and threaded through one JIT-compiled pure step.
     """
+
+    @property
+    def train_state(self) -> R2DTrainState:
+        return self._train_state
+
+    @train_state.setter
+    def train_state(self, state: R2DTrainState) -> None:
+        self._train_state = state
+
+    @property
+    def params(self):
+        return self._train_state.params
+
+    @params.setter
+    def params(self, params):
+        self._train_state = self._train_state._replace(params=params)
+
+    @property
+    def opt_state(self):
+        return self._train_state.opt_state
+
+    @opt_state.setter
+    def opt_state(self, opt_state):
+        self._train_state = self._train_state._replace(opt_state=opt_state)
+
+    @property
+    def slow_critic_params(self):
+        return self._train_state.slow_critic_params
+
+    @slow_critic_params.setter
+    def slow_critic_params(self, slow_critic_params):
+        self._train_state = self._train_state._replace(
+            slow_critic_params=slow_critic_params
+        )
+
+    @property
+    def ema_state(self):
+        return self._train_state.ema_state
+
+    @ema_state.setter
+    def ema_state(self, ema_state):
+        self._train_state = self._train_state._replace(ema_state=ema_state)
 
     @classmethod
     def from_checkpoint(
@@ -365,7 +468,7 @@ class R2DreamerAgent:
 
         # Dummy forward to discover embed_size
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        dummy_obs = jnp.zeros((1, *config.obs_shape))
+        dummy_obs = _dummy_encoder_obs(config)
         enc_params = self.encoder_mod.init(k1, dummy_obs)
         embed = self.encoder_mod.apply(enc_params, dummy_obs)
         self.embed_size = embed.shape[-1]
@@ -417,16 +520,18 @@ class R2DreamerAgent:
         )
         cri_params = self.critic_mod.init(k_cri, feat0)
 
-        # ---- Co-trained decoder (3D-51): built ONLY when cfg.decoder ----
-        # Reconstructs the RGB image from `feat` for visual verification. Left
-        # unbuilt by default so the params pytree (and thus checkpoints) of
+        # ---- Debug decoder probe (3D-51): built ONLY when cfg.decoder ----
+        # Reconstructs RGB from stop-gradient `feat` for visual verification.
+        # Left unbuilt by default so the params pytree (and thus checkpoints) of
         # CNN/VGGT runs is unchanged.
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in ("cnn", "hybrid"):
+            if config.encoder_type not in (
+                "cnn", "hybrid", "vggt_house_context", "vggt_house_full_tokens_nogate"
+            ):
                 raise ValueError(
-                    "decoder=True requires encoder_type in {'cnn', 'hybrid'} — the "
+                    "decoder=True requires an RGB-bearing encoder_type — the "
                     "ConvDecoder reconstructs an RGB image, but "
                     f"{config.encoder_type!r} carries no RGB modality to reconstruct."
                 )
@@ -439,7 +544,7 @@ class R2DreamerAgent:
             dec_params = self.decoder_mod.init(k_dec, feat0)
 
         # ---- Bundle all params ----
-        self.params = {
+        params = {
             "encoder": enc_params,
             "rssm": rssm_params,
             "projector": proj_params,
@@ -461,7 +566,7 @@ class R2DreamerAgent:
         }
 
         if config.decoder:
-            self.params["decoder"] = dec_params
+            params["decoder"] = dec_params
             self._modules["decoder"] = self.decoder_mod
 
         # ---- Optimizer: LaProp with linear warmup ----
@@ -472,14 +577,21 @@ class R2DreamerAgent:
             eps=config.eps,
             warmup=config.warmup_steps,
         )
-        self.opt_state = self.tx.init(self.params)
+        opt_state = self.tx.init(params)
 
         # ---- Slow target critic (EMA) ----
-        self.slow_critic_params = jax.tree.map(jnp.copy, self.params["critic"])
+        slow_critic_params = jax.tree.map(jnp.copy, params["critic"])
 
         # ---- Return EMA ----
         self.return_ema = ReturnEMA()
-        self.ema_state = self.return_ema.init_state()
+        ema_state = self.return_ema.init_state()
+
+        self.train_state = R2DTrainState(
+            params=params,
+            opt_state=opt_state,
+            slow_critic_params=slow_critic_params,
+            ema_state=ema_state,
+        )
 
         # ---- Acting state (for single-env stepping) ----
         self._act_stoch = np.zeros(
@@ -489,7 +601,7 @@ class R2DreamerAgent:
         self._act_prev_action = np.zeros((1, config.num_actions), dtype=np.float32)
 
         # ---- JIT-compiled functions ----
-        self._jit_train_step = jax.jit(self._train_step)
+        self._jitted_train_step = jax.jit(self._train_step_pure)
         self._jit_act = jax.jit(self._act_jit)
 
     # ------------------------------------------------------------------
@@ -559,7 +671,7 @@ class R2DreamerAgent:
         return action_int, new_stoch, new_deter
 
     # ------------------------------------------------------------------
-    # Decoder reconstruction (visual verification; only when cfg.decoder)
+    # Decoder reconstruction probe (visual verification; only when cfg.decoder)
     # ------------------------------------------------------------------
 
     def reconstruct(self, batch: Dict[str, jnp.ndarray]):
@@ -595,24 +707,19 @@ class R2DreamerAgent:
 
     def train_step(self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
-        (
-            self.params,
-            self.opt_state,
-            self.slow_critic_params,
-            self.ema_state,
-            metrics,
-        ) = self._jit_train_step(
-            self.params,
-            self.opt_state,
-            self.slow_critic_params,
-            self.ema_state,
+        self.train_state, metrics = self._jitted_train_step(
+            self.train_state,
             batch,
             rng_key,
         )
         return {k: float(v) for k, v in metrics.items()}
 
-    def _train_step(self, params, opt_state, slow_critic_params, ema_state, batch, rng_key):
+    def _train_step_pure(self, state: R2DTrainState, batch, rng_key):
         """Pure-functional training step (JIT-able)."""
+        params = state.params
+        opt_state = state.opt_state
+        slow_critic_params = state.slow_critic_params
+        ema_state = state.ema_state
 
         # Slow critic EMA: update BEFORE loss (matches PyTorch _update_slow_target)
         tau = self.cfg.slow_target_fraction
@@ -652,9 +759,16 @@ class R2DreamerAgent:
             lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
 
         metrics = aux["metrics"]
-        metrics["total_loss"] = total_loss
+        metrics["opt_loss"] = total_loss
+        metrics["total_loss"] = aux["agent_loss"]
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
-        return new_params, new_opt_state, new_slow, new_ema_state, metrics
+        new_state = R2DTrainState(
+            params=new_params,
+            opt_state=new_opt_state,
+            slow_critic_params=new_slow,
+            ema_state=new_ema_state,
+        )
+        return new_state, metrics
 
     # ------------------------------------------------------------------
     # Composition root: shared forward + 3 sub-losses
@@ -740,7 +854,14 @@ class R2DreamerAgent:
         )
 
         losses = {**wm_losses, **bh_losses, **rep_losses}
-        total_loss = _weighted_total_loss(cfg, losses)
+        agent_loss = _weighted_total_loss(cfg, losses)
+        # The decoder is a stop-gradient visualisation probe. Add its detached
+        # reconstruction loss only to the optimiser objective so the decoder
+        # learns to read the current latent, while the agent/RSSM/encoder see
+        # exactly the same objective as decoder-free runs.
+        total_loss = agent_loss
+        if cfg.decoder:
+            total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
 
         # ---- Metrics ----
         metrics = {**wm_metrics, **bh_metrics, **rep_metrics}
@@ -752,10 +873,14 @@ class R2DreamerAgent:
         # encoder's `branches` method (shares params with the forward pass) and
         # log how much each modality drives the latent. `gate` starts at 0 and
         # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type == "hybrid":
+        if cfg.encoder_type in ("hybrid", "vggt_house_context"):
             _add_hybrid_contribution_metrics(
                 metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
             )
 
-        aux = {"metrics": metrics, "imag_returns": imag_ret.reshape(-1)}
+        aux = {
+            "metrics": metrics,
+            "imag_returns": imag_ret.reshape(-1),
+            "agent_loss": agent_loss,
+        }
         return total_loss, aux

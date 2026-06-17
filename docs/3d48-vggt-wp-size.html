@@ -120,6 +120,7 @@
   <a href="#verdict"><span class="n">07</span>Verdict</a>
   <a href="#repro"><span class="n">08</span>Reproduce</a>
   <a href="#decisions"><span class="n">09</span>Decisions log</a>
+  <a href="architecture-data-flow.html#variants"><span class="n">ref</span>Global architecture</a>
 </div></nav>
 
 <div class="wrap">
@@ -136,6 +137,7 @@
     </ul>
     <p style="margin-bottom:0">The pooling is exactly the <code>adaptive_avg_pool</code> over each patch cell — we verified <code>pooled == 14×14&nbsp;mean</code> to <code>8e-7</code> on a real frame.</p>
   </div>
+  <p class="sub">For the current full encoder/readout matrix, including the full-resolution WP CNN fork and the 64×64 WP/CP ablation, use <a class="inline" href="architecture-data-flow.html#variants">the global architecture/data-flow reference</a>.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -234,7 +236,7 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
   </figure>
 
   <h3>Is the point map geometry or colour? (verification)</h3>
-  <p>Both the input image and the point map are <code>H×W×3</code>, so it's natural to ask whether the 3 channels are RGB. They are not — they are <b>XYZ coordinates</b>. This is checked by <code>scripts/vggt/verify_pointmap_is_xyz.py</code> (no GPU needed):</p>
+  <p>Both the input image and the point map are <code>H×W×3</code>, so it's natural to ask whether the 3 channels are RGB. They are not — they are <b>XYZ coordinates</b>. This is checked by <code>scripts/profiling/diagnostics/verify_pointmap_is_xyz.py</code> (no GPU needed):</p>
   <figure>
     <img src="images/3d48/verify_pointmap.png" alt="Verification: point map is XYZ, not colour">
     <figcaption><b>Fig 6 — The point map is geometry, not colour.</b> Left: cloud coloured from the input pixels (coherent room). Middle: same geometry with colours <em>shuffled</em> against position — breaking the pixel pairing turns it to noise, proving colour is an external per-pixel overlay (borrowed from the input image), not stored in the point map. Right: the point map's own values as false-colour (R=X, G=Y, B=Z) — clearly not a photo.</figcaption>
@@ -265,7 +267,8 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
   <h2><span class="n">06</span>Open question: "if WP has the image shape, can we use the CNN encoder directly?"</h2>
   <div class="card callout">
     <p style="margin-top:0"><b>Yes — but only at full resolution.</b> A dense WP map is <code>(3, 518, 518)</code> — the exact <code>(C, H, W)</code> layout an RGB frame has. Our existing <code>ConvEncoder</code> (<code>encoders.py:24</code>) already expects <code>(B, C, H, W)</code>, so full-res WP can be fed straight in, treating XYZ as a 3-channel image — no new architecture.</p>
-    <p style="margin-bottom:0">At <b>37×37</b> it is not worth it: four 2×2 max-pools take <code>37→18→9→4→2</code>, so almost no spatial structure survives. That tiny grid is exactly <em>why</em> the current code flattens to 4116 and uses a single <code>Dense</code> instead of a conv stack.</p>
+    <p>At <b>37×37</b> it is not worth it: four 2×2 max-pools take <code>37→18→9→4→2</code>, so almost no spatial structure survives. That tiny grid is exactly <em>why</em> the current code flattens to 4116 and uses a single <code>Dense</code> instead of a conv stack.</p>
+    <p style="margin-bottom:0">The canonical current version of this fork is documented in <a class="inline" href="architecture-data-flow.html#variants"><code>architecture-data-flow.html#variants</code></a>.</p>
   </div>
   <p>This is a genuine architectural fork, so we scoped it out of 3D-48 into a new issue:</p>
   <table>
@@ -300,7 +303,7 @@ return {<span class="s">"world_points"</span>: world_points_out, <span class="s"
     </li>
     <li><b>Inspect locally</b> — every PNG in <code>docs/images/3d48/</code> is appendix-ready; this page embeds them. The dense NPZ is portable to your laptop for an interactive viewer if desired.</li>
   </ol>
-  <p class="sub">Artifacts: <code>scripts/vggt/dump_wp_dense_vs_pooled.py</code> · <code>scripts/vggt/dump_wp_dense_vs_pooled.sbatch</code> · <code>visualizations/wp_dense_vs_pooled_figs.py</code> · capture flag in <code>src/vggt/jax/feature_extractor.py</code>.</p>
+  <p class="sub">Artifacts: <code>scripts/profiling/diagnostics/dump_wp_dense_vs_pooled.py</code> · <code>scripts/vggt/dump_wp_dense_vs_pooled.sbatch</code> · <code>visualizations/wp_dense_vs_pooled_figs.py</code> · capture flag in <code>src/vggt/jax/feature_extractor.py</code>.</p>
 </section>
 
 <!-- ============================================================ -->

@@ -1,23 +1,25 @@
 """Dump VGGT world_points to NPZ for visualization.
 
 Usage:
-  uv run python -m src.vggt.scripts.dump_vggt_points --out output/vggt_points.npz
+  uv run python -m scripts.profiling.diagnostics.dump_vggt_points \
+      --out output/vggt_points.npz
 
 Optionally pass --seed to control the synthetic RGB.
 """
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.shared.profiling import make_synthetic_rgb_frame
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
-
-
-def _make_frame(seed: int, size: int = 518) -> np.ndarray:
-    rng = np.random.RandomState(seed)
-    return rng.randint(0, 256, size=(3, size, size), dtype=np.uint8)
 
 
 def main() -> None:
@@ -28,7 +30,7 @@ def main() -> None:
 
     ext = JAXVGGTFeatureExtractor(device="cuda")
     ext.reset()
-    out = ext.extract(_make_frame(args.seed))
+    out = ext.extract(make_synthetic_rgb_frame(args.seed))
 
     # Materialize to host for storage.
     world_points = np.asarray(out["world_points"])

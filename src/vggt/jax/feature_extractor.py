@@ -532,6 +532,11 @@ class JAXVGGTFeatureExtractor:
             dense_world_points=dense_world_points_out,
         )
 
+    def _aggregator_full_tokens(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
+        """Expose final full-width frame+global aggregator tokens."""
+        final_tokens = out_list[-1]
+        return final_tokens[0, 0].astype(jnp.float32)
+
     def _aggregator_features(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
         """Expose the final global-stream tokens used by VGGT encoder variants."""
         # Final pre-head aggregator tokens for encoder ablations. The JAX port
@@ -539,9 +544,8 @@ class JAXVGGTFeatureExtractor:
         # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
         # by Variant 1 before camera/point heads transform it into WP+CP. Keep
         # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
-        final_tokens = out_list[-1]
-        final_global = final_tokens[..., final_tokens.shape[-1] // 2:]
-        return final_global[0, 0].astype(jnp.float32)
+        final_tokens = self._aggregator_full_tokens(out_list)
+        return final_tokens[..., final_tokens.shape[-1] // 2:]
 
     def _run_optional_heads(
         self,
@@ -609,6 +613,7 @@ class JAXVGGTFeatureExtractor:
     def _build_extract_output(
         self,
         *,
+        aggregator_full_tokens: jnp.ndarray,
         aggregator_features: jnp.ndarray,
         head_outputs: HeadOutputs | None,
         return_dense: bool,
@@ -621,11 +626,15 @@ class JAXVGGTFeatureExtractor:
                 "world_points": head_outputs.world_points,
                 "camera_pose": head_outputs.camera_pose,
                 "aggregator_features": aggregator_features,
+                "aggregator_full_tokens": aggregator_full_tokens,
             }
             if return_dense:
                 out["dense_world_points"] = head_outputs.dense_world_points
             return out
-        return {"aggregator_features": aggregator_features}
+        return {
+            "aggregator_features": aggregator_features,
+            "aggregator_full_tokens": aggregator_full_tokens,
+        }
 
     def extract(
         self,
@@ -656,9 +665,11 @@ class JAXVGGTFeatureExtractor:
             phase_times=phase_times,
             forward_start=forward_start,
         )
-        aggregator_features = self._aggregator_features(out_list)
+        aggregator_full_tokens = self._aggregator_full_tokens(out_list)
+        aggregator_features = aggregator_full_tokens[..., aggregator_full_tokens.shape[-1] // 2:]
         self._frame_idx += 1
         return self._build_extract_output(
+            aggregator_full_tokens=aggregator_full_tokens,
             aggregator_features=aggregator_features,
             head_outputs=head_outputs,
             return_dense=return_dense,

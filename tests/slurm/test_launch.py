@@ -310,6 +310,101 @@ def test_aggregator_smoke_overrides() -> None:
     assert "agg-mlp-fast-path-smoke" in flags["--wandb_tags"]
 
 
+def test_time_override_applies_to_selected_mode() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1"), mode="prod", time_override="04:00:00",
+    )
+
+    assert "#SBATCH --time=04:00:00" in rendered
+    assert "habitat-l1-vggt-house-context" in rendered
+
+
+def test_partition_override_applies_to_selected_mode() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1"), mode="prod", partition_override="gpu_h100",
+    )
+
+    assert "#SBATCH --partition=gpu_h100" in rendered
+    assert "#SBATCH --partition=gpu_h100_il,gpu_h100" not in rendered
+
+
+def test_launch_wrapper_forwards_time_override() -> None:
+    result = run_launch("house_context_l1", "--prod", "--time", "04:00:00", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --time=04:00:00" in result.stdout
+
+
+def test_launch_wrapper_forwards_partition_override() -> None:
+    result = run_launch("house_context_l1", "--prod", "--partition", "gpu_h100", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --partition=gpu_h100" in result.stdout
+    assert "#SBATCH --partition=gpu_h100_il,gpu_h100" not in result.stdout
+
+
+def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:
+    result = run_launch("house_context_l1", "--time", "04:00:00", "--dry-run")
+
+    assert result.returncode == 0, result.stderr
+    assert "#SBATCH --job-name=vggt-house-context-l1" in result.stdout
+    assert "#SBATCH --time=04:00:00" in result.stdout
+    assert "--steps 2000000" in result.stdout
+
+
+def test_house_full_tokens_nogate_smoke_uses_new_run_id() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_full_tokens_nogate_l1"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-vggt-house-full-tokens-nogate"
+    assert "#SBATCH --job-name=smoke-vggt-house-full-tokens-nogate-l1" in rendered
+    assert flags["--output_dir"] == "output/smoke/vggt-house-full-tokens-nogate-${TIMESTAMP}"
+    assert flags["--wandb_name"] == "vggt-house-full-tokens-nogate-smoke-${TIMESTAMP}"
+    assert "no-gate" in flags["--wandb_tags"]
+    assert "=== Smoke PASS ===" in rendered
+
+
+def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_context_l1_long_smoke"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-vggt-house-context"
+    assert "#SBATCH --job-name=smoke-vggt-house-context-l1-long-smoke" in rendered
+    assert "#SBATCH --partition=gpu_h100_short" in rendered
+    assert "#SBATCH --time=00:30:00" in rendered
+    assert flags["--steps"] == "12000"
+    assert flags["--prefill"] == "200"
+    assert flags["--batch_size"] == "4"
+    assert flags["--seq_len"] == "16"
+    assert flags["--train_ratio"] == "16"
+    assert flags["--log_every"] == "500"
+    assert flags["--checkpoint_every"] == "100000"
+    assert flags["--output_dir"] == "output/smoke-long/vggt-house-context-${TIMESTAMP}"
+    assert flags["--wandb_name"] == "vggt-house-context-long-smoke-${TIMESTAMP}"
+    assert "long-smoke" in flags["--wandb_tags"]
+    assert "=== Smoke PASS ===" in rendered
+
+
+@pytest.mark.parametrize(
+    "variant,script",
+    [
+        ("profile_encoder_cost", "scripts/profiling/profile_encoders_3d5253.py"),
+        ("profile_training_vggt", "scripts/profiling/profile_training.py"),
+        ("profile_agg_pipeline", "scripts/profiling/profile_pipeline_aggregator_mlp.py"),
+    ],
+)
+def test_profiling_configs_render_standalone_scripts(variant: str, script: str) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+
+    assert f".venv/bin/python {script}" in rendered
+    assert "output/profiling" in rendered
+    assert "scripts/slurm/hooks/link_external.sh" in rendered
+    assert "--steps" not in rendered
+
 def test_aggregator_prod_is_strict_bash() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
     assert "set -euo pipefail" in rendered

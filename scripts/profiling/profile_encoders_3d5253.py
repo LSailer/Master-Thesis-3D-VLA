@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 
 import numpy as np
 
@@ -24,17 +23,11 @@ import jax.numpy as jnp
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
+from src.shared.profiling import make_synthetic_rgb_frame, measure_ms
 
 
 def timeit(fn, n=20, warmup=3):
-    for _ in range(warmup):
-        fn()
-    ts = []
-    for _ in range(n):
-        t0 = time.perf_counter()
-        fn()
-        ts.append((time.perf_counter() - t0) * 1000.0)
-    return float(np.mean(ts)), float(np.std(ts))
+    return measure_ms(fn, n=n, warmup=warmup)
 
 
 def make_batch(cfg):
@@ -87,7 +80,7 @@ def profile_vggt_extract():
     ext = JAXVGGTFeatureExtractor(total_budget=200_000,
                                   budgets_static=tuple([8333] * 24),
                                   compute_heads=True)
-    rgb = np.random.randint(0, 255, (3, 518, 518), dtype=np.uint8)
+    rgb = make_synthetic_rgb_frame(0)
     ext.reset()
     # warm a few frames so we time steady-state (frame>0), not the first-frame graph
     for _ in range(3):
@@ -106,7 +99,7 @@ def profile_vggt_extract():
     return m1, m2
 
 
-if __name__ == "__main__":
+def main() -> None:
     print("devices:", jax.devices(), flush=True)
     ex_wpcp_ms, ex_dense_ms = profile_vggt_extract()
     r_wpcp = profile_train_step("wp_cp", "vggt", (4116,), 16, 64, vggt_mlp_layers=3)
@@ -122,3 +115,7 @@ if __name__ == "__main__":
     print(f"encoder fwd ratio  wp_dense/wp_cp = {r_dense[2]/max(r_wpcp[2],1e-6):.2f}x")
     print("Note: train_step encodes B*T items (wp_cp=1024, wp_dense=128);")
     print("the conv is per-item far heavier, so wp_dense is slower despite fewer items.")
+
+
+if __name__ == "__main__":
+    main()

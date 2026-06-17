@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D-75 Feasibility Design: VGGT Token Replay</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --ink: #16202e;
+    --muted: #5d6878;
+    --line: #d8dee8;
+    --paper: #ffffff;
+    --accent: #0f766e;
+    --warn: #a15c06;
+    --bad: #a52727;
+    --good: #166534;
+    --code: #eef2f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.55;
+  }
+  header {
+    background: #172033;
+    color: white;
+    padding: 44px 28px 34px;
+    border-bottom: 4px solid var(--accent);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .eyebrow {
+    color: #b9c4d6;
+    font-size: 12px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  h1 { max-width: 980px; margin: 0; font-size: 42px; line-height: 1.08; letter-spacing: -.02em; }
+  .lede { max-width: 900px; color: #d7deea; font-size: 18px; margin: 16px 0 0; }
+  main { padding: 28px; }
+  section {
+    max-width: 1180px;
+    margin: 0 auto 22px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 22px;
+  }
+  h2 { margin: 0 0 12px; font-size: 24px; letter-spacing: -.01em; }
+  h3 { margin: 20px 0 8px; font-size: 17px; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  strong { color: var(--ink); }
+  code {
+    background: var(--code);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .9em;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 4px;
+    font-size: 14px;
+  }
+  th, td {
+    border-bottom: 1px solid var(--line);
+    padding: 10px 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f0f3f8;
+    color: #425066;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  tr:last-child td { border-bottom: 0; }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .metric {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px;
+    background: #fbfcfe;
+  }
+  .metric b { display: block; font-size: 22px; color: var(--ink); }
+  .metric span { color: var(--muted); font-size: 13px; }
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: #eaf6f4;
+    padding: 14px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 14px 0;
+  }
+  .risk { border-left-color: var(--bad); background: #fff1f1; }
+  .warn { border-left-color: var(--warn); background: #fff8e8; }
+  .good { border-left-color: var(--good); background: #eef8ee; }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid var(--line);
+    background: #f3f5f8;
+    color: #425066;
+  }
+  .bad-text { color: var(--bad); font-weight: 700; }
+  .good-text { color: var(--good); font-weight: 700; }
+  .warn-text { color: var(--warn); font-weight: 700; }
+  a { color: #0b5cad; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  footer { max-width: 1180px; margin: 0 auto; padding: 0 0 40px; color: var(--muted); font-size: 13px; }
+  @media (max-width: 900px) {
+    h1 { font-size: 32px; }
+    .grid { grid-template-columns: 1fr 1fr; }
+    table { font-size: 13px; }
+  }
+  @media (max-width: 620px) {
+    main { padding: 14px; }
+    header { padding: 32px 18px 26px; }
+    section { padding: 16px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">3D-75 design note · commit 965f041 · June 10, 2026</div>
+    <h1>Making VGGT aggregator-token replay feasible for 2M ObjectNav steps</h1>
+    <p class="lede">The current full-token Transformer implementation is functionally correct, but the 2M-step target is blocked by throughput. This report compares feasible design directions and recommends the smallest next bwUniCluster experiment.</p>
+  </div>
+</header>
+
+<main>
+  <section id="decision">
+    <h2>Recommendation</h2>
+    <div class="callout good">
+      <p><strong>Do not continue with full <code>(1374,1024)</code> replay for production.</strong> The next experiment should be a deterministic adapter-side patch-grid pooling variant, starting with <code>8x8</code> pooled patch tokens plus camera/register tokens: <code>69 x 1024</code> fp16 values per transition. Profile it with <code>train_ratio=4</code> and <code>train_ratio=8</code> before any long run.</p>
+    </div>
+    <p>The 48h SLURM target gives <strong>86.4 ms/env step</strong>. The current online VGGT + non-training overhead already costs about <strong>67.6 ms/env step</strong>, leaving roughly <strong>18.8 ms</strong> for replay sampling and training. Full-token replay cannot fit that budget.</p>
+    <p>The smallest useful next implementation is not a new large architecture. It is a throughput probe: preserve token structure at a coarser spatial grid, keep VGGT frozen/headless, and measure whether a compact token sequence can cross the <strong>11.57 env steps/sec</strong> threshold required for 2M steps in 48h.</p>
+    <p><strong>Fairness note:</strong> the current <code>train_ratio=32</code>, <code>batch_size=1</code>, <code>seq_len=8</code> setup is not an apples-to-apples learning comparison against the default R2Dreamer configuration (<code>train_ratio=512</code>, <code>batch_size=16</code>, <code>seq_len=64</code>) or the other VGGT variants (<code>train_ratio=128</code>, <code>batch_size=4</code>, <code>seq_len=32</code>). It is a reduced feasibility probe. A follow-up H100 smoke with the VGGT-like schedule <code>B=4,T=32,train_ratio=128</code> did not reach steady profiling: the first train step failed with GPU OOM while trying to allocate <code>39.54 GiB</code>. The global default <code>B=16,T=64</code> case would be larger again, so it was not a useful next run for the full-token design.</p>
+    <h3>Why baseline parameters run out of memory</h3>
+    <p>The per-update memory driver is <code>B*T</code>, not <code>train_ratio</code> by itself. <code>train_ratio</code> controls how often updates run per environment step: <code>updates/env = train_ratio / (B*T)</code>. The memory needed by one update is set by the sampled replay batch shape. With full VGGT aggregator tokens, one update feeds <code>(B*T, 1374, 1024)</code> into the trainable encoder, then the encoder projects to <code>256</code> channels and runs <code>8</code>-head self-attention over all <code>1374</code> tokens.</p>
+    <pre><code>Replay input values      = B * T * 1374 * 1024
+Replay input fp16 bytes  = values * 2
+Encoder input fp32 bytes = values * 4
+Attention matrix values  = B * T * heads * 1374 * 1374
+One fp32 attention matrix = attention_values * 4</code></pre>
+    <table>
+      <thead>
+        <tr><th>Config</th><th><code>B*T</code></th><th>Replay batch after fp32 upcast</th><th>One fp32 attention matrix</th><th>Observed / expected outcome</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Reduced smoke <code>B=1,T=8</code></td>
+          <td><code>8</code></td>
+          <td><code>0.042 GiB</code></td>
+          <td><code>0.45 GiB</code></td>
+          <td>Runs, but too slow.</td>
+        </tr>
+        <tr>
+          <td>VGGT-like <code>B=4,T=32</code></td>
+          <td><code>128</code></td>
+          <td><code>0.67 GiB</code></td>
+          <td><code>7.20 GiB</code></td>
+          <td>Measured H100 OOM: XLA tried to allocate <code>39.54 GiB</code> during the first train step.</td>
+        </tr>
+        <tr>
+          <td>Global default <code>B=16,T=64</code></td>
+          <td><code>1024</code></td>
+          <td><code>5.37 GiB</code></td>
+          <td><code>57.61 GiB</code></td>
+          <td>Not launched because it is 8x larger than the measured OOM case. Scaling the observed <code>39.54 GiB</code> allocation by <code>1024/128</code> gives roughly <code>316 GiB</code> for the analogous temporary allocation.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>This table is a lower-bound style explanation. Real JAX/XLA training needs more than one attention matrix: logits, softmax/probabilities, Q/K/V projections, MLP activations, residuals, gradients, optimizer temporaries, and compiler workspaces can coexist. That is why the <code>B=4,T=32</code> theoretical single-matrix number is <code>7.20 GiB</code>, while the actual failed allocation was <code>39.54 GiB</code>. The default <code>B=16,T=64</code> setting is therefore not just slow; it is structurally too large for full <code>1374</code>-token attention on one H100.</p>
+  </section>
+
+  <section id="current">
+    <h2>Current Evidence</h2>
+    <div class="grid">
+      <div class="metric"><b>4.41</b><span>steady env steps/sec</span></div>
+      <div class="metric"><b>226.93 ms</b><span>steady wall time per env step</span></div>
+      <div class="metric"><b>126.1 h</b><span>estimated 2M-step runtime</span></div>
+      <div class="metric"><b>86.4 ms</b><span>hard max step time for 48h</span></div>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Measured component</th><th>Mean</th><th>Per env step</th><th>Interpretation</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>VGGT extraction</td><td><code>54.13 ms/env</code></td><td><code>54.13 ms</code></td><td>Frozen online VGGT is expensive but still within the 48h hard budget if training is extremely cheap.</td></tr>
+        <tr><td>Replay sample</td><td><code>24.93 ms/train</code></td><td><code>99.73 ms</code></td><td>Four train updates per env step from <code>train_ratio=32</code>, <code>B*T=8</code>. This reduced schedule is a feasibility probe, not a fair learning comparison to higher-ratio baselines.</td></tr>
+        <tr><td>Train step</td><td><code>14.89 ms/train</code></td><td><code>59.57 ms</code></td><td>The Token Transformer is not the only issue; update frequency makes it large.</td></tr>
+        <tr><td>Adapter post / fp16 copy</td><td><code>5.65 ms/env</code></td><td><code>5.65 ms</code></td><td>Flattening and host replay conversion for full tokens.</td></tr>
+        <tr><td>Act + env + buffer add</td><td><code>~5.13 ms/env</code></td><td><code>~5.13 ms</code></td><td>Not the bottleneck.</td></tr>
+      </tbody>
+    </table>
+    <div class="callout risk">
+      <p><strong>Key constraint:</strong> Even if replay sampling were magically free, the current four train updates per env step would still cost about <code>67.6 + 59.6 = 127.2 ms/env</code>, or roughly 70h for 2M steps. Feasibility requires both smaller replay payloads and fewer/cheaper updates.</p>
+    </div>
+    <h3>Baseline-like parameter check</h3>
+    <table>
+      <thead>
+        <tr><th>Configuration</th><th>Updates/env</th><th>Smoke result</th><th>Conclusion</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>3D-75 reduced smoke: <code>B=1,T=8,train_ratio=32</code></td>
+          <td><code>4.0</code></td>
+          <td><code>4.41 env steps/sec</code>, estimated <code>126.1 h</code> for 2M steps.</td>
+          <td>Runs, but far too slow.</td>
+        </tr>
+        <tr>
+          <td>Other-VGGT-like schedule: <code>B=4,T=32,train_ratio=128</code></td>
+          <td><code>1.0</code></td>
+          <td>H100 smoke failed before steady metrics: first train step hit <code>RESOURCE_EXHAUSTED</code>, allocating <code>39.54 GiB</code>.</td>
+          <td>Not feasible with full <code>1374</code>-token attention.</td>
+        </tr>
+        <tr>
+          <td>Global R2Dreamer default: <code>B=16,T=64,train_ratio=512</code></td>
+          <td><code>0.5</code></td>
+          <td>Not launched after the smaller <code>B*T=128</code> case OOMed; this would use <code>B*T=1024</code>, 8x more replay positions.</td>
+          <td>Expected to be worse than the measured OOM case.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="why">
+    <h2>Why FP16 Replay Still Hurts</h2>
+    <p>The replay buffer stores fp16, but sampling converts to fp32 JAX arrays. In the current code, sampled NumPy observations are gathered and then packed with <code>jnp.array(obs_b, dtype=jnp.float32)</code>. JAX's device transfer API returns an array resident on device when data is moved there, so the sampled batch becomes a host-to-device transfer burden during training.</p>
+    <table>
+      <thead>
+        <tr><th>Replay layout</th><th>Per transition</th><th>100k replay</th><th><code>B=1,T=8</code> fp32 batch transfer</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Full tokens <code>1374 x 1024</code></td><td><code>2.684 MiB</code></td><td><code>262.07 GiB</code></td><td><code>42.94 MiB/train</code></td></tr>
+        <tr><td>Full tokens, 512-d frozen projection</td><td><code>1.342 MiB</code></td><td><code>131.03 GiB</code></td><td><code>21.47 MiB/train</code></td></tr>
+        <tr><td>Full tokens, 256-d frozen projection</td><td><code>0.671 MiB</code></td><td><code>65.52 GiB</code></td><td><code>10.73 MiB/train</code></td></tr>
+        <tr><td><code>8x8</code> pooled patches + camera/register, 1024-d</td><td><code>0.135 MiB</code></td><td><code>13.16 GiB</code></td><td><code>2.16 MiB/train</code></td></tr>
+        <tr><td><code>4x4</code> pooled patches + camera/register, 1024-d</td><td><code>0.041 MiB</code></td><td><code>4.01 GiB</code></td><td><code>0.66 MiB/train</code></td></tr>
+      </tbody>
+    </table>
+    <p>Full fp16 storage helps storage capacity, but it does not solve the training input-pipeline problem because the learner consumes fp32 batches and repeats that transfer for every train update.</p>
+    <h3>Official DreamerV3 dtype comparison</h3>
+    <p>I checked the official external <a href="https://github.com/danijar/dreamerv3">danijar/dreamerv3</a> checkout cloned at <code>external/dreamerv3</code>, commit <code>e3f0224</code>. The important difference is that DreamerV3 replay does not store large precomputed floating-point vision-token tensors. It stores raw transition fields in their native dtype, then casts inside the JAX model according to the configured compute dtype.</p>
+    <table>
+      <thead>
+        <tr><th>Code path</th><th>Observed dtype behavior</th><th>Relevance for 3D-75</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>embodied/core/chunk.py</code></td>
+          <td>Replay chunks allocate arrays with the dtype of the first inserted step: <code>np.empty((size, *v.shape), v.dtype)</code>, and save with <code>np.savez_compressed</code>.</td>
+          <td>Official replay preserves storage dtype; it does not force all replay data to fp16 or fp32.</td>
+        </tr>
+        <tr>
+          <td><code>embodied/core/replay.py</code></td>
+          <td><code>Replay.add()</code> converts fields with <code>np.asarray(v)</code> and keeps that dtype.</td>
+          <td>The replay system is dtype-preserving. The payload size is determined by what the environment/agent inserts.</td>
+        </tr>
+        <tr>
+          <td><code>dreamerv3/main.py</code> / <code>embodied/core/wrappers.py</code></td>
+          <td>Environment wrapping normalizes dtypes before insertion: images remain <code>uint8</code>, floats become <code>float32</code>, integers become <code>int32</code>, and flags remain boolean.</td>
+          <td>DreamerV3 keeps compact image observations in replay instead of storing already-expanded feature tensors.</td>
+        </tr>
+        <tr>
+          <td><code>dreamerv3/configs.yaml</code></td>
+          <td>Default JAX compute dtype is <code>bfloat16</code>.</td>
+          <td>Compute precision is separate from replay storage precision.</td>
+        </tr>
+        <tr>
+          <td><code>dreamerv3/rssm.py</code></td>
+          <td>Image observations are asserted to be <code>uint8</code>, then encoded via <code>nn.cast(..., force=True) / 255 - 0.5</code>.</td>
+          <td>Official DreamerV3 stores compact image replay and only casts on the learner side.</td>
+        </tr>
+        <tr>
+          <td><code>embodied/jax/nets.py</code></td>
+          <td><code>nn.cast()</code> casts floating tensors to <code>COMPUTE_DTYPE</code>, normally <code>bfloat16</code>.</td>
+          <td>A closer DreamerV3-style design for 3D-75 would avoid sampling full tokens as fp32 NumPy-to-JAX batches and cast inside the encoder to bf16/fp32 only where needed.</td>
+        </tr>
+        <tr>
+          <td><code>embodied/jax/agent.py</code></td>
+          <td>The learner stream does not globally cast every batch field to fp32 before device transfer; model code casts at use sites.</td>
+          <td>This differs from the current 3D-75 replay path, where <code>ReplayBuffer.sample()</code> packs <code>obs</code> as <code>jnp.float32</code> immediately.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Bottom line: official DreamerV3's efficient replay story comes mostly from storing compact raw observations such as <code>uint8</code> images, not from storing huge feature tensors in fp16. For 3D-75, fp16 token storage is still much larger than DreamerV3 image replay, and the current sample path immediately turns those tokens into fp32 JAX arrays. Matching DreamerV3 more closely would mean compact pre-replay representations plus delayed/mixed-precision casting inside the model, not just changing the replay array dtype.</p>
+  </section>
+
+  <section id="research">
+    <h2>Research Signals</h2>
+    <table>
+      <thead>
+        <tr><th>Source</th><th>Relevant signal</th><th>How it applies here</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="https://arxiv.org/abs/2205.14135">FlashAttention</a></td>
+          <td>Standard attention is quadratic in sequence length; IO-aware kernels reduce HBM/SRAM traffic and improve wall-clock.</td>
+          <td>Useful later for attention efficiency, but it does not reduce replay payload or online VGGT extraction. It will not by itself fix the 126h estimate.</td>
+        </tr>
+        <tr>
+          <td><a href="https://arxiv.org/abs/2009.14794">Performer</a> / <a href="https://arxiv.org/abs/2006.04768">Linformer</a></td>
+          <td>Linear/low-rank attention targets the quadratic cost of long sequences.</td>
+          <td>Could reduce Transformer compute, but current measured train step is only <code>14.9 ms</code>; replay transfer and update frequency dominate more.</td>
+        </tr>
+        <tr>
+          <td><a href="https://proceedings.neurips.cc/paper/2021/hash/6a30e32e56fce5cf381895dfe6ca7b6f-Abstract.html">TokenLearner</a></td>
+          <td>Adaptive visual token selection can use a small number of learned tokens while preserving downstream performance.</td>
+          <td>Supports a token reduction direction, but learned token selection before replay would either be frozen or require a more complex training objective.</td>
+        </tr>
+        <tr>
+          <td><a href="https://arxiv.org/abs/2102.04736">Reverb</a> and replay-system work</td>
+          <td>Replay generation and consumption mechanisms matter for RL throughput; systems expose sample/insert ratio controls.</td>
+          <td>Confirms this is a replay-system bottleneck, but adopting a distributed replay system is too large for the smallest next step.</td>
+        </tr>
+        <tr>
+          <td><a href="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.jax_utils.html">Flax prefetch_to_device</a></td>
+          <td>Device prefetching can overlap CPU transfer and GPU compute; docs note a small GPU prefetch buffer often helps.</td>
+          <td>May hide some replay latency, but cannot remove the 42.94 MiB/train payload. Best treated as a secondary optimization.</td>
+        </tr>
+        <tr>
+          <td><a href="https://arxiv.org/abs/2509.15880">eVGGT</a></td>
+          <td>Distilled geometry encoder is reported as nearly <code>9x</code> faster and <code>5x</code> smaller than VGGT while preserving 3D reasoning. The paper reduces the VGGT transformer depth and replaces the DINOv2-ViT-L backbone with DINOv2-ViT-S.</td>
+          <td>Strategically important for the <code>54.13 ms/env</code> online VGGT extraction cost. It does not by itself solve full-token replay transfer or the <code>1374 x 1374</code> train-time attention memory.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="evggt">
+    <h2>Extractor-Side Speed Track</h2>
+    <p>The paper <a href="https://arxiv.org/abs/2509.15880">Improving Robotic Manipulation with Efficient Geometry-Aware Vision Encoder</a> is directly relevant for the online VGGT cost. It proposes eVGGT, a distilled student that keeps geometry-aware latent features but reduces the model. The local JAX VGGT port currently uses <code>depth=24</code>, <code>embed_dim=1024</code>, and <code>num_heads=16</code> in the aggregator, and the DINOv2 patch embed is also fixed to <code>depth=24</code>. Therefore, reducing blocks or width is not just a command-line switch in the current code; it requires either a compatible distilled checkpoint or a new weight-transfer/training path.</p>
+    <p><strong>Can we change the blocks without training?</strong> Only as a speed ablation. The external <a href="https://github.com/andvg3/eVGGT">andvg3/eVGGT</a> code does not simply drop VGGT layers and keep the original weights. Its policy encoder builds <code>VGGT_LDM</code> with <code>embed_dim=384</code>, <code>depth=4</code>, <code>num_heads=4</code>, <code>mlp_ratio=2.0</code>, <code>num_register_tokens=2</code>, and a smaller <code>dinov2_vits14_reg</code> patch embed, then loads separate distillation weights and freezes the model. A no-training truncation of our <code>24</code>-block, <code>1024</code>-wide VGGT would change the feature distribution and should not be treated as a valid eVGGT-equivalent production encoder without quality validation.</p>
+    <p><strong>Can reduced VGGT be combined with StreamVGGT?</strong> In principle yes: streaming is an inference schedule and cache, while eVGGT is a smaller/distilled model. But the current R2Dreamer path is a JAX port of the StreamVGGT-shaped model, not an eVGGT port. It instantiates the default <code>Aggregator()</code>, loads the <code>lch01/StreamVGGT</code> checkpoint, creates caches of length <code>depth=24</code>, uses static budgets <code>tuple([8333] * 24)</code>, and exposes <code>1374 x 1024</code> final global tokens. A reduced eVGGT-style model would need a matching StreamVGGT/eVGGT implementation: new weights, new weight transfer or PyTorch bridge, cache depth <code>4</code>, width <code>384</code>, heads <code>4</code>, register count <code>2</code>, and updated replay/adapter shapes. So this is a plausible follow-up track, but not a drop-in switch for the current 3D-75 branch.</p>
+    <table>
+      <thead>
+        <tr><th>Change</th><th>Effect on online VGGT extraction</th><th>Effect on replay/H2D</th><th>Effect on full-token train OOM</th><th>Runtime outlook</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Aggregator blocks <code>24 -> 8</code></td>
+          <td>As a no-training truncation, this is only a timing/quality ablation. Ideal upper-bound scaling of the measured <code>54.13 ms/env</code> gives <code>~18.0 ms/env</code>, but the real gain is smaller if the fixed DINOv2 backbone remains unchanged.</td>
+          <td>No change: still <code>1374 x 1024</code> unless width/token layout also changes.</td>
+          <td>No meaningful fix: train-time self-attention still sees <code>1374</code> tokens per replay position.</td>
+          <td>Useful smoke only. Current full-token path would still be around <code>~104 h</code> if only extraction scaled ideally, and learning quality is unknown.</td>
+        </tr>
+        <tr>
+          <td>Aggregator blocks <code>24 -> 4</code></td>
+          <td>Matches eVGGT depth only in name. eVGGT also changes width, heads, register count, patch backbone, and weights. Ideal upper-bound scaling gives <code>~9.0 ms/env</code>, but that is only realistic with a trained/distilled smaller model.</td>
+          <td>No change by itself.</td>
+          <td>No meaningful fix by itself.</td>
+          <td>Not a valid no-training replacement for VGGT. Current full-token path would still be around <code>~99 h</code> if only extraction scaled ideally.</td>
+        </tr>
+        <tr>
+          <td>Token width <code>1024 -> 512</code></td>
+          <td>Could reduce model compute if the whole VGGT/eVGGT stack is trained at 512 width. A post-hoc projection after extraction would not speed online VGGT.</td>
+          <td>Exact replay reduction: <code>2.684 -> 1.342 MiB</code> per transition; <code>100k</code> replay becomes <code>131.0 GiB</code>; <code>B=1,T=8</code> fp32 batch transfer becomes <code>21.47 MiB/train</code>.</td>
+          <td>Mostly unchanged if the trainable token Transformer still attends over all <code>1374</code> tokens. The large <code>N x N</code> attention maps are token-count dominated.</td>
+          <td>Likely still well above 48h without token pooling and/or fewer updates.</td>
+        </tr>
+        <tr>
+          <td>Token width <code>1024 -> 256</code></td>
+          <td>Could be much faster only if the geometry encoder itself is a trained 256-wide student. The current trainable readout already projects replay tokens to <code>256</code> before attention, so this is mainly an extractor/replay change.</td>
+          <td>Exact replay reduction: <code>2.684 -> 0.671 MiB</code> per transition; <code>100k</code> replay becomes <code>65.5 GiB</code>; <code>B=1,T=8</code> fp32 batch transfer becomes <code>10.73 MiB/train</code>.</td>
+          <td>Still does not remove the <code>1374 x 1374</code> attention maps. It helps transfer/storage, not the baseline-parameter OOM root cause.</td>
+          <td>May approach the 48h boundary only when combined with faster extraction and a lower update schedule; still weaker than reducing token count.</td>
+        </tr>
+        <tr>
+          <td>eVGGT-style distilled student</td>
+          <td>The paper reports nearly <code>9x</code> faster inference and <code>5x</code> smaller model size versus VGGT. The external implementation uses a <code>4</code>-block, <code>384</code>-wide student and expects downloaded distillation weights.</td>
+          <td>Replay improves if we store the student's lower-width tokens or an even more compact readout; it does not improve merely by changing the online extractor while still storing <code>1374 x 1024</code>.</td>
+          <td>Still needs token pooling/selection or fewer attention heads if all patch tokens are kept.</td>
+          <td>Best medium-term track, but not the smallest next experiment because it requires checkpoint availability, JAX/PyTorch integration, and parity validation.</td>
+        </tr>
+        <tr>
+          <td>eVGGT + streaming cache</td>
+          <td>Potentially combines both ideas: smaller distilled model plus one-frame streaming inference. Requires porting/adapting StreamVGGT cache logic to eVGGT's architecture instead of reusing the current <code>24</code>-block cache unchanged.</td>
+          <td>Good only if the replay payload also changes to the smaller token width or pooled tokens.</td>
+          <td>Does not solve full-token OOM unless token count is reduced or the learner attention is changed.</td>
+          <td>Promising but larger than the next smoke. First experiment should still be token pooling on the current extractor; second experiment can benchmark a real eVGGT/streaming bridge if weights are available.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>Takeaway: eVGGT-style block and width reduction is worth a follow-up issue for the online extractor bottleneck. For the immediate 3D-75 feasibility question, it should be combined with token-count reduction. The current bottleneck has two separate parts: <code>54.13 ms/env</code> online VGGT extraction and replay/training over <code>1374</code> tokens. Reducing extractor depth helps the first part; pooling or selecting tokens before replay is still needed for the second part.</p>
+  </section>
+
+  <section id="options">
+    <h2>Options Compared</h2>
+    <table>
+      <thead>
+        <tr><th>Option</th><th>Storage / transfer</th><th>Training correctness</th><th>Runtime outlook</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Full-token replay + prefetch</strong></td>
+          <td>Still <code>2.684 MiB</code>/transition and <code>42.94 MiB</code>/sampled train batch.</td>
+          <td>Preserves current learning path exactly.</td>
+          <td>Perfect overlap could reduce sample+train from <code>~159 ms/env</code> to <code>~100 ms/env</code>, still around <code>80+h</code>.</td>
+          <td><span class="bad-text">Not sufficient</span></td>
+        </tr>
+        <tr>
+          <td><strong>Full-token replay + lower <code>train_ratio</code></strong></td>
+          <td>No storage reduction.</td>
+          <td>Changes Dreamer update schedule; learning risk must be measured.</td>
+          <td><code>train_ratio=8</code> is still about <code>~60h</code> without other changes.</td>
+          <td><span class="bad-text">Not enough alone</span></td>
+        </tr>
+        <tr>
+          <td><strong>Frozen per-token projection before replay</strong></td>
+          <td>256-d full tokens reduce 100k replay to <code>65.5 GiB</code> and transfer to <code>10.7 MiB/train</code>.</td>
+          <td>Projection cannot be trained through replay unless the design changes; frozen random/learned projection may damage geometry signal.</td>
+          <td>Likely still over 48h unless update frequency is also reduced.</td>
+          <td><span class="warn-text">Useful later, not first</span></td>
+        </tr>
+        <tr>
+          <td><strong>Adapter-side spatial pooling to <code>8x8</code></strong></td>
+          <td><code>69 x 1024</code> tokens: <code>13.16 GiB</code> per 100k and <code>2.16 MiB/train</code>.</td>
+          <td>Deterministic pooling preserves VGGT token channel semantics; only spatial resolution changes.</td>
+          <td>With <code>train_ratio=4</code> or carefully optimized <code>8</code>, likely near the 48h boundary. Needs direct profile.</td>
+          <td><span class="good-text">Best next experiment</span></td>
+        </tr>
+        <tr>
+          <td><strong><code>4x4</code> pooled tokens</strong></td>
+          <td>Very small: <code>4.01 GiB</code> per 100k.</td>
+          <td>May become too close to the existing pooled-aggregator lower-bound ablation.</td>
+          <td>Likely feasible, but less informative if performance drops.</td>
+          <td><span class="warn-text">Fallback if 8x8 fails</span></td>
+        </tr>
+        <tr>
+          <td><strong>GPU-resident replay</strong></td>
+          <td>5k full-token replay is <code>13.1 GiB</code>; 100k is impossible on one H100.</td>
+          <td>Preserves current path if capacity is small.</td>
+          <td>Could speed a 5k smoke, but not a normal-capacity production run.</td>
+          <td><span class="bad-text">Capacity mismatch</span></td>
+        </tr>
+        <tr>
+          <td><strong>Cache compact Transformer outputs</strong></td>
+          <td>Would be very cheap.</td>
+          <td>Breaks the acceptance criterion that the Token Transformer is trainable from world-model loss, unless objective changes.</td>
+          <td>Fast but answers a different question.</td>
+          <td><span class="bad-text">Not same experiment</span></td>
+        </tr>
+        <tr>
+          <td><strong>eVGGT / distilled extractor</strong></td>
+          <td>Would reduce online extraction, not replay by itself.</td>
+          <td>Changes the frozen geometry encoder; needs parity/design work.</td>
+          <td>Strategically strongest if available locally, but larger integration risk.</td>
+          <td><span class="warn-text">Follow-up track</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="experiment">
+    <h2>Smallest Next bwUniCluster Experiment</h2>
+    <div class="callout">
+      <p><strong>Implement one narrow profiling variant:</strong> <code>vggt_agg_token_pool8_transformer</code>. Adapter keeps camera token, four register tokens, and average-pools the 37x37 patch grid to 8x8. Replay shape becomes <code>(69 * 1024,)</code> fp16. The trainable encoder is the same token Transformer with <code>num_tokens=69</code>.</p>
+    </div>
+    <table>
+      <thead>
+        <tr><th>Step</th><th>Command / setting</th><th>Pass condition</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1. Shape smoke</td><td>CPU tests with reduced token count and adapter fake extractor.</td><td>Registry and shape tests pass.</td></tr>
+        <tr><td>2. H100 profile A</td><td><code>train_ratio=4</code>, <code>batch_size=1</code>, <code>seq_len=8</code>, steady profile after warmup.</td><td>Pass: <code>&gt;= 11.6 env steps/sec</code> or <code>&lt;= 86 ms/env</code>.</td></tr>
+        <tr><td>3. H100 profile B</td><td><code>train_ratio=8</code> with same shape.</td><td>If it also meets budget, prefer it for learning. If not, profile A remains candidate.</td></tr>
+        <tr><td>4. Short learning pilot</td><td>L1, <code>100k-200k</code> env steps, no video/val overhead, compare against current pooled aggregator and WP/CP controls.</td><td>Training does not collapse; SR/loss trends are at least plausible.</td></tr>
+      </tbody>
+    </table>
+    <p>Decision rule: if <code>8x8</code> pooled tokens at <code>train_ratio=4</code> cannot hit the 48h budget, full-token Transformer training should be parked until either online VGGT gets faster or replay/training is redesigned more deeply. If it hits budget but learning is weak, test <code>16x16</code> as quality/throughput trade-off, not full 37x37.</p>
+  </section>
+
+  <section id="cluster">
+    <h2>Cluster vs Local</h2>
+    <p><strong>Use local/Codex for:</strong> design review, web/paper search, HTML annotation, CPU shape tests, and static report generation.</p>
+    <p><strong>Use bwUniCluster/H100 for:</strong> any claim about VGGT extraction, JAX/XLA compilation, host-to-device transfer, and ObjectNav step throughput. A local machine without GPU cannot represent the bottleneck measured here.</p>
+    <p>Portable report path from the 3D-75 worktree root:</p>
+    <p><code>docs/research/3d75-feasible-token-replay-design.html</code></p>
+    <p>Serve from the worktree root with <code>python -m http.server 8000</code> or use the active docs server origin with the same relative path.</p>
+  </section>
+
+  <section id="sources">
+    <h2>Sources</h2>
+    <p>Primary sources used for the design pass:</p>
+    <ul>
+      <li><a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</a></li>
+      <li><a href="https://arxiv.org/abs/2009.14794">Rethinking Attention with Performers</a></li>
+      <li><a href="https://arxiv.org/abs/2006.04768">Linformer: Self-Attention with Linear Complexity</a></li>
+      <li><a href="https://proceedings.neurips.cc/paper/2021/hash/6a30e32e56fce5cf381895dfe6ca7b6f-Abstract.html">TokenLearner: Adaptive Space-Time Tokenization for Videos</a></li>
+      <li><a href="https://arxiv.org/abs/2102.04736">Reverb: A Framework For Experience Replay</a></li>
+      <li><a href="https://docs.jax.dev/en/latest/_autosummary/jax.device_put.html">JAX device_put documentation</a></li>
+      <li><a href="https://flax-linen.readthedocs.io/en/latest/api_reference/flax.jax_utils.html">Flax prefetch_to_device documentation</a></li>
+      <li><a href="https://arxiv.org/abs/2509.15880">Improving Robotic Manipulation with Efficient Geometry-Aware Vision Encoder</a></li>
+      <li><a href="https://github.com/facebookresearch/vggt">facebookresearch/VGGT repository</a></li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div>Generated from branch <code>lucasailerls/3d-75-vggt-agg-token-transformer</code>, commit <code>965f041</code>. Runtime evidence: <code>output/profiling/agg_token_transformer_steady_smoke.json</code>.</div>
+</footer>
+</body>
+</html>

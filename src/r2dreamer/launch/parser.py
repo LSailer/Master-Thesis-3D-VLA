@@ -113,16 +113,34 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
                    help="Override cfg.stoch_classes (explicit; wins over --latent_preset).")
     p.add_argument("--stoch_discrete", type=int, default=None,
                    help="Override cfg.stoch_discrete (explicit; wins over --latent_preset).")
-    # --- Co-trained decoder (3D-51) ---
+    # --- Debug decoder probe (3D-51) ---
     p.add_argument("--decoder", action="store_true",
-                   help="Co-train a ConvDecoder + add a reconstruction loss (3D-51).")
+                   help="Train a stop-gradient ConvDecoder probe for reconstruction logging (3D-51).")
     p.add_argument("--scale_decoder", type=float, default=None,
-                   help="Override cfg.scale_decoder (reconstruction loss weight).")
+                   help="Override cfg.scale_decoder (decoder-only reconstruction weight).")
     # --- Hybrid VGGT-branch MLP knobs ---
     p.add_argument("--mlp_vggt_hidden", type=int, default=None,
                    help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).")
     p.add_argument("--mlp_vggt_layers", type=int, default=None,
                    help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).")
+
+
+def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--vggt_token_transformer_layers", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_layers for "
+                        "vggt_agg_token_transformer.")
+    p.add_argument("--vggt_token_transformer_heads", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_heads for "
+                        "vggt_agg_token_transformer.")
+    p.add_argument("--vggt_token_projection_dim", type=int, default=None,
+                   help="Override cfg.vggt_token_projection_dim before token attention.")
+    p.add_argument("--vggt_token_transformer_mlp_ratio", type=int, default=None,
+                   help="Override cfg.vggt_token_transformer_mlp_ratio.")
+    p.add_argument("--vggt_token_transformer_dropout", type=float, default=None,
+                   help="Override cfg.vggt_token_transformer_dropout. Default 0.0.")
+    p.add_argument("--vggt_drop_register_tokens", action="store_true",
+                   help="Drop the 4 VGGT register tokens in the token Transformer "
+                        "ablation. Default keeps registers for 3D-75.")
 
 
 def _build_parser_train() -> argparse.ArgumentParser:
@@ -134,6 +152,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     _add_overfit_train_args(p)
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)
+    _add_token_transformer_train_args(p)
     return p
 
 
@@ -142,7 +161,12 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
     p.add_argument("--encoder", type=str, default=None,
-                   choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"])
+                   choices=[
+                       "cnn", "vggt", "vggt_aggregator_mlp",
+                       "vggt_agg_token_transformer", "vggt_wp_dense_cnn",
+                       "vggt_wp_cp_64", "hybrid", "vggt_house_context",
+                       "vggt_house_full_tokens_nogate",
+                   ])
     p.add_argument("--random", action="store_true",
                    help="Use random agent instead of a checkpoint")
     p.add_argument("--episodes", type=int, default=10)

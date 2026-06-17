@@ -32,7 +32,7 @@ class EncoderSpec:
     instance keeps the launcher on the non-JIT side of the boundary.
     """
 
-    obs_shape: tuple[int, ...]
+    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]]
     env_render_resolution: int
     encoder_type: str
     module_cls: type[nn.Module]
@@ -108,6 +108,30 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "camera-token embedding itself already carries pose information."
         ),
     ),
+    "vggt_agg_token_transformer": _vggt_variant(
+        encoder_type="vggt_agg_token_transformer",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.VGGTAggTokenTransformerEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 5_000,
+            "batch_size": 1,
+            "seq_len": 8,
+            "train_ratio": 32,
+        },
+        design_notes=(
+            "3D-75 token-preserving VGGT aggregator encoder. The frozen JAX VGGT "
+            "extractor runs headless (compute_heads=False) and emits full global "
+            "aggregator tokens: 1 camera + 4 register + 37x37 patch tokens = "
+            "(1374, 1024). The adapter stores the flattened full-token sequence "
+            "as float16 in replay; the trainable Flax Token Transformer upcasts to "
+            "float32, keeps register tokens by default, projects each token before "
+            "self-attention, pools the camera/register/patch outputs, and returns "
+            "cfg.vggt_embed_dim for the unchanged R2RSSM.observe() path. The small "
+            "default batch/sequence overrides are intentional because attention "
+            "runs over all 1374 tokens for every sampled replay position."
+        ),
+    ),
     "vggt_wp_dense_cnn": _vggt_variant(
         encoder_type="vggt_wp_dense_cnn",
         feature_kind="wp_dense",
@@ -142,6 +166,45 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "branch means training starts as plain CNN-Dreamer and only blends in the "
             "geometric features as the gate opens; per-branch contributions are logged "
             "as hybrid/* metrics (3D-50/51/52)."
+        ),
+    ),
+    "vggt_house_context": _vggt_variant(
+        encoder_type="vggt_house_context",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.HybridEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_feature_dim": wm_encoders.HOUSE_CONTEXT_DIM,
+            "vggt_token_dim": 2048,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes=(
+            "L1 house-context variant: replay stores only the 64x64 RGB frame, "
+            "while a live bounded InfiniteVGGT stream remains active across "
+            "episode resets and exposes the full 1374x2048 frozen aggregator "
+            "tokens. A 2048-wide token Transformer consumes those tokens directly, "
+            "projects the resulting context to 1024, and injects that cached "
+            "context at acting and training time. Replay remains RGB-only and the "
+            "existing hybrid gate fuses RGB 1024 + VGGT context 1024."
+        ),
+    ),
+    "vggt_house_full_tokens_nogate": _vggt_variant(
+        encoder_type="vggt_house_full_tokens_nogate",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.RGBFullTokenTransformerEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_token_dim": 2048,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes=(
+            "L1 no-gate full-token variant: replay stores only RGB64 while a live "
+            "bounded InfiniteVGGT stream exposes the full 1374x2048 aggregator "
+            "tokens. The trainable agent encoder consumes image+full_tokens as "
+            "separate fields, runs CNN(image) and a full-token Transformer, then "
+            "concatenates them directly without the hybrid scalar gate or WP/CP MLP."
         ),
     ),
     "vggt_wp_cp_64": _vggt_variant(
@@ -302,6 +365,12 @@ class VGGTAggregatorMLPEncoder(VGGTEncoder):
     variant = VGGT_VARIANTS["vggt_aggregator_mlp"]
 
 
+class VGGTAggTokenTransformerEncoder(VGGTEncoder):
+    """Full VGGT aggregator token replay -> trainable Token Transformer."""
+
+    variant = VGGT_VARIANTS["vggt_agg_token_transformer"]
+
+
 class VGGTDenseWPEncoder(VGGTEncoder):
     """Full-resolution world-point map (518x518x3) -> Conv encoder (3D-53)."""
 
@@ -325,6 +394,86 @@ class HybridEncoder(VGGTEncoder):
         )
 
 
+class VGGTHouseContextEncoder(VGGTEncoder):
+    """L1 RGB replay + live bounded InfiniteVGGT house-context readout."""
+
+    variant = VGGT_VARIANTS["vggt_house_context"]
+
+    @classmethod
+    def from_train_args(cls, args: Any) -> "VGGTHouseContextEncoder":
+        return cls(
+            resolution=args.render_resolution,
+            transformer_layers=(
+                args.vggt_token_transformer_layers
+                if args.vggt_token_transformer_layers is not None else 2
+            ),
+            transformer_heads=(
+                args.vggt_token_transformer_heads
+                if args.vggt_token_transformer_heads is not None else 8
+            ),
+            transformer_mlp_ratio=(
+                args.vggt_token_transformer_mlp_ratio
+                if args.vggt_token_transformer_mlp_ratio is not None else 2
+            ),
+            transformer_dropout=(
+                args.vggt_token_transformer_dropout
+                if args.vggt_token_transformer_dropout is not None else 0.0
+            ),
+        )
+
+    def __init__(
+        self,
+        resolution: int = 518,
+        *,
+        transformer_layers: int = 2,
+        transformer_heads: int = 8,
+        transformer_mlp_ratio: int = 2,
+        transformer_dropout: float = 0.0,
+    ):
+        super().__init__(resolution)
+        self._context_transformer = wm_encoders.VGGTFullTokenContextTransformer(
+            context_dim=wm_encoders.HOUSE_CONTEXT_DIM,
+            token_dim=2048,
+            num_tokens=wm_encoders.AGG_TOKEN_TOKENS,
+            layers=transformer_layers,
+            heads=transformer_heads,
+            mlp_ratio=transformer_mlp_ratio,
+            dropout=transformer_dropout,
+        )
+
+    @property
+    def agent_overrides(self) -> Mapping[str, Any]:
+        overrides = dict(self.variant.agent_overrides)
+        overrides.update(
+            {
+                "vggt_token_transformer_layers": self._context_transformer.layers,
+                "vggt_token_transformer_heads": self._context_transformer.heads,
+                "vggt_token_transformer_mlp_ratio": self._context_transformer.mlp_ratio,
+                "vggt_token_transformer_dropout": self._context_transformer.dropout,
+            }
+        )
+        return MappingProxyType(overrides)
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseContextObsAdapter
+
+        return VGGTHouseContextObsAdapter(
+            self._extractor,
+            context_transformer=self._context_transformer,
+        )
+
+
+class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
+    """L1 RGB replay + live full-token Transformer inside the agent, no gate."""
+
+    variant = VGGT_VARIANTS["vggt_house_full_tokens_nogate"]
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseFullTokenObsAdapter
+
+        return VGGTHouseFullTokenObsAdapter(self._extractor)
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid."""
 
@@ -339,7 +488,10 @@ __all__ = [
     "CNNEncoder",
     "VGGTEncoder",
     "VGGTAggregatorMLPEncoder",
+    "VGGTAggTokenTransformerEncoder",
     "VGGTDenseWPEncoder",
     "HybridEncoder",
+    "VGGTHouseContextEncoder",
+    "VGGTHouseFullTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
 ]

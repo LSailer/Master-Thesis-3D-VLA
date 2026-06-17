@@ -1,0 +1,18 @@
+extends: house_context_l1
+job_name: vggt-house-context-l1-long-smoke
+output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-context-long-smoke
+comments:
+  - "3D-77 long smoke: same L1 full-token context path as house_context_l1, stretched to run past warmup for about 20 minutes with a 10-minute Slurm buffer"
+smoke:
+  time: "00:30:00"
+  args:
+    steps: 12000
+    prefill: 200
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 500
+    checkpoint_every: 100000
+    output_dir: output/smoke-long/vggt-house-context-${TIMESTAMP}
+    wandb_name: vggt-house-context-long-smoke-${TIMESTAMP}
+    wandb_tags: house-context,long-smoke,full-token-transformer,rgb-replay,live-cache,warm-throughput

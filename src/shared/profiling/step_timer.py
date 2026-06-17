@@ -1,15 +1,8 @@
-"""Shared wall-clock profiling helpers.
-
-`StepTimer` accumulates per-phase wall-clock time inside a fixed-phase loop
-(the offline-buffer collector). `timed()` is a contextmanager that appends a
-single millisecond reading to a per-phase list (the JAX profiling scripts).
-Both helpers used to live as duplicates inside individual scripts.
-"""
+"""Step-level wall-clock timer used by collection-loop diagnostics."""
 
 from __future__ import annotations
 
 import time
-from contextlib import contextmanager
 from typing import Any
 
 
@@ -67,16 +60,3 @@ class StepTimer:
             "components_ms": components_ms,
             "components_pct": components_pct,
         }
-
-
-@contextmanager
-def timed(phase_times: dict[str, list[float]], phase: str):
-    """Wall-clock timer, records milliseconds into ``phase_times[phase]``.
-
-    The caller is responsible for bracketing work that has already synchronised
-    with the device (e.g. ``int()`` cast on a JAX scalar, or a manual
-    ``block_until_ready``) — otherwise the recorded time will miss async work.
-    """
-    t0 = time.perf_counter()
-    yield
-    phase_times[phase].append((time.perf_counter() - t0) * 1000.0)

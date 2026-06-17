@@ -1,0 +1,346 @@
+specification {
+  element actor {
+    style {
+      shape person
+    }
+  }
+
+  element boundary {
+    style {
+      shape rectangle
+    }
+  }
+
+  element frame {
+    style {
+      shape document
+    }
+  }
+
+  element buffer {
+    style {
+      shape storage
+    }
+  }
+
+  element tensor {
+    style {
+      shape rectangle
+    }
+  }
+
+  element embedding {
+    style {
+      shape rectangle
+    }
+  }
+
+  element model {
+    style {
+      shape component
+    }
+  }
+
+  element layer {
+    style {
+      shape component
+    }
+  }
+
+  element cache {
+    style {
+      shape bucket
+    }
+  }
+
+  element decision {
+    style {
+      shape rectangle
+    }
+  }
+}
+
+model {
+  researcher = actor 'Researcher / coding agent' {
+    technology 'Contract reader'
+    description 'Reads this architecture contract before implementing the 3D-77 full-token VGGT experiment.'
+  }
+
+  architecture = boundary '3D-77 Full-Token VGGT Target' {
+    technology 'Config: RGB replay + frozen VGGT full-token path'
+    description '
+      Architecture-only target for replacing the pooled WP/CP context with a frozen VGGT full-token Transformer path.
+      Replay stores RGB frames. Frozen VGGT produces 1374 aggregator token positions from the current or last observation.
+      Each token has a 2048-d channel width: 1024 frame-wise stream plus 1024 global stream.
+    '
+
+    collection = boundary 'Collection / acting + frozen-source layer' {
+      technology 'Config: current obs -> replay + frozen VGGT'
+      env = model 'Environment' {
+        technology 'Config: Habitat RGB source'
+        description 'Habitat environment that emits the raw 518x518 RGB frame.'
+      }
+      current_obs = frame 'Current / last observation' {
+        technology 'Config: RGB uint8, 518 x 518'
+        description 'Current or last available Habitat frame, 518 x 518 RGB. This is the frozen-VGGT source. Training context does not have to match the sampled replay observation.'
+      }
+      replay = buffer 'Replay buffer' {
+        technology 'Config: store RGB image only'
+        description 'Stores RGB image only. No full VGGT token tensor is written to replay.'
+      }
+
+      env -> current_obs 'emits frame'
+      current_obs -> replay 'store image'
+    }
+
+    token_path = boundary 'Frozen VGGT token layer' {
+      technology 'Config: current/last obs -> 1024-d VGGT context'
+      frozen_vggt = model 'Frozen VGGT' {
+        technology 'Config: frozen, no learned update'
+        description 'Frozen VGGT loads the current or last frame batch and exposes the full-token embedding before any pooled WP/CP readout. No learned update in this experiment.'
+      }
+
+      token_shapes = boundary 'VGGT token layout and channel streams' {
+        technology 'Config: 1374 positions x 2048 channels'
+        token_roles = boundary 'Token roles per frame' {
+          technology 'Config: 1 + 4 + 37 x 37'
+          description 'The 1374 token positions emitted for one 518x518 observation.'
+
+          camera = tensor 'Camera token' {
+            technology 'Config: 1 position'
+            description '1 token position.'
+          }
+          registers = tensor 'Register tokens' {
+            technology 'Config: 4 positions'
+            description '4 token positions, kept by default.'
+          }
+          patches = tensor 'Patch tokens' {
+            technology 'Config: 37 x 37 positions'
+            description '37 x 37 = 1369 patch token positions.'
+          }
+          token_count = tensor 'Token positions: 1374' {
+            technology 'Config: 1 + 4 + 1369'
+            description '1 camera + 4 registers + 1369 patches.'
+          }
+
+          camera -> token_count '1'
+          registers -> token_count '4'
+          patches -> token_count '1369'
+        }
+
+        channel_streams = boundary 'Channel streams per token' {
+          technology 'Config: frame-wise 1024 + global 1024'
+          description 'Each token position carries both VGGT streams.'
+
+          frame_stream = tensor 'Frame-wise stream: 1024' {
+            technology 'Config: per-frame VGGT stream'
+          }
+          global_stream = tensor 'Global stream: 1024' {
+            technology 'Config: global VGGT stream'
+          }
+          token_width = tensor 'Token width: 2048' {
+            technology 'Config: 1024 + 1024'
+            description '1024 frame-wise + 1024 global.'
+          }
+
+          frame_stream -> token_width '1024'
+          global_stream -> token_width '1024'
+        }
+
+        all_tokens = tensor 'Full frozen tokens: 1374 x 2048' {
+          technology 'Config: direct Transformer input'
+          description 'The implementation must bind to this full-token tensor from the frozen VGGT output: 1374 token positions, each with 2048 channels = 1024 frame-wise plus 1024 global.'
+        }
+
+        token_roles.token_count -> all_tokens '1374 positions'
+        channel_streams.token_width -> all_tokens '2048 channels'
+      }
+
+      transformer = model 'Transformer encoder' {
+        technology 'Config: d_model 2048, heads 8, layers N in {1,2,4}, default 2'
+        description 'Configurable full-token encoder. It consumes the full frozen VGGT aggregator tokens directly, keeps internal d_model at 2048, then uses a context projection to emit one 1024-d VGGT context vector. No separate camera/mean-register/mean-patch readout from the old pooled design. Config key: vggt_token_transformer_layers = N. Default heads: 8; heads must divide 2048.'
+
+        token_input = tensor '1374 x 2048 token input' {
+          technology 'Config: no token projection'
+        }
+        layer1 = layer 'Layer 1' {
+          technology 'Config: d_model 2048'
+          description 'LayerNorm + multi-head self-attention + FFN + residual. Internal token width stays 2048.'
+        }
+        layer2 = layer 'Layer 2' {
+          technology 'Config: d_model 2048, default active layer'
+          description 'LayerNorm + multi-head self-attention + FFN + residual. Default architecture includes this layer and keeps token width 2048.'
+        }
+        layerN = layer 'Layer N' {
+          technology 'Config: d_model 2048, optional when N = 4'
+          description 'Optional deeper sweep layer when N = 4. Same LN + MHSA + FFN + residual block, keeping token width 2048.'
+        }
+        context_projection = model 'Context projection' {
+          technology 'Config: 2048 -> 1024'
+          description 'Final Transformer-owned projection from 2048-d encoded context to the 1024-d VGGT latent used by the hybrid gate.'
+        }
+        context_output = tensor 'VGGT context output: 1024' {
+          technology 'Config: Transformer emits 1024-d context'
+          description 'Single 1024-d latent emitted by the Transformer encoder after the 2048 -> 1024 context projection.'
+        }
+
+        token_input -> layer1 'all-token self-attention'
+        layer1 -> layer2 'encoded tokens'
+        layer2 -> layerN 'if configured'
+        layerN -> context_projection 'encoded context, 2048'
+        context_projection -> context_output 'emit 1024-d context'
+      }
+
+      context_cache = cache 'VGGT context cache' {
+        technology 'Config: cache 1024-d context'
+        description 'Caches the 1024-d Transformer output when the context is unchanged for the episode or training window. This cached context is allowed to be reused across sampled replay observations.'
+      }
+
+      config_contract = boundary 'Transformer configuration contract' {
+        technology 'Config: required implementation parameters'
+        description 'Minimum keys the implementation must expose so the architecture is reproducible and sweepable.'
+
+        cfg_layers = decision 'vggt_token_transformer_layers' {
+          technology 'Required: int, default 2, sweep 1/2/4'
+          description 'Controls how many Transformer encoder layers are active.'
+        }
+        cfg_heads = decision 'vggt_token_transformer_heads' {
+          technology 'Required: int, default 8, divides 2048'
+          description 'Number of attention heads. Default is 8 for the first implementation; any sweep value must divide the 2048 token width.'
+        }
+        cfg_dims = decision 'Fixed token/model/context dims' {
+          technology 'Required: token_dim 2048, d_model 2048, context_dim 1024'
+          description 'The Transformer consumes 2048-d tokens, keeps internal d_model at 2048, and emits a 1024-d VGGT latent.'
+        }
+        cfg_dropout = decision 'Regularization defaults' {
+          technology 'Required: dropout default 0.0'
+          description 'Make dropout explicit even when the first experiment keeps it disabled.'
+        }
+        cfg_cache = decision 'Context cache policy' {
+          technology 'Required: enabled by default'
+          description 'Cache the 1024-d Transformer output for unchanged current or last observation context.'
+        }
+
+        cfg_layers -> layer1 'sets stack depth'
+        cfg_heads -> layer1 'sets MHSA heads'
+        cfg_dims -> token_input '2048 input'
+        cfg_dims -> layer1 'd_model 2048'
+        cfg_dims -> context_projection '2048 to 1024'
+        cfg_dims -> context_output '1024 output'
+        cfg_dropout -> layer1 'sets dropout'
+        cfg_cache -> context_cache 'controls reuse'
+      }
+
+      current_obs -> frozen_vggt 'current or last frame'
+      frozen_vggt -> token_shapes.token_roles.camera 'camera token position'
+      frozen_vggt -> token_shapes.token_roles.registers 'register token positions'
+      frozen_vggt -> token_shapes.token_roles.patches 'patch token positions'
+      frozen_vggt -> token_shapes.channel_streams.frame_stream 'frame-wise stream'
+      frozen_vggt -> token_shapes.channel_streams.global_stream 'global stream'
+      token_shapes.all_tokens -> transformer.token_input 'direct frozen tokens'
+      transformer.context_output -> context_cache '1024-d VGGT context'
+    }
+
+    training = boundary 'Training / R2Dreamer boundary' {
+      technology 'Config: replay RGB + cached VGGT context'
+      sampled_rgb = frame 'Sampled replay image' {
+        technology 'Config: sampled RGB from replay'
+        description 'Historical image sampled from replay for the Dreamer training batch.'
+      }
+      rgb_encoder = model 'RGB ConvEncoder' {
+        technology 'Config: RGB branch output 1024'
+        description 'RGB observation encoder branch, output 1024.'
+      }
+      rgb_embed = tensor 'RGB observation embedding: 1024' {
+        technology 'Config: ConvEncoder latent'
+      }
+      vggt_embed = tensor 'Cached VGGT context: 1024' {
+        technology 'Config: frozen-token latent'
+      }
+      fusion = model 'Existing Hybrid Gate' {
+        technology 'Config: 1024 RGB + 1024 VGGT = 2048'
+        description 'Reuse the existing hybrid gate for branch fusion. It keeps both latent spaces explicit: 1024 RGB + 1024 VGGT = 2048 input embedding.'
+      }
+      rssm = model 'R2RSSM.observe' {
+        technology 'Config: observe input 2048'
+        description 'Consumes the encoder embedding and updates state. Default state is separate: deter 2048 + stoch 512 = feat 2560.'
+
+        input_embed = tensor 'Input embed: 2048' {
+          technology 'Config: encoder output into RSSM'
+        }
+        deter = tensor 'Deterministic state: 2048' {
+          technology 'Config: RSSM deter size'
+        }
+        stoch = tensor 'Stochastic state: 512' {
+          technology 'Config: RSSM stoch size'
+        }
+        feat = tensor 'RSSM feat: 2560' {
+          technology 'Config: 2048 + 512'
+        }
+
+        input_embed -> deter 'condition posterior'
+        input_embed -> stoch 'condition posterior'
+        deter -> feat 'concat'
+        stoch -> feat 'concat'
+      }
+
+      replay -> sampled_rgb 'sample RGB'
+      sampled_rgb -> rgb_encoder 'train image branch'
+      rgb_encoder -> rgb_embed '1024-d'
+      context_cache -> vggt_embed 'reuse context'
+      rgb_embed -> fusion 'RGB branch'
+      vggt_embed -> fusion 'VGGT branch'
+      fusion -> rssm.input_embed '2048-d input embed'
+    }
+
+  }
+
+  researcher -> architecture 'uses as implementation contract'
+}
+
+views {
+  view index {
+    title '3D-77 VGGT Full-Token Architecture'
+    include *
+  }
+
+  view of architecture {
+    title 'Target Architecture Overview'
+    include *
+  }
+
+  view of architecture.token_path {
+    title 'Frozen VGGT Token Transformer'
+    include *
+  }
+
+  view of architecture.token_path.token_shapes {
+    title 'VGGT Token Layout And Channel Streams'
+    include *
+  }
+
+  view of architecture.token_path.token_shapes.token_roles {
+    title 'VGGT Token Roles Per Frame'
+    include *
+  }
+
+  view of architecture.token_path.token_shapes.channel_streams {
+    title 'VGGT Frame-Wise And Global Streams'
+    include *
+  }
+
+  view of architecture.token_path.transformer {
+    title 'Transformer Layer Stack'
+    include *
+  }
+
+  view of architecture.training {
+    title 'Training And R2Dreamer Boundary'
+    include *
+  }
+
+  view of architecture.training.rssm {
+    title 'RSSM State Boundary'
+    include *
+  }
+}

@@ -16,9 +16,16 @@ bash scripts/slurm/launch.sh l1_vggt --smoke --dry-run     # smoke
 bash scripts/slurm/launch.sh l1_vggt --smoke               # short dev job
 bash scripts/slurm/launch.sh l1_vggt --prod                # full run
 bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod     # prod runs only if smoke passes
+bash scripts/slurm/launch.sh l1_vggt --time 04:00:00       # prod-shaped profiling run
+bash scripts/slurm/launch.sh house_context_l1_long_smoke --smoke  # long post-warm smoke
+bash scripts/slurm/launch.sh house_full_tokens_nogate_l1 --smoke  # live full-token no-gate
 
 # Sweep several variants in one shell call (bash brace expansion)
 bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke
+
+# Launch standalone profiling scripts through the same renderer
+bash scripts/slurm/launch.sh profile_encoder_cost --smoke
+bash scripts/slurm/launch.sh profile_training_vggt --time 01:30:00
 
 # Override an env var (wins over the YAML default)
 bash scripts/slurm/launch.sh l1_vggt \
@@ -42,6 +49,15 @@ Curriculum-family variants share the single `scripts/r2dreamer/run.py` dispatche
 | `l4_vggt`            | `run.py habitat-l4-vggt`                    | `train_curriculum_l4_vggt.sbatch`                |
 | `aggregator_mlp_v1`  | `run.py habitat-l1-vggt-aggregator-mlp`     | `prod_aggregator_mlp_v1.sbatch` + `smoke_aggregator_mlp_fast_path.sbatch` |
 
+Standalone profiling variants use `scripts/profiling/*` entrypoints and write
+Slurm logs/artifacts under `output/profiling/`:
+
+| Variant                  | Entrypoint                                           |
+|--------------------------|------------------------------------------------------|
+| `profile_encoder_cost`   | `scripts/profiling/profile_encoders_3d5253.py`       |
+| `profile_training_vggt`  | `scripts/profiling/profile_training.py --encoder vggt` |
+| `profile_agg_pipeline`   | `scripts/profiling/profile_pipeline_aggregator_mlp.py` |
+
 The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
 `archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
 (`*_actfix`, `*_rerun`, non-vggt levels, `*_resume*`, …) remain in their original
@@ -54,6 +70,11 @@ locations pending separate evaluation.
 | `--prod` (default) | per `sbatch.*`    | per cfg  | online   | Real training / collection run   |
 | `--smoke`          | per `smoke.*`     | per cfg  | offline  | Production-faithful sanity check |
 | `--smoke-then-prod`| both              | both     | both     | Prod runs only if smoke passes (`--dependency=afterok:<smoke_jid> --kill-on-invalid-dep=yes`) |
+
+Use `--time <SLURM_TIME>` to override the rendered `#SBATCH --time` without
+creating a temporary YAML config. This is useful for prod-shaped profiling runs,
+for example `bash scripts/slurm/launch.sh house_context_l1 --time 04:00:00`.
+With `--smoke-then-prod`, the override applies to both submitted jobs.
 
 Smoke jobs additionally:
 
@@ -137,6 +158,7 @@ smoke:                    # mode overrides; smoke.args deep-merges onto args
 scripts/slurm/
 ├── configs/
 │   ├── _base.yaml             # shared sbatch + smoke defaults (curriculum/training family)
+│   ├── _profiling_base.yaml   # shared sbatch + smoke defaults (standalone profilers)
 │   ├── l1_vggt.yaml           # extends _base
 │   ├── l2_vggt.yaml           # extends l1_vggt
 │   ├── l3_vggt.yaml           # extends l1_vggt
@@ -175,7 +197,7 @@ issues the prod submit with `--dependency=afterok:<smoke_jid>`; fail-fast
 validation before any sbatch call; recursive `extends` (incl. cycle rejection);
 L2/L3/L4 render the same training args as their legacy scripts; multi-variant
 sweep submits every variant; aggregator timestamp/strict behavior; and `--env`
-override handling.
+/ `--time` override handling.
 
 ## Monitoring a submitted job
 

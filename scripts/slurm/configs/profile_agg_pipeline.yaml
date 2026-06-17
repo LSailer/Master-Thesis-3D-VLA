@@ -1,0 +1,18 @@
+extends: _profiling_base
+job_name: profile-agg-pipeline
+output_dir: output/profiling/pipeline-aggregator-mlp
+script: scripts/profiling/profile_pipeline_aggregator_mlp.py
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "Profile the aggregator-MLP acting/training loop with per-phase wall-clock timings."
+args:
+  prefill: 200
+  warmup: 20
+  measure: 100
+  out: output/profiling/pipeline-aggregator-mlp/run-${SLURM_JOB_ID}.json
+smoke:
+  args:
+    prefill: 64
+    warmup: 5
+    measure: 10
+    out: output/profiling/pipeline-aggregator-mlp/smoke-${TIMESTAMP}.json

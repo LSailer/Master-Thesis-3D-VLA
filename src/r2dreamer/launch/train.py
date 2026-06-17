@@ -122,6 +122,18 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
         agent_overrides["decoder"] = True
     if getattr(args, "scale_decoder", None) is not None:
         agent_overrides["scale_decoder"] = args.scale_decoder
+    for name in (
+        "vggt_token_transformer_layers",
+        "vggt_token_transformer_heads",
+        "vggt_token_projection_dim",
+        "vggt_token_transformer_mlp_ratio",
+        "vggt_token_transformer_dropout",
+    ):
+        value = getattr(args, name, None)
+        if value is not None:
+            agent_overrides[name] = value
+    if getattr(args, "vggt_drop_register_tokens", False):
+        agent_overrides["vggt_keep_register_tokens"] = False
     return agent_overrides
 
 

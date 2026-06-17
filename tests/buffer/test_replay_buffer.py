@@ -183,6 +183,35 @@ class TestReplayBufferMappingObs:
         assert jnp.allclose(batch["obs"]["features"], 255.0)
 
 
+class TestReplayBufferMappingObs:
+    def test_sample_mapping_observations_with_per_field_normalization(self):
+        cfg = BufferConfig(
+            capacity=20,
+            obs_shape={"image": (3, 4, 4), "context": (5,)},
+            obs_dtype={"image": "uint8", "context": "float32"},
+            normalize_obs={"image": True, "context": False},
+        )
+        buf = ReplayBuffer(cfg)
+        for i in range(10):
+            buf.add(
+                {
+                    "image": np.full((3, 4, 4), 255, dtype=np.uint8),
+                    "context": np.full((5,), float(i), dtype=np.float32),
+                },
+                action=i % 3,
+                reward=float(i),
+                done=False,
+            )
+
+        batch = buf.sample(batch_size=2, seq_len=3)
+
+        assert set(batch["obs"]) == {"image", "context"}
+        assert batch["obs"]["image"].shape == (2, 3, 3, 4, 4)
+        assert batch["obs"]["context"].shape == (2, 3, 5)
+        assert jnp.allclose(batch["obs"]["image"], 1.0)
+        assert float(jnp.max(batch["obs"]["context"])) > 1.0
+
+
 class TestWriteHeadSafety:
     """Verify sampled sequences never cross the write-head boundary."""
 

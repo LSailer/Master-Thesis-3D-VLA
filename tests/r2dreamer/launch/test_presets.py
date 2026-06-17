@@ -10,6 +10,7 @@ PRESETS = [
     ("habitat", "cnn",  "L4"),
     ("habitat", "vggt", "L1"),
     ("habitat", "hybrid", "L1"),
+    ("habitat", "vggt_house_full_tokens_nogate", "L1"),
     ("crafter", "cnn",  None),
 ]
 

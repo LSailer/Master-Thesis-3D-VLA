@@ -58,12 +58,14 @@ first-frame-relative encoding flows straight into its latent state.</b>
 <div class="note"><b>Method note.</b> Every number and figure below is computed <i>directly from what the VGGT
 pipeline emits</i> (raw World-Points, Camera-Pose, the encoder embedding) and from the Dreamer RSSM latents.
 <b>No rigid or scale alignment is applied anywhere</b> — alignment is not part of the pipeline, so it is not
-part of the test. We compare the representations exactly as the model produces and consumes them.</div>
+part of the test. We compare the representations exactly as the model produces and consumes them. The shared
+pipeline is documented in <a href="architecture-data-flow.html#variants">architecture-data-flow.html</a>.</div>
 
 <h2>1 · What we did</h2>
 <p>VGGT turns each RGB frame into World Points (WP, 37×37×3) and a Camera Pose (CP, 9-d) expressed
 <b>relative to the first frame</b> of its streaming window; the Dreamer encoder consumes the flattened
-4116-d WP‖CP vector. If the encoding were invariant, the same physical state would map to the same
+4116-d WP‖CP vector. For the canonical WP/CP route into replay, the encoder, and the RSSM, see
+<a href="architecture-data-flow.html#variants">the global architecture/data-flow reference</a>. If the encoding were invariant, the same physical state would map to the same
 representation regardless of where the episode started. We test this with two protocols (5 start poses in
 one house, ≈30 frames each), each comparing a <b>forward</b> pass with a <b>backward</b> pass that revisits
 the same places in a fresh VGGT window:</p>

@@ -38,7 +38,7 @@ echo "=== [1/3] Unit tests: compute_heads=False semantics ==="
 # ----- Step 2: pipeline profile with new code -----
 echo ""
 echo "=== [2/3] Pipeline profile (skip-heads enabled) ==="
-uv run python scripts/profile_pipeline_aggregator_mlp.py \
+uv run python scripts/profiling/profile_pipeline_aggregator_mlp.py \
     --prefill 200 \
     --warmup 20 \
     --measure 100 \

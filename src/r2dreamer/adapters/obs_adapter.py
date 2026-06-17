@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -41,3 +41,7 @@ class ObsAdapter:
     def transform(self, obs_dict: dict) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         """Returns (buffer_obs, agent_obs_dict)."""
         return obs_dict["image"], obs_dict
+
+    def augment_replay_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
+        """Optionally add live adapter context to a sampled replay batch."""
+        return batch

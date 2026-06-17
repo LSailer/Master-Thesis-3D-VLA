@@ -45,6 +45,7 @@ real VGGT extractor.
 | File | Covers | GPU |
 |------|--------|-----|
 | `test_hybrid_encoder.py` | hybrid encoder+decoder (3D-50/51/52): gate / vggt / cnn branches, decoder round-trip | CPU |
+| `test_decoder_probe_overfit_gpu.py` | stop-gradient decoder visualisation probe overfits a fixed tiny RGB batch; verifies `total_loss` excludes decoder and `opt_loss` trains decoder-only | **GPU** |
 
 ## How to run
 
@@ -56,6 +57,9 @@ uv run pytest tests/r2dreamer/launch/test_presets.py    # parametrized matrix
 # GPU tests must be wrapped in srun (see root AGENTS.md):
 srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
   uv run pytest tests/r2dreamer/ -m gpu -v
+
+# Narrow decoder-probe GPU check:
+./scripts/r2dreamer/run_decoder_probe_overfit_gpu.sh -v
 ```
 
 CI (`.github/workflows/ralph.yml`) runs `uv run pytest tests/<file> -x -q` and wraps GPU
@@ -70,8 +74,10 @@ selections with the same `srun` invocation.
   `FakeExtractor`, a minimal-config builder) belong in `conftest.py` or a
   `tests/r2dreamer/_helpers.py`, not copy-pasted per file. JAX RNG keys are fixed
   integers for determinism (e.g. init=7, train=11).
-- **Markers:** `@pytest.mark.gpu` (only `test_encoders.py::TestVGGTEncoder`),
-  plus `habitat_sim` / `integration` registered but currently unused.
+- **Markers:** `@pytest.mark.gpu` covers the real VGGT encoder and
+  `world_model/test_decoder_probe_overfit_gpu.py`; run the decoder probe via
+  `./scripts/r2dreamer/run_decoder_probe_overfit_gpu.sh`.
+  `habitat_sim` / `integration` are registered but currently unused.
 - **Mocking:** `monkeypatch` + hand-rolled fake extractors (`.extract()/.reset()/
   aggregator_feature_shape`) keep VGGT tests CPU-safe. Pytree comparison via
   `tree_allclose` / `tree_any_changed`; cross-framework tolerances `ATOL_COMPONENT=1e-4`,

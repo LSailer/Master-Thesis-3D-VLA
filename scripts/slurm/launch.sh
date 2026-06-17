@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-Usage: scripts/slurm/launch.sh <variant>... [--smoke | --prod | --smoke-then-prod] [--env K=V]... [--dry-run]
+Usage: scripts/slurm/launch.sh <variant>... [--smoke | --prod | --smoke-then-prod] [--time SLURM_TIME] [--env K=V]... [--dry-run]
 
 Variants:
   One or more config names (scripts/slurm/configs/<variant>.yaml). Bash brace
@@ -13,6 +13,10 @@ Modes:
   --prod             submit the production job (default)
   --smoke            submit a short dev-cluster smoke job
   --smoke-then-prod  submit smoke, then production with an afterok dependency
+  --time SLURM_TIME  override the selected mode's walltime, e.g. 02:00:00
+                     (with --smoke-then-prod, applies to both submitted jobs)
+  --partition NAME   override the selected mode's partition, e.g. gpu_h100
+                     (with --smoke-then-prod, applies to both submitted jobs)
   --env K=V          override a config env var (repeatable); wins over the YAML
   --dry-run          render the sbatch script(s) instead of calling sbatch
 EOF
@@ -27,6 +31,8 @@ fi
 
 variants=()
 env_args=()
+time_args=()
+partition_args=()
 mode="prod"
 dry_run=0
 
@@ -36,6 +42,18 @@ while [[ $# -gt 0 ]]; do
         --prod)             mode="prod" ;;
         --smoke-then-prod)  mode="smoke-then-prod" ;;
         --dry-run)          dry_run=1 ;;
+        --time)
+            shift
+            [[ $# -gt 0 ]] || { echo "--time requires a Slurm walltime value" >&2; exit 2; }
+            time_args+=(--time "$1")
+            ;;
+        --time=*)           time_args+=(--time "${1#--time=}") ;;
+        --partition)
+            shift
+            [[ $# -gt 0 ]] || { echo "--partition requires a Slurm partition name" >&2; exit 2; }
+            partition_args+=(--partition "$1")
+            ;;
+        --partition=*)      partition_args+=(--partition "${1#--partition=}") ;;
         --env)
             shift
             [[ $# -gt 0 ]] || { echo "--env requires KEY=VALUE" >&2; exit 2; }
@@ -57,6 +75,8 @@ fi
 render() {
     local variant="$1" render_mode="$2"
     "$python_bin" scripts/slurm/launch.py "$variant" --mode "$render_mode" \
+        ${time_args[@]+"${time_args[@]}"} \
+        ${partition_args[@]+"${partition_args[@]}"} \
         ${env_args[@]+"${env_args[@]}"}
 }
 

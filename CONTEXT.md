@@ -28,6 +28,22 @@ _Avoid_: shape constants, buffer schema, shape contract
 The result of preparing one environment observation for both replay storage and immediate agent use. It contains a replay-buffer observation and an agent-ready observation, even when those two forms are identical.
 _Avoid_: transformed observation, adapter output
 
+**ReplaySequenceBatch**:
+Raw fixed-length sequences sampled from replay storage before conversion into agent training format.
+_Avoid_: raw batch, sampled batch, replay dict
+
+**TrainingBatch**:
+Agent-ready fixed-length sequences consumed by R2Dreamer training.
+_Avoid_: batch, train dict, agent dict
+
+**ObservationBatch**:
+Time-aligned observation sequences for one sampled replay window.
+_Avoid_: obs dict, observation dict, input batch
+
+**EpisodeBoundaryBatch**:
+Time-aligned flags that mark starts, ends, and true terminals within sampled sequences.
+_Avoid_: done flags, reset flags, terminal dict
+
 **Review Automation**:
 An autonomous repository workflow that reviews pull requests against their linked Linear issue and may merge only low- or medium-risk pull requests. High-risk pull requests require human review.
 _Avoid_: cronjob, auto-merge bot

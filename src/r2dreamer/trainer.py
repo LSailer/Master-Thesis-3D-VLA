@@ -23,6 +23,7 @@ import numpy as np
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
+from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
@@ -40,6 +41,32 @@ class Env(Protocol):
     def reset(self) -> dict: ...
     def step(self, action: int) -> dict: ...
     def close(self) -> None: ...
+
+
+class R2DreamerAgentLike(Protocol):
+    """Interface the trainer needs from an R2Dreamer-style agent.
+
+    Using a protocol is stricter than ``Any`` while avoiding a hard dependency
+    on the concrete ``R2DreamerAgent`` class. Tests and future agent variants can
+    still be passed to ``Trainer`` if they expose the same public contract.
+    """
+
+    params: Any
+    opt_state: Any
+    slow_critic_params: Any
+    ema_state: Any
+
+    def train_step(
+        self, batch: dict[str, jnp.ndarray], rng_key: jnp.ndarray
+    ) -> dict[str, float]: ...
+
+    def act(
+        self, obs_dict: dict[str, Any], rng_key: jnp.ndarray, training: bool = True
+    ) -> int: ...
+
+    def reconstruct(
+        self, batch: dict[str, jnp.ndarray]
+    ) -> tuple[np.ndarray, np.ndarray] | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +109,8 @@ def encoder_input_contract_snapshot(config: Any) -> dict[str, Any] | None:
 # convert_batch
 # ---------------------------------------------------------------------------
 
-def convert_batch(batch: dict[str, jnp.ndarray],
-                  num_actions: int) -> dict[str, jnp.ndarray]:
+def convert_batch(batch: dict[str, Any],
+                  num_actions: int) -> dict[str, Any]:
     """Convert replay buffer output to agent training format.
 
     - actions: int32 (B,T) -> one_hot float32 (B,T,A)
@@ -104,7 +131,7 @@ def convert_batch(batch: dict[str, jnp.ndarray],
 # Checkpointing
 # ---------------------------------------------------------------------------
 
-def save_checkpoint(agent: Any, step: int, output_dir: str) -> str:
+def save_checkpoint(agent: R2DreamerAgentLike, step: int, output_dir: str) -> str:
     """Save full agent state including ema_state. Returns path."""
     ckpt_dir = os.path.join(output_dir, "checkpoints")
     os.makedirs(ckpt_dir, exist_ok=True)
@@ -267,9 +294,9 @@ class Trainer:
 
     def __init__(
         self,
-        agent: Any,
+        agent: R2DreamerAgentLike,
         env: Env,
-        agent_config: Any,
+        agent_config: R2DreamerConfig,
         trainer_config: TrainerConfig,
         obs_adapter: ObsAdapter | None = None,
         episode_metrics_fn: EpisodeMetricsFn | None = None,
@@ -526,6 +553,8 @@ class Trainer:
         obs, buffer_obs, agent_obs = self._reset_train_episode()
         episode_reward, episode_steps, action_counts = self._zero_episode_counters()
         self._t0 = time.time()
+        self._last_log_time = self._t0
+        self._last_log_step = start_step - 1
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
@@ -577,6 +606,7 @@ class Trainer:
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
+                    batch = self.obs_adapter.augment_replay_batch(batch)
                     batch = convert_batch(batch, acfg.num_actions)
                     metrics = self.agent.train_step(batch, train_key)
                     train_credit -= 1.0
@@ -664,6 +694,7 @@ class Trainer:
 
         # Sample once, freeze, reuse.
         batch_raw = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
         batch = convert_batch(batch_raw, self.acfg.num_actions)
         print(
             f"Overfit mode: cached batch "
@@ -742,6 +773,22 @@ class Trainer:
     def _log_train_metrics(
         self, metrics: dict, step: int, writer: Any, f: Any,
     ) -> None:
+        now = time.time()
+        elapsed = now - self._t0
+        steps_this_run = step + 1 - self._resume_step
+        fps = steps_this_run / elapsed if elapsed > 0 else 0
+
+        interval_steps = max(1, step - getattr(self, "_last_log_step", step - 1))
+        interval_elapsed = now - getattr(self, "_last_log_time", now)
+        fps_interval = interval_steps / interval_elapsed if interval_elapsed > 0 else 0
+        metrics["perf/fps_cumulative"] = fps
+        metrics["perf/fps_interval"] = fps_interval
+        metrics["perf/ms_per_step_interval"] = (
+            1000.0 / fps_interval if fps_interval > 0 else 0
+        )
+        self._last_log_time = now
+        self._last_log_step = step
+
         for k, v in metrics.items():
             writer.writerow([step, k, v])
         f.flush()
@@ -749,16 +796,15 @@ class Trainer:
         if self._wandb is not None:
             self._wandb.log(metrics, step=step)
 
-        elapsed = time.time() - self._t0
-        steps_this_run = step + 1 - self._resume_step
-        fps = steps_this_run / elapsed if elapsed > 0 else 0
         print(
             f"[step {step:>8d}/{self.tcfg.total_steps}] "
             f"total={metrics.get('total_loss', 0):.3f} "
             f"dyn={metrics.get('loss/dyn', 0):.3f} "
             f"rew={metrics.get('loss/rew', 0):.3f} "
             f"policy={metrics.get('loss/policy', 0):.3f} "
-            f"fps={fps:.0f}"
+            f"fps={fps:.0f} "
+            f"fps_interval={fps_interval:.1f} "
+            f"ms_step={metrics['perf/ms_per_step_interval']:.1f}"
         )
 
     def _maybe_log_recon(self, batch: dict, step: int) -> None:

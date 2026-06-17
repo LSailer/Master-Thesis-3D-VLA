@@ -20,7 +20,7 @@ echo "Node: $(hostname)"; echo "GPU: $(nvidia-smi --query-gpu=name --format=csv,
 # Use the venv python directly (not `uv run`): matches the working VGGT
 # training jobs and lets jaxlib resolve cuDNN via the installed
 # nvidia-cudnn-cu12 package instead of re-syncing the environment.
-.venv/bin/python -m scripts.vggt.dump_wp_dense_vs_pooled \
+.venv/bin/python -m scripts.profiling.diagnostics.dump_wp_dense_vs_pooled \
     --frames output/3d48/frame038_input.npz \
     --frame-index 0 \
     --out output/3d48/wp_dense_vs_pooled.npz

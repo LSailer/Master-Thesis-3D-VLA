@@ -197,10 +197,21 @@ def _run_dir(args: dict[str, Any], config: LaunchConfig) -> str:
     return str(args.get("output_dir") or args.get("out_dir") or config.output_dir)
 
 
-def render_sbatch(config: LaunchConfig, *, mode: Mode = "prod") -> str:
+def render_sbatch(
+    config: LaunchConfig, *,
+    mode: Mode = "prod",
+    time_override: str | None = None,
+    partition_override: str | None = None,
+) -> str:
     """Render a complete sbatch script for ``mode`` ("prod" or "smoke")."""
 
     sbatch, args = _resolve_mode(config, mode)
+    if time_override is not None:
+        sbatch.time = time_override
+    if partition_override is not None:
+        if not partition_override:
+            raise ValueError("partition override must not be empty")
+        sbatch.partition = partition_override
     log_dir = config.output_dir if mode == "prod" else f"{config.output_dir}/smoke"
     job_name = config.job_name if mode == "prod" else f"smoke-{config.job_name}"
 
@@ -306,6 +317,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("variant")
     parser.add_argument("--mode", choices=["prod", "smoke"], default="prod")
     parser.add_argument(
+        "--time",
+        default=None,
+        metavar="SLURM_TIME",
+        help="override the selected mode's #SBATCH walltime, e.g. 02:00:00",
+    )
+    parser.add_argument(
+        "--partition",
+        default=None,
+        metavar="SLURM_PARTITION",
+        help="override the selected mode's #SBATCH partition, e.g. gpu_h100",
+    )
+    parser.add_argument(
         "--env",
         action="append",
         default=[],
@@ -328,7 +351,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"launch.py: {exc}", file=sys.stderr)
         return 2
 
-    print(render_sbatch(config, mode=ns.mode), end="")
+    try:
+        rendered = render_sbatch(
+            config, mode=ns.mode, time_override=ns.time, partition_override=ns.partition,
+        )
+    except Exception as exc:
+        print(f"launch.py: {exc}", file=sys.stderr)
+        return 2
+    print(rendered, end="")
     return 0
 
 

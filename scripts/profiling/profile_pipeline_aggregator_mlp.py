@@ -19,14 +19,12 @@ Phases:
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
 from pathlib import Path
-from statistics import mean
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -35,7 +33,12 @@ import jax
 import jax.numpy as jnp
 
 from src.r2dreamer.adapters.vggt_adapter import pool_aggregator_tokens
-from src.shared.profiling import timed
+from src.shared.profiling import (
+    block_until_ready_tree,
+    summarize_values_ms,
+    timed,
+    write_json,
+)
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.launch.curricula import CURRICULA
@@ -45,32 +48,12 @@ from src.r2dreamer.trainer import convert_batch
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 
 
-def pct(xs, q):
-    xs_sorted = sorted(xs)
-    if not xs_sorted:
-        return 0.0
-    return xs_sorted[min(len(xs_sorted) - 1, int(q * len(xs_sorted)))]
+def block_tree(x):
+    return jax.tree_util.tree_map(block_until_ready_tree, x)
 
 
 def stats(xs):
-    if not xs:
-        return {"n": 0}
-    return {
-        "n": len(xs),
-        "mean_ms": mean(xs),
-        "p50_ms": pct(xs, 0.50),
-        "p95_ms": pct(xs, 0.95),
-        "min_ms": min(xs),
-        "max_ms": max(xs),
-        "total_s": sum(xs) / 1000.0,
-    }
-
-
-def block_tree(x):
-    return jax.tree_util.tree_map(
-        lambda y: y.block_until_ready() if hasattr(y, "block_until_ready") else y,
-        x,
-    )
+    return summarize_values_ms(xs)
 
 
 def setup(args):
@@ -312,7 +295,7 @@ def main():
         "steady": {k: stats(v) for k, v in steady_accum.items()},
         "total_wallclock_s": time.time() - overall_t0,
     }
-    out_path.write_text(json.dumps(blob, indent=2))
+    write_json(out_path, blob)
     print(f"\nSaved {out_path}", flush=True)
 
 

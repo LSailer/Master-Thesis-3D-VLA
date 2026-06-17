@@ -16,7 +16,7 @@ from src.r2dreamer.observation_preparation.contracts import (
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
-VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw"]
+VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"]
 
 VGGT_IMAGE_SIZE = 518
 VGGT_IMAGE_SHAPE = (3, VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE)
@@ -45,6 +45,12 @@ _DEFAULT_AGENT_OVERRIDES: dict[str, dict[str, Any]] = {
         "seq_len": 32,
         "train_ratio": 128,
     },
+    "vggt_agg_token_transformer": {
+        "buffer_capacity": 5_000,
+        "batch_size": 1,
+        "seq_len": 8,
+        "train_ratio": 32,
+    },
     "hybrid": {"buffer_capacity": 100_000},
 }
 
@@ -63,6 +69,11 @@ def aggregator_raw_dim(aggregator_feature_shape: tuple[int, ...]) -> int:
     """Flat dimension for camera + patch tokens with register tokens dropped."""
     n_tokens = 1 + (int(aggregator_feature_shape[0]) - VGGT_AGGREGATOR_PATCH_START_IDX)
     return n_tokens * int(aggregator_feature_shape[-1])
+
+
+def aggregator_token_dim(aggregator_feature_shape: tuple[int, ...]) -> int:
+    """Flat dimension for all VGGT aggregator tokens, including registers."""
+    return int(aggregator_feature_shape[0]) * int(aggregator_feature_shape[-1])
 
 
 def hybrid_feature_dim(wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE) -> int:
@@ -100,6 +111,8 @@ def _default_encoder_type(feature_kind: VGGTFeatureKind, wp_pool_size: int) -> s
         return "vggt_wp_dense_cnn"
     if feature_kind == "agg_raw":
         return "vggt_agg_raw"
+    if feature_kind == "agg_tokens":
+        return "vggt_agg_token_transformer"
     raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
 
 
@@ -108,6 +121,8 @@ def _default_module_cls(encoder_type: str, feature_kind: VGGTFeatureKind) -> typ
         return wm_encoders.VGGTAggregatorMLPEncoder
     if encoder_type == "vggt_wp_dense_cnn" or feature_kind == "wp_dense":
         return wm_encoders.WPConvEncoder
+    if encoder_type == "vggt_agg_token_transformer" or feature_kind == "agg_tokens":
+        return wm_encoders.VGGTAggTokenTransformerEncoder
     if encoder_type == "hybrid":
         return wm_encoders.HybridEncoder
     return wm_encoders.VGGTEncoder
@@ -124,6 +139,8 @@ def _vggt_shape_dtype(extractor: Any, feature_kind: VGGTFeatureKind) -> tuple[tu
         return (3, image_size, image_size), "float16"
     if feature_kind == "agg_raw":
         return (aggregator_raw_dim(tuple(extractor.aggregator_feature_shape)),), "float16"
+    if feature_kind == "agg_tokens":
+        return (aggregator_token_dim(tuple(extractor.aggregator_feature_shape)),), "float16"
     raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
 
 

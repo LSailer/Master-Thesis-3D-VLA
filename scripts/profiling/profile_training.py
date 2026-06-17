@@ -8,14 +8,12 @@ See docs/plans/l4-profiling.md and issue #74.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from statistics import mean
 from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
@@ -24,7 +22,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.shared.profiling import timed
+from src.shared.profiling import (
+    init_phase_times,
+    summarize_values_ms,
+    timed,
+    write_json,
+)
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
@@ -47,10 +50,6 @@ ALL_PHASES = (
     "buffer_add",
     "wm_training",
 )
-
-
-def init_phase_times() -> dict[str, list[float]]:
-    return {p: [] for p in ALL_PHASES}
 
 
 @dataclass
@@ -172,7 +171,7 @@ def run_loop(
     else:
         raise ValueError(f"Unknown encoder: {encoder!r}")
 
-    phase_times = init_phase_times()
+    phase_times = init_phase_times(ALL_PHASES)
     reset_count = 0
     boundary_count = 0
     total_steps = 0
@@ -310,25 +309,16 @@ def run_loop(
     )
 
 
-def _pct(values: list[float], p: float) -> float:
-    if not values:
-        return 0.0
-    s = sorted(values)
-    return s[min(len(s) - 1, int(p * len(s)))]
-
-
 def aggregate(result: RunResult) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for phase, values in result.phase_times.items():
-        if values:
-            out[phase] = {
-                "mean_ms": mean(values),
-                "p50_ms": _pct(values, 0.50),
-                "p95_ms": _pct(values, 0.95),
-                "n_calls": float(len(values)),
-            }
-        else:
-            out[phase] = {"mean_ms": 0.0, "p50_ms": 0.0, "p95_ms": 0.0, "n_calls": 0.0}
+        stats = summarize_values_ms(values)
+        out[phase] = {
+            "mean_ms": float(stats["mean_ms"]),
+            "p50_ms": float(stats["p50_ms"]),
+            "p95_ms": float(stats["p95_ms"]),
+            "n_calls": float(stats["n"]),
+        }
     return out
 
 
@@ -391,9 +381,7 @@ def save_json(results_by_encoder: dict[str, RunResult], output_dir: Path) -> Pat
         }
         for enc, r in results_by_encoder.items()
     }
-    with path.open("w") as f:
-        json.dump(payload, f, indent=2)
-    return path
+    return write_json(path, payload)
 
 
 def main() -> None:

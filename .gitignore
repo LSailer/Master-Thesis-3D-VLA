@@ -49,3 +49,10 @@ Goal Condition
 
 # Personal documents
 antrag_masterarbeit_*.pdf
+external/
+node_modules/@likec4/
+
+docs/likec4-dist/
+node_modules/
+logs/
+artifacts/

@@ -13,6 +13,7 @@
 
 <div class="tldr">
 <strong>TL;DR &mdash; expected vector input shape for r2dreamer.</strong>
+<p style="margin: 6px 0 0;">For this repo's current VGGT/R2Dreamer encoder inventory and replay/RSSM flow, use the canonical <a href="../architecture-data-flow.html">architecture-data-flow.html</a>. This page remains the upstream Dreamer vector-input research note.</p>
 <ul style="margin: 8px 0 0 18px;">
   <li>Observations are a <code>gym.spaces.Dict</code> keyed by string; each entry is a <code>gym.spaces.Box</code> with per-step shape <code>(D,)</code> (or <code>(N, D)</code>) for vectors and <code>(H, W, C)</code> for images. The dict must also contain <code>is_first</code>, <code>is_last</code>, <code>is_terminal</code>, <code>reward</code> (these are <em>excluded</em> from the encoder).</li>
   <li>r2dreamer routes a key to the MLP branch iff <code>len(space.shape) in (1, 2)</code> <em>and</em> the key matches the regex <code>encoder.mlp_keys</code> &mdash; otherwise it goes to the CNN branch (<code>len == 3</code> and matches <code>encoder.cnn_keys</code>). Both default regexes are env-config-driven.</li>
@@ -201,6 +202,8 @@
 
 <!-- ====================================================== -->
 <h2 id="sec-mlp">4. MLP encoder architecture</h2>
+
+<div class="callout">Project-specific MLP users such as <code>vggt</code>, <code>vggt_wp_cp_64</code>, and <code>vggt_aggregator_mlp</code> are summarized in <a href="../architecture-data-flow.html#variants">the global variant table</a>.</div>
 
 <p>The MLP is configured under <code>encoder.mlp</code> in <code>_base_.yaml</code>:</p>
 <pre><span class="ln">72</span> encoder:
