@@ -110,6 +110,23 @@ class TestVGGTFullTokenContextTransformer:
         with pytest.raises(ValueError, match="full VGGT tokens"):
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 10, 15), dtype=jnp.float32))
 
+    def test_bfloat16_compute_keeps_transformer_activations_bfloat16(self):
+        enc = VGGTFullTokenContextTransformer(
+            context_dim=32,
+            token_dim=16,
+            num_tokens=10,
+            layers=1,
+            heads=4,
+            mlp_ratio=2,
+            dropout=0.0,
+            compute_dtype=jnp.bfloat16,
+        )
+        dummy = jnp.zeros((2, 10, 16), dtype=jnp.float32)
+        params = enc.init(jax.random.PRNGKey(0), dummy, train=False)
+        out = enc.apply(params, dummy, train=False)
+
+        assert out.dtype == jnp.bfloat16
+
 
 class TestRGBFullTokenTransformerEncoder:
     """Shape tests for live full-token RGB+VGGT context fusion without a gate."""

@@ -6,6 +6,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.obs_batch import encoder_obs_from_batch
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
@@ -301,6 +302,40 @@ class TestR2DreamerAgent:
                 after["params"]["token_transformer"],
             )
         )
+
+    def test_full_token_nogate_uses_configured_bfloat16_compute(self):
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_house_full_tokens_nogate",
+            obs_shape={"image": (3, 64, 64), "full_tokens": (6, 8)},
+            num_actions=4,
+            encoder_depth=2,
+            encoder_kernel=3,
+            encoder_mults=(1, 1),
+            vggt_embed_dim=8,
+            vggt_token_count=6,
+            vggt_token_dim=8,
+            vggt_token_transformer_layers=1,
+            vggt_token_transformer_heads=2,
+            vggt_token_transformer_mlp_ratio=2,
+            compute_dtype="bfloat16",
+        )
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        batch = {
+            "obs": {
+                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.uint8),
+                "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
+            }
+        }
+
+        encoder_obs = encoder_obs_from_batch(batch, cfg)
+        _, token_e = agent.encoder_mod.apply(
+            {"params": agent.params["encoder"]["params"]},
+            encoder_obs,
+            method=agent.encoder_mod.branches,
+        )
+
+        assert encoder_obs["full_tokens"].dtype == jnp.bfloat16
+        assert token_e.dtype == jnp.bfloat16
 
     def test_train_step_is_deterministic_updates_params_and_composes_total_loss(self):
         cfg = make_deterministic_cfg()
