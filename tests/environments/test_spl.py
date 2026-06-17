@@ -9,11 +9,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-import numpy as np
 import pytest
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 from src.shared.configs import DreamerConfig
-from src.environments.habitat import HabitatObjectNavEnv, GOAL_RADIUS
+from src.environments.habitat import HabitatObjectNavEnv
 
 
 @pytest.mark.gpu

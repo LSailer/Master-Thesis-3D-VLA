@@ -68,7 +68,7 @@ def _k_step_rollout_error(
     post_stochs = forward["post_stochs"]  # (B, T, C, K)
     post_deters = forward["post_deters"]  # (B, T, D)
 
-    B, T = post_stochs.shape[0], post_stochs.shape[1]
+    T = post_stochs.shape[1]
     max_k = max(k_values)
     if T < max_k + 1:
         raise ValueError(
