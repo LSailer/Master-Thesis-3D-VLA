@@ -18,7 +18,7 @@ from src.r2dreamer.obs_batch import (
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
 )
-from src.r2dreamer.observation_preparation import CNNObservationPreparation
+from src.r2dreamer.observation_preparation import CNNObservationPreparation, EncoderInputContract
 from src.r2dreamer.encoders import (
     CNNEncoder,
     EncoderSpec,
@@ -130,7 +130,13 @@ class TestVGGTEncoderConfiguration:
             "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
-        spec = VGGTEncoder(resolution=518).spec()
+        enc = VGGTEncoder(resolution=518)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_input.shape == (4116,)
+        assert adapter.contract.replay_observation.shape == (4116,)
         assert spec.encoder_type == "vggt"
         assert spec.obs_shape == (4116,)
         assert spec.env_render_resolution == 518
@@ -154,6 +160,9 @@ class TestVGGTEncoderConfiguration:
         adapter = enc.make_adapter()
         spec = enc.spec()
 
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_type == "vggt_aggregator_mlp"
+        assert adapter.contract.encoder_input.shape == (3 * 128,)
         # Adapter stores [cam | mean_patches | max_patches] flat: 3 * embed_dim.
         assert adapter.buffer_shape == (3 * 128,)
         assert adapter.buffer_dtype == "float32"
@@ -220,6 +229,9 @@ class TestVGGTEncoderConfiguration:
         adapter = enc.make_adapter()
         spec = enc.spec()
 
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_type == "vggt_wp_dense_cnn"
+        assert adapter.contract.replay_observation.dtype == "float16"
         # Dense WP is stored channel-first as a (3, 518, 518) float16 image.
         assert adapter.buffer_shape == (3, 518, 518)
         assert adapter.buffer_dtype == "float16"
@@ -280,6 +292,9 @@ class TestVGGTEncoderConfiguration:
         adapter = enc.make_adapter()
         spec = enc.spec()
 
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_type == "vggt_wp_cp_64"
+        assert adapter.contract.encoder_input.shape == (12297,)
         # 64x64 WP grid: obs = 64*64*3 + 9 = 12297 (vs 4116 at 37x37).
         assert enc.wp_pool_size == 64
         assert adapter.buffer_shape == (64 * 64 * 3 + 9,)
@@ -419,7 +434,12 @@ class TestHybridEncoder:
             "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
         )
 
-        spec = HybridEncoder().spec()
+        enc = HybridEncoder()
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_type == "hybrid"
+        assert adapter.contract.decoder_target is not None
         assert isinstance(spec, EncoderSpec)
         assert spec.encoder_type == "hybrid"
         assert spec.obs_shape == (16404,)

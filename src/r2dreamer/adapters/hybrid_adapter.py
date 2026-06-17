@@ -19,6 +19,7 @@ from src.r2dreamer.obs_batch import (
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
 )
+from src.r2dreamer.observation_preparation.vggt import build_hybrid_contract
 from src.shared.video_utils import resize_chw_uint8
 from src.r2dreamer.world_model.encoders import (
     HOUSE_CONTEXT_DIM,
@@ -44,15 +45,27 @@ class HybridObsAdapter(ObsAdapter):
     still packs them into the legacy flat encoder input at the JAX boundary.
     """
 
-    def __init__(self, extractor):
+    def __init__(
+        self,
+        extractor,
+        *,
+        env_render_resolution: int | None = None,
+        encoder_module_cls=None,
+        agent_overrides=None,
+        design_notes: str = "",
+    ):
+        self.contract = build_hybrid_contract(
+            extractor,
+            env_render_resolution=env_render_resolution,
+            encoder_module_cls=encoder_module_cls,
+            agent_overrides=agent_overrides,
+            design_notes=design_notes,
+        )
         super().__init__(
-            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", HYBRID_WP_CP_KEY: "float32"},
-            buffer_shape={
-                HYBRID_IMAGE_KEY: HYBRID_IMAGE_SHAPE,
-                HYBRID_WP_CP_KEY: (VGGT_FEATURE_DIM,),
-            },
-            normalize_on_sample={HYBRID_IMAGE_KEY: False, HYBRID_WP_CP_KEY: False},
-            agent_obs_shape=(HYBRID_FEATURE_DIM,),
+            buffer_dtype=self.contract.replay_observation.buffer_dtype(),
+            buffer_shape=self.contract.replay_observation.buffer_shape(),
+            normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
+            agent_obs_shape=self.contract.encoder_input.shape,
             on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
