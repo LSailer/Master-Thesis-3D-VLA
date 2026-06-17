@@ -32,6 +32,13 @@ VGGT_CAMERA_POSE_DIM = 9
 VGGT_XYZ_CHANNELS = 3
 VGGT_AGGREGATOR_POOL_COUNT = 3
 VGGT_AGGREGATOR_PATCH_START_IDX = 5
+VGGT_AGGREGATOR_TOKEN_COUNT = 1374
+VGGT_AGGREGATOR_EMBED_DIM = 1024
+VGGT_FULL_TOKEN_EMBED_DIM = 2048
+VGGT_DEFAULT_AGGREGATOR_SHAPE = (
+    VGGT_AGGREGATOR_TOKEN_COUNT,
+    VGGT_AGGREGATOR_EMBED_DIM,
+)
 
 HYBRID_IMAGE_SHAPE = (3, 64, 64)
 HYBRID_RGB_DIM = HYBRID_IMAGE_SHAPE[0] * HYBRID_IMAGE_SHAPE[1] * HYBRID_IMAGE_SHAPE[2]
@@ -66,6 +73,40 @@ _DEFAULT_AGENT_OVERRIDES: dict[str, dict[str, Any]] = {
 def wp_cp_dim(wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE) -> int:
     """Flat VGGT world-points + camera-pose feature dimension."""
     return wp_pool_size * wp_pool_size * VGGT_XYZ_CHANNELS + VGGT_CAMERA_POSE_DIM
+
+
+def world_points_chw_shape(wp_side: int) -> tuple[int, int, int]:
+    """Canonical channel-first world-points shape for replay/agent contracts."""
+    return (VGGT_XYZ_CHANNELS, int(wp_side), int(wp_side))
+
+
+def world_points_hwc_shape(wp_side: int) -> tuple[int, int, int]:
+    """Canonical VGGT extractor output shape before adapter transposition."""
+    return (int(wp_side), int(wp_side), VGGT_XYZ_CHANNELS)
+
+
+def world_points_side_for_head_readout(extractor: Any, spec: HeadReadoutSpec) -> int:
+    """Resolve the variant/extractor-dependent world-points side length."""
+    if spec.use_dense_world_points:
+        return int(getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
+    return int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
+
+
+def contract_world_points_hwc_shape(contract: EncoderInputContract) -> tuple[int, int, int]:
+    """Resolve the extractor-facing HWC point-map shape from a structured contract."""
+    shape_by_field = contract.replay_observation.buffer_shape()
+    if not isinstance(shape_by_field, dict):
+        raise ValueError("head VGGT readouts require structured replay fields")
+    chw_shape = tuple(shape_by_field[WORLD_POINTS_KEY])
+    if len(chw_shape) != 3:
+        raise ValueError(f"expected CHW world-points contract shape, got {chw_shape}")
+    channels, height, width = chw_shape
+    if height != width:
+        raise ValueError(f"expected square world-points contract shape, got {chw_shape}")
+    expected_hwc_shape = world_points_hwc_shape(height)
+    if channels != expected_hwc_shape[-1]:
+        raise ValueError(f"expected {expected_hwc_shape[-1]} world-point channels, got {channels}")
+    return expected_hwc_shape
 
 
 def aggregator_pooled_dim(aggregator_feature_shape: tuple[int, ...]) -> int:
@@ -230,8 +271,8 @@ def build_vggt_contract(
     resolved_encoder_type = encoder_type or _default_encoder_type(feature_kind, wp_pool_size)
     if spec := head_readout_spec(feature_kind):
         image_size = int(getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
-        wp_side = image_size if spec.use_dense_world_points else wp_pool_size
-        wp_shape = (VGGT_XYZ_CHANNELS, wp_side, wp_side)
+        wp_side = world_points_side_for_head_readout(extractor, spec)
+        wp_shape = world_points_chw_shape(wp_side)
         replay_fields = _wp_cp_fields(
             wp_shape,
             world_points_dtype=HEAD_REPLAY_DTYPES[WORLD_POINTS_KEY],
@@ -279,13 +320,16 @@ def build_vggt_contract(
         if agent_overrides is not None
         else _DEFAULT_AGENT_OVERRIDES.get(resolved_encoder_type, {})
     )
+    render_resolution = int(
+        env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
+    )
 
     return EncoderInputContract(
         observation_preparation_type=resolved_encoder_type,
         encoder_type=resolved_encoder_type,
-        env_render_resolution=int(env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)),
+        env_render_resolution=render_resolution,
         encoder_module_cls=encoder_module_cls or _default_module_cls(resolved_encoder_type, feature_kind),
-        env_observation=_env_observation(int(env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE))),
+        env_observation=_env_observation(render_resolution),
         replay_observation=ObservationFormContract(replay_field),
         agent_observation=_agent_features_observation(shape),
         encoder_input=ObservationFormContract(encoder_field),
@@ -306,7 +350,9 @@ def build_hybrid_contract(
     """Build the Encoder Input Contract for the RGB + VGGT WP/CP hybrid."""
     wp_pool_size = int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
     wp_cp_shape = (wp_cp_dim(wp_pool_size),)
-    render_resolution = int(env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
+    render_resolution = int(
+        env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
+    )
 
     replay_fields = {
         HYBRID_IMAGE_KEY: ObservationField(HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False),
