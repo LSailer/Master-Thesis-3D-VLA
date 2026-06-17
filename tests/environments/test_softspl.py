@@ -9,7 +9,6 @@ import pytest
 
 from src.shared.configs import DreamerConfig
 from src.environments.habitat import (
-    GOAL_RADIUS,
     HabitatObjectNavEnv,
 )
 

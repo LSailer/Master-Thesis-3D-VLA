@@ -229,7 +229,6 @@ class TestLevel2SharedBlockParity:
 
         # --- JAX module ---
         from src.vggt.jax.block import Block as JxBlock
-        from src.vggt.jax.rope import compute_1d_rope_tables
         from src.vggt.jax.weight_transfer import load_pytorch_weights
 
         jx_block = JxBlock(

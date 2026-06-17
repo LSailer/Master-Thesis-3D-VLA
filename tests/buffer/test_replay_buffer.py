@@ -1,6 +1,5 @@
 """Tests for the unified ReplayBuffer with BufferConfig."""
 
-import tempfile
 
 import numpy as np
 import jax.numpy as jnp
@@ -183,7 +182,7 @@ class TestReplayBufferMappingObs:
         assert jnp.allclose(batch["obs"]["features"], 255.0)
 
 
-class TestReplayBufferMappingObs:
+class TestReplayBufferMappingObsNormalization:
     def test_sample_mapping_observations_with_per_field_normalization(self):
         cfg = BufferConfig(
             capacity=20,
