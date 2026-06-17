@@ -784,16 +784,28 @@ class TestVGGTEncoder:
             obs = {"image": frames[i], "is_first": i == 0}
             features, agent_obs = adapter.transform(obs)
 
-            assert features.shape == (4116,), f"frame {i}: expected (4116,), got {features.shape}"
-            assert features.dtype == np.float32, f"frame {i}: expected float32"
+            expected_wp = world_points[i].transpose(2, 0, 1)
+            expected_cp = camera_pose[i]
 
-            expected = np.concatenate([
-                world_points[i].reshape(-1),
-                camera_pose[i],
-            ]).astype(np.float32)
+            assert set(features) == {WORLD_POINTS_KEY, CAMERA_POSE_KEY}
+            assert features[WORLD_POINTS_KEY].shape == (3, 37, 37)
+            assert features[WORLD_POINTS_KEY].dtype == np.float16
+            assert features[CAMERA_POSE_KEY].shape == (9,)
+            assert features[CAMERA_POSE_KEY].dtype == np.float16
 
             np.testing.assert_allclose(
-                features, expected,
+                features[WORLD_POINTS_KEY], expected_wp.astype(np.float16),
                 atol=2e-2, rtol=1e-2,
-                err_msg=f"Mismatch at frame {i}",
+                err_msg=f"World-points mismatch at frame {i}",
             )
+            np.testing.assert_allclose(
+                features[CAMERA_POSE_KEY], expected_cp.astype(np.float16),
+                atol=2e-2, rtol=1e-2,
+                err_msg=f"Camera-pose mismatch at frame {i}",
+            )
+
+            assert agent_obs[WORLD_POINTS_KEY].shape == (3, 37, 37)
+            assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float32"
+            assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
+            assert agent_obs[CAMERA_POSE_KEY].dtype.name == "float32"
+            assert agent_obs["is_first"] is (i == 0)
