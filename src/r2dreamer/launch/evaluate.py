@@ -161,7 +161,7 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         overrides.update(
             encoder_type=contract.encoder_type,
             encoder_module_cls=contract.encoder_module_cls,
-            obs_shape=contract.encoder_input.shape,
+            obs_shape=contract.encoder_input.buffer_shape(),
             encoder_input_contract=contract_snapshot,
         )
     return overrides

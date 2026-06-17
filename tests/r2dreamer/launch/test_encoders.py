@@ -406,6 +406,35 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
+    def test_wp64_cnn_cp_mlp_encoder_spec_uses_structured_obs_shape(self, monkeypatch):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.wp_pool_size = int(kwargs.get("wp_pool_size", 37))
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTWP64CNNCPMLPEncoder(resolution=518)
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        expected_shape = {
+            WORLD_POINTS_KEY: (3, 64, 64),
+            CAMERA_POSE_KEY: (9,),
+        }
+        assert adapter.contract.encoder_type == "vggt_wp64_cnn_cp_mlp"
+        assert adapter.contract.encoder_input.buffer_shape() == expected_shape
+        assert spec.obs_shape == expected_shape
+        assert spec.encoder_type == "vggt_wp64_cnn_cp_mlp"
+        assert spec.module_cls is wm_encoders.WP64CNNCPMLPEncoder
+        assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
+
     def test_vggt_launcher_variants_are_centralized(self):
         assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
         assert VGGTAggregatorMLPEncoder.variant is VGGT_VARIANTS["vggt_aggregator_mlp"]

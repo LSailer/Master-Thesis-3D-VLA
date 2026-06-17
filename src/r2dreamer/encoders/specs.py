@@ -281,7 +281,7 @@ class Encoder(ABC):
         contract = getattr(adapter, "contract", None)
         if contract is not None:
             return EncoderSpec(
-                obs_shape=contract.encoder_input.shape,
+                obs_shape=contract.encoder_input.buffer_shape(),
                 env_render_resolution=contract.env_render_resolution,
                 encoder_type=contract.encoder_type,
                 module_cls=contract.encoder_module_cls,

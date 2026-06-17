@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import jax.numpy as jnp
 import numpy as np
 
@@ -124,11 +126,115 @@ def full_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.nd
     return _checked_feature(out, "aggregator_full_tokens", expected_shape)
 
 
-TOKEN_READOUTS = {
+AGGREGATOR_READOUTS = {
     "aggregator": pool_aggregator_tokens,
     "agg_raw": flatten_raw_aggregator,
     "agg_tokens": flatten_full_aggregator_tokens,
 }
+
+
+@dataclass(frozen=True)
+class VGGTHeadReadout:
+    """Readout family for VGGT heads: world-points plus camera-pose."""
+
+    expected_hwc_shape: tuple[int, int, int]
+    replay_dtype: dict[str, str]
+    world_points_key: str = "world_points"
+    return_dense: bool = False
+
+    def extract(self, extractor: VGGTFeatureExtractor, image: np.ndarray) -> dict:
+        if self.return_dense:
+            return extractor.extract(image, return_dense=True)
+        return extractor.extract(image)
+
+    def read(self, out: dict) -> dict[str, jnp.ndarray]:
+        return structured_world_points_camera_pose(
+            out,
+            expected_hwc_shape=self.expected_hwc_shape,
+            world_points_key=self.world_points_key,
+        )
+
+    def to_obs(
+        self,
+        features: dict[str, jnp.ndarray],
+        *,
+        is_first: bool,
+    ) -> tuple[dict[str, np.ndarray], dict]:
+        replay = {
+            WORLD_POINTS_KEY: np.asarray(
+                features[WORLD_POINTS_KEY],
+                dtype=np.dtype(self.replay_dtype[WORLD_POINTS_KEY]),
+            ),
+            CAMERA_POSE_KEY: np.asarray(
+                features[CAMERA_POSE_KEY],
+                dtype=np.dtype(self.replay_dtype[CAMERA_POSE_KEY]),
+            ),
+        }
+        agent_obs = {
+            WORLD_POINTS_KEY: features[WORLD_POINTS_KEY].astype(jnp.float32),
+            CAMERA_POSE_KEY: features[CAMERA_POSE_KEY].astype(jnp.float32),
+            "is_first": is_first,
+        }
+        return replay, agent_obs
+
+
+@dataclass(frozen=True)
+class VGGTAggregatorReadout:
+    """Readout family for VGGT pre-head aggregator tokens."""
+
+    kind: VGGTFeatureKind
+    expected_shape: tuple[int, ...]
+    replay_dtype: str
+
+    def extract(self, extractor: VGGTFeatureExtractor, image: np.ndarray) -> dict:
+        return extractor.extract(image)
+
+    def read(self, out: dict) -> jnp.ndarray:
+        if self.kind not in AGGREGATOR_READOUTS:
+            raise ValueError(f"unknown VGGT aggregator readout {self.kind!r}")
+        return AGGREGATOR_READOUTS[self.kind](out, self.expected_shape)
+
+    def to_obs(
+        self,
+        features: jnp.ndarray,
+        *,
+        is_first: bool,
+    ) -> tuple[np.ndarray, dict]:
+        replay = np.asarray(features, dtype=np.dtype(self.replay_dtype))
+        agent_obs = {
+            "features": features.astype(jnp.float32),
+            "is_first": is_first,
+        }
+        return replay, agent_obs
+
+
+def make_vggt_readout(
+    *,
+    feature_kind: VGGTFeatureKind,
+    extractor: VGGTFeatureExtractor,
+    contract,
+) -> VGGTHeadReadout | VGGTAggregatorReadout:
+    replay_dtype = contract.replay_observation.buffer_dtype()
+    if spec := head_readout_spec(feature_kind):
+        if not isinstance(replay_dtype, dict):
+            raise ValueError("VGGT head readouts require per-field replay dtypes")
+        return VGGTHeadReadout(
+            expected_hwc_shape=contract_world_points_hwc_shape(contract),
+            replay_dtype=replay_dtype,
+            world_points_key=(
+                "dense_world_points" if spec.use_dense_world_points else "world_points"
+            ),
+            return_dense=spec.use_dense_world_points,
+        )
+    if feature_kind in AGGREGATOR_READOUTS:
+        if isinstance(replay_dtype, dict):
+            raise ValueError("VGGT aggregator readouts require a scalar replay dtype")
+        return VGGTAggregatorReadout(
+            kind=feature_kind,
+            expected_shape=tuple(getattr(extractor, "aggregator_feature_shape", ())),
+            replay_dtype=replay_dtype,
+        )
+    raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
 
 
 class VGGTObsAdapter(ObsAdapter):
@@ -162,68 +268,16 @@ class VGGTObsAdapter(ObsAdapter):
             on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
-        self._feature_kind: VGGTFeatureKind = feature_kind
-        self._aggregator_feature_shape = tuple(getattr(extractor, "aggregator_feature_shape", ()))
-
-    def _extract(self, image: np.ndarray) -> dict:
-        spec = head_readout_spec(self._feature_kind)
-        if spec is not None and spec.use_dense_world_points:
-            return self._extractor.extract(image, return_dense=True)
-        return self._extractor.extract(image)
-
-    def _readout(self, out: dict) -> jnp.ndarray | dict[str, jnp.ndarray]:
-        if spec := head_readout_spec(self._feature_kind):
-            return structured_world_points_camera_pose(
-                out,
-                expected_hwc_shape=contract_world_points_hwc_shape(self.contract),
-                world_points_key=(
-                    "dense_world_points" if spec.use_dense_world_points else "world_points"
-                ),
-            )
-        if self._feature_kind in TOKEN_READOUTS:
-            return TOKEN_READOUTS[self._feature_kind](out, self._aggregator_feature_shape)
-        raise ValueError(f"unknown VGGT feature_kind {self._feature_kind!r}")
-
-    def _to_replay_agent_obs(
-        self,
-        features_jax: jnp.ndarray | dict[str, jnp.ndarray],
-        *,
-        is_first: bool,
-    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
-        # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
-        # float32 features so it can feed the JIT-compiled agent directly.
-        replay_dtype = self.contract.replay_observation.buffer_dtype()
-        if isinstance(features_jax, dict):
-            if not isinstance(replay_dtype, dict):
-                raise ValueError("structured VGGT readouts require per-field replay dtypes")
-            replay_features = {
-                WORLD_POINTS_KEY: np.asarray(
-                    features_jax[WORLD_POINTS_KEY],
-                    dtype=np.dtype(replay_dtype[WORLD_POINTS_KEY]),
-                ),
-                CAMERA_POSE_KEY: np.asarray(
-                    features_jax[CAMERA_POSE_KEY],
-                    dtype=np.dtype(replay_dtype[CAMERA_POSE_KEY]),
-                ),
-            }
-            agent_obs = {
-                WORLD_POINTS_KEY: features_jax[WORLD_POINTS_KEY].astype(jnp.float32),
-                CAMERA_POSE_KEY: features_jax[CAMERA_POSE_KEY].astype(jnp.float32),
-                "is_first": is_first,
-            }
-            return replay_features, agent_obs
-
-        if isinstance(replay_dtype, dict):
-            raise ValueError("flat VGGT readouts require a scalar replay dtype")
-        replay_features = np.asarray(features_jax, dtype=np.dtype(replay_dtype))
-        agent_features = features_jax.astype(jnp.float32)
-        agent_obs = {"features": agent_features, "is_first": is_first}
-        return replay_features, agent_obs
+        self._readout = make_vggt_readout(
+            feature_kind=feature_kind,
+            extractor=extractor,
+            contract=self.contract,
+        )
 
     def transform(self, obs_dict: dict) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
-        out = self._extract(obs_dict["image"])
-        features_jax = self._readout(out)
-        return self._to_replay_agent_obs(
-            features_jax,
+        out = self._readout.extract(self._extractor, obs_dict["image"])
+        features = self._readout.read(out)
+        return self._readout.to_obs(
+            features,
             is_first=obs_dict.get("is_first", False),
         )

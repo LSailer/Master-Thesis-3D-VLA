@@ -443,7 +443,7 @@ class R2DreamerAgent:
         cls,
         path: str | Path,
         *,
-        obs_shape: tuple[int, ...] | None = None,
+        obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]] | None = None,
         num_actions: int,
         seed: int,
         **config_kwargs: Any,
@@ -462,7 +462,7 @@ class R2DreamerAgent:
         if contract_snapshot is not None:
             contract = recover_encoder_input_contract(contract_snapshot)
             if obs_shape is None:
-                obs_shape = contract.encoder_input.shape
+                obs_shape = contract.encoder_input.buffer_shape()
             config_kwargs.setdefault("encoder_type", contract.encoder_type)
             config_kwargs.setdefault("encoder_module_cls", contract.encoder_module_cls)
             config_kwargs.setdefault("encoder_input_contract", contract_snapshot)
