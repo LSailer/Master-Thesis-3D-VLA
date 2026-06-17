@@ -60,6 +60,15 @@ def encoder_module_kwargs_from_config(
                 "embed_dim": int(config.vggt_embed_dim),
             })
         return kwargs
+    if class_name == "WP64CNNCPMLPEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "conv_depth": int(config.encoder_depth),
+            "conv_kernel": int(config.encoder_kernel),
+            "conv_mults": _tuple_value(config, "encoder_mults"),
+            "cp_hidden": int(config.mlp_vggt_hidden),
+            "cp_layers": int(config.mlp_vggt_layers),
+        }
     if class_name == "HybridEncoder":
         return {
             "cnn_depth": int(config.encoder_depth),
@@ -79,7 +88,7 @@ def encoder_module_kwargs_from_config(
 def normalize_encoder_module_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     """Recover tuple-valued constructor kwargs after JSON round-trips."""
     normalized = dict(kwargs)
-    for key in ("mults", "cnn_mults"):
+    for key in ("mults", "cnn_mults", "conv_mults"):
         if key in normalized:
             normalized[key] = tuple(normalized[key])
     return normalized

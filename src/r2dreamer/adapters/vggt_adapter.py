@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt import (
     VGGTFeatureKind,
     build_vggt_contract,
@@ -30,6 +31,19 @@ def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
     wp = out["world_points"].reshape(-1)  # (4107,)
     cp = out["camera_pose"]              # (9,)
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
+
+
+def world_points_chw(out: dict) -> jnp.ndarray:
+    """Return pooled VGGT world points in channel-first layout."""
+    return jnp.transpose(out["world_points"], (2, 0, 1)).astype(jnp.float32)
+
+
+def structured_world_points_camera_pose(out: dict) -> dict[str, jnp.ndarray]:
+    """Return separate WP image and camera-pose tensors for the 3D-89 path."""
+    return {
+        WORLD_POINTS_KEY: world_points_chw(out),
+        CAMERA_POSE_KEY: out["camera_pose"].astype(jnp.float32),
+    }
 
 
 def dense_world_points_chw(out: dict) -> jnp.ndarray:
@@ -148,7 +162,7 @@ class VGGTObsAdapter(ObsAdapter):
             buffer_dtype=self.contract.replay_observation.buffer_dtype(),
             buffer_shape=self.contract.replay_observation.buffer_shape(),
             normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
-            agent_obs_shape=self.contract.encoder_input.shape,
+            agent_obs_shape=self.contract.encoder_input.buffer_shape(),
             on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
@@ -168,6 +182,8 @@ class VGGTObsAdapter(ObsAdapter):
             features_jax = flatten_raw_aggregator(out, self._aggregator_feature_shape)
         elif self._feature_kind == "agg_tokens":
             features_jax = flatten_full_aggregator_tokens(out, self._aggregator_feature_shape)
+        elif self._feature_kind == "wp64_cp":
+            features_jax = structured_world_points_camera_pose(out)
         elif self._feature_kind == "wp_dense":
             features_jax = dense_world_points_chw(out)
             if tuple(features_jax.shape) != tuple(self.buffer_shape):
@@ -183,6 +199,18 @@ class VGGTObsAdapter(ObsAdapter):
 
         # The replay buffer is CPU/NumPy storage. The acting path keeps JAX
         # float32 features so it can feed the JIT-compiled agent directly.
+        if self._feature_kind == "wp64_cp":
+            replay_features = {
+                WORLD_POINTS_KEY: np.asarray(features_jax[WORLD_POINTS_KEY], dtype=np.float16),
+                CAMERA_POSE_KEY: np.asarray(features_jax[CAMERA_POSE_KEY], dtype=np.float16),
+            }
+            agent_obs = {
+                WORLD_POINTS_KEY: features_jax[WORLD_POINTS_KEY].astype(jnp.float32),
+                CAMERA_POSE_KEY: features_jax[CAMERA_POSE_KEY].astype(jnp.float32),
+                "is_first": obs_dict.get("is_first", False),
+            }
+            return replay_features, agent_obs
+
         replay_features = np.asarray(features_jax)
         if self._feature_kind == "aggregator":
             replay_features = replay_features.astype(np.float32)

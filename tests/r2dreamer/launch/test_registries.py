@@ -29,6 +29,7 @@ class TestEncoderRegistry:
         assert "vggt_aggregator_mlp" in encoder_registry
         assert "vggt_agg_token_transformer" in encoder_registry
         assert "vggt_wp_dense_cnn" in encoder_registry
+        assert "vggt_wp64_cnn_cp_mlp" in encoder_registry
         assert "hybrid" in encoder_registry
         assert "vggt_house_context" in encoder_registry
         assert "vggt_house_full_tokens_nogate" in encoder_registry

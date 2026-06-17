@@ -14,7 +14,12 @@ from src.r2dreamer.observation_preparation import (
     PreparedObservation,
     recover_encoder_input_contract,
 )
-from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY
+from src.r2dreamer.obs_batch import (
+    CAMERA_POSE_KEY,
+    HYBRID_IMAGE_KEY,
+    HYBRID_WP_CP_KEY,
+    WORLD_POINTS_KEY,
+)
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
@@ -138,6 +143,24 @@ class TestVGGTObservationPreparationContracts:
         assert contract.replay_observation.shape == (64 * 64 * 3 + 9,)
         assert contract.encoder_input.shape == (64 * 64 * 3 + 9,)
         assert contract.encoder_module_cls is wm_encoders.VGGTEncoder
+
+    def test_wp64_cnn_cp_mlp_contract_uses_structured_float16_replay(self):
+        class Extractor64(self._Extractor):
+            wp_pool_size = 64
+
+        contract = build_vggt_contract(Extractor64(), feature_kind="wp64_cp")
+
+        assert contract.observation_preparation_type == "vggt_wp64_cnn_cp_mlp"
+        assert contract.encoder_type == "vggt_wp64_cnn_cp_mlp"
+        assert contract.encoder_module_cls is wm_encoders.WP64CNNCPMLPEncoder
+        assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert contract.replay_observation.fields[WORLD_POINTS_KEY].dtype == "float16"
+        assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
+        assert contract.replay_observation.fields[CAMERA_POSE_KEY].dtype == "float16"
+        assert contract.encoder_input.fields[WORLD_POINTS_KEY].dtype == "float32"
+        assert contract.encoder_input.fields[CAMERA_POSE_KEY].dtype == "float32"
+        assert contract.decoder_target is None
+        assert contract.agent_overrides == {"buffer_capacity": 1_000_000}
 
     def test_hybrid_contract_declares_structured_replay_and_decoder_target(self):
         contract = build_hybrid_contract(self._Extractor())

@@ -7,7 +7,12 @@ from typing import Literal, Any
 
 import flax.linen as nn
 
-from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY
+from src.r2dreamer.obs_batch import (
+    CAMERA_POSE_KEY,
+    HYBRID_IMAGE_KEY,
+    HYBRID_WP_CP_KEY,
+    WORLD_POINTS_KEY,
+)
 from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
     ObservationField,
@@ -16,7 +21,7 @@ from src.r2dreamer.observation_preparation.contracts import (
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
-VGGTFeatureKind = Literal["wp_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"]
+VGGTFeatureKind = Literal["wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"]
 
 VGGT_IMAGE_SIZE = 518
 VGGT_IMAGE_SHAPE = (3, VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE)
@@ -33,6 +38,7 @@ HYBRID_RGB_DIM = HYBRID_IMAGE_SHAPE[0] * HYBRID_IMAGE_SHAPE[1] * HYBRID_IMAGE_SH
 _DEFAULT_AGENT_OVERRIDES: dict[str, dict[str, Any]] = {
     "vggt": {"buffer_capacity": 1_000_000},
     "vggt_wp_cp_64": {"buffer_capacity": 1_000_000},
+    "vggt_wp64_cnn_cp_mlp": {"buffer_capacity": 1_000_000},
     "vggt_aggregator_mlp": {
         "buffer_capacity": 5_000,
         "batch_size": 4,
@@ -105,6 +111,8 @@ def _agent_features_observation(shape: tuple[int, ...]) -> ObservationFormContra
 def _default_encoder_type(feature_kind: VGGTFeatureKind, wp_pool_size: int) -> str:
     if feature_kind == "wp_cp":
         return "vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"
+    if feature_kind == "wp64_cp":
+        return "vggt_wp64_cnn_cp_mlp"
     if feature_kind == "aggregator":
         return "vggt_aggregator_mlp"
     if feature_kind == "wp_dense":
@@ -119,6 +127,8 @@ def _default_encoder_type(feature_kind: VGGTFeatureKind, wp_pool_size: int) -> s
 def _default_module_cls(encoder_type: str, feature_kind: VGGTFeatureKind) -> type[nn.Module]:
     if encoder_type == "vggt_aggregator_mlp" or feature_kind == "aggregator":
         return wm_encoders.VGGTAggregatorMLPEncoder
+    if encoder_type == "vggt_wp64_cnn_cp_mlp" or feature_kind == "wp64_cp":
+        return wm_encoders.WP64CNNCPMLPEncoder
     if encoder_type == "vggt_wp_dense_cnn" or feature_kind == "wp_dense":
         return wm_encoders.ConvEncoder
     if encoder_type == "vggt_agg_token_transformer" or feature_kind == "agg_tokens":
@@ -157,6 +167,34 @@ def build_vggt_contract(
     """Build the Encoder Input Contract for one VGGT readout variant."""
     wp_pool_size = int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
     resolved_encoder_type = encoder_type or _default_encoder_type(feature_kind, wp_pool_size)
+    if feature_kind == "wp64_cp":
+        replay_fields = {
+            WORLD_POINTS_KEY: ObservationField((3, wp_pool_size, wp_pool_size), "float16", normalize_on_sample=False),
+            CAMERA_POSE_KEY: ObservationField((VGGT_CAMERA_POSE_DIM,), "float16", normalize_on_sample=False),
+        }
+        encoder_fields = {
+            WORLD_POINTS_KEY: ObservationField((3, wp_pool_size, wp_pool_size), "float32", normalize_on_sample=False),
+            CAMERA_POSE_KEY: ObservationField((VGGT_CAMERA_POSE_DIM,), "float32", normalize_on_sample=False),
+        }
+        resolved_overrides = dict(
+            agent_overrides
+            if agent_overrides is not None
+            else _DEFAULT_AGENT_OVERRIDES.get(resolved_encoder_type, {})
+        )
+        render_resolution = int(env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
+        return EncoderInputContract(
+            observation_preparation_type=resolved_encoder_type,
+            encoder_type=resolved_encoder_type,
+            env_render_resolution=render_resolution,
+            encoder_module_cls=encoder_module_cls or _default_module_cls(resolved_encoder_type, feature_kind),
+            env_observation=_env_observation(render_resolution),
+            replay_observation=ObservationFormContract(replay_fields),
+            agent_observation=ObservationFormContract({**encoder_fields, "is_first": ObservationField((), "bool")}),
+            encoder_input=ObservationFormContract(encoder_fields),
+            decoder_target=None,
+            agent_overrides=resolved_overrides,
+            design_notes=design_notes,
+        )
     shape, dtype = _vggt_shape_dtype(extractor, feature_kind)
     replay_field = ObservationField(shape, dtype, normalize_on_sample=False)
     encoder_field = ObservationField(shape, "float32", normalize_on_sample=False)

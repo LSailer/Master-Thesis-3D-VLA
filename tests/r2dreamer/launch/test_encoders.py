@@ -14,10 +14,12 @@ from src.r2dreamer.adapters.hybrid_adapter import (
     VGGTHouseFullTokenObsAdapter,
 )
 from src.r2dreamer.obs_batch import (
+    CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
+    WORLD_POINTS_KEY,
 )
 from src.r2dreamer.observation_preparation import CNNObservationPreparation, EncoderInputContract
 from src.r2dreamer.encoders import (
@@ -28,6 +30,7 @@ from src.r2dreamer.encoders import (
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
     VGGTEncoder,
+    VGGTWP64CNNCPMLPEncoder,
     VGGTAggregatorMLPEncoder,
     VGGTDenseWPEncoder,
     VGGTWPCP64Encoder,
@@ -347,6 +350,44 @@ class TestVGGTEncoderConfiguration:
         np.testing.assert_allclose(rep[-9:], np.arange(9, dtype=np.float32))
         assert agent_obs["features"].shape == (12297,)
 
+    def test_wp64_cnn_cp_mlp_adapter_emits_float16_world_points_and_pose(self):
+        import jax.numpy as jnp
+
+        class FakeExtractor:
+            wp_pool_size = 64
+
+            def reset(self):
+                pass
+
+            def extract(self, image):
+                return {
+                    "world_points": jnp.ones((64, 64, 3), jnp.float32),
+                    "camera_pose": jnp.arange(9, dtype=jnp.float32),
+                }
+
+        adapter = VGGTObsAdapter(
+            FakeExtractor(),
+            feature_kind="wp64_cp",
+            encoder_type="vggt_wp64_cnn_cp_mlp",
+            encoder_module_cls=wm_encoders.WP64CNNCPMLPEncoder,
+        )
+
+        assert adapter.buffer_shape == {
+            WORLD_POINTS_KEY: (3, 64, 64),
+            CAMERA_POSE_KEY: (9,),
+        }
+        assert adapter.buffer_dtype == {
+            WORLD_POINTS_KEY: "float16",
+            CAMERA_POSE_KEY: "float16",
+        }
+        rep, agent_obs = adapter.transform({"image": np.zeros((3, 518, 518), np.uint8)})
+        assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert rep[WORLD_POINTS_KEY].dtype == np.float16
+        assert rep[CAMERA_POSE_KEY].shape == (9,)
+        assert rep[CAMERA_POSE_KEY].dtype == np.float16
+        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
+
     def test_vggt_launcher_variants_are_centralized(self):
         assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
         assert VGGTAggregatorMLPEncoder.variant is VGGT_VARIANTS["vggt_aggregator_mlp"]
@@ -355,6 +396,7 @@ class TestVGGTEncoderConfiguration:
         ]
         assert VGGTDenseWPEncoder.variant is VGGT_VARIANTS["vggt_wp_dense_cnn"]
         assert VGGTWPCP64Encoder.variant is VGGT_VARIANTS["vggt_wp_cp_64"]
+        assert VGGTWP64CNNCPMLPEncoder.variant is VGGT_VARIANTS["vggt_wp64_cnn_cp_mlp"]
 
         assert VGGT_VARIANTS["vggt"].compute_heads is True
         assert VGGT_VARIANTS["vggt_aggregator_mlp"].compute_heads is False

@@ -24,11 +24,11 @@ class ObsAdapter:
     buffer_dtype: BufferDType = "uint8"
     buffer_shape: BufferShape = (3, 64, 64)
     normalize_on_sample: BufferNormalize = True
-    agent_obs_shape: tuple[int, ...] | None = None
+    agent_obs_shape: BufferShape | None = None
     on_episode_reset: Callable[[], None] | None = None
 
     @property
-    def encoder_obs_shape(self) -> tuple[int, ...]:
+    def encoder_obs_shape(self) -> BufferShape:
         """Shape consumed by the agent encoder after any adapter/batch packing."""
         if self.agent_obs_shape is not None:
             return self.agent_obs_shape
