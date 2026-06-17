@@ -53,6 +53,10 @@ class R2DreamerConfig:
     decoder: bool = False         # build a ConvDecoder + add a reconstruction loss
     scale_decoder: float = 1.0    # weight of the reconstruction MSE in total loss
     design_notes: str = ""
+    # JSON-serializable Encoder Input Contract snapshot persisted to durable
+    # run metadata. Runtime config may still hold encoder_module_cls; snapshots
+    # use stable module names, shapes, dtypes, booleans, and overrides.
+    encoder_input_contract: dict[str, Any] | None = None
 
     # --- MLP heads ---
     mlp_units: int = 256

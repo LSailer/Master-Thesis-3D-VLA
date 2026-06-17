@@ -25,6 +25,10 @@ import numpy as np
 import optax
 
 from .config import R2DreamerConfig
+from .observation_preparation.contracts import (
+    normalize_encoder_module_kwargs,
+    recover_encoder_input_contract,
+)
 from .world_model.rssm import R2RSSM
 from .world_model.encoders import (
     ConvEncoder,
@@ -147,7 +151,17 @@ def _validate_encoder_config(cfg: R2DreamerConfig, cls) -> None:
         )
 
 
+def _contract_encoder_kwargs(cfg: R2DreamerConfig) -> dict[str, Any]:
+    snapshot = getattr(cfg, "encoder_input_contract", None)
+    if snapshot is None:
+        return {}
+    return normalize_encoder_module_kwargs(snapshot.get("encoder_module_kwargs", {}))
+
+
 def _make_conv_encoder(cfg: R2DreamerConfig):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return ConvEncoder(**kwargs)
     return ConvEncoder(
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
@@ -158,6 +172,9 @@ def _make_conv_encoder(cfg: R2DreamerConfig):
 def _make_wp_conv_encoder(cfg: R2DreamerConfig):
     # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
     # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return WPConvEncoder(**kwargs)
     return WPConvEncoder(
         embed_dim=cfg.vggt_embed_dim,
         depth=cfg.encoder_depth,
@@ -181,6 +198,9 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
             f"{HYBRID_VGGT_DIM}, got obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return WMHybridEncoder(**kwargs)
     return WMHybridEncoder(
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
@@ -193,6 +213,9 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
 
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return cls(**kwargs)
     return cls(
         embed_dim=cfg.vggt_embed_dim,
         hidden=cfg.vggt_embed_dim,
@@ -293,7 +316,7 @@ class R2DreamerAgent:
         cls,
         path: str | Path,
         *,
-        obs_shape: tuple[int, ...],
+        obs_shape: tuple[int, ...] | None = None,
         num_actions: int,
         seed: int,
         **config_kwargs: Any,
@@ -302,16 +325,31 @@ class R2DreamerAgent:
 
         Extra ``config_kwargs`` flow into :class:`R2DreamerConfig` so callers
         that need ``encoder_type`` / ``encoder_module_cls`` (e.g. evaluate)
-        can pass them through. The loaded checkpoint's ``step`` is stashed on
-        the returned agent as ``checkpoint_step`` (``-1`` if absent).
+        can pass them through. When the checkpoint contains a durable Encoder
+        Input Contract snapshot, missing encoder config is recovered from it.
+        The loaded checkpoint's ``step`` is stashed on the returned agent as
+        ``checkpoint_step`` (``-1`` if absent).
         """
+        ckpt = load_policy_checkpoint(path)
+        contract_snapshot = ckpt.get("encoder_input_contract")
+        if contract_snapshot is not None:
+            contract = recover_encoder_input_contract(contract_snapshot)
+            if obs_shape is None:
+                obs_shape = contract.encoder_input.shape
+            config_kwargs.setdefault("encoder_type", contract.encoder_type)
+            config_kwargs.setdefault("encoder_module_cls", contract.encoder_module_cls)
+            config_kwargs.setdefault("encoder_input_contract", contract_snapshot)
+        if obs_shape is None:
+            raise ValueError(
+                "obs_shape must be provided when checkpoint has no Encoder Input "
+                "Contract snapshot"
+            )
         config = R2DreamerConfig(
             obs_shape=obs_shape, num_actions=num_actions, **config_kwargs,
         )
         rng_key = jax.random.PRNGKey(seed)
         rng_key, init_key = jax.random.split(rng_key)
         agent = cls(config, init_key)
-        ckpt = load_policy_checkpoint(path)
         agent.params = jax.tree.map(jnp.asarray, ckpt["params"])
         agent.slow_critic_params = jax.tree.map(jnp.asarray, ckpt["slow_critic_params"])
         agent.checkpoint_step = int(ckpt.get("step", -1))

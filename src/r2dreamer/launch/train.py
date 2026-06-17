@@ -129,7 +129,12 @@ def _make_agent_config(
     *, args: Any, encoder_spec: Any, num_actions: int, output_dir: str,
     agent_overrides: dict[str, Any], config_cls: type,
 ):
-    return config_cls(
+    from src.r2dreamer.observation_preparation import (
+        encoder_module_kwargs_from_config,
+        recover_encoder_input_contract,
+    )
+
+    config = config_cls(
         encoder_type=encoder_spec.encoder_type,
         encoder_module_cls=encoder_spec.module_cls,
         obs_shape=encoder_spec.obs_shape,
@@ -141,8 +146,16 @@ def _make_agent_config(
         log_every=args.log_every,
         logdir=output_dir,
         design_notes=encoder_spec.design_notes,
+        encoder_input_contract=encoder_spec.contract_snapshot,
         **agent_overrides,
     )
+    if config.encoder_input_contract is not None:
+        contract = recover_encoder_input_contract(config.encoder_input_contract)
+        config.encoder_input_contract = dict(config.encoder_input_contract)
+        config.encoder_input_contract["encoder_module_kwargs"] = (
+            encoder_module_kwargs_from_config(config, contract.encoder_module_cls)
+        )
+    return config
 
 
 def _make_trainer_config(

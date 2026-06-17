@@ -5,6 +5,10 @@ from src.r2dreamer.observation_preparation.contracts import (
     ObservationField,
     ObservationFormContract,
     PreparedObservation,
+    encoder_module_kwargs_from_config,
+    module_class_path,
+    normalize_encoder_module_kwargs,
+    recover_encoder_input_contract,
 )
 from src.r2dreamer.observation_preparation.cnn import (
     CNN_IMAGE_SHAPE,
@@ -28,6 +32,10 @@ __all__ = [
     "ObservationField",
     "ObservationFormContract",
     "PreparedObservation",
+    "encoder_module_kwargs_from_config",
+    "module_class_path",
+    "normalize_encoder_module_kwargs",
+    "recover_encoder_input_contract",
     "VGGTFeatureKind",
     "VGGT_IMAGE_SHAPE",
     "build_hybrid_contract",

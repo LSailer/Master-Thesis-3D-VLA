@@ -1,6 +1,7 @@
 """L2 (construction) and L3 (adapter behavior) tests for Encoder classes."""
 
 import ast
+import json
 from pathlib import Path
 
 import numpy as np
@@ -63,6 +64,8 @@ class TestCNNEncoder:
         assert spec.env_render_resolution == 64
         assert spec.module_cls is wm_encoders.ConvEncoder
         assert spec.agent_overrides == {}
+        assert spec.contract_snapshot["encoder_type"] == "cnn"
+        json.dumps(spec.contract_snapshot)
 
     def test_cnn_adapter_passthrough(self):
         adapter = CNNEncoder().make_adapter()

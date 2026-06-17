@@ -115,7 +115,8 @@ train_step(batch):
   `actor`, `critic`, optional `decoder`); modules are stateless Flax `nn.Module`s.
 - **JIT + PRNG.** `train_step`/`act` are `jax.jit`-compiled; always `jax.random.split` keys.
   `jax.lax.stop_gradient` gates imagination, the Barlow embed, and the prior in KL.
-- **Checkpoints are pickle** of `params + opt_state + slow_critic_params + ema_state + step`;
+- **Checkpoints are pickle** of `params + opt_state + slow_critic_params + ema_state + step`
+  plus a JSON-serializable `encoder_input_contract` snapshot when available;
   `_CheckpointUnpickler` tolerates moved/renamed optimiser classes.
 
 ## Dependencies
