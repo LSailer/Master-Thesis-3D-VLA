@@ -18,6 +18,7 @@ Compact dispatcher for agents working in this repo on bwUniCluster.
 - Read relevant files in full before broad changes, audits, or editing files not yet inspected. Do not rely only on search snippets.
 - Avoid `any` and untyped code unless there is no practical typed alternative.
 - Always ask before removing functionality or code that appears intentional.
+- Do not silence pylint disables. Fix the warning. If disabling is genuinely needed, ask first and use the smallest possible scoped disable with a reason.
 - Do not preserve backward compatibility unless explicitly requested.
 - Do not hardcode key checks such as `matchesKey(keyData, "ctrl+x")`.
   Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS`
