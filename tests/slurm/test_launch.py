@@ -83,14 +83,25 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
 
     assert result.returncode == 0, result.stderr
     expected = (ROOT / LEGACY_SBATCH / "train_curriculum_l1_vggt.sbatch").read_text()
-    # _base / l1_vggt have since gained three intentional changes the frozen
+    # _base / l1_vggt have since gained four intentional changes the frozen
     # legacy script predates: (1) the GL-teardown hard-exit env var (so every
     # habitat variant exits 0 on completion), (2) multi-partition auto-select
-    # (gpu_h100_il,gpu_h100), and (3) the scalars-only flags video_log_every=0 /
+    # (gpu_h100_il,gpu_h100), (3) the scalars-only flags video_log_every=0 /
     # val_every=0 (videos + eval regenerated from checkpoints, not during
-    # training). Normalise all three back out before the byte-equality check so
-    # the rest of the contract still holds.
+    # training), and (4) GPU memory CSV logging. Normalise them back out before
+    # the byte-equality check so the rest of the contract still holds.
     rendered = result.stdout.replace('export R2DREAMER_HARD_EXIT_ON_FINISH="1"\n\n', "", 1)
+    rendered = rendered.replace(
+        'GPU_MEMORY_LOG="output/r2dreamer-curriculum-l1-vggt/gpu-memory-${SLURM_JOB_ID}.csv"\n'
+        'if command -v nvidia-smi >/dev/null 2>&1; then\n'
+        '    nvidia-smi --query-gpu=timestamp,index,name,memory.used,memory.total,utilization.gpu --format=csv -l 5 > "$GPU_MEMORY_LOG" 2>/dev/null &\n'
+        '    GPU_MONITOR_PID=$!\n'
+        "    trap 'if [ -n \"${GPU_MONITOR_PID:-}\" ]; then kill \"$GPU_MONITOR_PID\" 2>/dev/null || true; wait \"$GPU_MONITOR_PID\" 2>/dev/null || true; fi' EXIT\n"
+        '    echo "GPU memory log: $GPU_MEMORY_LOG"\n'
+        'fi\n\n',
+        "\n",
+        1,
+    )
     # The entrypoint migrated to the single run.py dispatcher (run id positional);
     # the frozen legacy sbatch still names the old per-run shim. Map it back.
     rendered = rendered.replace(
@@ -460,3 +471,97 @@ def test_l1_vggt_capacity_ablation_links_external_repos(variant: str) -> None:
     rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
 
     assert "./scripts/slurm/hooks/link_external.sh" in rendered
+
+
+def test_rendered_sbatch_logs_gpu_memory_csv() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("l1_cnn_cap1m_seed42_fp32_probe"), mode="prod",
+    )
+
+    assert (
+        'GPU_MEMORY_LOG="output/probes/3d-87/cnn-cap1m-fp32-seed42/'
+        'gpu-memory-${SLURM_JOB_ID}.csv"'
+    ) in rendered
+    assert "--query-gpu=timestamp,index,name,memory.used,memory.total,utilization.gpu" in rendered
+    assert '--format=csv -l 5 > "$GPU_MEMORY_LOG"' in rendered
+    assert 'echo "GPU memory log: $GPU_MEMORY_LOG"' in rendered
+
+
+@pytest.mark.parametrize(
+    "variant,dtype_flag,run_id,output_dir,wandb_name,tag_fragments,steps",
+    [
+        (
+            "house_full_tokens_nogate_prodshape_probe_l1",
+            "float32",
+            "habitat-l1-vggt-house-full-tokens-nogate",
+            "output/probes/3d-87/full-token-nogate-fp32-prodshape/run-${SLURM_JOB_ID}",
+            "full-token-nogate-fp32-prodshape-probe-${SLURM_JOB_ID}",
+            [
+                "3d-87", "prodshape-probe", "fp32", "full-token-transformer",
+                "no-gate", "b16", "t64", "seed-42",
+            ],
+            "6000",
+        ),
+        (
+            "house_full_tokens_nogate_bf16_prodshape_probe_l1",
+            "bfloat16",
+            "habitat-l1-vggt-house-full-tokens-nogate",
+            "output/probes/3d-87/full-token-nogate-bf16-prodshape/run-${SLURM_JOB_ID}",
+            "full-token-nogate-bf16-prodshape-probe-${SLURM_JOB_ID}",
+            [
+                "3d-87", "prodshape-probe", "bf16", "full-token-transformer",
+                "no-gate", "b16", "t64", "seed-42",
+            ],
+            "6000",
+        ),
+        (
+            "l1_cnn_cap1m_seed42_fp32_probe",
+            "float32",
+            "habitat-l1-cnn",
+            "output/probes/3d-87/cnn-cap1m-fp32-seed42/run-${SLURM_JOB_ID}",
+            "l1-cnn-cap1m-fp32-seed42-probe-${SLURM_JOB_ID}",
+            ["3d-87", "cnn-baseline", "dtype-plumbing-noop", "fp32", "seed-42", "cap-1m"],
+            "50000",
+        ),
+        (
+            "l1_cnn_cap1m_seed42_bf16_probe",
+            "bfloat16",
+            "habitat-l1-cnn",
+            "output/probes/3d-87/cnn-cap1m-bf16-seed42/run-${SLURM_JOB_ID}",
+            "l1-cnn-cap1m-bf16-seed42-probe-${SLURM_JOB_ID}",
+            ["3d-87", "cnn-baseline", "dtype-plumbing-noop", "bf16", "seed-42", "cap-1m"],
+            "50000",
+        ),
+    ],
+)
+def test_3d87_probe_configs_render_expected_flags_paths_and_tags(
+    variant: str,
+    dtype_flag: str | None,
+    run_id: str,
+    output_dir: str,
+    wandb_name: str,
+    tag_fragments: list[str],
+    steps: str,
+) -> None:
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
+    _, script, rendered_run_id, flags = training_command(rendered)
+
+    assert script.endswith("run.py")
+    assert rendered_run_id == run_id
+    assert flags["--steps"] == steps
+    assert flags["--prefill"] == "5000"
+    assert flags["--checkpoint_every"] == "1000000"
+    assert flags["--output_dir"] == output_dir
+    assert flags["--seed"] == "42"
+    if variant.startswith("house_full_tokens_nogate_"):
+        assert flags["--batch_size"] == "16"
+        assert flags["--seq_len"] == "64"
+    assert flags["--wandb_name"] == wandb_name
+    assert flags["--video_log_every"] == "0"
+    assert flags["--val_every"] == "0"
+    if dtype_flag is None:
+        assert "--compute_dtype" not in flags
+    else:
+        assert flags["--compute_dtype"] == dtype_flag
+    for fragment in tag_fragments:
+        assert fragment in flags["--wandb_tags"]

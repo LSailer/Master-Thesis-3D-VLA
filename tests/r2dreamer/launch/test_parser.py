@@ -39,3 +39,12 @@ def test_buffer_capacity_override_wins_over_encoder_default():
     overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
 
     assert overrides["buffer_capacity"] == 500_000
+
+
+def test_compute_dtype_override_reaches_agent_config():
+    args = _build_parser_train().parse_args(["--compute_dtype", "bfloat16"])
+    encoder_spec = SimpleNamespace(agent_overrides={})
+
+    overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
+
+    assert overrides["compute_dtype"] == "bfloat16"

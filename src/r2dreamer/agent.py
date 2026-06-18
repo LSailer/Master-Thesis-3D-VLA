@@ -50,6 +50,7 @@ from .behavior.loss import behavior_loss
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
 from .obs_batch import (
+    compute_jnp_dtype,
     decoder_rgb_target,
     encoder_obs_from_agent_obs,
     encoder_obs_from_batch,
@@ -274,6 +275,7 @@ def _make_full_token_nogate_encoder(cfg: R2DreamerConfig):
         transformer_heads=cfg.vggt_token_transformer_heads,
         transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
         transformer_dropout=cfg.vggt_token_transformer_dropout,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
     )
 
 
@@ -313,7 +315,8 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         return {
             "image": jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
             "full_tokens": jnp.zeros(
-                (1, cfg.vggt_token_count, cfg.vggt_token_dim), dtype=jnp.float32
+                (1, cfg.vggt_token_count, cfg.vggt_token_dim),
+                dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
         }
     if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":

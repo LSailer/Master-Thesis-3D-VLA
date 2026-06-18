@@ -141,6 +141,11 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--vggt_drop_register_tokens", action="store_true",
                    help="Drop the 4 VGGT register tokens in the token Transformer "
                         "ablation. Default keeps registers for 3D-75.")
+    p.add_argument("--compute_dtype",
+                   choices=["float32", "bfloat16", "bf16", "float16", "fp16"],
+                   default=None,
+                   help="Override cfg.compute_dtype for large encoder activations. "
+                        "Use bfloat16 for full-token memory ablations.")
 
 
 def _build_parser_train() -> argparse.ArgumentParser:

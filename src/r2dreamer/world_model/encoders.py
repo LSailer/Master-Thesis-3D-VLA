@@ -7,6 +7,7 @@ head. The choice between them is set by `R2DreamerConfig.encoder_type`.
 from typing import Literal
 
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 import flax.linen as nn
 
 from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
@@ -316,10 +317,11 @@ class _FullTokenTransformerBlock(nn.Module):
     heads: int
     mlp_ratio: int = 2
     dropout: float = 0.0
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, x, *, train: bool = False):
-        attn_in = nn.LayerNorm(name="attn_norm")(x)
+        attn_in = nn.LayerNorm(dtype=self.compute_dtype, name="attn_norm")(x)
         attn = nn.SelfAttention(
             num_heads=self.heads,
             qkv_features=self.token_dim,
@@ -327,15 +329,18 @@ class _FullTokenTransformerBlock(nn.Module):
             dropout_rate=self.dropout,
             deterministic=not train,
             use_bias=False,
+            dtype=self.compute_dtype,
             name="attn",
         )(attn_in)
         x = x + attn
 
-        mlp_in = nn.LayerNorm(name="mlp_norm")(x)
-        y = nn.Dense(self.token_dim * self.mlp_ratio, name="mlp_in")(mlp_in)
+        mlp_in = nn.LayerNorm(dtype=self.compute_dtype, name="mlp_norm")(x)
+        y = nn.Dense(
+            self.token_dim * self.mlp_ratio, dtype=self.compute_dtype, name="mlp_in"
+        )(mlp_in)
         y = nn.gelu(y)
         y = nn.Dropout(self.dropout, deterministic=not train, name="dropout")(y)
-        y = nn.Dense(self.token_dim, name="mlp_out")(y)
+        y = nn.Dense(self.token_dim, dtype=self.compute_dtype, name="mlp_out")(y)
         y = nn.Dropout(self.dropout, deterministic=not train, name="out_dropout")(y)
         return x + y
 
@@ -356,6 +361,7 @@ class VGGTFullTokenContextTransformer(nn.Module):
     heads: int = 8
     mlp_ratio: int = 2
     dropout: float = 0.0
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, tokens, *, train: bool = False):
@@ -373,12 +379,12 @@ class VGGTFullTokenContextTransformer(nn.Module):
                 f"token_dim={self.token_dim} must be divisible by heads={self.heads}"
             )
 
-        x = tokens.astype(jnp.float32)
+        x = tokens.astype(self.compute_dtype)
         pos = self.param(
             "pos_embed",
             nn.initializers.normal(stddev=0.02),
             (1, self.num_tokens, self.token_dim),
-        )
+        ).astype(self.compute_dtype)
         x = x + pos
 
         for i in range(self.layers):
@@ -387,11 +393,16 @@ class VGGTFullTokenContextTransformer(nn.Module):
                 heads=self.heads,
                 mlp_ratio=self.mlp_ratio,
                 dropout=self.dropout,
+                compute_dtype=self.compute_dtype,
                 name=f"block{i}",
             )(x, train=train)
 
-        context_2048 = nn.LayerNorm(name="context_norm")(x.mean(axis=1))
-        context = nn.Dense(self.context_dim, name="context_proj")(context_2048)
+        context_2048 = nn.LayerNorm(dtype=self.compute_dtype, name="context_norm")(
+            x.mean(axis=1)
+        )
+        context = nn.Dense(
+            self.context_dim, dtype=self.compute_dtype, name="context_proj"
+        )(context_2048)
         if squeeze:
             context = context[0]
         return context
@@ -416,6 +427,7 @@ class RGBFullTokenTransformerEncoder(nn.Module):
     transformer_heads: int = 8
     transformer_mlp_ratio: int = 2
     transformer_dropout: float = 0.0
+    compute_dtype: DTypeLike = jnp.float32
 
     def setup(self):
         self.cnn = ConvEncoder(
@@ -429,6 +441,7 @@ class RGBFullTokenTransformerEncoder(nn.Module):
             heads=self.transformer_heads,
             mlp_ratio=self.transformer_mlp_ratio,
             dropout=self.transformer_dropout,
+            compute_dtype=self.compute_dtype,
         )
 
     def _branches(self, obs):

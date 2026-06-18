@@ -38,6 +38,17 @@ class ObsBatchConfig(Protocol):
     vggt_token_dim: int
 
 
+def compute_jnp_dtype(dtype: str):
+    """Return the JAX dtype named by ``R2DreamerConfig.compute_dtype``."""
+    if dtype == "float32":
+        return jnp.float32
+    if dtype in ("bfloat16", "bf16"):
+        return jnp.bfloat16
+    if dtype in ("float16", "fp16"):
+        return jnp.float16
+    raise ValueError(f"Unsupported compute_dtype={dtype!r}")
+
+
 def obs_leading_shape(obs: Any) -> tuple[int, int]:
     """Return the ``(B, T)`` prefix of a replay observation batch."""
     if isinstance(obs, Mapping):
@@ -111,9 +122,9 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
         if not isinstance(obs, Mapping):
             raise TypeError("vggt_house_full_tokens_nogate expects dict obs")
         image = normalize_image_obs(obs[HYBRID_IMAGE_KEY]).reshape(B * T, 3, 64, 64)
-        tokens = jnp.asarray(obs[FULL_TOKENS_KEY], dtype=jnp.float32).reshape(
-            B * T, cfg.vggt_token_count, cfg.vggt_token_dim
-        )
+        tokens = jnp.asarray(
+            obs[FULL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
+        ).reshape(B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
         return {HYBRID_IMAGE_KEY: image, FULL_TOKENS_KEY: tokens}
     elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         if not isinstance(obs, Mapping):
@@ -149,7 +160,7 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig)
         obs = {
             HYBRID_IMAGE_KEY: normalize_image_obs(obs_dict[HYBRID_IMAGE_KEY])[None],
             FULL_TOKENS_KEY: jnp.asarray(
-                obs_dict[FULL_TOKENS_KEY], dtype=jnp.float32
+                obs_dict[FULL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
             )[None],
         }
         return obs

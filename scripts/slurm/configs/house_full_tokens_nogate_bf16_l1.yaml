@@ -1,0 +1,16 @@
+extends: house_full_tokens_nogate_l1
+job_name: vggt-house-full-tokens-nogate-bf16-l1
+output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-full-tokens-nogate-bf16
+comments:
+  - "3D-87 bf16 treatment for the 3D-77 no-gate full-token test: same B/T/tokens/model as fp32 control, only cfg.compute_dtype changes to bfloat16."
+args:
+  compute_dtype: bfloat16
+  output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-full-tokens-nogate-bf16/run-${SLURM_JOB_ID}
+  wandb_name: l1_rgb_replay_vggt_house_full_tokens_nogate_bf16-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-context,full-token-transformer,no-gate,rgb-replay,live-cache,bounded-cache,3d-87,bf16,jax,3d-encoder
+smoke:
+  args:
+    compute_dtype: bfloat16
+    output_dir: output/smoke/vggt-house-full-tokens-nogate-bf16-${TIMESTAMP}
+    wandb_name: vggt-house-full-tokens-nogate-bf16-smoke-${TIMESTAMP}
+    wandb_tags: house-context,smoke,full-token-transformer,no-gate,rgb-replay,live-cache,3d-87,bf16

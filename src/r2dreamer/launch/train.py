@@ -126,6 +126,13 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
         agent_overrides["decoder"] = True
     if getattr(args, "vggt_drop_register_tokens", False):
         agent_overrides["vggt_keep_register_tokens"] = False
+    if getattr(args, "compute_dtype", None) is not None:
+        dtype = args.compute_dtype
+        if dtype == "bf16":
+            dtype = "bfloat16"
+        elif dtype == "fp16":
+            dtype = "float16"
+        agent_overrides["compute_dtype"] = dtype
     return agent_overrides
 
 
