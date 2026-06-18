@@ -16,6 +16,7 @@ from src.r2dreamer.adapters.hybrid_adapter import (
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
@@ -754,6 +755,101 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         assert augmented["obs"][FULL_TOKENS_KEY].shape == (2, 3, 1374, 2048)
         np.testing.assert_allclose(
             np.asarray(augmented["obs"][FULL_TOKENS_KEY][0, 0]), full_tokens
+        )
+
+
+class TestVGGTHouseGlobalTokenNoGateEncoder:
+    def test_global_token_nogate_encoder_exposes_rgb_replay_and_singleton_token_obs(self, monkeypatch):
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+        from src.r2dreamer.encoders import VGGTHouseGlobalTokenNoGateEncoder
+
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHouseGlobalTokenNoGateEncoder()
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert isinstance(adapter, VGGTHouseGlobalTokenObsAdapter)
+        assert spec.encoder_type == "vggt_house_global_tokens_nogate"
+        assert adapter.buffer_shape == (3, 64, 64)
+        assert spec.obs_shape == {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            GLOBAL_TOKENS_KEY: (1374, 1024),
+        }
+        assert spec.module_cls is wm_encoders.RGBGlobalTokenTransformerEncoder
+        assert spec.agent_overrides["buffer_capacity"] == 1_000_000
+        assert spec.agent_overrides["vggt_token_dim"] == 1024
+        assert spec.agent_overrides["vggt_token_count"] == 1374
+        assert adapter.on_episode_reset is None
+
+    def test_global_token_adapter_requires_live_tokens_before_replay_augmentation(self):
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+
+        class FakeExtractor:
+            def extract(self, image):  # pragma: no cover - should not be called
+                raise AssertionError("augment_replay_batch must not run VGGT")
+
+        adapter = VGGTHouseGlobalTokenObsAdapter(FakeExtractor())
+        batch = {"obs": np.zeros((2, 3, 3, 64, 64), dtype=np.uint8)}
+
+        with pytest.raises(RuntimeError, match="no live global tokens"):
+            adapter.augment_replay_batch(batch)
+
+    def test_global_token_adapter_stores_only_rgb_and_injects_singleton_live_tokens(self):
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+
+        global_tokens = np.arange(1374 * 1024, dtype=np.float32).reshape(1374, 1024)
+
+        class FakeExtractor:
+            def __init__(self):
+                self.calls = 0
+
+            def extract(self, image):
+                self.calls += 1
+                import jax.numpy as jnp
+                return {"aggregator_features": jnp.asarray(global_tokens)}
+
+        extractor = FakeExtractor()
+        adapter = VGGTHouseGlobalTokenObsAdapter(extractor)
+        image = np.random.default_rng(2).integers(
+            0, 256, size=(3, 518, 518), dtype=np.uint8
+        )
+
+        replay, agent_obs = adapter.transform({"image": image, "is_first": True})
+
+        assert replay.shape == (3, 64, 64)
+        assert replay.dtype == np.uint8
+        assert set(agent_obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY, "is_first"}
+        assert agent_obs[GLOBAL_TOKENS_KEY].shape == (1374, 1024)
+        assert extractor.calls == 1
+
+        batch = {
+            "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+            "actions": np.zeros((2, 3), dtype=np.int32),
+            "rewards": np.zeros((2, 3), dtype=np.float32),
+            "dones": np.zeros((2, 3), dtype=bool),
+            "terminals": np.zeros((2, 3), dtype=bool),
+            "is_first": np.zeros((2, 3), dtype=np.float32),
+        }
+        augmented = adapter.augment_replay_batch(batch)
+
+        assert extractor.calls == 1, "cached live tokens should be reused during replay sampling"
+        assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
+        assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented["obs"][GLOBAL_TOKENS_KEY].shape == (1, 1374, 1024)
+        np.testing.assert_allclose(
+            np.asarray(augmented["obs"][GLOBAL_TOKENS_KEY][0]), global_tokens
         )
 
 

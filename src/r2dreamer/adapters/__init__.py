@@ -7,6 +7,7 @@ from src.r2dreamer.adapters.vggt_adapter import (
 from src.r2dreamer.adapters.hybrid_adapter import (
     HybridObsAdapter,
     VGGTHouseContextObsAdapter,
+    VGGTHouseGlobalTokenObsAdapter,
     HYBRID_FEATURE_DIM,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "VGGT_FEATURE_DIM",
     "HybridObsAdapter",
     "VGGTHouseContextObsAdapter",
+    "VGGTHouseGlobalTokenObsAdapter",
     "HYBRID_FEATURE_DIM",
 ]

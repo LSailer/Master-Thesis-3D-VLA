@@ -14,6 +14,7 @@ from src.r2dreamer.encoders import (
     HybridEncoder,
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
+    VGGTHouseGlobalTokenNoGateEncoder,
 )
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 
@@ -36,6 +37,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "hybrid": HybridEncoder,
     "vggt_house_context": VGGTHouseContextEncoder,
     "vggt_house_full_tokens_nogate": VGGTHouseFullTokenNoGateEncoder,
+    "vggt_house_global_tokens_nogate": VGGTHouseGlobalTokenNoGateEncoder,
 }
 
 env_registry: dict[str, Callable] = {

@@ -36,12 +36,18 @@ from .world_model.encoders import (
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
     RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
+    RGBGlobalTokenTransformerEncoder as WMRGBGlobalTokenTransformerEncoder,
     VGGTEncoder as WMVGGTEncoder,
     VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
 )
-from .obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
+from .obs_batch import (
+    CAMERA_POSE_KEY,
+    GLOBAL_TOKENS_KEY,
+    HYBRID_IMAGE_KEY,
+    WORLD_POINTS_KEY,
+)
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
 from .behavior.return_ema import ReturnEMA
@@ -156,6 +162,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
             "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
+            "vggt_house_global_tokens_nogate": WMRGBGlobalTokenTransformerEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -279,6 +286,22 @@ def _make_full_token_nogate_encoder(cfg: R2DreamerConfig):
     )
 
 
+def _make_global_token_nogate_encoder(cfg: R2DreamerConfig):
+    return WMRGBGlobalTokenTransformerEncoder(
+        cnn_depth=cfg.encoder_depth,
+        cnn_kernel=cfg.encoder_kernel,
+        cnn_mults=cfg.encoder_mults,
+        context_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        transformer_layers=cfg.vggt_token_transformer_layers,
+        transformer_heads=cfg.vggt_token_transformer_heads,
+        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        transformer_dropout=cfg.vggt_token_transformer_dropout,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
+    )
+
+
 def _make_token_transformer_encoder(cfg: R2DreamerConfig):
     return WMVGGTAggTokenTransformerEncoder(
         embed_dim=cfg.vggt_embed_dim,
@@ -307,14 +330,24 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_token_transformer_encoder(cfg)
     if cls is WMRGBFullTokenTransformerEncoder:
         return _make_full_token_nogate_encoder(cfg)
+    if cls is WMRGBGlobalTokenTransformerEncoder:
+        return _make_global_token_nogate_encoder(cfg)
     return _make_mlp_encoder(cfg, cls)
 
 
 def _dummy_encoder_obs(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt_house_full_tokens_nogate":
         return {
-            "image": jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
             "full_tokens": jnp.zeros(
+                (1, cfg.vggt_token_count, cfg.vggt_token_dim),
+                dtype=compute_jnp_dtype(cfg.compute_dtype),
+            ),
+        }
+    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
+        return {
+            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            GLOBAL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
@@ -563,6 +596,7 @@ class R2DreamerAgent:
                 "hybrid",
                 "vggt_house_context",
                 "vggt_house_full_tokens_nogate",
+                "vggt_house_global_tokens_nogate",
             ):
                 raise ValueError(
                     "decoder=True requires an RGB-bearing encoder_type — the "

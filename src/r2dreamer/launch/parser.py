@@ -334,6 +334,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
             "hybrid",
             "vggt_house_context",
             "vggt_house_full_tokens_nogate",
+            "vggt_house_global_tokens_nogate",
         ],
     )
     p.add_argument(

@@ -13,6 +13,7 @@ from src.r2dreamer.observation_preparation.vggt_readouts import (
 )
 from src.r2dreamer.obs_batch import (
     FULL_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
@@ -20,6 +21,7 @@ from src.r2dreamer.obs_batch import (
 from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_IMAGE_SHAPE,
     HYBRID_RGB_DIM,
+    VGGT_AGGREGATOR_EMBED_DIM,
     VGGT_AGGREGATOR_TOKEN_COUNT,
     VGGT_FULL_TOKEN_EMBED_DIM,
     build_hybrid_contract,
@@ -33,6 +35,7 @@ from src.r2dreamer.world_model.encoders import (
 
 HOUSE_CONTEXT_FEATURE_DIM = HYBRID_RGB_DIM + HOUSE_CONTEXT_DIM
 FULL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_FULL_TOKEN_EMBED_DIM)
+GLOBAL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_AGGREGATOR_EMBED_DIM)
 
 
 class HybridObsAdapter(ObsAdapter):
@@ -138,6 +141,65 @@ class VGGTHouseFullTokenObsAdapter(ObsAdapter):
             "obs": {
                 HYBRID_IMAGE_KEY: image,
                 FULL_TOKENS_KEY: tokens,
+            },
+        }
+
+
+class VGGTHouseGlobalTokenObsAdapter(ObsAdapter):
+    """RGB replay plus live VGGT global-half tokens for no-gate training.
+
+    Replay stores only the 64x64 RGB frame. The latest live ``(1374, 1024)``
+    VGGT aggregator global-token tensor is cached outside replay and injected
+    as a singleton token sequence into sampled windows. Keeping the token tensor
+    singleton lets the trainable agent encoder compute one token context per
+    train step and broadcast the resulting embedding to all sampled RGB rows.
+    """
+
+    def __init__(self, extractor):
+        super().__init__(
+            buffer_dtype="uint8",
+            buffer_shape=(3, 64, 64),
+            normalize_on_sample=True,
+            agent_obs_shape={
+                HYBRID_IMAGE_KEY: HYBRID_IMAGE_SHAPE,
+                GLOBAL_TOKENS_KEY: GLOBAL_TOKEN_SHAPE,
+            },
+            on_episode_reset=None,
+        )
+        self._extractor = extractor
+        self._tokens: np.ndarray | None = None
+
+    def _extract_tokens(self, image: np.ndarray) -> np.ndarray:
+        out = self._extractor.extract(image)
+        tokens = out["aggregator_features"]
+        if tuple(tokens.shape) != GLOBAL_TOKEN_SHAPE:
+            raise ValueError(
+                f"expected VGGT global-token shape {GLOBAL_TOKEN_SHAPE}, got {tokens.shape}"
+            )
+        self._tokens = np.asarray(tokens, dtype=np.float32)
+        return self._tokens
+
+    def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
+        image64 = resize_chw_uint8(obs_dict["image"], 64)
+        tokens = self._extract_tokens(obs_dict["image"])
+        agent_obs = {
+            HYBRID_IMAGE_KEY: image64,
+            GLOBAL_TOKENS_KEY: jnp.asarray(tokens, dtype=jnp.float32),
+            "is_first": obs_dict.get("is_first", False),
+        }
+        return image64, agent_obs
+
+    def augment_replay_batch(self, batch: dict) -> dict:
+        if self._tokens is None:
+            raise RuntimeError(
+                "VGGTHouseGlobalTokenObsAdapter has no live global tokens yet; "
+                "call transform() before sampling replay."
+            )
+        return {
+            **batch,
+            "obs": {
+                HYBRID_IMAGE_KEY: batch["obs"],
+                GLOBAL_TOKENS_KEY: jnp.asarray(self._tokens, dtype=jnp.float32)[None],
             },
         }
 

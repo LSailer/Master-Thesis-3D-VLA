@@ -89,6 +89,69 @@ class TestHybridEncoder:
         assert fused.shape == (2, 2048)
 
 
+class TestRGBGlobalTokenTransformerEncoder:
+    def test_singleton_global_tokens_are_encoded_once_and_broadcast(self, rng):
+        from src.r2dreamer.world_model.encoders import RGBGlobalTokenTransformerEncoder
+
+        enc = RGBGlobalTokenTransformerEncoder(
+            cnn_depth=2,
+            cnn_kernel=3,
+            cnn_mults=(1, 1),
+            context_dim=8,
+            token_dim=8,
+            num_tokens=6,
+            transformer_layers=1,
+            transformer_heads=2,
+            transformer_mlp_ratio=2,
+        )
+        obs = {
+            "image": jnp.zeros((3, 3, 64, 64), dtype=jnp.float32),
+            "global_tokens": jnp.ones((1, 6, 8), dtype=jnp.float32),
+        }
+
+        params = enc.init(rng, obs)
+        fused = enc.apply(params, obs)
+        cnn_e, token_e = enc.apply(params, obs, method=enc.branches)
+
+        assert cnn_e.shape[0] == 3
+        assert token_e.shape == (3, 8)
+        assert fused.shape == (3, cnn_e.shape[-1] + token_e.shape[-1])
+        assert jnp.allclose(token_e[0], token_e[1])
+        assert jnp.allclose(token_e[0], token_e[2])
+        assert "gate" not in params["params"]
+
+    def test_global_token_branch_is_not_zero_gated_at_init(self, rng):
+        from src.r2dreamer.world_model.encoders import RGBGlobalTokenTransformerEncoder
+
+        enc = RGBGlobalTokenTransformerEncoder(
+            cnn_depth=2,
+            cnn_kernel=3,
+            cnn_mults=(1, 1),
+            context_dim=8,
+            token_dim=8,
+            num_tokens=6,
+            transformer_layers=1,
+            transformer_heads=2,
+            transformer_mlp_ratio=2,
+        )
+        image = jnp.zeros((2, 3, 64, 64), dtype=jnp.float32)
+        obs_a = {
+            "image": image,
+            "global_tokens": jnp.zeros((1, 6, 8), dtype=jnp.float32),
+        }
+        obs_b = {
+            "image": image,
+            "global_tokens": jnp.ones((1, 6, 8), dtype=jnp.float32),
+        }
+
+        params = enc.init(rng, obs_a)
+        _, token_a = enc.apply(params, obs_a, method=enc.branches)
+        _, token_b = enc.apply(params, obs_b, method=enc.branches)
+
+        assert not jnp.allclose(token_a, token_b)
+        assert float(jnp.max(jnp.abs(token_b))) > 0.0
+
+
 class TestDecoderGuard:
     """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
 
