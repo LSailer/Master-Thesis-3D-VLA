@@ -94,10 +94,14 @@ def pack_hybrid_obs(obs: Any) -> jnp.ndarray:
     return pack_rgb_context_obs(obs, context_key=HYBRID_WP_CP_KEY)
 
 
-def pack_world_points_camera_pose_obs(obs: Mapping[str, Any]) -> jnp.ndarray:
+def pack_world_points_camera_pose_obs(
+    obs: Mapping[str, Any],
+    *,
+    dtype=jnp.float32,
+) -> jnp.ndarray:
     """Flatten structured VGGT WP/CP replay into legacy MLP features."""
-    world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=jnp.float32)
-    camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=jnp.float32)
+    world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=dtype)
+    camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=dtype)
     prefix = world_points.shape[:-3]
     world_points_flat = world_points.reshape(*prefix, -1)
     camera_pose_flat = camera_pose.reshape(*camera_pose.shape[:-1], -1)
@@ -114,6 +118,7 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
     """Return flattened per-step observations consumed by ``agent.encoder_mod``."""
     obs = batch["obs"]
     B, T = obs_leading_shape(obs)
+    compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
     if cfg.encoder_type == "hybrid":
         obs = pack_hybrid_obs(obs)
     elif cfg.encoder_type == "vggt_house_context":
@@ -131,24 +136,25 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
             raise TypeError("vggt_wp64_cnn_cp_mlp expects dict obs")
         world_points_shape = tuple(cfg.obs_shape[WORLD_POINTS_KEY])  # type: ignore[index]
         camera_pose_shape = tuple(cfg.obs_shape[CAMERA_POSE_KEY])  # type: ignore[index]
-        world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=jnp.float32).reshape(
+        world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype).reshape(
             B * T, *world_points_shape
         )
-        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=jnp.float32).reshape(B * T, *camera_pose_shape)
+        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=compute_dtype).reshape(B * T, *camera_pose_shape)
         return {WORLD_POINTS_KEY: world_points, CAMERA_POSE_KEY: camera_pose}
     elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and isinstance(obs, Mapping):
-        obs = pack_world_points_camera_pose_obs(obs)
+        obs = pack_world_points_camera_pose_obs(obs, dtype=compute_dtype)
     elif cfg.encoder_type == "vggt_wp_dense_cnn" and isinstance(obs, Mapping):
-        obs = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=jnp.float32)
+        obs = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype)
     elif cfg.encoder_type == "cnn":
         obs = normalize_image_obs(obs)
     else:
-        obs = jnp.asarray(obs, dtype=jnp.float32)
+        obs = jnp.asarray(obs, dtype=compute_dtype)
     return obs.reshape(B * T, *_flat_obs_shape(cfg))
 
 
 def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig) -> EncoderObs:
     """Return one-step encoder input for acting."""
+    compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
     if cfg.encoder_type == "hybrid":
         if "hybrid" in obs_dict:
             obs = jnp.asarray(obs_dict["hybrid"], dtype=jnp.float32)
@@ -166,13 +172,13 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig)
         return obs
     elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         return {
-            WORLD_POINTS_KEY: jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=jnp.float32)[None],
-            CAMERA_POSE_KEY: jnp.asarray(obs_dict[CAMERA_POSE_KEY], dtype=jnp.float32)[None],
+            WORLD_POINTS_KEY: jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype)[None],
+            CAMERA_POSE_KEY: jnp.asarray(obs_dict[CAMERA_POSE_KEY], dtype=compute_dtype)[None],
         }
     elif cfg.encoder_type == "vggt_wp_dense_cnn" and WORLD_POINTS_KEY in obs_dict:
-        obs = jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=jnp.float32)
+        obs = jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype)
     elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and WORLD_POINTS_KEY in obs_dict:
-        obs = pack_world_points_camera_pose_obs(obs_dict)
+        obs = pack_world_points_camera_pose_obs(obs_dict, dtype=compute_dtype)
     elif cfg.encoder_type in (
         "vggt",
         "vggt_aggregator_mlp",
@@ -180,7 +186,7 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig)
         "vggt_wp_dense_cnn",
         "vggt_wp_cp_64",
     ):
-        obs = jnp.asarray(obs_dict["features"], dtype=jnp.float32)
+        obs = jnp.asarray(obs_dict["features"], dtype=compute_dtype)
     else:
         obs = normalize_image_obs(obs_dict["image"])
     return obs[None]

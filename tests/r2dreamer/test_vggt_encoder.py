@@ -295,10 +295,38 @@ class TestWP64CNNCPMLPObservationBatch:
         )
 
         assert enc_obs[WORLD_POINTS_KEY].shape == (6, 3, 64, 64)
-        assert enc_obs[WORLD_POINTS_KEY].dtype == jnp.float32
+        assert enc_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
         assert enc_obs[CAMERA_POSE_KEY].shape == (6, 9)
+        assert enc_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
         assert act_obs[WORLD_POINTS_KEY].shape == (1, 3, 64, 64)
+        assert act_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
         assert act_obs[CAMERA_POSE_KEY].shape == (1, 9)
+        assert act_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
+
+
+class TestVGGTObservationBatchDType:
+    def test_flat_vggt_training_obs_uses_configured_compute_dtype(self):
+        cfg = R2DreamerConfig(encoder_type="vggt", obs_shape=(FEATURE_DIM,))
+        batch = {
+            "obs": {
+                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 37, 37), dtype=jnp.float16),
+                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
+            }
+        }
+
+        enc_obs = encoder_obs_from_batch(batch, cfg)
+        act_obs = encoder_obs_from_agent_obs(
+            {
+                WORLD_POINTS_KEY: jnp.ones((3, 37, 37), dtype=jnp.float16),
+                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
+            },
+            cfg,
+        )
+
+        assert enc_obs.shape == (6, FEATURE_DIM)
+        assert enc_obs.dtype == jnp.bfloat16
+        assert act_obs.shape == (1, FEATURE_DIM)
+        assert act_obs.dtype == jnp.bfloat16
 
 
 class TestWP64CNNCPMLPEncoder:
