@@ -12,6 +12,7 @@ import flax.linen as nn
 
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
+    FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
@@ -427,13 +428,7 @@ class VGGTFullTokenContextTransformer(nn.Module):
 
 
 class RGBFullTokenTransformerEncoder(nn.Module):
-    """RGB + live full-token VGGT encoder without a learned fusion gate.
-
-    Replay stores only RGB64. The adapter injects the latest live VGGT full
-    aggregator tokens as a separate observation field at act/train time. This
-    module keeps the full-token Transformer inside the agent params, so one-batch
-    overfit verifies gradients through the learned token encoder itself.
-    """
+    """RGB + live VGGT token Transformer without a learned fusion gate."""
 
     cnn_depth: int = 16
     cnn_kernel: int = 5
@@ -446,61 +441,9 @@ class RGBFullTokenTransformerEncoder(nn.Module):
     transformer_mlp_ratio: int = 2
     transformer_dropout: float = 0.0
     compute_dtype: DTypeLike = jnp.float32
+    token_key: str = FULL_TOKENS_KEY
+    singleton_tokens: bool = False
 
-    def setup(self):
-        self.cnn = ConvEncoder(
-            depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
-        )
-        self.token_transformer = VGGTFullTokenContextTransformer(
-            context_dim=self.context_dim,
-            token_dim=self.token_dim,
-            num_tokens=self.num_tokens,
-            layers=self.transformer_layers,
-            heads=self.transformer_heads,
-            mlp_ratio=self.transformer_mlp_ratio,
-            dropout=self.transformer_dropout,
-            compute_dtype=self.compute_dtype,
-        )
-
-    def _branches(self, obs):
-        image = obs["image"]
-        tokens = obs["full_tokens"]
-        cnn_e = self.cnn(image)
-        token_e = self.token_transformer(tokens, train=False)
-        return cnn_e, token_e
-
-    def __call__(self, obs):
-        cnn_e, token_e = self._branches(obs)
-        return jnp.concatenate([cnn_e, token_e], axis=-1)
-
-    def branches(self, obs):
-        """Diagnostic split: (cnn_embed, token_transformer_embed)."""
-        return self._branches(obs)
-
-
-
-class RGBGlobalTokenTransformerEncoder(nn.Module):
-    """RGB + singleton live VGGT global-token encoder without a learned gate.
-
-    The adapter keeps the current live VGGT global-half token sequence outside
-    replay as a singleton ``(1, tokens, dim)`` tensor. This module computes the
-    trainable token context once, then broadcasts the resulting context embedding
-    to every sampled RGB row before concatenation. Gradients still flow through
-    the token Transformer because the cached object is the frozen VGGT token
-    input, not the trainable context output.
-    """
-
-    cnn_depth: int = 16
-    cnn_kernel: int = 5
-    cnn_mults: tuple = (2, 3, 4, 4)
-    context_dim: int = HOUSE_CONTEXT_DIM
-    token_dim: int = 1024
-    num_tokens: int = AGG_TOKEN_TOKENS
-    transformer_layers: int = 2
-    transformer_heads: int = 8
-    transformer_mlp_ratio: int = 2
-    transformer_dropout: float = 0.0
-    compute_dtype: DTypeLike = jnp.float32
 
     def setup(self):
         self.cnn = ConvEncoder(
@@ -519,17 +462,19 @@ class RGBGlobalTokenTransformerEncoder(nn.Module):
 
     def _branches(self, obs):
         image = obs[HYBRID_IMAGE_KEY]
-        tokens = obs[GLOBAL_TOKENS_KEY]
+        tokens = obs[self.token_key]
         cnn_e = self.cnn(image)
-        if tokens.ndim == 2:
-            tokens = tokens[None]
-        if tokens.ndim != 3 or tokens.shape[0] != 1:
-            raise ValueError(
-                "RGBGlobalTokenTransformerEncoder expects singleton global tokens "
-                f"with shape (1, {self.num_tokens}, {self.token_dim}), got {tokens.shape}"
-            )
+        if self.singleton_tokens:
+            if tokens.ndim == 2:
+                tokens = tokens[None]
+            if tokens.ndim != 3 or tokens.shape[0] != 1:
+                raise ValueError(
+                    f"{type(self).__name__} expects singleton tokens with shape "
+                    f"(1, {self.num_tokens}, {self.token_dim}), got {tokens.shape}"
+                )
         token_e = self.token_transformer(tokens, train=False)
-        token_e = jnp.broadcast_to(token_e, (cnn_e.shape[0], self.context_dim))
+        if self.singleton_tokens:
+            token_e = jnp.broadcast_to(token_e, (cnn_e.shape[0], self.context_dim))
         return cnn_e, token_e
 
     def __call__(self, obs):
@@ -537,8 +482,16 @@ class RGBGlobalTokenTransformerEncoder(nn.Module):
         return jnp.concatenate([cnn_e, token_e], axis=-1)
 
     def branches(self, obs):
-        """Diagnostic split: (cnn_embed, broadcast_token_transformer_embed)."""
+        """Diagnostic split: (cnn_embed, token_transformer_embed)."""
         return self._branches(obs)
+
+
+class RGBGlobalTokenTransformerEncoder(RGBFullTokenTransformerEncoder):
+    """RGB + singleton live VGGT global-token encoder without a learned gate."""
+
+    token_dim: int = 1024
+    token_key: str = GLOBAL_TOKENS_KEY
+    singleton_tokens: bool = True
 
 
 class HybridEncoder(nn.Module):

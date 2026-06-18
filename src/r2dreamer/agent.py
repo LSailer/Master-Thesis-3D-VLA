@@ -270,24 +270,8 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     )
 
 
-def _make_full_token_nogate_encoder(cfg: R2DreamerConfig):
-    return WMRGBFullTokenTransformerEncoder(
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
-        context_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        transformer_layers=cfg.vggt_token_transformer_layers,
-        transformer_heads=cfg.vggt_token_transformer_heads,
-        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        transformer_dropout=cfg.vggt_token_transformer_dropout,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
-    )
-
-
-def _make_global_token_nogate_encoder(cfg: R2DreamerConfig):
-    return WMRGBGlobalTokenTransformerEncoder(
+def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
+    return cls(
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
         cnn_mults=cfg.encoder_mults,
@@ -328,10 +312,8 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_hybrid_encoder(cfg)
     if cls is WMVGGTAggTokenTransformerEncoder:
         return _make_token_transformer_encoder(cfg)
-    if cls is WMRGBFullTokenTransformerEncoder:
-        return _make_full_token_nogate_encoder(cfg)
-    if cls is WMRGBGlobalTokenTransformerEncoder:
-        return _make_global_token_nogate_encoder(cfg)
+    if cls in (WMRGBFullTokenTransformerEncoder, WMRGBGlobalTokenTransformerEncoder):
+        return _make_rgb_token_encoder(cfg, cls)
     return _make_mlp_encoder(cfg, cls)
 
 

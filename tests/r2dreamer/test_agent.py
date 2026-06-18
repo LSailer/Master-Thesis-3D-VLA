@@ -242,10 +242,19 @@ class TestR2DreamerAgent:
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/vggt_frac" in metrics
 
-    def test_train_step_accepts_live_full_tokens_without_gate(self):
+    @pytest.mark.parametrize(
+        "encoder_type, token_key, token_shape",
+        [
+            ("vggt_house_full_tokens_nogate", "full_tokens", (1, 2, 6, 8)),
+            ("vggt_house_global_tokens_nogate", "global_tokens", (1, 6, 8)),
+        ],
+    )
+    def test_train_step_accepts_live_tokens_without_gate(
+        self, encoder_type, token_key, token_shape
+    ):
         cfg = R2DreamerConfig(
-            encoder_type="vggt_house_full_tokens_nogate",
-            obs_shape={"image": (3, 64, 64), "full_tokens": (6, 8)},
+            encoder_type=encoder_type,
+            obs_shape={"image": (3, 64, 64), token_key: (6, 8)},
             num_actions=4,
             deter_size=32,
             hidden_size=16,
@@ -276,68 +285,7 @@ class TestR2DreamerAgent:
         batch = {
             "obs": {
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
-                "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
-            },
-            "actions": jax.nn.one_hot(
-                jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
-            ),
-            "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_last": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_terminal": jnp.zeros((1, 2), dtype=jnp.float32),
-        }
-
-        before = agent.params["encoder"]
-        metrics = agent.train_step(batch, jax.random.PRNGKey(1))
-        after = agent.params["encoder"]
-
-        assert np.isfinite(metrics["total_loss"])
-        assert "hybrid/gate" not in metrics
-        assert "gate" not in after["params"]
-        assert "token_transformer" in after["params"]
-        assert not jax.tree_util.tree_all(
-            jax.tree.map(
-                lambda a, b: jnp.allclose(a, b),
-                before["params"]["token_transformer"],
-                after["params"]["token_transformer"],
-            )
-        )
-
-    def test_train_step_accepts_singleton_global_tokens_without_gate(self):
-        cfg = R2DreamerConfig(
-            encoder_type="vggt_house_global_tokens_nogate",
-            obs_shape={"image": (3, 64, 64), "global_tokens": (6, 8)},
-            num_actions=4,
-            deter_size=32,
-            hidden_size=16,
-            stoch_classes=4,
-            stoch_discrete=4,
-            blocks=4,
-            encoder_depth=2,
-            encoder_kernel=3,
-            encoder_mults=(1, 1),
-            vggt_embed_dim=8,
-            vggt_token_count=6,
-            vggt_token_dim=8,
-            vggt_token_transformer_layers=1,
-            vggt_token_transformer_heads=2,
-            vggt_token_transformer_mlp_ratio=2,
-            mlp_units=16,
-            mlp_layers_reward=1,
-            mlp_layers_cont=1,
-            mlp_layers_actor=1,
-            mlp_layers_critic=1,
-            twohot_bins=21,
-            imagination_horizon=2,
-            horizon=10,
-            lr=1e-3,
-            warmup_steps=0,
-        )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        batch = {
-            "obs": {
-                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
-                "global_tokens": jnp.zeros((1, 6, 8), dtype=jnp.float32),
+                token_key: jnp.zeros(token_shape, dtype=jnp.float32),
             },
             "actions": jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions

@@ -1,6 +1,7 @@
 """Obs-batch contract tests for live VGGT context variants."""
 
 import jax.numpy as jnp
+import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import (
@@ -47,9 +48,5 @@ def test_global_token_nogate_batch_rejects_broadcasted_replay_tokens():
         }
     }
 
-    try:
+    with pytest.raises(ValueError, match="singleton"):
         encoder_obs_from_batch(batch, cfg)
-    except ValueError as exc:
-        assert "singleton" in str(exc)
-    else:  # pragma: no cover - should fail until implementation rejects B*T token copies
-        raise AssertionError("global live tokens must stay singleton, not be broadcast in replay")
