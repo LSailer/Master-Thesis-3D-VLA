@@ -43,7 +43,7 @@ Match the existing `\section`/`\subsection`, `\label{sec:|fig:|tab:}`, and
 ## Worktrees
 
 - The main checkout is for orchestration: status checks, SLURM/W&B/PR/Linear inspection, branch review, and worktree management.
-- Implement in `worktrees/<linear-key>-<short-task-slug>/` on a matching branch unless the user explicitly says otherwise.
+- Implement medium/high-risk tasks in `worktrees/<linear-key>-<short-task-slug>/`. For small, single-purpose edits, use the current checkout when clean; otherwise create a worktree.
 - Before editing, run `git rev-parse --show-toplevel`, `git status --short --branch`, and `git worktree list`.
 - In fresh worktrees, run `./scripts/setup_worktree.sh` before training or eval.
 
