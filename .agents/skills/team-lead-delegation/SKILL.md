@@ -1,6 +1,6 @@
 ---
 name: team-lead-delegation
-description: Coordinates a senior-engineer workflow for Linear issues: read issue/spec, split work into junior tasks, call Pi sub-agents, collect reports, and escalate important decisions. Use when the user asks to manage the team, delegate tasks, assign juniors, lead engineering work, run a team, or coordinate work on a Linear issue.
+description: "Coordinates a senior-engineer workflow for Linear issues: read issue/spec, split work into junior tasks, call Pi sub-agents, collect reports, and escalate important decisions. Use when the user asks to manage the team, delegate tasks, assign juniors, lead engineering work, run a team, or coordinate work on a Linear issue."
 ---
 
 # Team Lead Delegation
