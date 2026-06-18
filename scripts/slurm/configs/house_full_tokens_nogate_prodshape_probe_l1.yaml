@@ -1,0 +1,22 @@
+extends: house_full_tokens_nogate_l1
+job_name: vggt-house-full-tokens-nogate-prodshape-probe-l1
+output_dir: output/probes/3d-87/full-token-nogate-fp32-prodshape
+comments:
+  - "3D-87 fp32 prod-shape memory probe: same full-token no-gate architecture as failed job 5041153, explicit B=16/T=64, seed 42; short run only to reach first real train updates and capture GPU memory."
+sbatch:
+  time: "01:00:00"
+args:
+  steps: 6000
+  prefill: 5000
+  batch_size: 16
+  seq_len: 64
+  compute_dtype: float32
+  checkpoint_every: 1000000
+  output_dir: output/probes/3d-87/full-token-nogate-fp32-prodshape/run-${SLURM_JOB_ID}
+  seed: 42
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: full-token-nogate-fp32-prodshape-probe-${SLURM_JOB_ID}
+  wandb_tags: 3d-87,prodshape-probe,fp32,full-token-transformer,no-gate,b16,t64,seed-42
+  video_log_every: 0
+  val_every: 0

@@ -246,6 +246,13 @@ def render_sbatch(
     lines.extend([
         'echo "Job $SLURM_JOB_ID on $(hostname) at $(date)"',
         "echo \"GPU: $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')\"",
+        f'GPU_MEMORY_LOG="{log_dir}/gpu-memory-${{SLURM_JOB_ID}}.csv"',
+        'if command -v nvidia-smi >/dev/null 2>&1; then',
+        '    nvidia-smi --query-gpu=timestamp,index,name,memory.used,memory.total,utilization.gpu --format=csv -l 5 > "$GPU_MEMORY_LOG" 2>/dev/null &',
+        '    GPU_MONITOR_PID=$!',
+        '    trap \'if [ -n "${GPU_MONITOR_PID:-}" ]; then kill "$GPU_MONITOR_PID" 2>/dev/null || true; wait "$GPU_MONITOR_PID" 2>/dev/null || true; fi\' EXIT',
+        '    echo "GPU memory log: $GPU_MEMORY_LOG"',
+        'fi',
         "",
     ])
 

@@ -1,0 +1,10 @@
+extends: l1_cnn_cap1m_seed42_fp32_probe
+job_name: l1-cnn-cap1m-seed42-bf16-probe
+output_dir: output/probes/3d-87/cnn-cap1m-bf16-seed42
+comments:
+  - "3D-87 CNN config-plumbing no-op control, seed 42: matched to fp32 CNN probe except cfg.compute_dtype=bfloat16; CNN compute itself remains unchanged."
+args:
+  compute_dtype: bfloat16
+  output_dir: output/probes/3d-87/cnn-cap1m-bf16-seed42/run-${SLURM_JOB_ID}
+  wandb_name: l1-cnn-cap1m-bf16-seed42-probe-${SLURM_JOB_ID}
+  wandb_tags: 3d-87,cnn-baseline,dtype-plumbing-noop,bf16,seed-42,cap-1m

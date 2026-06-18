@@ -1,0 +1,19 @@
+extends: l1_cnn_cap1m
+job_name: l1-cnn-cap1m-seed42-fp32-probe
+output_dir: output/probes/3d-87/cnn-cap1m-fp32-seed42
+comments:
+  - "3D-87 CNN config-plumbing no-op control, seed 42: compute_dtype is recorded in cfg/CLI for comparison hygiene but does not change CNN compute."
+sbatch:
+  time: "03:00:00"
+args:
+  steps: 50000
+  prefill: 5000
+  checkpoint_every: 1000000
+  output_dir: output/probes/3d-87/cnn-cap1m-fp32-seed42/run-${SLURM_JOB_ID}
+  seed: 42
+  log_every: 250
+  compute_dtype: float32
+  wandb_name: l1-cnn-cap1m-fp32-seed42-probe-${SLURM_JOB_ID}
+  wandb_tags: 3d-87,cnn-baseline,dtype-plumbing-noop,fp32,seed-42,cap-1m
+  video_log_every: 0
+  val_every: 0
