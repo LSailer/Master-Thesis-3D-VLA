@@ -1,4 +1,5 @@
 """Observation Preparation contract tests."""
+# pylint: disable=missing-class-docstring,missing-function-docstring,too-few-public-methods
 
 import json
 
@@ -9,6 +10,7 @@ from src.r2dreamer.observation_preparation import (
     HYBRID_FEATURE_DIM,
     HYBRID_IMAGE_SHAPE,
     VGGTFeatureKind,
+    VGGT_DREAMER_SPECS,
     build_hybrid_contract,
     build_vggt_contract,
     PreparedObservation,
@@ -95,6 +97,21 @@ class TestVGGTObservationPreparationContracts:
         image_size = 518
         wp_pool_size = 37
 
+    def test_storage_axis_declares_replay_vs_live_readout(self):
+        assert VGGT_DREAMER_SPECS["vggt"].storage.replay_rgb is False
+        assert VGGT_DREAMER_SPECS["vggt"].storage.replay_readout is True
+        assert VGGT_DREAMER_SPECS["hybrid"].storage.replay_rgb is True
+        assert VGGT_DREAMER_SPECS["hybrid"].storage.replay_readout is True
+        assert VGGT_DREAMER_SPECS[
+            "vggt_house_global_tokens_nogate"
+        ].storage.replay_readout is False
+        assert (
+            VGGT_DREAMER_SPECS["vggt_agg_raw"].readout.token_source == "flattened"
+        )
+        assert VGGT_DREAMER_SPECS[
+            "vggt_agg_token_transformer"
+        ].readout.token_source == "global"
+
     def test_wp_cp_contract_declares_raw_env_replay_and_encoder_forms(self):
         contract = build_vggt_contract(self._Extractor(), feature_kind="wp_cp")
 
@@ -118,7 +135,13 @@ class TestVGGTObservationPreparationContracts:
 
     def test_variants_derive_contract_shapes_from_extractor_metadata(self):
         cases: list[tuple[VGGTFeatureKind, str, tuple[int, ...], str, type]] = [
-            ("aggregator", "vggt_aggregator_mlp", (3 * 128,), "float32", wm_encoders.VGGTAggregatorMLPEncoder),
+            (
+                "aggregator",
+                "vggt_aggregator_mlp",
+                (3 * 128,),
+                "float32",
+                wm_encoders.VGGTAggregatorMLPEncoder,
+            ),
         ]
 
         for feature_kind, encoder_type, shape, dtype, module_cls in cases:

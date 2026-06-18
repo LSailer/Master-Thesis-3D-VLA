@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Any
 
 import flax.linen as nn
@@ -46,29 +46,244 @@ HYBRID_IMAGE_SHAPE = (3, 64, 64)
 HYBRID_RGB_DIM = HYBRID_IMAGE_SHAPE[0] * HYBRID_IMAGE_SHAPE[1] * HYBRID_IMAGE_SHAPE[2]
 
 
-_DEFAULT_AGENT_OVERRIDES: dict[str, dict[str, Any]] = {
-    "vggt": {"buffer_capacity": 1_000_000},
-    "vggt_wp_cp_64": {"buffer_capacity": 1_000_000},
-    "vggt_wp64_cnn_cp_mlp": {"buffer_capacity": 1_000_000},
-    "vggt_aggregator_mlp": {
-        "buffer_capacity": 5_000,
-        "batch_size": 4,
-        "seq_len": 32,
-        "train_ratio": 128,
-    },
-    "vggt_wp_dense_cnn": {
-        "buffer_capacity": 5_000,
-        "batch_size": 4,
-        "seq_len": 32,
-        "train_ratio": 128,
-    },
-    "vggt_agg_token_transformer": {
-        "buffer_capacity": 5_000,
-        "batch_size": 1,
-        "seq_len": 8,
-        "train_ratio": 32,
-    },
-    "hybrid": {"buffer_capacity": 100_000},
+TokenSource = Literal["pooled", "flattened", "full", "global"]
+DreamerEncoderKind = Literal["mlp", "cnn", "transformer", "linear", "hybrid"]
+DreamerInputLayout = Literal[
+    "flat_wp_cp",
+    "structured_wp_cp",
+    "world_points",
+    "flat_features",
+    "rgb_plus_flat",
+    "rgb_plus_context",
+    "rgb_plus_tokens",
+]
+
+
+@dataclass(frozen=True)
+class HeadReadout:
+    """VGGT head readout: world-points, optionally plus camera pose."""
+
+    wp_side: int | Literal["dense"] = VGGT_DEFAULT_WP_POOL_SIZE
+    include_camera_pose: bool = True
+    kind: Literal["heads"] = "heads"
+
+
+@dataclass(frozen=True)
+class TokenReadout:
+    """VGGT token readout before task-specific Dreamer projection."""
+
+    token_source: TokenSource = "pooled"
+    token_dim: int = VGGT_AGGREGATOR_EMBED_DIM
+    num_tokens: int = VGGT_AGGREGATOR_TOKEN_COUNT
+    keep_register_tokens: bool = True
+    kind: Literal["tokens"] = "tokens"
+
+
+VGGTReadout = HeadReadout | TokenReadout
+
+
+@dataclass(frozen=True)
+class StorageSpec:
+    """Where RGB and the selected VGGT readout live relative to replay."""
+
+    replay_rgb: bool
+    replay_readout: bool
+    readout_dtype: str = "float16"
+
+
+@dataclass(frozen=True)
+class DreamerEncoderSpec:
+    """Dreamer-side encoder consuming the stored/live readout layout."""
+
+    kind: DreamerEncoderKind
+    module_cls: type[nn.Module]
+    input_layout: DreamerInputLayout
+
+
+@dataclass(frozen=True)
+class VGGTDreamerSpec:
+    """Single source for one VGGT-to-Dreamer integration."""
+
+    name: str
+    readout: VGGTReadout
+    storage: StorageSpec
+    dreamer: DreamerEncoderSpec
+    agent_overrides: Mapping[str, Any] = field(default_factory=dict)
+    design_notes: str = ""
+
+    @property
+    def encoder_type(self) -> str:
+        """Agent encoder type string."""
+        return self.name
+
+    @property
+    def feature_kind(self) -> VGGTFeatureKind:
+        """Legacy adapter readout key derived from the readout/layout axes."""
+        if isinstance(self.readout, HeadReadout):
+            if self.readout.wp_side == "dense":
+                return "wp_dense"
+            if self.dreamer.input_layout == "structured_wp_cp":
+                return "wp64_cp"
+            return "wp_cp"
+        return {
+            "pooled": "aggregator",
+            "flattened": "agg_raw",
+            "full": "agg_tokens",
+            "global": "agg_tokens",
+        }[self.readout.token_source]
+
+    @property
+    def module_cls(self) -> type[nn.Module]:
+        """Flax encoder module class."""
+        return self.dreamer.module_cls
+
+    @property
+    def compute_heads(self) -> bool:
+        """Whether VGGT camera/point heads must run."""
+        return isinstance(self.readout, HeadReadout)
+
+    @property
+    def wp_pool_size(self) -> int:
+        """World-point pooling side passed to the VGGT extractor."""
+        if isinstance(self.readout, HeadReadout) and isinstance(self.readout.wp_side, int):
+            return self.readout.wp_side
+        return VGGT_DEFAULT_WP_POOL_SIZE
+
+
+_SMALL_REPLAY_OVERRIDES = {
+    "buffer_capacity": 5_000,
+    "batch_size": 4,
+    "seq_len": 32,
+    "train_ratio": 128,
+}
+
+
+VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
+    "vggt": VGGTDreamerSpec(
+        name="vggt",
+        readout=HeadReadout(37),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec("mlp", wm_encoders.VGGTEncoder, "flat_wp_cp"),
+        agent_overrides={"buffer_capacity": 1_000_000},
+    ),
+    "vggt_wp_cp_64": VGGTDreamerSpec(
+        name="vggt_wp_cp_64",
+        readout=HeadReadout(64),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec("mlp", wm_encoders.VGGTEncoder, "flat_wp_cp"),
+        agent_overrides={"buffer_capacity": 1_000_000},
+        design_notes="WP/CP MLP with 64x64 pooled world points.",
+    ),
+    "vggt_wp64_cnn_cp_mlp": VGGTDreamerSpec(
+        name="vggt_wp64_cnn_cp_mlp",
+        readout=HeadReadout(64),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec(
+            "hybrid", wm_encoders.WP64CNNCPMLPEncoder, "structured_wp_cp"
+        ),
+        agent_overrides={"buffer_capacity": 1_000_000},
+        design_notes="64x64 world-point CNN plus camera-pose MLP.",
+    ),
+    "vggt_wp_dense_cnn": VGGTDreamerSpec(
+        name="vggt_wp_dense_cnn",
+        readout=HeadReadout("dense", include_camera_pose=False),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec("cnn", wm_encoders.ConvEncoder, "world_points"),
+        agent_overrides=_SMALL_REPLAY_OVERRIDES,
+        design_notes="Dense 518x518 VGGT world-point map through a CNN encoder.",
+    ),
+    "vggt_aggregator_mlp": VGGTDreamerSpec(
+        name="vggt_aggregator_mlp",
+        readout=TokenReadout("pooled"),
+        storage=StorageSpec(
+            replay_rgb=False, replay_readout=True, readout_dtype="float32"
+        ),
+        dreamer=DreamerEncoderSpec(
+            "mlp", wm_encoders.VGGTAggregatorMLPEncoder, "flat_features"
+        ),
+        agent_overrides=_SMALL_REPLAY_OVERRIDES,
+        design_notes="Pooled [camera token, mean patches, max patches] VGGT tokens.",
+    ),
+    "vggt_agg_raw": VGGTDreamerSpec(
+        name="vggt_agg_raw",
+        readout=TokenReadout("flattened"),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec(
+            "mlp", wm_encoders.VGGTAggRawMLPEncoder, "flat_features"
+        ),
+        agent_overrides=_SMALL_REPLAY_OVERRIDES,
+        design_notes="Flattened VGGT camera and patch tokens for an MLP.",
+    ),
+    "vggt_agg_token_transformer": VGGTDreamerSpec(
+        name="vggt_agg_token_transformer",
+        readout=TokenReadout("global"),
+        storage=StorageSpec(replay_rgb=False, replay_readout=True),
+        dreamer=DreamerEncoderSpec(
+            "transformer", wm_encoders.VGGTAggTokenTransformerEncoder, "flat_features"
+        ),
+        agent_overrides={
+            "buffer_capacity": 5_000,
+            "batch_size": 1,
+            "seq_len": 8,
+            "train_ratio": 32,
+        },
+        design_notes="Full 1374-token VGGT aggregator sequence through a Transformer.",
+    ),
+    "hybrid": VGGTDreamerSpec(
+        name="hybrid",
+        readout=HeadReadout(37),
+        storage=StorageSpec(
+            replay_rgb=True, replay_readout=True, readout_dtype="float32"
+        ),
+        dreamer=DreamerEncoderSpec(
+            "hybrid", wm_encoders.HybridEncoder, "rgb_plus_flat"
+        ),
+        agent_overrides={"buffer_capacity": 100_000},
+        design_notes="RGB64 CNN plus gated WP/CP MLP branch.",
+    ),
+    "vggt_house_context": VGGTDreamerSpec(
+        name="vggt_house_context",
+        readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
+        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        dreamer=DreamerEncoderSpec(
+            "hybrid", wm_encoders.HybridEncoder, "rgb_plus_context"
+        ),
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_feature_dim": wm_encoders.HOUSE_CONTEXT_DIM,
+            "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes="RGB replay plus live full-token VGGT house context.",
+    ),
+    "vggt_house_full_tokens_nogate": VGGTDreamerSpec(
+        name="vggt_house_full_tokens_nogate",
+        readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
+        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        dreamer=DreamerEncoderSpec(
+            "transformer", wm_encoders.RGBFullTokenTransformerEncoder, "rgb_plus_tokens"
+        ),
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes="RGB replay plus live full-width VGGT tokens, no gate.",
+    ),
+    "vggt_house_global_tokens_nogate": VGGTDreamerSpec(
+        name="vggt_house_global_tokens_nogate",
+        readout=TokenReadout("global"),
+        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        dreamer=DreamerEncoderSpec(
+            "transformer", wm_encoders.RGBGlobalTokenTransformerEncoder, "rgb_plus_tokens"
+        ),
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes="RGB replay plus live global-half VGGT tokens, no gate.",
+    ),
 }
 
 
@@ -87,11 +302,11 @@ def world_points_hwc_shape(wp_side: int) -> tuple[int, int, int]:
     return (int(wp_side), int(wp_side), VGGT_XYZ_CHANNELS)
 
 
-def world_points_side_for_head_readout(extractor: Any, spec: HeadReadoutSpec) -> int:
+def world_points_side_for_head_readout(extractor: Any, readout: HeadReadout) -> int:
     """Resolve the variant/extractor-dependent world-points side length."""
-    if spec.use_dense_world_points:
+    if readout.wp_side == "dense":
         return int(getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
-    return int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
+    return int(readout.wp_side)
 
 
 def contract_world_points_hwc_shape(
@@ -187,79 +402,38 @@ HEAD_AGENT_DTYPES = {
 }
 
 
-@dataclass(frozen=True)
-class HeadReadoutSpec:
-    """Contract choices for VGGT head readouts.
-
-    All head readouts store the same replay form: explicit world-points and
-    camera-pose fields. Only the training encoder view differs.
-    """
-
-    encoder_type: str
-    module_cls: type[nn.Module]
-    encoder_input_kind: HeadEncoderInputKind
-    use_dense_world_points: bool = False
-
-
-HEAD_READOUTS: dict[str, HeadReadoutSpec] = {
-    "wp_cp": HeadReadoutSpec(
-        encoder_type="vggt",
-        module_cls=wm_encoders.VGGTEncoder,
-        encoder_input_kind="flat_wp_cp",
-    ),
-    "wp64_cp": HeadReadoutSpec(
-        encoder_type="vggt_wp64_cnn_cp_mlp",
-        module_cls=wm_encoders.WP64CNNCPMLPEncoder,
-        encoder_input_kind="structured_wp_cp",
-    ),
-    "wp_dense": HeadReadoutSpec(
-        encoder_type="vggt_wp_dense_cnn",
-        module_cls=wm_encoders.ConvEncoder,
-        encoder_input_kind="world_points",
-        use_dense_world_points=True,
-    ),
-}
+def _spec_for_feature_kind(
+    feature_kind: VGGTFeatureKind,
+    wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE,
+) -> VGGTDreamerSpec:
+    if feature_kind == "wp_cp":
+        return VGGT_DREAMER_SPECS[
+            "vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"
+        ]
+    return {
+        "wp64_cp": VGGT_DREAMER_SPECS["vggt_wp64_cnn_cp_mlp"],
+        "wp_dense": VGGT_DREAMER_SPECS["vggt_wp_dense_cnn"],
+        "aggregator": VGGT_DREAMER_SPECS["vggt_aggregator_mlp"],
+        "agg_raw": VGGT_DREAMER_SPECS["vggt_agg_raw"],
+        "agg_tokens": VGGT_DREAMER_SPECS["vggt_agg_token_transformer"],
+    }[feature_kind]
 
 
-TOKEN_READOUT_ENCODER_TYPES = {
-    "aggregator": "vggt_aggregator_mlp",
-    "agg_raw": "vggt_agg_raw",
-    "agg_tokens": "vggt_agg_token_transformer",
-}
-TOKEN_READOUT_MODULES: dict[str, type[nn.Module]] = {
-    "aggregator": wm_encoders.VGGTAggregatorMLPEncoder,
-    "agg_tokens": wm_encoders.VGGTAggTokenTransformerEncoder,
-}
+def _resolve_dreamer_spec(
+    *,
+    feature_kind: VGGTFeatureKind,
+    wp_pool_size: int,
+    encoder_type: str | None,
+) -> VGGTDreamerSpec:
+    if encoder_type is not None:
+        return VGGT_DREAMER_SPECS[encoder_type]
+    return _spec_for_feature_kind(feature_kind, wp_pool_size)
 
 
-def head_readout_spec(feature_kind: VGGTFeatureKind) -> HeadReadoutSpec | None:
-    return HEAD_READOUTS.get(feature_kind)
-
-
-def _head_encoder_type(spec: HeadReadoutSpec, wp_pool_size: int) -> str:
-    if spec.encoder_input_kind == "flat_wp_cp" and wp_pool_size == 64:
-        return "vggt_wp_cp_64"
-    return spec.encoder_type
-
-
-def _default_encoder_type(feature_kind: VGGTFeatureKind, wp_pool_size: int) -> str:
-    if spec := head_readout_spec(feature_kind):
-        return _head_encoder_type(spec, wp_pool_size)
-    if feature_kind in TOKEN_READOUT_ENCODER_TYPES:
-        return TOKEN_READOUT_ENCODER_TYPES[feature_kind]
-    raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
-
-
-def _default_module_cls(
-    encoder_type: str, feature_kind: VGGTFeatureKind
-) -> type[nn.Module]:
-    if encoder_type == "hybrid":
-        return wm_encoders.HybridEncoder
-    if spec := head_readout_spec(feature_kind):
-        return spec.module_cls
-    if feature_kind in TOKEN_READOUT_MODULES:
-        return TOKEN_READOUT_MODULES[feature_kind]
-    return wm_encoders.VGGTEncoder
+def head_readout_spec(feature_kind: VGGTFeatureKind) -> HeadReadout | None:
+    """Return the head readout for legacy readout construction."""
+    spec = _spec_for_feature_kind(feature_kind)
+    return spec.readout if isinstance(spec.readout, HeadReadout) else None
 
 
 def _vggt_shape_dtype(
@@ -280,7 +454,7 @@ def _vggt_shape_dtype(
     raise ValueError(f"unknown non-head VGGT feature_kind {feature_kind!r}")
 
 
-def build_vggt_contract(
+def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
     extractor: Any,
     *,
     feature_kind: VGGTFeatureKind,
@@ -291,28 +465,45 @@ def build_vggt_contract(
     design_notes: str = "",
 ) -> EncoderInputContract:
     """Build the Encoder Input Contract for one VGGT readout variant."""
-    wp_pool_size = int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
-    resolved_encoder_type = encoder_type or _default_encoder_type(
-        feature_kind, wp_pool_size
+    extractor_wp_pool_size = int(
+        getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE)
     )
-    if spec := head_readout_spec(feature_kind):
-        image_size = int(getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
-        wp_side = world_points_side_for_head_readout(extractor, spec)
+    spec = _resolve_dreamer_spec(
+        feature_kind=feature_kind,
+        wp_pool_size=extractor_wp_pool_size,
+        encoder_type=encoder_type,
+    )
+    render_resolution = int(
+        env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
+    )
+    resolved_overrides = dict(
+        agent_overrides if agent_overrides is not None else spec.agent_overrides
+    )
+    resolved_notes = design_notes or spec.design_notes
+    if spec.storage.replay_rgb or not spec.storage.replay_readout:
+        raise ValueError(
+            f"{spec.encoder_type} must store only the VGGT readout; got "
+            f"replay_rgb={spec.storage.replay_rgb}, "
+            f"replay_readout={spec.storage.replay_readout}"
+        )
+
+    if isinstance(spec.readout, HeadReadout):
+        wp_side = world_points_side_for_head_readout(extractor, spec.readout)
         wp_shape = world_points_chw_shape(wp_side)
         replay_fields = _wp_cp_fields(
             wp_shape,
-            world_points_dtype=HEAD_REPLAY_DTYPES[WORLD_POINTS_KEY],
-            camera_pose_dtype=HEAD_REPLAY_DTYPES[CAMERA_POSE_KEY],
+            world_points_dtype=spec.storage.readout_dtype,
+            camera_pose_dtype=spec.storage.readout_dtype,
         )
         agent_fields = _wp_cp_fields(
             wp_shape,
             world_points_dtype=HEAD_AGENT_DTYPES[WORLD_POINTS_KEY],
             camera_pose_dtype=HEAD_AGENT_DTYPES[CAMERA_POSE_KEY],
         )
-        encoder_input_by_kind = {
+        encoder_input_by_layout = {
             "flat_wp_cp": ObservationFormContract(
                 ObservationField(
-                    (wp_cp_dim(wp_pool_size),), "float32", normalize_on_sample=False
+                    (wp_cp_dim(wp_side),), "float32", normalize_on_sample=False
                 )
             ),
             "structured_wp_cp": ObservationFormContract(agent_fields),
@@ -320,54 +511,39 @@ def build_vggt_contract(
                 ObservationField(wp_shape, "float32", normalize_on_sample=False)
             ),
         }
-        encoder_input = encoder_input_by_kind[spec.encoder_input_kind]
-        resolved_overrides = dict(
-            agent_overrides
-            if agent_overrides is not None
-            else _DEFAULT_AGENT_OVERRIDES.get(resolved_encoder_type, {})
-        )
-        render_resolution = int(env_render_resolution or image_size)
         return EncoderInputContract(
-            observation_preparation_type=resolved_encoder_type,
-            encoder_type=resolved_encoder_type,
+            observation_preparation_type=spec.encoder_type,
+            encoder_type=spec.encoder_type,
             env_render_resolution=render_resolution,
-            encoder_module_cls=encoder_module_cls
-            or _default_module_cls(resolved_encoder_type, feature_kind),
+            encoder_module_cls=encoder_module_cls or spec.module_cls,
             env_observation=_env_observation(render_resolution),
             replay_observation=ObservationFormContract(replay_fields),
             agent_observation=ObservationFormContract(
                 {**agent_fields, "is_first": ObservationField((), "bool")}
             ),
-            encoder_input=encoder_input,
+            encoder_input=encoder_input_by_layout[spec.dreamer.input_layout],
             decoder_target=None,
             agent_overrides=resolved_overrides,
-            design_notes=design_notes,
+            design_notes=resolved_notes,
         )
-    shape, dtype = _vggt_shape_dtype(extractor, feature_kind)
-    replay_field = ObservationField(shape, dtype, normalize_on_sample=False)
-    encoder_field = ObservationField(shape, "float32", normalize_on_sample=False)
-    resolved_overrides = dict(
-        agent_overrides
-        if agent_overrides is not None
-        else _DEFAULT_AGENT_OVERRIDES.get(resolved_encoder_type, {})
-    )
-    render_resolution = int(
-        env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
-    )
 
+    shape, _dtype = _vggt_shape_dtype(extractor, spec.feature_kind)
+    replay_field = ObservationField(
+        shape, spec.storage.readout_dtype, normalize_on_sample=False
+    )
+    encoder_field = ObservationField(shape, "float32", normalize_on_sample=False)
     return EncoderInputContract(
-        observation_preparation_type=resolved_encoder_type,
-        encoder_type=resolved_encoder_type,
+        observation_preparation_type=spec.encoder_type,
+        encoder_type=spec.encoder_type,
         env_render_resolution=render_resolution,
-        encoder_module_cls=encoder_module_cls
-        or _default_module_cls(resolved_encoder_type, feature_kind),
+        encoder_module_cls=encoder_module_cls or spec.module_cls,
         env_observation=_env_observation(render_resolution),
         replay_observation=ObservationFormContract(replay_field),
         agent_observation=_agent_features_observation(shape),
         encoder_input=ObservationFormContract(encoder_field),
         decoder_target=None,
         agent_overrides=resolved_overrides,
-        design_notes=design_notes,
+        design_notes=resolved_notes,
     )
 
 
@@ -380,18 +556,21 @@ def build_hybrid_contract(
     design_notes: str = "",
 ) -> EncoderInputContract:
     """Build the Encoder Input Contract for the RGB + VGGT WP/CP hybrid."""
-    wp_pool_size = int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
+    spec = VGGT_DREAMER_SPECS["hybrid"]
+    wp_pool_size = spec.wp_pool_size
     wp_cp_shape = (wp_cp_dim(wp_pool_size),)
     render_resolution = int(
         env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
     )
+    if not (spec.storage.replay_rgb and spec.storage.replay_readout):
+        raise ValueError("hybrid requires RGB and VGGT readout in replay")
 
     replay_fields = {
         HYBRID_IMAGE_KEY: ObservationField(
             HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
         ),
         HYBRID_WP_CP_KEY: ObservationField(
-            wp_cp_shape, "float32", normalize_on_sample=False
+            wp_cp_shape, spec.storage.readout_dtype, normalize_on_sample=False
         ),
     }
     agent_fields = {
@@ -405,10 +584,10 @@ def build_hybrid_contract(
     }
 
     return EncoderInputContract(
-        observation_preparation_type="hybrid",
-        encoder_type="hybrid",
+        observation_preparation_type=spec.encoder_type,
+        encoder_type=spec.encoder_type,
         env_render_resolution=render_resolution,
-        encoder_module_cls=encoder_module_cls or wm_encoders.HybridEncoder,
+        encoder_module_cls=encoder_module_cls or spec.module_cls,
         env_observation=_env_observation(render_resolution),
         replay_observation=ObservationFormContract(replay_fields),
         agent_observation=ObservationFormContract(agent_fields),
@@ -419,9 +598,7 @@ def build_hybrid_contract(
             ObservationField(HYBRID_IMAGE_SHAPE, "float32")
         ),
         agent_overrides=dict(
-            agent_overrides
-            if agent_overrides is not None
-            else _DEFAULT_AGENT_OVERRIDES["hybrid"]
+            agent_overrides if agent_overrides is not None else spec.agent_overrides
         ),
-        design_notes=design_notes,
+        design_notes=design_notes or spec.design_notes,
     )

@@ -118,6 +118,7 @@ class VGGTHeadReadout:
         *,
         is_first: bool,
     ) -> tuple[dict[str, np.ndarray], dict]:
+        """Extract and format head outputs for replay and acting."""
         out = (
             extractor.extract(image, return_dense=True)
             if self.return_dense
@@ -155,6 +156,7 @@ class VGGTAggregatorReadout:
         *,
         is_first: bool,
     ) -> tuple[np.ndarray, dict]:
+        """Extract and format aggregator outputs for replay and acting."""
         out = extractor.extract(image)
         features = _checked_feature(out, "aggregator_features", self.expected_shape)
         readout = self.project(features).astype(jnp.float32)
@@ -181,9 +183,9 @@ def make_vggt_readout(
             expected_hwc_shape=contract_world_points_hwc_shape(contract),
             replay_dtype=replay_dtype,
             world_points_key=(
-                "dense_world_points" if spec.use_dense_world_points else "world_points"
+                "dense_world_points" if spec.wp_side == "dense" else "world_points"
             ),
-            return_dense=spec.use_dense_world_points,
+            return_dense=spec.wp_side == "dense",
         )
     if feature_kind in AGGREGATOR_PROJECTIONS:
         if isinstance(replay_dtype, dict):
