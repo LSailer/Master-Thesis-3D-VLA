@@ -47,8 +47,13 @@ src/r2dreamer/
 │
 ├── adapters/           env-obs → buffer/agent bridge
 │   ├── obs_adapter.py .. ObsAdapter base (RGB passthrough)
-│   ├── vggt_adapter.py . VGGTObsAdapter + VGGT_FEATURE_DIM=4116, flatten/pool helpers
+│   ├── vggt_adapter.py . VGGTObsAdapter + VGGT_FEATURE_DIM=4116, delegates readouts
 │   └── hybrid_adapter.py HybridObsAdapter + HYBRID_FEATURE_DIM=16404
+│
+├── observation_preparation/ encoder-input contracts and env→replay/agent prep
+│   ├── cnn.py .......... CNNObservationPreparation
+│   ├── vggt.py ......... VGGT-family contract/dimension helpers
+│   └── vggt_readouts.py  VGGT head/token readout adapters and pooling/flattening
 │
 ├── encoders/__init__.py launcher-side Encoder/EncoderSpec specs (CNN, VGGT*, Hybrid)
 │

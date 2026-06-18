@@ -13,7 +13,9 @@ aggregator tokens used as features. There are two implementations:
 - a **JAX/Flax port** (`jax/`) with an explicit streaming KV-cache and dynamic budget
   eviction — this is the **production** path that feeds R2Dreamer's VGGT encoders.
 
-It is consumed by `src/r2dreamer/adapters/vggt_adapter.py` and
+It is consumed by the R2Dreamer VGGT observation-preparation path
+(`src/r2dreamer/adapters/vggt_adapter.py`,
+`src/r2dreamer/observation_preparation/vggt_readouts.py`) and
 `src/r2dreamer/encoders/__init__.py`.
 
 ## Layout
@@ -68,9 +70,10 @@ from src.vggt.feature_extractor import VGGTFeatureExtractor
 
 ## How R2Dreamer consumes it
 
-- `VGGTObsAdapter` (`src/r2dreamer/adapters/vggt_adapter.py`) calls `extract()` per frame
-  and pools outputs with `flatten_world_points_camera_pose()` (→ 4116-d WP/CP) or
-  `pool_aggregator_tokens()` (cam + mean-patch + max-patch).
+- `VGGTObsAdapter` (`src/r2dreamer/adapters/vggt_adapter.py`) delegates each frame to
+  the readout adapters in `src/r2dreamer/observation_preparation/vggt_readouts.py`,
+  which call `extract()` and emit WP/CP, dense point-map, pooled aggregator, or
+  full-token replay observations.
 - Encoder variants (`src/r2dreamer/encoders/__init__.py`): `vggt` (WP/CP MLP),
   `vggt_aggregator_mlp` (pre-head tokens, `compute_heads=False`), `vggt_wp_dense_cnn`
   (dense 518² point map → conv), `vggt_wp_cp_64` (64×64 pool), `hybrid` (CNN + gated MLP).
@@ -101,7 +104,8 @@ from src.vggt.feature_extractor import VGGTFeatureExtractor
 
 - JAX path: `jax`, `flax.linen`, `numpy`, `huggingface_hub` (checkpoint `lch01/StreamVGGT`).
 - PyTorch path: `torch`, `external/InfiniteVGGT/src/streamvggt` (StreamVGGT reference).
-- Consumers: `src.r2dreamer.adapters.vggt_adapter`, `src.r2dreamer.encoders`.
+- Consumers: `src.r2dreamer.adapters.vggt_adapter`,
+  `src.r2dreamer.observation_preparation.vggt_readouts`, `src.r2dreamer.encoders`.
 
 ## Running & testing
 

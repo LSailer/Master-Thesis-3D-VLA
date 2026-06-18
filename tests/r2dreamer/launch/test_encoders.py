@@ -540,7 +540,7 @@ class TestHybridEncoder:
 
     def test_hybrid_adapter_builds_rgb_wp_cp_layout(self):
         # Fake VGGT extractor: extract() -> world_points (37,37,3) + camera_pose (9,)
-        # so flatten_world_points_camera_pose yields 37*37*3 + 9 = 4116.
+        # so the hybrid WP/CP readout yields 37*37*3 + 9 = 4116.
         world_points = np.arange(37 * 37 * 3, dtype=np.float32).reshape(37, 37, 3)
         camera_pose = np.arange(9, dtype=np.float32) + 100.0
 

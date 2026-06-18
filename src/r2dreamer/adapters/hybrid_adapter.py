@@ -7,11 +7,9 @@ import jax
 import numpy as np
 
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.adapters.vggt_adapter import (
-    AGG_TOKEN_TOKENS,
-    VGGT_FEATURE_DIM,
-    full_aggregator_tokens,
+from src.r2dreamer.observation_preparation.vggt_readouts import (
     flatten_world_points_camera_pose,
+    full_aggregator_tokens,
 )
 from src.r2dreamer.obs_batch import (
     FULL_TOKENS_KEY,
@@ -19,7 +17,14 @@ from src.r2dreamer.obs_batch import (
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
 )
-from src.r2dreamer.observation_preparation.vggt import build_hybrid_contract
+from src.r2dreamer.observation_preparation.vggt import (
+    HYBRID_FEATURE_DIM,
+    HYBRID_IMAGE_SHAPE,
+    HYBRID_RGB_DIM,
+    VGGT_AGGREGATOR_TOKEN_COUNT,
+    VGGT_FULL_TOKEN_EMBED_DIM,
+    build_hybrid_contract,
+)
 from src.shared.video_utils import resize_chw_uint8
 from src.r2dreamer.world_model.encoders import (
     HOUSE_CONTEXT_DIM,
@@ -27,13 +32,8 @@ from src.r2dreamer.world_model.encoders import (
 )
 
 
-# Derived, not hand-typed: RGB branch (3*64*64, flattened) + the VGGT WP/CP vector.
-# VGGT_FEATURE_DIM is the single source of truth for the 4116 term (see vggt_adapter),
-# so a grid-size ablation that changes it stays consistent here automatically.
-HYBRID_FEATURE_DIM = 3 * 64 * 64 + VGGT_FEATURE_DIM  # 12288 RGB + 4116 WP/CP = 16404
-HYBRID_IMAGE_SHAPE = (3, 64, 64)
-HOUSE_CONTEXT_FEATURE_DIM = 3 * 64 * 64 + HOUSE_CONTEXT_DIM
-FULL_TOKEN_SHAPE = (AGG_TOKEN_TOKENS, 2048)
+HOUSE_CONTEXT_FEATURE_DIM = HYBRID_RGB_DIM + HOUSE_CONTEXT_DIM
+FULL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_FULL_TOKEN_EMBED_DIM)
 
 
 class HybridObsAdapter(ObsAdapter):

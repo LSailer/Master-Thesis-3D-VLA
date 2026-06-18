@@ -21,7 +21,7 @@ from src.r2dreamer.world_model.encoders import (
     VGGTAggregatorMLPEncoder,
     WP64CNNCPMLPEncoder,
 )
-from src.r2dreamer.adapters.vggt_adapter import full_aggregator_tokens
+from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
 from src.buffer.replay_buffer import VGGTReplayBuffer
 
 
