@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
@@ -22,19 +22,6 @@ from src.r2dreamer.observation_preparation.vggt import (
     contract_world_points_hwc_shape,
     head_readout_spec,
 )
-
-
-class VGGTReadout(Protocol):
-    """Small seam for all VGGT readout families."""
-
-    def prepare(
-        self,
-        extractor: Any,
-        image: np.ndarray,
-        *,
-        is_first: bool,
-    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
-        """Extract one frame and return replay + agent observations."""
 
 
 def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
@@ -142,14 +129,8 @@ class VGGTHeadReadout:
             world_points_key=self.world_points_key,
         )
         replay = {
-            WORLD_POINTS_KEY: np.asarray(
-                features[WORLD_POINTS_KEY],
-                dtype=np.dtype(self.replay_dtype[WORLD_POINTS_KEY]),
-            ),
-            CAMERA_POSE_KEY: np.asarray(
-                features[CAMERA_POSE_KEY],
-                dtype=np.dtype(self.replay_dtype[CAMERA_POSE_KEY]),
-            ),
+            key: np.asarray(features[key], dtype=np.dtype(self.replay_dtype[key]))
+            for key in (WORLD_POINTS_KEY, CAMERA_POSE_KEY)
         }
         agent_obs = {
             WORLD_POINTS_KEY: features[WORLD_POINTS_KEY].astype(jnp.float32),
@@ -190,7 +171,7 @@ def make_vggt_readout(
     feature_kind: VGGTFeatureKind,
     extractor: Any,
     contract,
-) -> VGGTReadout:
+) -> VGGTHeadReadout | VGGTAggregatorReadout:
     """Build the internal readout adapter for one VGGT feature kind."""
     replay_dtype = contract.replay_observation.buffer_dtype()
     if spec := head_readout_spec(feature_kind):

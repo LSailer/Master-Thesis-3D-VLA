@@ -111,10 +111,6 @@ class VGGTHouseFullTokenObsAdapter(ObsAdapter):
     def _extract_tokens(self, image: np.ndarray) -> np.ndarray:
         out = self._extractor.extract(image)
         tokens = full_aggregator_tokens(out, FULL_TOKEN_SHAPE)
-        if tuple(tokens.shape) != FULL_TOKEN_SHAPE:
-            raise ValueError(
-                f"expected VGGT full-token shape {FULL_TOKEN_SHAPE}, got {tokens.shape}"
-            )
         self._tokens = np.asarray(tokens, dtype=np.float32)
         return self._tokens
 
@@ -199,10 +195,6 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
     def _extract_context(self, image: np.ndarray) -> np.ndarray:
         out = self._extractor.extract(image)
         tokens = full_aggregator_tokens(out, FULL_TOKEN_SHAPE)
-        if tuple(tokens.shape) != FULL_TOKEN_SHAPE:
-            raise ValueError(
-                f"expected VGGT full-token shape {FULL_TOKEN_SHAPE}, got {tokens.shape}"
-            )
         context = self._project_context(tokens)
         self._context = context
         return context
