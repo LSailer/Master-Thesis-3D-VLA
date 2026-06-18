@@ -8,6 +8,7 @@ class TestR2DreamerConfig:
         assert cfg.stoch_size == 32 * 16  # 512
         assert cfg.feat_size == 2048 + 512  # 2560
         assert cfg.deter_size == 2048
+        assert cfg.compute_dtype == "bfloat16"
 
     def test_size25m(self):
         cfg = R2DreamerConfig.size25M()

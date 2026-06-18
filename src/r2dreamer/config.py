@@ -72,9 +72,9 @@ class R2DreamerConfig:
     # use stable module names, shapes, dtypes, booleans, and overrides.
     encoder_input_contract: dict[str, Any] | None = None
     # Compute dtype for large encoder activations. Official DreamerV3 uses
-    # bfloat16 compute; keep float32 by default for backward-compatible tests and
-    # enable bf16 explicitly for memory ablations.
-    compute_dtype: str = "float32"
+    # bfloat16 compute; explicit fp32 probe configs can still override this for
+    # comparison hygiene.
+    compute_dtype: str = "bfloat16"
 
     # --- MLP heads ---
     mlp_units: int = 256
