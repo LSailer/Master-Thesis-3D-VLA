@@ -12,6 +12,7 @@ from .specs import (
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
     VGGTWPCP64Encoder,
+    VGGTWP64CNNCPMLPEncoder,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "VGGTHouseContextEncoder",
     "VGGTHouseFullTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
+    "VGGTWP64CNNCPMLPEncoder",
 ]

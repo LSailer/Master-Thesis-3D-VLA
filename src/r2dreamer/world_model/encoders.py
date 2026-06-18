@@ -4,10 +4,13 @@ Each encoder produces a flat embedding vector consumed by the RSSM posterior
 head. The choice between them is set by `R2DreamerConfig.encoder_type`.
 """
 
+from typing import Literal
+
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 import flax.linen as nn
 
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from .heads import R2MLP
 from .rssm import RMSNorm
 
@@ -34,27 +37,39 @@ AGG_REGISTER_TOKENS = 4
 def _symlog(x: jnp.ndarray) -> jnp.ndarray:
     """Symmetric log compression, ``sign(x) * log1p(|x|)``.
 
-    Dreamer's standard transform for unbounded inputs. Used by ``WPConvEncoder``
-    to tame the metric XYZ range of full-resolution world points (the RGB
-    encoder's ``obs - 0.5`` centering assumes [0, 1] and is meaningless here).
+    Dreamer's standard transform for unbounded inputs. Used by
+    ``ConvEncoder(input_kind="world_points")`` to tame the metric XYZ range of
+    full-resolution world points (the RGB encoder's ``obs - 0.5`` centering
+    assumes [0, 1] and is meaningless here).
     """
     return jnp.sign(x) * jnp.log1p(jnp.abs(x))
 
 
 class ConvEncoder(nn.Module):
-    """Convolutional encoder ported from R2-Dreamer.
+    """Shared spatial convolutional encoder for RGB images or world-point maps.
 
-    Expects obs in CHW format (JAX codebase convention: B, C, H, W).
-    Applies Conv+MaxPool+RMSNorm+SiLU for each channel multiplier, then flattens.
+    ``input_kind`` is explicit because RGB and metric XYZ world points can share
+    the same ``(B, 3, H, W)`` shape but need different preprocessing: RGB uses
+    Dreamer's ``obs - 0.5`` centering, world points use symlog. ``embed_dim`` is
+    optional for historical RGB compatibility; set it for world-point variants
+    to project the flattened conv map to a fixed embedding width.
     """
     depth: int = 16
     kernel_size: int = 5
     mults: tuple = (2, 3, 4, 4)
+    input_kind: Literal["rgb", "world_points"] = "rgb"
+    embed_dim: int | None = None
 
     @nn.compact
     def __call__(self, obs):
-        # obs: (B, C, H, W) float [0,1]
-        x = obs - 0.5
+        if self.input_kind == "rgb":
+            x = obs - 0.5
+        elif self.input_kind == "world_points":
+            x = _symlog(obs)
+        else:
+            raise ValueError(
+                f"input_kind must be 'rgb' or 'world_points', got {self.input_kind!r}"
+            )
         x = jnp.transpose(x, (0, 2, 3, 1))  # NCHW -> NHWC
         for i, mult in enumerate(self.mults):
             ch = self.depth * mult
@@ -65,7 +80,15 @@ class ConvEncoder(nn.Module):
             x = nn.silu(x)
         # Transpose back to NCHW before flatten to match PyTorch's flatten order
         x = jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW
-        return x.reshape(x.shape[0], -1)
+        x = x.reshape(x.shape[0], -1)
+        if self.embed_dim is not None:
+            x = nn.Dense(self.embed_dim, name="proj")(x)
+        return x
+
+
+# Backward-compatible import target for old contract snapshots/checkpoints only.
+# New code should use ConvEncoder(input_kind="world_points", embed_dim=...).
+WPConvEncoder = ConvEncoder
 
 
 def _mlp_body(x, num_layers: int, hidden: int):
@@ -103,6 +126,34 @@ class VGGTEncoder(nn.Module):
         # obs: (B, 4116) float32 — already flat
         x = _mlp_body(obs, self.num_layers, self.hidden)
         return nn.Dense(self.embed_dim, name="proj")(x)
+
+
+class WP64CNNCPMLPEncoder(nn.Module):
+    """CNN over 64x64 VGGT world points plus MLP over camera pose (3D-89)."""
+    embed_dim: int = 1024
+    conv_depth: int = 16
+    conv_kernel: int = 5
+    conv_mults: tuple = (2, 3, 4, 4)
+    cp_hidden: int = 128
+    cp_layers: int = 1
+
+    @nn.compact
+    def __call__(self, obs):
+        if not isinstance(obs, dict):
+            raise TypeError("WP64CNNCPMLPEncoder expects structured obs")
+        wp = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=jnp.float32)
+        cp = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=jnp.float32)
+        wp_e = ConvEncoder(
+            depth=self.conv_depth,
+            kernel_size=self.conv_kernel,
+            mults=self.conv_mults,
+            input_kind="world_points",
+            name="wp_conv",
+        )(wp)
+        cp_e = _mlp_body(cp, self.cp_layers, self.cp_hidden)
+        cp_e = nn.Dense(self.cp_hidden, name="cp_proj")(cp_e)
+        fused = jnp.concatenate([wp_e, cp_e], axis=-1)
+        return nn.Dense(self.embed_dim, name="proj")(fused)
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):
@@ -409,43 +460,7 @@ class RGBFullTokenTransformerEncoder(nn.Module):
         return self._branches(obs)
 
 
-class WPConvEncoder(nn.Module):
-    """Conv encoder over full-resolution VGGT world-point maps (3D-53).
 
-    A dense world-point map has shape ``(B, 3, H, W)`` — the same (C, H, W)
-    layout as an RGB frame, but the three channels are *metric XYZ* coordinates
-    rather than [0, 1] colour. We therefore reuse the RGB ``ConvEncoder``'s
-    Conv+MaxPool+RMSNorm+SiLU stack but replace its ``obs - 0.5`` centering with
-    ``symlog`` (Dreamer's transform for unbounded inputs), then flatten and
-    project to ``embed_dim`` so the embedding width is comparable to the
-    WP/CP and aggregator variants.
-
-    At the default 518x518 input the four 2x2 max-pools take 518 -> 259 -> 129
-    -> 64 -> 32, so a 32x32x(depth*mults[-1]) feature map is flattened before
-    the linear readout — the spatial structure that the 37x37 grid is too small
-    to preserve survives here.
-    """
-    embed_dim: int = 1024
-    depth: int = 16
-    kernel_size: int = 5
-    mults: tuple = (2, 3, 4, 4)
-
-    @nn.compact
-    def __call__(self, obs):
-        # obs: (B, 3, H, W) metric XYZ world points
-        x = _symlog(obs)
-        x = jnp.transpose(x, (0, 2, 3, 1))  # NCHW -> NHWC
-        for i, mult in enumerate(self.mults):
-            ch = self.depth * mult
-            x = nn.Conv(ch, (self.kernel_size, self.kernel_size),
-                        padding="SAME", name=f"conv{i}")(x)
-            x = nn.max_pool(x, (2, 2), strides=(2, 2))
-            x = RMSNorm(name=f"norm{i}")(x)
-            x = nn.silu(x)
-        # Transpose back to NCHW before flatten to match PyTorch's flatten order
-        x = jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW
-        x = x.reshape(x.shape[0], -1)
-        return nn.Dense(self.embed_dim, name="proj")(x)
 
 
 class HybridEncoder(nn.Module):

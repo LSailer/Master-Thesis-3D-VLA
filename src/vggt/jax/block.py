@@ -12,7 +12,6 @@ callers express that by passing ``init_values=None``.
 
 from __future__ import annotations
 
-from typing import Any
 
 import flax.linen as nn
 import jax

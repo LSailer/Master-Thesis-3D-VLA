@@ -32,7 +32,7 @@ from .observation_preparation.contracts import (
 from .world_model.rssm import R2RSSM
 from .world_model.encoders import (
     ConvEncoder,
-    WPConvEncoder,
+    WP64CNNCPMLPEncoder,
     ConvDecoder,
     HybridEncoder as WMHybridEncoder,
     RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
@@ -41,6 +41,7 @@ from .world_model.encoders import (
     VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
     HYBRID_RGB_DIM,
 )
+from .obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
 from .behavior.return_ema import ReturnEMA
@@ -150,7 +151,8 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
             "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
-            "vggt_wp_dense_cnn": WPConvEncoder,
+            "vggt_wp_dense_cnn": ConvEncoder,
+            "vggt_wp64_cnn_cp_mlp": WP64CNNCPMLPEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
             "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
@@ -161,7 +163,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
 
 
 def _validate_encoder_config(cfg: R2DreamerConfig, cls) -> None:
-    if cls in (ConvEncoder, WPConvEncoder) and cfg.vggt_mlp_layers != 1:
+    if cls in (ConvEncoder, WP64CNNCPMLPEncoder) and cfg.vggt_mlp_layers != 1:
         # Fail loud instead of silently dropping the knob: conv encoders have no
         # MLP depth, so a non-default vggt_mlp_layers here is a misconfiguration.
         raise ValueError(
@@ -195,12 +197,27 @@ def _make_wp_conv_encoder(cfg: R2DreamerConfig):
     # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
-        return WPConvEncoder(**kwargs)
-    return WPConvEncoder(
+        return ConvEncoder(**kwargs)
+    return ConvEncoder(
+        input_kind="world_points",
         embed_dim=cfg.vggt_embed_dim,
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
         mults=cfg.encoder_mults,
+    )
+
+
+def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return WP64CNNCPMLPEncoder(**kwargs)
+    return WP64CNNCPMLPEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        conv_depth=cfg.encoder_depth,
+        conv_kernel=cfg.encoder_kernel,
+        conv_mults=cfg.encoder_mults,
+        cp_hidden=cfg.mlp_vggt_hidden,
+        cp_layers=cfg.mlp_vggt_layers,
     )
 
 
@@ -279,9 +296,11 @@ def _make_encoder(cfg: R2DreamerConfig):
     cls = _resolve_encoder_cls(cfg)
     _validate_encoder_config(cfg, cls)
     if cls is ConvEncoder:
+        if cfg.encoder_type == "vggt_wp_dense_cnn":
+            return _make_wp_conv_encoder(cfg)
         return _make_conv_encoder(cfg)
-    if cls is WPConvEncoder:
-        return _make_wp_conv_encoder(cfg)
+    if cls is WP64CNNCPMLPEncoder:
+        return _make_wp64_cnn_cp_mlp_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
     if cls is WMVGGTAggTokenTransformerEncoder:
@@ -299,6 +318,11 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
+        }
+    if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
+        return {
+            WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
         }
     return jnp.zeros((1, *cfg.obs_shape))
 
@@ -422,7 +446,7 @@ class R2DreamerAgent:
         cls,
         path: str | Path,
         *,
-        obs_shape: tuple[int, ...] | None = None,
+        obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]] | None = None,
         num_actions: int,
         seed: int,
         **config_kwargs: Any,
@@ -441,7 +465,7 @@ class R2DreamerAgent:
         if contract_snapshot is not None:
             contract = recover_encoder_input_contract(contract_snapshot)
             if obs_shape is None:
-                obs_shape = contract.encoder_input.shape
+                obs_shape = contract.encoder_input.buffer_shape()
             config_kwargs.setdefault("encoder_type", contract.encoder_type)
             config_kwargs.setdefault("encoder_module_cls", contract.encoder_module_cls)
             config_kwargs.setdefault("encoder_input_contract", contract_snapshot)

@@ -1,13 +1,10 @@
 """Tests for Habitat environment. Skipped if habitat-sim is not installed."""
 
+import importlib.util
+
 import pytest
 
-try:
-    import habitat_sim
-
-    HAS_HABITAT = True
-except ImportError:
-    HAS_HABITAT = False
+HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
 
 skip_no_habitat = pytest.mark.skipif(
     not HAS_HABITAT,

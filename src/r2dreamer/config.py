@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Tuple
 
@@ -14,7 +15,7 @@ LATENT_PRESETS: dict[str, dict[str, int]] = {
 @dataclass
 class R2DreamerConfig:
     # --- Environment ---
-    obs_shape: Tuple[int, ...] = (3, 64, 64)  # CHW format (matches JAX codebase)
+    obs_shape: Tuple[int, ...] | Mapping[str, Tuple[int, ...]] = (3, 64, 64)  # CHW format or structured fields
     num_actions: int = 4   # Habitat default (STOP, FORWARD, TURN_LEFT, TURN_RIGHT); Crafter overrides to 17 in train.py
     max_episode_steps: int = 1000
 

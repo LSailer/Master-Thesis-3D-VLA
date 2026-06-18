@@ -89,49 +89,41 @@ def _make_env_instances(
 def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dict[str, dict]):
     agent_overrides = dict(encoder_spec.agent_overrides)
     # Diagnostic CLI overrides (None => keep config default / encoder override).
-    if args.actor_loss_weight is not None:
-        agent_overrides["scale_policy"] = args.actor_loss_weight
-    if args.value_loss_weight is not None:
-        agent_overrides["scale_value"] = args.value_loss_weight
-    if args.repval_loss_weight is not None:
-        agent_overrides["scale_repval"] = args.repval_loss_weight
+    for attr, override in (
+        ("actor_loss_weight", "scale_policy"),
+        ("value_loss_weight", "scale_value"),
+        ("repval_loss_weight", "scale_repval"),
+        ("batch_size", "batch_size"),
+        ("seq_len", "seq_len"),
+        ("lr", "lr"),
+        ("mlp_layers", "vggt_mlp_layers"),
+    ):
+        value = getattr(args, attr)
+        if value is not None:
+            agent_overrides[override] = value
+    for name in ("train_ratio", "buffer_capacity"):
+        value = getattr(args, name, None)
+        if value is not None:
+            agent_overrides[name] = value
     if args.barlow_grad_to_encoder:
         agent_overrides["barlow_stop_grad"] = False
-    if args.batch_size is not None:
-        agent_overrides["batch_size"] = args.batch_size
-    if args.seq_len is not None:
-        agent_overrides["seq_len"] = args.seq_len
-    if args.lr is not None:
-        agent_overrides["lr"] = args.lr
-    if args.mlp_layers is not None:
-        agent_overrides["vggt_mlp_layers"] = args.mlp_layers
-    if getattr(args, "train_ratio", None) is not None:
-        agent_overrides["train_ratio"] = args.train_ratio
-    if getattr(args, "buffer_capacity", None) is not None:
-        agent_overrides["buffer_capacity"] = args.buffer_capacity
 
     # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
     # explicit flags win.
     preset = getattr(args, "latent_preset", "default")
     agent_overrides.update(latent_presets.get(preset, {}))
-    for name in ("deter_size", "stoch_classes", "stoch_discrete", "mlp_vggt_hidden", "mlp_vggt_layers"):
-        value = getattr(args, name, None)
-        if value is not None:
-            agent_overrides[name] = value
-    if getattr(args, "decoder", False):
-        agent_overrides["decoder"] = True
-    if getattr(args, "scale_decoder", None) is not None:
-        agent_overrides["scale_decoder"] = args.scale_decoder
     for name in (
-        "vggt_token_transformer_layers",
-        "vggt_token_transformer_heads",
-        "vggt_token_projection_dim",
-        "vggt_token_transformer_mlp_ratio",
+        "deter_size", "stoch_classes", "stoch_discrete",
+        "mlp_vggt_hidden", "mlp_vggt_layers", "scale_decoder",
+        "vggt_token_transformer_layers", "vggt_token_transformer_heads",
+        "vggt_token_projection_dim", "vggt_token_transformer_mlp_ratio",
         "vggt_token_transformer_dropout",
     ):
         value = getattr(args, name, None)
         if value is not None:
             agent_overrides[name] = value
+    if getattr(args, "decoder", False):
+        agent_overrides["decoder"] = True
     if getattr(args, "vggt_drop_register_tokens", False):
         agent_overrides["vggt_keep_register_tokens"] = False
     if getattr(args, "compute_dtype", None) is not None:
