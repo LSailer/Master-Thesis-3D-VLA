@@ -2,6 +2,35 @@
 
 Compact dispatcher for agents working in this repo on bwUniCluster.
 
+## Conversational Style
+
+- Keep answers short and concise.
+- Use technical prose only; be direct.
+- Avoid fluff, praise, or cheerful filler.
+  - Prefer: "Thanks @user"
+  - Avoid: "Thanks so much @user!"
+- Do not use emojis in commits, issues, PR comments, or code.
+- When the user asks a question, answer it first before making edits or running implementation commands.
+- When responding to user feedback or analysis, explicitly state whether you agree or disagree before describing changes.
+
+## Code Quality
+
+- Read relevant files in full before broad changes, audits, or editing files not yet inspected. Do not rely only on search snippets.
+- Avoid `any` and untyped code unless there is no practical typed alternative.
+- Always ask before removing functionality or code that appears intentional.
+- Do not preserve backward compatibility unless explicitly requested.
+- Do not hardcode key checks such as `matchesKey(keyData, "ctrl+x")`.
+  Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS`
+  so keybindings remain configurable.
+
+## Commands
+
+- After code changes, not docs-only changes, run the narrowest required check:
+  - Python: `python -m pylint <changed paths>`
+- Do not treat checks as tests unless they explicitly run tests.
+- Run commands directly; do not pipe to `tail` or hide output.
+- Fix all errors, warnings, and infos before committing.
+
 ## Context
 
 - Read the nearest scoped `AGENTS.md` before editing:
@@ -13,14 +42,6 @@ Compact dispatcher for agents working in this repo on bwUniCluster.
 - Issues are tracked in Linear on `3D-WM-ObjectNAV`; read the issue/spec before editing.
 - Thesis prose and figures belong in the sibling `../writing/` repo; follow `../writing/AGENTS.md` and commit it separately.
 
-## Architecture And Data Flow
-
-The canonical repo-wide architecture/data-flow reference is
-[`docs/architecture-data-flow.html`](docs/architecture-data-flow.html). Read it before
-editing encoder routing, VGGT readouts, replay layouts, RSSM training flow, or
-architecture-sensitive docs. When adding reports or notes, link to that page for
-the shared pipeline and keep local docs focused on experiment-specific deltas,
-evidence, and results.
 
 ## Thesis Writing
 
@@ -53,9 +74,4 @@ Match the existing `\section`/`\subsection`, `\label{sec:|fig:|tab:}`, and
 - Commit/PR title: `<Linear issue key>: <summary>`
 - Do not include agent/tool/model names in branch, worktree, commit, or PR titles.
 
-## Workflow
-
-- Before editing: read the Linear issue/spec, inspect relevant files, and check git status/worktree.
-- Implementation: use the `$tdd` skill by default.
-- Before handoff: run the narrowest useful verification for the files changed. If a check is skipped, state the skipped command and why.
 - For PRs and reviews, follow `docs/agents/pr-workflow.md`.
