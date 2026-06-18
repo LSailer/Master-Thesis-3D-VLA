@@ -68,7 +68,9 @@ def summarize_phase_times(
     return {phase: summarize_values_ms(values) for phase, values in phase_times.items()}
 
 
-def measure_ms(fn: Callable[[], Any], n: int = 20, warmup: int = 3) -> tuple[float, float]:
+def measure_ms(
+    fn: Callable[[], Any], n: int = 20, warmup: int = 3
+) -> tuple[float, float]:
     """Run ``fn`` after warmup and return ``(mean_ms, std_ms)``."""
     if n < 1:
         raise ValueError("n must be >= 1")

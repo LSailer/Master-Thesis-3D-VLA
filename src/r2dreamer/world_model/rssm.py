@@ -15,12 +15,13 @@ import flax.linen as nn
 
 class RMSNorm(nn.Module):
     """Root Mean Square Layer Normalization."""
+
     eps: float = 1e-4
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         scale = self.param("scale", nn.initializers.ones, (x.shape[-1],))
-        rms = jnp.sqrt(jnp.mean(x ** 2, axis=-1, keepdims=True) + self.eps)
+        rms = jnp.sqrt(jnp.mean(x**2, axis=-1, keepdims=True) + self.eps)
         return (x / rms) * scale
 
 
@@ -29,6 +30,7 @@ class BlockLinear(nn.Module):
     Weight layout: (out_per_block, in_per_block, blocks).
     Matches r2dreamer's einsum: "...gi,oig->...go".
     """
+
     out_features: int
     blocks: int = 8
 
@@ -54,6 +56,7 @@ class BlockLinear(nn.Module):
 
 class Deter(nn.Module):
     """Block-GRU deterministic state transition."""
+
     deter_size: int = 2048
     stoch_size: int = 512
     act_dim: int = 17
@@ -71,7 +74,9 @@ class Deter(nn.Module):
         # Three input projections
         x0 = nn.silu(RMSNorm(name="in_norm0")(nn.Dense(self.hidden, name="in0")(deter)))
         x1 = nn.silu(RMSNorm(name="in_norm1")(nn.Dense(self.hidden, name="in1")(stoch)))
-        x2 = nn.silu(RMSNorm(name="in_norm2")(nn.Dense(self.hidden, name="in2")(action)))
+        x2 = nn.silu(
+            RMSNorm(name="in_norm2")(nn.Dense(self.hidden, name="in2")(action))
+        )
 
         # Concatenate: (B, 3*hidden)
         x = jnp.concatenate([x0, x1, x2], axis=-1)
@@ -80,7 +85,9 @@ class Deter(nn.Module):
         x = jnp.broadcast_to(x[:, None, :], (x.shape[0], self.blocks, x.shape[-1]))
 
         # Per-block deter slice: (B, blocks, deter_size//blocks)
-        deter_blocked = deter.reshape(deter.shape[0], self.blocks, self.deter_size // self.blocks)
+        deter_blocked = deter.reshape(
+            deter.shape[0], self.blocks, self.deter_size // self.blocks
+        )
 
         # Combine: (B, blocks, deter/blocks + 3*hidden) -> flatten
         x = jnp.concatenate([deter_blocked, x], axis=-1)
@@ -88,8 +95,11 @@ class Deter(nn.Module):
 
         # Hidden layers
         for i in range(self.dyn_layers):
-            x = nn.silu(RMSNorm(name=f"hid_norm{i}")(
-                BlockLinear(self.deter_size, self.blocks, name=f"hid{i}")(x)))
+            x = nn.silu(
+                RMSNorm(name=f"hid_norm{i}")(
+                    BlockLinear(self.deter_size, self.blocks, name=f"hid{i}")(x)
+                )
+            )
 
         # GRU gates: (B, 3*deter_size)
         gates = BlockLinear(3 * self.deter_size, self.blocks, name="gru")(x)
@@ -112,6 +122,7 @@ class R2RSSM(nn.Module):
     in the external interface. Internally, stoch is flattened to (B, S*K)
     before feeding into Deter.
     """
+
     deter_size: int = 2048
     stoch_classes: int = 32
     stoch_discrete: int = 16
@@ -142,14 +153,22 @@ class R2RSSM(nn.Module):
         )
 
         # Posterior head (obs_net): obs_layers Dense+RMSNorm+SiLU then Dense→logits
-        self.obs_fcs = [nn.Dense(self.hidden, name=f"obs_fc{i}") for i in range(self.obs_layers)]
+        self.obs_fcs = [
+            nn.Dense(self.hidden, name=f"obs_fc{i}") for i in range(self.obs_layers)
+        ]
         self.obs_norms = [RMSNorm(name=f"obs_norm{i}") for i in range(self.obs_layers)]
-        self.obs_out = nn.Dense(self.stoch_classes * self.stoch_discrete, name="obs_out")
+        self.obs_out = nn.Dense(
+            self.stoch_classes * self.stoch_discrete, name="obs_out"
+        )
 
         # Prior head (img_net): img_layers Dense+RMSNorm+SiLU then Dense→logits
-        self.img_fcs = [nn.Dense(self.hidden, name=f"img_fc{i}") for i in range(self.img_layers)]
+        self.img_fcs = [
+            nn.Dense(self.hidden, name=f"img_fc{i}") for i in range(self.img_layers)
+        ]
         self.img_norms = [RMSNorm(name=f"img_norm{i}") for i in range(self.img_layers)]
-        self.img_out = nn.Dense(self.stoch_classes * self.stoch_discrete, name="img_out")
+        self.img_out = nn.Dense(
+            self.stoch_classes * self.stoch_discrete, name="img_out"
+        )
 
     def __call__(self, stoch, deter, action, embed):
         """Single posterior step: Deter transition then posterior head.
@@ -241,7 +260,11 @@ class R2RSSM(nn.Module):
             deters.append(deter)
             logits.append(logit)
 
-        return jnp.stack(stochs, axis=1), jnp.stack(deters, axis=1), jnp.stack(logits, axis=1)
+        return (
+            jnp.stack(stochs, axis=1),
+            jnp.stack(deters, axis=1),
+            jnp.stack(logits, axis=1),
+        )
 
     def get_feat(self, stoch, deter):
         """Flatten stoch and concat with deter to form the feature vector.
@@ -253,7 +276,9 @@ class R2RSSM(nn.Module):
         Returns:
             feat: (..., stoch_size + deter_size)
         """
-        flat = stoch.reshape(*stoch.shape[:-2], self.stoch_classes * self.stoch_discrete)
+        flat = stoch.reshape(
+            *stoch.shape[:-2], self.stoch_classes * self.stoch_discrete
+        )
         return jnp.concatenate([flat, deter], axis=-1)
 
     def initial_state(self, batch_size):
@@ -276,9 +301,11 @@ class R2RSSM(nn.Module):
             logits = jnp.log(probs + 1e-8)
         # Gumbel-Softmax: stochastic forward, soft gradient backward
         rng = self.make_rng("sample")
-        gumbel_noise = -jnp.log(-jnp.log(
-            jax.random.uniform(rng, logits.shape, minval=1e-20)
-        ) + 1e-20)
+        gumbel_noise = -jnp.log(
+            -jnp.log(jax.random.uniform(rng, logits.shape, minval=1e-20)) + 1e-20
+        )
         soft = jax.nn.softmax(logits + gumbel_noise, axis=-1)
-        hard = jax.nn.one_hot(jnp.argmax(logits + gumbel_noise, axis=-1), self.stoch_discrete)
+        hard = jax.nn.one_hot(
+            jnp.argmax(logits + gumbel_noise, axis=-1), self.stoch_discrete
+        )
         return hard + soft - jax.lax.stop_gradient(soft)

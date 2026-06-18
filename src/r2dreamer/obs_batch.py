@@ -139,7 +139,9 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
         world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype).reshape(
             B * T, *world_points_shape
         )
-        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=compute_dtype).reshape(B * T, *camera_pose_shape)
+        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=compute_dtype).reshape(
+            B * T, *camera_pose_shape
+        )
         return {WORLD_POINTS_KEY: world_points, CAMERA_POSE_KEY: camera_pose}
     elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and isinstance(obs, Mapping):
         obs = pack_world_points_camera_pose_obs(obs, dtype=compute_dtype)
@@ -152,7 +154,9 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
     return obs.reshape(B * T, *_flat_obs_shape(cfg))
 
 
-def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig) -> EncoderObs:
+def encoder_obs_from_agent_obs(
+    obs_dict: Mapping[str, Any], cfg: ObsBatchConfig
+) -> EncoderObs:
     """Return one-step encoder input for acting."""
     compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
     if cfg.encoder_type == "hybrid":
@@ -172,8 +176,12 @@ def encoder_obs_from_agent_obs(obs_dict: Mapping[str, Any], cfg: ObsBatchConfig)
         return obs
     elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         return {
-            WORLD_POINTS_KEY: jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype)[None],
-            CAMERA_POSE_KEY: jnp.asarray(obs_dict[CAMERA_POSE_KEY], dtype=compute_dtype)[None],
+            WORLD_POINTS_KEY: jnp.asarray(
+                obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype
+            )[None],
+            CAMERA_POSE_KEY: jnp.asarray(
+                obs_dict[CAMERA_POSE_KEY], dtype=compute_dtype
+            )[None],
         }
     elif cfg.encoder_type == "vggt_wp_dense_cnn" and WORLD_POINTS_KEY in obs_dict:
         obs = jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype)
@@ -196,14 +204,20 @@ def decoder_rgb_target(batch: dict[str, Any], cfg: ObsBatchConfig) -> jnp.ndarra
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch["obs"]
     B, T = obs_leading_shape(obs)
-    if cfg.encoder_type in ("hybrid", "vggt_house_context", "vggt_house_full_tokens_nogate"):
+    if cfg.encoder_type in (
+        "hybrid",
+        "vggt_house_context",
+        "vggt_house_full_tokens_nogate",
+    ):
         if isinstance(obs, Mapping):
             image = normalize_image_obs(obs[HYBRID_IMAGE_KEY])
             return image.reshape(B * T, 3, 64, 64)
         obs_shape = _flat_obs_shape(cfg)
         rgb_dim = obs_shape[0] - cfg.vggt_feature_dim
-        return jnp.asarray(obs, dtype=jnp.float32).reshape(B * T, -1)[
-            :, :rgb_dim
-        ].reshape(B * T, 3, 64, 64)
+        return (
+            jnp.asarray(obs, dtype=jnp.float32)
+            .reshape(B * T, -1)[:, :rgb_dim]
+            .reshape(B * T, 3, 64, 64)
+        )
     image = normalize_image_obs(obs)
     return image.reshape(B * T, 3, 64, 64)

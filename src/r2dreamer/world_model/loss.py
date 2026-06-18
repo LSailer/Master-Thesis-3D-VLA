@@ -70,12 +70,17 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
 
     # ---- KL losses ----
     post_logits_flat = forward["post_logits"].reshape(
-        B * T, cfg.stoch_classes, cfg.stoch_discrete)
+        B * T, cfg.stoch_classes, cfg.stoch_discrete
+    )
     prior_logits_flat = forward["prior_logits"].reshape(
-        B * T, cfg.stoch_classes, cfg.stoch_discrete)
+        B * T, cfg.stoch_classes, cfg.stoch_discrete
+    )
     dyn_loss, rep_loss = kl_loss(
-        post_logits_flat, prior_logits_flat,
-        cfg.stoch_classes, cfg.stoch_discrete, cfg.kl_free,
+        post_logits_flat,
+        prior_logits_flat,
+        cfg.stoch_classes,
+        cfg.stoch_discrete,
+        cfg.kl_free,
     )
     losses["dyn"] = jnp.mean(dyn_loss)
     losses["rep"] = jnp.mean(rep_loss)
@@ -99,7 +104,9 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
     # the auxiliary opt loss that keeps the probe itself learning.
     if cfg.decoder:
         decoder_feat = jax.lax.stop_gradient(feat_flat)
-        recon = modules["decoder"].apply(params["decoder"], decoder_feat)  # (BT,3,64,64)
+        recon = modules["decoder"].apply(
+            params["decoder"], decoder_feat
+        )  # (BT,3,64,64)
         rgb_target = decoder_rgb_target(batch, cfg)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]
@@ -108,8 +115,10 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
     prior_probs = jax.nn.softmax(prior_logits_flat, axis=-1)
     post_probs = jax.nn.softmax(post_logits_flat, axis=-1)
     metrics["latent/prior_entropy"] = -jnp.mean(
-        jnp.sum(prior_probs * jnp.log(prior_probs + 1e-8), axis=-1))
+        jnp.sum(prior_probs * jnp.log(prior_probs + 1e-8), axis=-1)
+    )
     metrics["latent/posterior_entropy"] = -jnp.mean(
-        jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1))
+        jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1)
+    )
 
     return losses, metrics

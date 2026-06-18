@@ -50,8 +50,7 @@ class StepTimer:
         total = sum(self.sums.values())
         components_ms = {p: 1000.0 * self.sums[p] / active for p in self.PHASES}
         components_pct = {
-            p: (100.0 * self.sums[p] / total) if total > 0 else 0.0
-            for p in self.PHASES
+            p: (100.0 * self.sums[p] / total) if total > 0 else 0.0 for p in self.PHASES
         }
         return {
             "warmup_steps": self.warmup,

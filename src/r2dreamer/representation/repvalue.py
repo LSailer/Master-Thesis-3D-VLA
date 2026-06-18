@@ -12,8 +12,9 @@ import jax.numpy as jnp
 from ..behavior.imagination import _lambda_return
 
 
-def repval_loss(*, feat, batch, params, modules, cfg, twohot,
-                slow_critic_params, imag_ret, B, T):
+def repval_loss(
+    *, feat, batch, params, modules, cfg, twohot, slow_critic_params, imag_ret, B, T
+):
     """Replay value loss with world-model gradients.
 
     Args:
@@ -31,7 +32,7 @@ def repval_loss(*, feat, batch, params, modules, cfg, twohot,
     Returns:
         scalar repval loss.
     """
-    replay_last = batch["is_last"]   # (B, T)
+    replay_last = batch["is_last"]  # (B, T)
     replay_term = batch["is_terminal"]  # (B, T)
     replay_reward = batch["rewards"]  # (B, T)
 
@@ -41,28 +42,40 @@ def repval_loss(*, feat, batch, params, modules, cfg, twohot,
     feat_flat = feat.reshape(B * T, -1)
 
     # Frozen critic for the lambda-return target
-    replay_val_logits = modules["critic"].apply(
-        jax.lax.stop_gradient(params["critic"]), feat_flat
-    ).reshape(B, T, cfg.twohot_bins)
+    replay_val_logits = (
+        modules["critic"]
+        .apply(jax.lax.stop_gradient(params["critic"]), feat_flat)
+        .reshape(B, T, cfg.twohot_bins)
+    )
     replay_value = twohot.pred(replay_val_logits)  # (B, T, 1)
 
-    replay_slow_logits = modules["critic"].apply(
-        slow_critic_params, feat_flat
-    ).reshape(B, T, cfg.twohot_bins)
+    replay_slow_logits = (
+        modules["critic"]
+        .apply(slow_critic_params, feat_flat)
+        .reshape(B, T, cfg.twohot_bins)
+    )
     replay_slow_value = twohot.pred(replay_slow_logits)  # (B, T, 1)
 
     disc = 1.0 - 1.0 / cfg.horizon
     replay_ret = _lambda_return(
-        replay_last[..., None], replay_term[..., None],
-        replay_reward[..., None], replay_value, boot, disc, cfg.lamb,
+        replay_last[..., None],
+        replay_term[..., None],
+        replay_reward[..., None],
+        replay_value,
+        boot,
+        disc,
+        cfg.lamb,
     )  # (B, T-1, 1)
     ret_padded = jnp.concatenate(
-        [replay_ret, jnp.zeros_like(replay_ret[:, -1:])], axis=1)
+        [replay_ret, jnp.zeros_like(replay_ret[:, -1:])], axis=1
+    )
 
     # Critic on replay features WITH gradients to the world model
-    repval_logits = modules["critic"].apply(
-        params["critic"], feat_flat
-    ).reshape(B, T, cfg.twohot_bins)
+    repval_logits = (
+        modules["critic"]
+        .apply(params["critic"], feat_flat)
+        .reshape(B, T, cfg.twohot_bins)
+    )
 
     repval_weight = 1.0 - replay_last  # (B, T)
     loss_tar = twohot.loss(

@@ -12,6 +12,7 @@ These helpers quantify three things between a forward and a backward run:
 
 No torch/jax — safe to run on the login node / inside the CPU analysis notebook.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -53,15 +54,19 @@ def umeyama(src: np.ndarray, dst: np.ndarray, with_scale: bool = True):
     sgn = np.sign(np.linalg.det(u @ vt))
     dmat = np.diag([1.0, 1.0, sgn])
     r = u @ dmat @ vt
-    var_s = (xs ** 2).sum() / n
+    var_s = (xs**2).sum() / n
     s = float((d_diag * np.array([1.0, 1.0, sgn])).sum() / var_s) if with_scale else 1.0
     t = mu_d - s * (r @ mu_s)
     aligned = (s * (r @ src.T)).T + t
     rmse_before = float(np.sqrt(((src - dst) ** 2).sum(1).mean()))
     rmse_after = float(np.sqrt(((aligned - dst) ** 2).sum(1).mean()))
     return {
-        "R": r, "t": t, "s": s, "aligned": aligned,
-        "rmse_before": rmse_before, "rmse_after": rmse_after,
+        "R": r,
+        "t": t,
+        "s": s,
+        "aligned": aligned,
+        "rmse_before": rmse_before,
+        "rmse_after": rmse_after,
         "residual_ratio": rmse_after / rmse_before if rmse_before > 0 else 0.0,
     }
 
@@ -69,8 +74,7 @@ def umeyama(src: np.ndarray, dst: np.ndarray, with_scale: bool = True):
 # --------------------------------------------------------------------------- #
 # Frame matching by physical position
 # --------------------------------------------------------------------------- #
-def match_by_position(fwd_pos: np.ndarray, bwd_pos: np.ndarray,
-                      max_dist: float = 0.3):
+def match_by_position(fwd_pos: np.ndarray, bwd_pos: np.ndarray, max_dist: float = 0.3):
     """Match each forward frame to its nearest backward frame by 3D position.
 
     Returns (pairs, dists) where pairs is a list of (i, j) and dists the
@@ -121,15 +125,27 @@ def quat_to_R(q_xyzw: np.ndarray) -> np.ndarray:
     if n == 0.0:
         return np.eye(3)
     s = 2.0 / n
-    return np.array([
-        [1 - s * (y * y + z * z), s * (x * y - z * w),     s * (x * z + y * w)],
-        [s * (x * y + z * w),     1 - s * (x * x + z * z), s * (y * z - x * w)],
-        [s * (x * z - y * w),     s * (y * z + x * w),     1 - s * (x * x + y * y)],
-    ])
+    return np.array(
+        [
+            [1 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
+            [s * (x * y + z * w), 1 - s * (x * x + z * z), s * (y * z - x * w)],
+            [s * (x * z - y * w), s * (y * z + x * w), 1 - s * (x * x + y * y)],
+        ]
+    )
 
 
-def compare_pair(fwd_wp, bwd_wp, fwd_cp, bwd_cp, fwd_logit, bwd_logit,
-                 fwd_deter, bwd_deter, fwd_embed=None, bwd_embed=None):
+def compare_pair(
+    fwd_wp,
+    bwd_wp,
+    fwd_cp,
+    bwd_cp,
+    fwd_logit,
+    bwd_logit,
+    fwd_deter,
+    bwd_deter,
+    fwd_embed=None,
+    bwd_embed=None,
+):
     """Full metric bundle for one matched (forward, backward) frame pair."""
     fwp = np.asarray(fwd_wp).reshape(-1, 3)
     bwp = np.asarray(bwd_wp).reshape(-1, 3)

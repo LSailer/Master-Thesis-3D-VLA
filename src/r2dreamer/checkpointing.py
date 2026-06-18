@@ -34,7 +34,9 @@ def config_snapshot(config: Any) -> dict[str, Any]:
     snapshot = (
         asdict(config)
         if is_dataclass(config)
-        else dict(vars(config)) if hasattr(config, "__dict__") else {}
+        else dict(vars(config))
+        if hasattr(config, "__dict__")
+        else {}
     )
     encoder_module_cls = snapshot.pop("encoder_module_cls", None)
     runtime_cls = getattr(config, "encoder_module_cls", None)
@@ -56,7 +58,8 @@ def encoder_input_contract_snapshot(config: Any) -> dict[str, Any] | None:
     snapshot = dict(snapshot)
     contract = recover_encoder_input_contract(snapshot)
     snapshot["encoder_module_kwargs"] = encoder_module_kwargs_from_config(
-        config, contract.encoder_module_cls,
+        config,
+        contract.encoder_module_cls,
     )
     return snapshot
 

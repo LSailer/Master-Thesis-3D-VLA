@@ -20,12 +20,23 @@ from src.environments.habitat import ACTIONS, HabitatObjectNavEnv
 
 
 _CSV_HEADER = [
-    "episode", "scene", "category", "steps", "reward",
-    "success", "spl", "stop_pct", "forward_pct", "left_pct", "right_pct",
+    "episode",
+    "scene",
+    "category",
+    "steps",
+    "reward",
+    "success",
+    "spl",
+    "stop_pct",
+    "forward_pct",
+    "left_pct",
+    "right_pct",
 ]
 
 
-def _build_eval_env(curriculum_path: str, max_episode_steps: int) -> HabitatObjectNavEnv:
+def _build_eval_env(
+    curriculum_path: str, max_episode_steps: int
+) -> HabitatObjectNavEnv:
     """Construct the Habitat ObjectNav env in eval mode for the curriculum."""
     config = DreamerConfig(
         obs_shape=(3, 64, 64),
@@ -42,21 +53,31 @@ def _build_eval_env(curriculum_path: str, max_episode_steps: int) -> HabitatObje
 def _episode_csv_row(ep_idx: int, result: dict) -> list:
     """Format one episode result as a CSV row matching ``_CSV_HEADER``."""
     steps = result["steps"]
-    pcts = {name: result["action_counts"][idx] / steps * 100
-            for idx, name in ACTIONS.items()}
+    pcts = {
+        name: result["action_counts"][idx] / steps * 100
+        for idx, name in ACTIONS.items()
+    }
     return [
-        ep_idx, result["scene"], result["category"], steps,
-        f"{result['reward']:.4f}", f"{result['success']:.0f}",
+        ep_idx,
+        result["scene"],
+        result["category"],
+        steps,
+        f"{result['reward']:.4f}",
+        f"{result['success']:.0f}",
         f"{result['spl']:.4f}",
-        f"{pcts['STOP']:.1f}", f"{pcts['MOVE_FORWARD']:.1f}",
-        f"{pcts['TURN_LEFT']:.1f}", f"{pcts['TURN_RIGHT']:.1f}",
+        f"{pcts['STOP']:.1f}",
+        f"{pcts['MOVE_FORWARD']:.1f}",
+        f"{pcts['TURN_LEFT']:.1f}",
+        f"{pcts['TURN_RIGHT']:.1f}",
     ]
 
 
-def _print_summary(summary: dict, csv_path: str, json_path: str, elapsed: float) -> None:
+def _print_summary(
+    summary: dict, csv_path: str, json_path: str, elapsed: float
+) -> None:
     """Print the human-readable run summary."""
     print(f"\n--- Summary ({summary['episodes']} episodes, {elapsed:.0f}s) ---")
-    print(f"Success Rate: {summary['sr']*100:.2f}%")
+    print(f"Success Rate: {summary['sr'] * 100:.2f}%")
     print(f"SPL:          {summary['spl']:.4f}")
     print(f"Mean Reward:  {summary['mean_reward']:.2f} ± {summary['std_reward']:.2f}")
     print(f"Mean Steps:   {summary['mean_steps']:.0f} ± {summary['std_steps']:.0f}")
@@ -113,9 +134,7 @@ def _aggregate_results(
     spls = [r["spl"] for r in all_results]
     rewards = [r["reward"] for r in all_results]
     steps_list = [r["steps"] for r in all_results]
-    total_actions = sum(
-        sum(r["action_counts"].values()) for r in all_results
-    )
+    total_actions = sum(sum(r["action_counts"].values()) for r in all_results)
     agg_action_counts = {name: 0 for name in ACTIONS.values()}
     for r in all_results:
         for idx, name in ACTIONS.items():
@@ -174,8 +193,10 @@ def run_random_baseline(
             if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
                 elapsed = time.time() - t_start
                 sr_so_far = np.mean([r["success"] for r in all_results]) * 100
-                print(f"  [{ep_idx+1}/{num_episodes}] SR={sr_so_far:.1f}%  "
-                      f"elapsed={elapsed:.0f}s")
+                print(
+                    f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
+                    f"elapsed={elapsed:.0f}s"
+                )
 
     env.close()
 
@@ -199,19 +220,27 @@ def main():
         description="Random-action baseline for Habitat ObjectNav"
     )
     parser.add_argument(
-        "--curriculum_path", type=str, required=True,
+        "--curriculum_path",
+        type=str,
+        required=True,
         help="Path to curriculum JSON (e.g. data/curriculum/level1_1house_1goal.json)",
     )
     parser.add_argument(
-        "--output_dir", type=str, required=True,
+        "--output_dir",
+        type=str,
+        required=True,
         help="Directory to save episodes.csv and summary.json",
     )
     parser.add_argument(
-        "--max_episode_steps", type=int, default=500,
+        "--max_episode_steps",
+        type=int,
+        default=500,
         help="Max steps per episode (default: 500)",
     )
     parser.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed (default: 42)",
     )
     args = parser.parse_args()

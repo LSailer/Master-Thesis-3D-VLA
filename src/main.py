@@ -31,11 +31,20 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     train_parser = subparsers.add_parser("train", help="Train R2Dreamer end to end.")
-    train_parser.add_argument("--env", default="habitat", choices=["habitat", "crafter"])
+    train_parser.add_argument(
+        "--env", default="habitat", choices=["habitat", "crafter"]
+    )
     train_parser.add_argument(
         "--encoder",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=[
+            "cnn",
+            "vggt",
+            "vggt_aggregator_mlp",
+            "vggt_wp_dense_cnn",
+            "vggt_wp_cp_64",
+            "hybrid",
+        ],
     )
     train_parser.add_argument("--curriculum", default=None)
 
@@ -44,7 +53,14 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_parser.add_argument(
         "--encoder",
         default="cnn",
-        choices=["cnn", "vggt", "vggt_aggregator_mlp", "vggt_wp_dense_cnn", "vggt_wp_cp_64", "hybrid"],
+        choices=[
+            "cnn",
+            "vggt",
+            "vggt_aggregator_mlp",
+            "vggt_wp_dense_cnn",
+            "vggt_wp_cp_64",
+            "hybrid",
+        ],
     )
     eval_parser.add_argument("--curriculum", default=None)
     eval_parser.add_argument("--checkpoint", default=None)

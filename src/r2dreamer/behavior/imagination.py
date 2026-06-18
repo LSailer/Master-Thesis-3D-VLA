@@ -10,8 +10,16 @@ import jax
 import jax.numpy as jnp
 
 
-def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
-             start_stoch, start_deter, horizon, rng_key):
+def _imagine(
+    rssm_params,
+    actor_params,
+    rssm_mod,
+    actor_mod,
+    start_stoch,
+    start_deter,
+    horizon,
+    rng_key,
+):
     """Imagination rollout in latent space (no gradients).
 
     Matches PyTorch: imagination is fully detached (@torch.no_grad).
@@ -59,7 +67,11 @@ def _imagine(rssm_params, actor_params, rssm_mod, actor_mod,
 
         rng_key, k_img = jax.random.split(rng_key)
         stoch, deter = rssm_mod.apply(
-            frozen_rssm_params, stoch, deter, action, method=rssm_mod.img_step,
+            frozen_rssm_params,
+            stoch,
+            deter,
+            action,
+            method=rssm_mod.img_step,
             rngs={"sample": k_img},
         )
 
@@ -84,9 +96,7 @@ def _lambda_return(last, term, reward, value, boot, disc, lamb):
         return val, val
 
     init = boot[..., -1, :]
-    _, outs = jax.lax.scan(
-        _scan_fn, init, jnp.arange(T_minus_1)
-    )
+    _, outs = jax.lax.scan(_scan_fn, init, jnp.arange(T_minus_1))
     # outs: (T_minus_1, ..., 1) — need to reverse and transpose
     outs = jnp.flip(outs, axis=0)
     ndim = outs.ndim

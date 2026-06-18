@@ -55,7 +55,9 @@ class R2TwoHotDist:
         """Two-hot encode a scalar target in real space. target: (...)."""
         # Find below/above indices (matching PyTorch's logic)
         below = jnp.sum((self.bins <= target[..., None]).astype(jnp.int32), axis=-1) - 1
-        above = self.num_bins - jnp.sum((self.bins > target[..., None]).astype(jnp.int32), axis=-1)
+        above = self.num_bins - jnp.sum(
+            (self.bins > target[..., None]).astype(jnp.int32), axis=-1
+        )
         below = jnp.clip(below, 0, self.num_bins - 1)
         above = jnp.clip(above, 0, self.num_bins - 1)
         equal = below == above
@@ -64,8 +66,9 @@ class R2TwoHotDist:
         total = dist_to_below + dist_to_above
         weight_below = dist_to_above / total
         weight_above = dist_to_below / total
-        return (weight_below[..., None] * jax.nn.one_hot(below, self.num_bins) +
-                weight_above[..., None] * jax.nn.one_hot(above, self.num_bins))
+        return weight_below[..., None] * jax.nn.one_hot(
+            below, self.num_bins
+        ) + weight_above[..., None] * jax.nn.one_hot(above, self.num_bins)
 
     def loss(self, logits: jnp.ndarray, target: jnp.ndarray) -> jnp.ndarray:
         """Cross-entropy loss. logits: (..., bins), target: (...) in real space."""
@@ -83,18 +86,19 @@ class R2TwoHotDist:
         if n % 2 == 1:
             m = (n - 1) // 2
             p1 = probs[..., :m]
-            p2 = probs[..., m:m + 1]
-            p3 = probs[..., m + 1:]
+            p2 = probs[..., m : m + 1]
+            p3 = probs[..., m + 1 :]
             b1 = self.bins[:m]
-            b2 = self.bins[m:m + 1]
-            b3 = self.bins[m + 1:]
-            wavg = (jnp.sum(p2 * b2, axis=-1, keepdims=True) +
-                    jnp.sum(p1[..., ::-1] * b1[::-1] + p3 * b3, axis=-1, keepdims=True))
+            b2 = self.bins[m : m + 1]
+            b3 = self.bins[m + 1 :]
+            wavg = jnp.sum(p2 * b2, axis=-1, keepdims=True) + jnp.sum(
+                p1[..., ::-1] * b1[::-1] + p3 * b3, axis=-1, keepdims=True
+            )
         else:
-            p1 = probs[..., :n // 2]
-            p2 = probs[..., n // 2:]
-            b1 = self.bins[:n // 2]
-            b2 = self.bins[n // 2:]
+            p1 = probs[..., : n // 2]
+            p2 = probs[..., n // 2 :]
+            b1 = self.bins[: n // 2]
+            b2 = self.bins[n // 2 :]
             wavg = jnp.sum(p1[..., ::-1] * b1[::-1] + p2 * b2, axis=-1, keepdims=True)
         return wavg  # (..., 1) — real space, no unsquash needed
 
@@ -123,6 +127,7 @@ def onehot_mode_st(logits: jnp.ndarray, unimix_ratio: float = 0.0) -> jnp.ndarra
 
 class R2MLP(nn.Module):
     """MLP with RMSNorm, matching PyTorch R2-Dreamer's MLP + MLPHead."""
+
     hidden: int = 256
     layers: int = 2
     out_dim: int = 1
@@ -138,6 +143,7 @@ class R2MLP(nn.Module):
             out_init = nn.initializers.zeros
         elif self.outscale != 1.0:
             base_init = nn.initializers.lecun_normal()
+
             def out_init(key, shape, dtype=jnp.float32):
                 return base_init(key, shape, dtype) * self.outscale
         else:

@@ -46,7 +46,7 @@ def _make_sincos_pos_embed(
     # scaling by ratio=0.1 and subsequent convs dominate any precision loss.
     omega = jnp.arange(embed_dim // 2, dtype=jnp.float32)
     omega = omega / (embed_dim / 2.0)
-    omega = 1.0 / (omega_0 ** omega)
+    omega = 1.0 / (omega_0**omega)
     pos = pos.reshape(-1)
     out = jnp.einsum("m,d->md", pos, omega)
     return jnp.concatenate([jnp.sin(out), jnp.cos(out)], axis=-1)
@@ -65,16 +65,14 @@ def _position_grid_to_embed(
     return emb.reshape(H, W, embed_dim)
 
 
-def _create_uv_grid(
-    width: int, height: int, aspect_ratio: float
-) -> jnp.ndarray:
+def _create_uv_grid(width: int, height: int, aspect_ratio: float) -> jnp.ndarray:
     """Port of ``heads.utils.create_uv_grid``.
 
     Reference uses ``torch.meshgrid(x_coords, y_coords, indexing='xy')`` which
     yields shape ``(height, width, 2)`` tensors (xy indexing swaps to row-y
     col-x). Matches that.
     """
-    diag = (aspect_ratio ** 2 + 1.0) ** 0.5
+    diag = (aspect_ratio**2 + 1.0) ** 0.5
     span_x = aspect_ratio / diag
     span_y = 1.0 / diag
     left_x = -span_x * (width - 1) / width
@@ -205,7 +203,9 @@ class _ResidualConvUnit(nn.Module):
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         # NCHW throughout; Flax convs are NHWC so we transpose in / out.
-        x_relu = jax.nn.relu(x)  # also the "x" that skip-add uses (in-place side effect)
+        x_relu = jax.nn.relu(
+            x
+        )  # also the "x" that skip-add uses (in-place side effect)
         h = jnp.transpose(x_relu, (0, 2, 3, 1))
         h = self.conv1(h)
         h = jnp.transpose(h, (0, 3, 1, 2))
@@ -277,20 +277,32 @@ class _Scratch(nn.Module):
     def setup(self):
         # layer{i}_rn: Conv3x3 stride=1 padding=1, bias=False
         self.layer1_rn = nn.Conv(
-            self.features, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=False,
+            self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=False,
         )
         self.layer2_rn = nn.Conv(
-            self.features, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=False,
+            self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=False,
         )
         self.layer3_rn = nn.Conv(
-            self.features, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=False,
+            self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=False,
         )
         self.layer4_rn = nn.Conv(
-            self.features, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=False,
+            self.features,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=False,
         )
         # refinenet4 has has_residual=False (only the running branch, no skip).
         self.refinenet4 = _FeatureFusionBlock(
@@ -307,18 +319,27 @@ class _Scratch(nn.Module):
         )
         # output_conv1: Conv3x3 features -> features//2  (256 -> 128)
         self.output_conv1 = nn.Conv(
-            self.features // 2, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=True,
+            self.features // 2,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=True,
         )
         # output_conv2 is a Sequential(Conv3x3 128->32, ReLU, Conv1x1 32->out_dim=4).
         # We store as two separate submodules named output_conv2_0 / output_conv2_2.
         self.output_conv2_0 = nn.Conv(
-            32, kernel_size=(3, 3), strides=(1, 1),
-            padding="SAME", use_bias=True,
+            32,
+            kernel_size=(3, 3),
+            strides=(1, 1),
+            padding="SAME",
+            use_bias=True,
         )
         self.output_conv2_2 = nn.Conv(
-            4, kernel_size=(1, 1), strides=(1, 1),
-            padding="VALID", use_bias=True,
+            4,
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="VALID",
+            use_bias=True,
         )
 
     def _nchw_conv(self, conv: nn.Conv, x: jnp.ndarray) -> jnp.ndarray:
@@ -327,9 +348,7 @@ class _Scratch(nn.Module):
         x = conv(x)
         return jnp.transpose(x, (0, 3, 1, 2))
 
-    def fuse(
-        self, features: list[jnp.ndarray]
-    ) -> jnp.ndarray:
+    def fuse(self, features: list[jnp.ndarray]) -> jnp.ndarray:
         layer_1, layer_2, layer_3, layer_4 = features
 
         l1 = self._nchw_conv(self.layer1_rn, layer_1)
@@ -378,35 +397,56 @@ class DPTHead(nn.Module):
 
         # projects: 1x1 Conv per scale
         self.projects_0 = nn.Conv(
-            self.out_channels[0], kernel_size=(1, 1), strides=(1, 1),
-            padding="VALID", use_bias=True,
+            self.out_channels[0],
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="VALID",
+            use_bias=True,
         )
         self.projects_1 = nn.Conv(
-            self.out_channels[1], kernel_size=(1, 1), strides=(1, 1),
-            padding="VALID", use_bias=True,
+            self.out_channels[1],
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="VALID",
+            use_bias=True,
         )
         self.projects_2 = nn.Conv(
-            self.out_channels[2], kernel_size=(1, 1), strides=(1, 1),
-            padding="VALID", use_bias=True,
+            self.out_channels[2],
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="VALID",
+            use_bias=True,
         )
         self.projects_3 = nn.Conv(
-            self.out_channels[3], kernel_size=(1, 1), strides=(1, 1),
-            padding="VALID", use_bias=True,
+            self.out_channels[3],
+            kernel_size=(1, 1),
+            strides=(1, 1),
+            padding="VALID",
+            use_bias=True,
         )
 
         # resize_layers: ConvTranspose (idx 0,1), Identity (idx 2 -> skip), Conv 3x3 stride 2 (idx 3)
         self.resize_layers_0 = nn.ConvTranspose(
-            self.out_channels[0], kernel_size=(4, 4), strides=(4, 4),
-            padding="VALID", use_bias=True,
+            self.out_channels[0],
+            kernel_size=(4, 4),
+            strides=(4, 4),
+            padding="VALID",
+            use_bias=True,
         )
         self.resize_layers_1 = nn.ConvTranspose(
-            self.out_channels[1], kernel_size=(2, 2), strides=(2, 2),
-            padding="VALID", use_bias=True,
+            self.out_channels[1],
+            kernel_size=(2, 2),
+            strides=(2, 2),
+            padding="VALID",
+            use_bias=True,
         )
         # resize_layers_2 is Identity — no submodule
         self.resize_layers_3 = nn.Conv(
-            self.out_channels[3], kernel_size=(3, 3), strides=(2, 2),
-            padding=((1, 1), (1, 1)), use_bias=True,
+            self.out_channels[3],
+            kernel_size=(3, 3),
+            strides=(2, 2),
+            padding=((1, 1), (1, 1)),
+            use_bias=True,
         )
 
         self.scratch = _Scratch(
@@ -435,7 +475,9 @@ class DPTHead(nn.Module):
 
         features: list[jnp.ndarray] = []
         for dpt_idx, layer_idx in enumerate(self.intermediate_layer_idx):
-            x = aggregated_tokens_list[layer_idx][:, :, patch_start_idx:]  # (B, S, P_patch, dim_in)
+            x = aggregated_tokens_list[layer_idx][
+                :, :, patch_start_idx:
+            ]  # (B, S, P_patch, dim_in)
             x = x.reshape(B * S, patch_h * patch_w, x.shape[-1])
             x = self.norm(x)
             # -> (B*S, dim_in, patch_h, patch_w)

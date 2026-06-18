@@ -14,9 +14,20 @@ from .heads import R2MLP, R2TwoHotDist, onehot_mode_st
 from .loss import world_model_loss, kl_loss
 
 __all__ = [
-    "RMSNorm", "BlockLinear", "Deter", "R2RSSM",
-    "ConvEncoder", "VGGTEncoder", "VGGTAggregatorMLPEncoder", "WP64CNNCPMLPEncoder",
-    "HybridEncoder", "RGBFullTokenTransformerEncoder", "ConvDecoder",
-    "R2MLP", "R2TwoHotDist", "onehot_mode_st",
-    "world_model_loss", "kl_loss",
+    "RMSNorm",
+    "BlockLinear",
+    "Deter",
+    "R2RSSM",
+    "ConvEncoder",
+    "VGGTEncoder",
+    "VGGTAggregatorMLPEncoder",
+    "WP64CNNCPMLPEncoder",
+    "HybridEncoder",
+    "RGBFullTokenTransformerEncoder",
+    "ConvDecoder",
+    "R2MLP",
+    "R2TwoHotDist",
+    "onehot_mode_st",
+    "world_model_loss",
+    "kl_loss",
 ]

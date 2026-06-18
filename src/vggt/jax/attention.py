@@ -141,8 +141,12 @@ def _padded_evict(
     v_pad_out = jnp.zeros_like(v_pad)
     k_pad_out = jax.lax.dynamic_update_slice_in_dim(k_pad_out, anchor_k, 0, axis=2)
     v_pad_out = jax.lax.dynamic_update_slice_in_dim(v_pad_out, anchor_v, 0, axis=2)
-    k_pad_out = jax.lax.dynamic_update_slice_in_dim(k_pad_out, kept_cand_k, n_anchor, axis=2)
-    v_pad_out = jax.lax.dynamic_update_slice_in_dim(v_pad_out, kept_cand_v, n_anchor, axis=2)
+    k_pad_out = jax.lax.dynamic_update_slice_in_dim(
+        k_pad_out, kept_cand_k, n_anchor, axis=2
+    )
+    v_pad_out = jax.lax.dynamic_update_slice_in_dim(
+        v_pad_out, kept_cand_v, n_anchor, axis=2
+    )
     new_valid_len = jnp.asarray(n_anchor + n_keep, dtype=jnp.int32)
     return k_pad_out, v_pad_out, new_valid_len, evict_score
 
@@ -197,9 +201,7 @@ class Attention(nn.Module):
             k = apply_rope_2d(k, positions, cos_table, sin_table)
 
         is_padded_cache = (
-            past_kv is not None
-            and isinstance(past_kv, tuple)
-            and len(past_kv) == 3
+            past_kv is not None and isinstance(past_kv, tuple) and len(past_kv) == 3
         )
 
         if use_cache and is_padded_cache:
@@ -249,7 +251,9 @@ class Attention(nn.Module):
         """Padded-cache path: dynamic_update_slice writes + SDPA with bool mask."""
         past_k_pad, past_v_pad, valid_len = past_kv
         _, _, MAX, Dh = past_k_pad.shape
-        cache_dtype = past_k_pad.dtype  # honour whatever dtype the cache was allocated in
+        cache_dtype = (
+            past_k_pad.dtype
+        )  # honour whatever dtype the cache was allocated in
 
         # 1. Append new K/V at offset valid_len (must match cache dtype).
         k_pad = jax.lax.dynamic_update_slice_in_dim(
@@ -279,7 +283,9 @@ class Attention(nn.Module):
                 _no_evict,
                 operand=(k_pad, v_pad, new_valid_len),
             )
-            did_evict = new_valid_len <= cache_budget  # after clamp: True iff eviction ran
+            did_evict = (
+                new_valid_len <= cache_budget
+            )  # after clamp: True iff eviction ran
             # Note: the cleaner check is "new_valid_len_before > cache_budget".
             # Recompute that:
             # Actually we want did_evict = (valid_len + N > cache_budget).
@@ -291,11 +297,13 @@ class Attention(nn.Module):
         # so cuDNN flash attention can lower to its kernel.  Replace the
         # explicit -inf bias with a bool mask (True = valid slot).
         q_tnhd = jnp.transpose(q.astype(cache_dtype), (0, 2, 1, 3))  # (B, N, H, Dh)
-        k_tnhd = jnp.transpose(k_pad, (0, 2, 1, 3))  # (B, MAX, H, Dh) — already cache_dtype
+        k_tnhd = jnp.transpose(
+            k_pad, (0, 2, 1, 3)
+        )  # (B, MAX, H, Dh) — already cache_dtype
         v_tnhd = jnp.transpose(v_pad, (0, 2, 1, 3))
 
         head_dim_f = float(q.shape[-1])
-        scale = 1.0 / head_dim_f ** 0.5
+        scale = 1.0 / head_dim_f**0.5
 
         # cuDNN flash attention with key_value_seq_lengths: tells cuDNN how
         # many K/V slots are valid without materialising a (B,H,N,MAX) bias.
@@ -305,18 +313,25 @@ class Attention(nn.Module):
         # cuDNN flash supports only fp16/bf16/fp8. Fall back to XLA for fp32.
         if q_tnhd.dtype in (jnp.bfloat16, jnp.float16):
             out_tnhd = jax.nn.dot_product_attention(
-                q_tnhd, k_tnhd, v_tnhd,
-                scale=scale, is_causal=False,
+                q_tnhd,
+                k_tnhd,
+                v_tnhd,
+                scale=scale,
+                is_causal=False,
                 key_value_seq_lengths=kv_len,
-                implementation='cudnn',
+                implementation="cudnn",
             )
         else:
             pos = jnp.arange(MAX, dtype=jnp.int32)
             mask_xla = (pos < new_valid_len).reshape(1, 1, 1, MAX)
             out_tnhd = jax.nn.dot_product_attention(
-                q_tnhd, k_tnhd, v_tnhd,
-                scale=scale, is_causal=False,
-                mask=mask_xla, implementation='xla',
+                q_tnhd,
+                k_tnhd,
+                v_tnhd,
+                scale=scale,
+                is_causal=False,
+                mask=mask_xla,
+                implementation="xla",
             )
         # out_tnhd is already (B, N, H, Dh) from jax.nn.dot_product_attention;
         # the legacy path's transpose is for its (B, H, N, Dh) einsum output —

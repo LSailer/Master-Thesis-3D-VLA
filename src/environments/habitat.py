@@ -26,12 +26,13 @@ GOAL_RADIUS = 0.2
 
 def _validate_goal_distance(dist: float) -> float:
     if dist is None:
-        raise ValueError("distance_to_goal must be a finite non-negative value, got None")
+        raise ValueError(
+            "distance_to_goal must be a finite non-negative value, got None"
+        )
     dist = float(dist)
     if not np.isfinite(dist) or dist < 0.0:
         raise ValueError(
-            "distance_to_goal must be a finite non-negative value, "
-            f"got {dist!r}"
+            f"distance_to_goal must be a finite non-negative value, got {dist!r}"
         )
     return dist
 
@@ -52,9 +53,7 @@ def find_nearest_viewpoint(env):
     for gi, goal in enumerate(env.current_episode.goals):
         if goal.view_points:
             for vp in goal.view_points:
-                d = env.sim.geodesic_distance(
-                    agent_pos, vp.agent_state.position
-                )
+                d = env.sim.geodesic_distance(agent_pos, vp.agent_state.position)
                 if d < best_dist:
                     best_dist = d
                     best_pos = vp.agent_state.position
@@ -86,17 +85,25 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
     return {
         "grid": grid,
-        "x_min": float(x_min), "x_max": float(x_max),
-        "z_min": float(z_min), "z_max": float(z_max),
+        "x_min": float(x_min),
+        "x_max": float(x_max),
+        "z_min": float(z_min),
+        "z_max": float(z_max),
         "resolution": resolution,
     }
 
 
 class HabitatObjectNavEnv:
-    def __init__(self, config: DreamerConfig, max_geodesic: float | None = None,
-                 step_counts_path: str | None = None, semantic: bool = False,
-                 curriculum_path: str | None = None,
-                 curriculum_mode: str = "train", seed: int | None = None):
+    def __init__(
+        self,
+        config: DreamerConfig,
+        max_geodesic: float | None = None,
+        step_counts_path: str | None = None,
+        semantic: bool = False,
+        curriculum_path: str | None = None,
+        curriculum_mode: str = "train",
+        seed: int | None = None,
+    ):
         import habitat
         from omegaconf import OmegaConf
 
@@ -108,13 +115,12 @@ class HabitatObjectNavEnv:
         curriculum = None
         if curriculum_path is not None:
             import json
+
             split = "train"
             with open(curriculum_path) as f:
                 curriculum = json.load(f)
 
-        hab_cfg = habitat.get_config(
-            "benchmark/nav/objectnav/objectnav_hm3d.yaml"
-        )
+        hab_cfg = habitat.get_config("benchmark/nav/objectnav/objectnav_hm3d.yaml")
         with habitat.config.read_write(hab_cfg):
             hab_cfg.habitat.dataset.split = split
             if seed is not None:
@@ -143,15 +149,20 @@ class HabitatObjectNavEnv:
             self._env.seed(int(seed))
 
         if curriculum is not None:
-
             # Keys are [episode_id, object_category, scene_name] triples
-            key_set = {(k[0], k[1], k[2])
-                       for k in curriculum[f"{curriculum_mode}_episode_keys"]}
+            key_set = {
+                (k[0], k[1], k[2])
+                for k in curriculum[f"{curriculum_mode}_episode_keys"]
+            }
             before = len(self._env._dataset.episodes)
             self._env._dataset.episodes = [
-                ep for ep in self._env._dataset.episodes
-                if (ep.episode_id, ep.object_category,
-                    ep.scene_id.split("/")[-1].replace(".basis.glb", ""))
+                ep
+                for ep in self._env._dataset.episodes
+                if (
+                    ep.episode_id,
+                    ep.object_category,
+                    ep.scene_id.split("/")[-1].replace(".basis.glb", ""),
+                )
                 in key_set
             ]
             after = len(self._env._dataset.episodes)
@@ -161,13 +172,16 @@ class HabitatObjectNavEnv:
             )
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
-            print(f"Curriculum [{curriculum['name']}] {curriculum_mode}: "
-                  f"{before} → {after} episodes")
+            print(
+                f"Curriculum [{curriculum['name']}] {curriculum_mode}: "
+                f"{before} → {after} episodes"
+            )
         else:
             if max_geodesic is not None:
                 before = len(self._env._dataset.episodes)
                 self._env._dataset.episodes = [
-                    ep for ep in self._env._dataset.episodes
+                    ep
+                    for ep in self._env._dataset.episodes
                     if ep.info is not None
                     and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
                 ]
@@ -177,17 +191,21 @@ class HabitatObjectNavEnv:
                 )
                 self._env._setup_episode_iterator()
                 self._env.current_episode = next(self._env.episode_iterator)
-                print(f"Filtered: {before} → {after} "
-                      f"episodes (geodesic < {max_geodesic}m)")
+                print(
+                    f"Filtered: {before} → {after} "
+                    f"episodes (geodesic < {max_geodesic}m)"
+                )
 
             if step_counts_path is not None:
                 import json
+
                 with open(step_counts_path) as f:
                     step_counts = json.load(f)
                 split_counts = step_counts.get(config.split, {})
                 before = len(self._env._dataset.episodes)
                 self._env._dataset.episodes = [
-                    ep for ep in self._env._dataset.episodes
+                    ep
+                    for ep in self._env._dataset.episodes
                     if split_counts.get(ep.episode_id, 0) < 200
                 ]
                 after = len(self._env._dataset.episodes)
@@ -196,8 +214,9 @@ class HabitatObjectNavEnv:
                 )
                 self._env._setup_episode_iterator()
                 self._env.current_episode = next(self._env.episode_iterator)
-                print(f"Filtered (step count): {before} → "
-                      f"{after} episodes (steps < 200)")
+                print(
+                    f"Filtered (step count): {before} → {after} episodes (steps < 200)"
+                )
 
         self._prev_dist = 0.0
         self._step_count = 0
@@ -301,9 +320,7 @@ class HabitatObjectNavEnv:
 
     def _invalid_goal_distance_transition(self, obs, raw_dist: object) -> dict:
         image = self._obs_to_image(obs)
-        fallback_dist = (
-            self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
-        )
+        fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
         return {
             "image": image,
             "reward": self._cfg.step_penalty,

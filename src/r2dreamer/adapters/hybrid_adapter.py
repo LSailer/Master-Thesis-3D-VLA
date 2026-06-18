@@ -18,7 +18,6 @@ from src.r2dreamer.obs_batch import (
     HYBRID_WP_CP_KEY,
 )
 from src.r2dreamer.observation_preparation.vggt import (
-    HYBRID_FEATURE_DIM,
     HYBRID_IMAGE_SHAPE,
     HYBRID_RGB_DIM,
     VGGT_AGGREGATOR_TOKEN_COUNT,
@@ -170,7 +169,9 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             on_episode_reset=None,
         )
         self._extractor = extractor
-        self._context_transformer = context_transformer or VGGTFullTokenContextTransformer()
+        self._context_transformer = (
+            context_transformer or VGGTFullTokenContextTransformer()
+        )
         self._context_params = None
         self._rng = jax.random.PRNGKey(rng_seed)
         self._context: np.ndarray | None = None

@@ -59,12 +59,14 @@ def benchmark_variant(
                     output_shape = tuple(v.shape)
                     break
 
-        results.append({
-            "n_frames": n_frames,
-            "latency_ms": latency_ms,
-            "peak_mem_mb": peak_mem,
-            "output_shape": str(output_shape),
-        })
+        results.append(
+            {
+                "n_frames": n_frames,
+                "latency_ms": latency_ms,
+                "peak_mem_mb": peak_mem,
+                "output_shape": str(output_shape),
+            }
+        )
 
     return results
 
@@ -83,11 +85,13 @@ def build_comparison_table(
     rows = []
     for variant_name, seq_results in all_results.items():
         for r in seq_results:
-            rows.append({
-                "variant": variant_name,
-                "n_frames": r["n_frames"],
-                "latency_ms": r["latency_ms"],
-                "peak_mem_mb": r["peak_mem_mb"],
-                "output_shape": r["output_shape"],
-            })
+            rows.append(
+                {
+                    "variant": variant_name,
+                    "n_frames": r["n_frames"],
+                    "latency_ms": r["latency_ms"],
+                    "peak_mem_mb": r["peak_mem_mb"],
+                    "output_shape": r["output_shape"],
+                }
+            )
     return pd.DataFrame(rows)

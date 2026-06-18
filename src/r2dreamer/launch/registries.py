@@ -21,6 +21,7 @@ from src.r2dreamer.launch.habitat_setup import make_habitat_env
 def make_crafter_env(*, seed: int = 0, **kwargs):
     """Thin wrapper so crafter follows the same factory signature as habitat."""
     from src.environments.crafter import CrafterEnv
+
     return CrafterEnv(size=(64, 64), seed=seed)
 
 

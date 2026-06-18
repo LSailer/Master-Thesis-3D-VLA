@@ -351,7 +351,8 @@ def _add_encoder_l2_metric(metrics: dict[str, Any], params: dict[str, Any]) -> N
     # toggle is actually moving the encoder weights.
     enc_sq = jax.tree_util.tree_reduce(
         lambda acc, x: acc + jnp.sum(jnp.square(x)),
-        params["encoder"], 0.0,
+        params["encoder"],
+        0.0,
     )
     metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
 
@@ -374,8 +375,8 @@ def _add_hybrid_contribution_metrics(
     cnn_e = embed_flat[:, :cnn_dim]
     vggt_e = embed_flat[:, cnn_dim:]
     gate = params["encoder"]["params"]["gate"]
-    cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e ** 2, axis=-1)))
-    vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e ** 2, axis=-1)))
+    cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e**2, axis=-1)))
+    vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e**2, axis=-1)))
     denom = cnn_l2 + vggt_l2 + 1e-8
     metrics["hybrid/gate"] = gate
     metrics["hybrid/cnn_l2"] = cnn_l2
@@ -475,7 +476,9 @@ class R2DreamerAgent:
                 "Contract snapshot"
             )
         config = R2DreamerConfig(
-            obs_shape=obs_shape, num_actions=num_actions, **config_kwargs,
+            obs_shape=obs_shape,
+            num_actions=num_actions,
+            **config_kwargs,
         )
         rng_key = jax.random.PRNGKey(seed)
         rng_key, init_key = jax.random.split(rng_key)
@@ -507,7 +510,8 @@ class R2DreamerAgent:
         embed0 = jnp.zeros((1, self.embed_size))
         rng_key, k_sample = jax.random.split(rng_key)
         rssm_params = self.rssm_mod.init(
-            {"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0)
+            {"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0
+        )
 
         # Projector: feat_size -> embed_size
         self.proj_mod = Projector(out_dim=self.embed_size)
@@ -555,7 +559,10 @@ class R2DreamerAgent:
         dec_params = None
         if config.decoder:
             if config.encoder_type not in (
-                "cnn", "hybrid", "vggt_house_context", "vggt_house_full_tokens_nogate"
+                "cnn",
+                "hybrid",
+                "vggt_house_context",
+                "vggt_house_full_tokens_nogate",
             ):
                 raise ValueError(
                     "decoder=True requires an RGB-bearing encoder_type — the "
@@ -635,7 +642,9 @@ class R2DreamerAgent:
     # Acting
     # ------------------------------------------------------------------
 
-    def act(self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True) -> int:
+    def act(
+        self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True
+    ) -> int:
         """Select an action for a single environment step.
 
         Args:
@@ -668,9 +677,7 @@ class R2DreamerAgent:
 
         self._act_stoch = np.array(new_stoch)
         self._act_deter = np.array(new_deter)
-        self._act_prev_action = np.zeros(
-            (1, self.cfg.num_actions), dtype=np.float32
-        )
+        self._act_prev_action = np.zeros((1, self.cfg.num_actions), dtype=np.float32)
         self._act_prev_action[0, action_int] = 1.0
 
         return action_int
@@ -680,7 +687,11 @@ class R2DreamerAgent:
         embed = self.encoder_mod.apply(params["encoder"], obs)
         rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = self.rssm_mod.apply(
-            params["rssm"], stoch, deter, prev_action, embed,
+            params["rssm"],
+            stoch,
+            deter,
+            prev_action,
+            embed,
             rngs={"sample": k_sample},
         )
         feat = self.rssm_mod.apply(
@@ -716,14 +727,20 @@ class R2DreamerAgent:
         obs_flat = encoder_obs_from_batch(batch, self.cfg)
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
         stoch0, deter0 = self.rssm_mod.apply(
-            params["rssm"], B, method=self.rssm_mod.initial_state)
+            params["rssm"], B, method=self.rssm_mod.initial_state
+        )
         post_stochs, post_deters, _ = self.rssm_mod.apply(
-            params["rssm"], embed, batch["actions"], (stoch0, deter0),
-            batch["is_first"], method=self.rssm_mod.observe,
+            params["rssm"],
+            embed,
+            batch["actions"],
+            (stoch0, deter0),
+            batch["is_first"],
+            method=self.rssm_mod.observe,
             rngs={"sample": jax.random.PRNGKey(0)},
         )
         feat = self.rssm_mod.apply(
-            params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat)
+            params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat
+        )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
         target = decoder_rgb_target(batch, self.cfg)
         return np.asarray(target), np.asarray(recon)
@@ -732,7 +749,9 @@ class R2DreamerAgent:
     # Training
     # ------------------------------------------------------------------
 
-    def train_step(self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray) -> Dict[str, float]:
+    def train_step(
+        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
+    ) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
         self.train_state, metrics = self._jitted_train_step(
             self.train_state,
@@ -777,13 +796,19 @@ class R2DreamerAgent:
 
         # Roll back to pre-update state on NaN/inf
         new_params = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_params, params)
+            lambda new, old: jnp.where(is_finite, new, old), new_params, params
+        )
         new_opt_state = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_opt_state, opt_state)
+            lambda new, old: jnp.where(is_finite, new, old), new_opt_state, opt_state
+        )
         new_slow = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), updated_slow, slow_critic_params)
+            lambda new, old: jnp.where(is_finite, new, old),
+            updated_slow,
+            slow_critic_params,
+        )
         new_ema_state = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state)
+            lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state
+        )
 
         metrics = aux["metrics"]
         metrics["opt_loss"] = total_loss
@@ -815,26 +840,36 @@ class R2DreamerAgent:
         embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
 
         stoch0, deter0 = self.rssm_mod.apply(
-            params["rssm"], B, method=self.rssm_mod.initial_state)
+            params["rssm"], B, method=self.rssm_mod.initial_state
+        )
 
         rng_key, k_obs = jax.random.split(rng_key)
         post_stochs, post_deters, post_logits = self.rssm_mod.apply(
-            params["rssm"], embed, batch["actions"], (stoch0, deter0),
-            batch["is_first"], method=self.rssm_mod.observe,
+            params["rssm"],
+            embed,
+            batch["actions"],
+            (stoch0, deter0),
+            batch["is_first"],
+            method=self.rssm_mod.observe,
             rngs={"sample": k_obs},
         )
 
         rng_key, k_prior = jax.random.split(rng_key)
         _, prior_logits_flat = self.rssm_mod.apply(
-            params["rssm"], post_deters.reshape(B * T, -1),
+            params["rssm"],
+            post_deters.reshape(B * T, -1),
             method=self.rssm_mod.prior,
             rngs={"sample": k_prior},
         )
         prior_logits = prior_logits_flat.reshape(
-            B, T, cfg.stoch_classes, cfg.stoch_discrete)
+            B, T, cfg.stoch_classes, cfg.stoch_discrete
+        )
 
         feat = self.rssm_mod.apply(
-            params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat,
+            params["rssm"],
+            post_stochs,
+            post_deters,
+            method=self.rssm_mod.get_feat,
         )
 
         return {
@@ -860,24 +895,40 @@ class R2DreamerAgent:
         forward = self._world_model_forward(params, batch, k_fwd)
 
         wm_losses, wm_metrics = world_model_loss(
-            forward=forward, params=params, batch=batch,
-            modules=self._modules, cfg=cfg, twohot=self.twohot,
+            forward=forward,
+            params=params,
+            batch=batch,
+            modules=self._modules,
+            cfg=cfg,
+            twohot=self.twohot,
         )
 
         rng_key, k_behavior = jax.random.split(rng_key)
         bh_losses, bh_metrics, imag_ret = behavior_loss(
-            forward=forward, params=params, modules=self._modules,
-            cfg=cfg, twohot=self.twohot,
-            slow_critic_params=slow_critic_params, ema_state=ema_state,
-            return_ema=self.return_ema, rng_key=k_behavior,
-            B=B, T=T,
+            forward=forward,
+            params=params,
+            modules=self._modules,
+            cfg=cfg,
+            twohot=self.twohot,
+            slow_critic_params=slow_critic_params,
+            ema_state=ema_state,
+            return_ema=self.return_ema,
+            rng_key=k_behavior,
+            B=B,
+            T=T,
         )
 
         rep_losses, rep_metrics = representation_loss(
-            forward=forward, batch=batch, params=params, modules=self._modules,
-            cfg=cfg, twohot=self.twohot,
-            slow_critic_params=slow_critic_params, imag_ret=imag_ret,
-            B=B, T=T,
+            forward=forward,
+            batch=batch,
+            params=params,
+            modules=self._modules,
+            cfg=cfg,
+            twohot=self.twohot,
+            slow_critic_params=slow_critic_params,
+            imag_ret=imag_ret,
+            B=B,
+            T=T,
         )
 
         losses = {**wm_losses, **bh_losses, **rep_losses}
@@ -902,7 +953,12 @@ class R2DreamerAgent:
         # opens over training; `*_frac` is each branch's share of the embed norm.
         if cfg.encoder_type in ("hybrid", "vggt_house_context"):
             _add_hybrid_contribution_metrics(
-                metrics, cfg=cfg, params=params, forward=forward, B=B, T=T,
+                metrics,
+                cfg=cfg,
+                params=params,
+                forward=forward,
+                B=B,
+                T=T,
             )
 
         aux = {

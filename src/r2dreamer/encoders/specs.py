@@ -20,7 +20,9 @@ from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.adapters.vggt_adapter import VGGTFeatureKind, VGGTObsAdapter
 from src.r2dreamer.observation_preparation import CNNObservationPreparation
 from src.r2dreamer.world_model import encoders as wm_encoders
-from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
+from src.vggt.jax.feature_extractor import (
+    JAXVGGTFeatureExtractor as VGGTFeatureExtractor,
+)
 
 
 @dataclass(frozen=True)
@@ -419,19 +421,23 @@ class VGGTHouseContextEncoder(VGGTEncoder):
             resolution=args.render_resolution,
             transformer_layers=(
                 args.vggt_token_transformer_layers
-                if args.vggt_token_transformer_layers is not None else 2
+                if args.vggt_token_transformer_layers is not None
+                else 2
             ),
             transformer_heads=(
                 args.vggt_token_transformer_heads
-                if args.vggt_token_transformer_heads is not None else 8
+                if args.vggt_token_transformer_heads is not None
+                else 8
             ),
             transformer_mlp_ratio=(
                 args.vggt_token_transformer_mlp_ratio
-                if args.vggt_token_transformer_mlp_ratio is not None else 2
+                if args.vggt_token_transformer_mlp_ratio is not None
+                else 2
             ),
             transformer_dropout=(
                 args.vggt_token_transformer_dropout
-                if args.vggt_token_transformer_dropout is not None else 0.0
+                if args.vggt_token_transformer_dropout is not None
+                else 0.0
             ),
         )
 

@@ -40,7 +40,9 @@ WARMUP_FRAMES = 3
 
 
 def bench_pytorch(
-    n_frames: int, compile: bool = False, compile_mode: str | None = None,
+    n_frames: int,
+    compile: bool = False,
+    compile_mode: str | None = None,
 ) -> dict:
     """Benchmark the PyTorch extractor over ``n_frames`` with fresh cache."""
     import torch
@@ -48,7 +50,9 @@ def bench_pytorch(
     from src.vggt.feature_extractor import VGGTFeatureExtractor
 
     ext = VGGTFeatureExtractor(
-        device="cuda", compile=compile, compile_mode=compile_mode,
+        device="cuda",
+        compile=compile,
+        compile_mode=compile_mode,
     )
 
     # Warmup.
@@ -108,7 +112,9 @@ def bench_jax(
     from src.vggt.jax import JAXVGGTFeatureExtractor
 
     jax_dtype = jnp.bfloat16 if dtype == "bf16" else jnp.float32
-    ext = JAXVGGTFeatureExtractor(device="cuda", dtype=jax_dtype, budgets_static=budgets_static)
+    ext = JAXVGGTFeatureExtractor(
+        device="cuda", dtype=jax_dtype, budgets_static=budgets_static
+    )
 
     ext.reset()
     for i in range(WARMUP_FRAMES):
@@ -171,7 +177,9 @@ def run(
             print(f"[{backend}] n_frames={n} ...", flush=True)
             if backend == "pytorch":
                 row = bench_pytorch(
-                    n, compile=pt_compile, compile_mode=pt_compile_mode,
+                    n,
+                    compile=pt_compile,
+                    compile_mode=pt_compile_mode,
                 )
             elif backend == "jax":
                 row = bench_jax(

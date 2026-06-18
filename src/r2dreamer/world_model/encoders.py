@@ -18,19 +18,19 @@ from .rssm import RMSNorm
 # fields (see HybridObsAdapter); src.r2dreamer.obs_batch packs them into this
 # flat tensor right before the Flax encoder boundary.
 HYBRID_RGB_DIM = 3 * 64 * 64  # 12288 — the CNN branch's 64x64 RGB, flattened
-HYBRID_VGGT_DIM = 4116        # WP/CP width: world_points 37*37*3 + camera_pose 9
+HYBRID_VGGT_DIM = 4116  # WP/CP width: world_points 37*37*3 + camera_pose 9
 
 # Aggregator readouts (3D-50 follow-up). Defined here (small ints) rather than
 # imported from adapters.vggt_adapter so importing the world-model encoders stays
 # free of the heavy VGGT extractor dependency; tests/test_agg_raw_dims.py asserts
 # these agree with the adapter's constants and the live extractor shape.
-AGG_RAW_TOKENS = 1370                  # cam(1) + patches(1369); 4 register tokens dropped
-AGG_RAW_DIM = AGG_RAW_TOKENS * 1024    # 1,402,880 — raw flattened aggregator
-AGG_TOKEN_TOKENS = 1374                # cam(1) + registers(4) + patches(1369)
+AGG_RAW_TOKENS = 1370  # cam(1) + patches(1369); 4 register tokens dropped
+AGG_RAW_DIM = AGG_RAW_TOKENS * 1024  # 1,402,880 — raw flattened aggregator
+AGG_TOKEN_TOKENS = 1374  # cam(1) + registers(4) + patches(1369)
 AGG_TOKEN_DIM = AGG_TOKEN_TOKENS * 1024  # 1,406,976 — full flattened aggregator
 FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * 2048  # 2,813,952 — frame + global streams
 HOUSE_CONTEXT_DIM = 1024
-AGG_POOLED_DIM = 3 * 1024              # 3,072 — pooled [cam | mean | max]
+AGG_POOLED_DIM = 3 * 1024  # 3,072 — pooled [cam | mean | max]
 AGG_REGISTER_TOKENS = 4
 
 
@@ -54,6 +54,7 @@ class ConvEncoder(nn.Module):
     optional for historical RGB compatibility; set it for world-point variants
     to project the flattened conv map to a fixed embedding width.
     """
+
     depth: int = 16
     kernel_size: int = 5
     mults: tuple = (2, 3, 4, 4)
@@ -73,8 +74,12 @@ class ConvEncoder(nn.Module):
         x = jnp.transpose(x, (0, 2, 3, 1))  # NCHW -> NHWC
         for i, mult in enumerate(self.mults):
             ch = self.depth * mult
-            x = nn.Conv(ch, (self.kernel_size, self.kernel_size),
-                        padding="SAME", name=f"conv{i}")(x)
+            x = nn.Conv(
+                ch,
+                (self.kernel_size, self.kernel_size),
+                padding="SAME",
+                name=f"conv{i}",
+            )(x)
             x = nn.max_pool(x, (2, 2), strides=(2, 2))
             x = RMSNorm(name=f"norm{i}")(x)
             x = nn.silu(x)
@@ -117,6 +122,7 @@ class VGGTEncoder(nn.Module):
     R2Dreamer's native ``encoder.mlp.layers``. ``num_layers=0`` reproduces the
     historical single-``Dense`` linear projection exactly.
     """
+
     embed_dim: int = 1024
     hidden: int = 1024
     num_layers: int = 1
@@ -130,6 +136,7 @@ class VGGTEncoder(nn.Module):
 
 class WP64CNNCPMLPEncoder(nn.Module):
     """CNN over 64x64 VGGT world points plus MLP over camera pose (3D-89)."""
+
     embed_dim: int = 1024
     conv_depth: int = 16
     conv_kernel: int = 5
@@ -168,6 +175,7 @@ class VGGTAggregatorMLPEncoder(nn.Module):
     ``num_layers`` hidden ``Dense->RMSNorm->SiLU`` blocks + a linear readout
     (default depth 1; the experiment run uses 3 — see 3D-52).
     """
+
     embed_dim: int = 1024
     pool_dim: int = 1024
     hidden: int = 1024
@@ -198,6 +206,7 @@ class VGGTAggRawMLPEncoder(nn.Module):
     the dense matmuls run in the agent's working precision. No per-slice RMSNorm
     (unlike the pooled readout): raw tokens have no cam/mean/max slice structure.
     """
+
     embed_dim: int = 1024
     hidden: int = 1024
     num_layers: int = 3
@@ -275,12 +284,16 @@ class VGGTAggTokenTransformerEncoder(nn.Module):
                 f"projection_dim={self.projection_dim} must be divisible by heads={self.heads}"
             )
 
-        tokens = obs.astype(jnp.float32).reshape(obs.shape[0], self.num_tokens, self.token_dim)
+        tokens = obs.astype(jnp.float32).reshape(
+            obs.shape[0], self.num_tokens, self.token_dim
+        )
         if self.keep_register_tokens:
             x = tokens
             patch_start = 1 + AGG_REGISTER_TOKENS
         else:
-            x = jnp.concatenate([tokens[:, :1], tokens[:, 1 + AGG_REGISTER_TOKENS:]], axis=1)
+            x = jnp.concatenate(
+                [tokens[:, :1], tokens[:, 1 + AGG_REGISTER_TOKENS :]], axis=1
+            )
             patch_start = 1
 
         x = nn.Dense(self.projection_dim, name="token_proj")(x)
@@ -460,9 +473,6 @@ class RGBFullTokenTransformerEncoder(nn.Module):
         return self._branches(obs)
 
 
-
-
-
 class HybridEncoder(nn.Module):
     """Hybrid encoder feeding the latent BOTH modalities at once (3D-50/51/52).
 
@@ -486,6 +496,7 @@ class HybridEncoder(nn.Module):
     that ``__call__`` and the diagnostic ``branches`` method share identical
     parameters.
     """
+
     cnn_depth: int = 16
     cnn_kernel: int = 5
     cnn_mults: tuple = (2, 3, 4, 4)
@@ -544,6 +555,7 @@ class HybridAggPooledModule(nn.Module):
     metrics work unchanged (the VGGT branch still projects to ``vggt_embed_dim``
     and the module exposes a ``gate`` param via ``setup``).
     """
+
     cnn_depth: int = 16
     cnn_kernel: int = 5
     cnn_mults: tuple = (2, 3, 4, 4)
@@ -573,7 +585,11 @@ class HybridAggPooledModule(nn.Module):
                 f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid-agg-pooled "
                 f"features, got {obs.shape}"
             )
-        rgb = obs[..., : self.rgb_dim].astype(jnp.float32).reshape(obs.shape[0], 3, 64, 64)
+        rgb = (
+            obs[..., : self.rgb_dim]
+            .astype(jnp.float32)
+            .reshape(obs.shape[0], 3, 64, 64)
+        )
         agg = obs[..., self.rgb_dim :]
         cnn_e = self.cnn(rgb)
         vggt_e = self.gate * self.vggt_mlp(agg)
@@ -597,6 +613,7 @@ class HybridAggRawModule(nn.Module):
     upcast to float32 before the CNN; the raw slice is upcast inside the MLP. The
     expensive ~1.44B-param layer-1 lives in this branch.
     """
+
     cnn_depth: int = 16
     cnn_kernel: int = 5
     cnn_mults: tuple = (2, 3, 4, 4)
@@ -611,7 +628,9 @@ class HybridAggRawModule(nn.Module):
             depth=self.cnn_depth, kernel_size=self.cnn_kernel, mults=self.cnn_mults
         )
         self.vggt_mlp = VGGTAggRawMLPEncoder(
-            embed_dim=self.vggt_embed_dim, hidden=self.mlp_hidden, num_layers=self.mlp_layers
+            embed_dim=self.vggt_embed_dim,
+            hidden=self.mlp_hidden,
+            num_layers=self.mlp_layers,
         )
         self.gate = self.param("gate", nn.initializers.zeros, ())
 
@@ -621,7 +640,11 @@ class HybridAggRawModule(nn.Module):
                 f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid-agg-raw "
                 f"features, got {obs.shape}"
             )
-        rgb = obs[..., : self.rgb_dim].astype(jnp.float32).reshape(obs.shape[0], 3, 64, 64)
+        rgb = (
+            obs[..., : self.rgb_dim]
+            .astype(jnp.float32)
+            .reshape(obs.shape[0], 3, 64, 64)
+        )
         raw = obs[..., self.rgb_dim :]
         cnn_e = self.cnn(rgb)
         vggt_e = self.gate * self.vggt_mlp(raw)
@@ -646,6 +669,7 @@ class ConvDecoder(nn.Module):
     decoder-free by default; when enabled, the loss detaches ``feat`` so this
     stays a visualisation probe rather than an agent objective.
     """
+
     depth: int = 16
     kernel_size: int = 5
     mults: tuple = (2, 3, 4, 4)
@@ -661,12 +685,19 @@ class ConvDecoder(nn.Module):
         for i, mult in enumerate(reversed(self.mults)):
             ch = self.depth * mult
             x = nn.ConvTranspose(
-                ch, (self.kernel_size, self.kernel_size), strides=(2, 2),
-                padding="SAME", name=f"deconv{i}",
+                ch,
+                (self.kernel_size, self.kernel_size),
+                strides=(2, 2),
+                padding="SAME",
+                name=f"deconv{i}",
             )(x)
             x = RMSNorm(name=f"norm{i}")(x)
             x = nn.silu(x)
-        x = nn.Conv(self.out_channels, (self.kernel_size, self.kernel_size),
-                    padding="SAME", name="out")(x)
+        x = nn.Conv(
+            self.out_channels,
+            (self.kernel_size, self.kernel_size),
+            padding="SAME",
+            name="out",
+        )(x)
         x = nn.sigmoid(x)
         return jnp.transpose(x, (0, 3, 1, 2))  # NHWC -> NCHW, matches RGB layout

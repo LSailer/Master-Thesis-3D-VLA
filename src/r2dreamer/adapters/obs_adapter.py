@@ -21,6 +21,7 @@ class ObsAdapter:
     Default: extracts obs["image"] for buffer (uint8), passes obs dict
     through to agent unchanged.
     """
+
     buffer_dtype: BufferDType = "uint8"
     buffer_shape: BufferShape = (3, 64, 64)
     normalize_on_sample: BufferNormalize = True
@@ -38,7 +39,9 @@ class ObsAdapter:
             )
         return self.buffer_shape
 
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
+    def transform(
+        self, obs_dict: dict
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         """Returns (buffer_obs, agent_obs_dict)."""
         return obs_dict["image"], obs_dict
 

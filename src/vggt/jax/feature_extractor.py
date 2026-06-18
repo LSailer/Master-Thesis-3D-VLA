@@ -95,6 +95,7 @@ def load_params_on_device(device: jax.Device) -> ExtractorParams:
 
 def compile_point_head_apply(point_head: Any) -> Any:
     """JIT the point-head apply with static ``patch_start_idx``."""
+
     def _point_head_fn(
         params: ParamTree,
         out_list: list[jnp.ndarray],
@@ -108,6 +109,7 @@ def compile_point_head_apply(point_head: Any) -> Any:
 
 def compile_aggregator_apply(aggregator: Any) -> Any:
     """JIT one streaming aggregator step with static cache-control arguments."""
+
     def _agg_fn(
         params: ParamTree,
         images: jnp.ndarray,
@@ -134,6 +136,7 @@ def compile_aggregator_apply(aggregator: Any) -> Any:
 
 def compile_camera_head_apply(camera_head: Any) -> Any:
     """JIT the camera head against padded cache entries with stable shapes."""
+
     def _cam_fn(
         params: ParamTree,
         out_list: list[jnp.ndarray],
@@ -158,7 +161,9 @@ def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarra
     """
     n_batch, height, width, channels = pts_nhwc.shape
     if (height, width) != (_IMG_SIZE, _IMG_SIZE):
-        raise ValueError(f"expected ({_IMG_SIZE}, {_IMG_SIZE}), got ({height}, {width})")
+        raise ValueError(
+            f"expected ({_IMG_SIZE}, {_IMG_SIZE}), got ({height}, {width})"
+        )
     if out_size <= 0 or out_size > _IMG_SIZE:
         raise ValueError(f"out_size must be in [1, {_IMG_SIZE}], got {out_size}")
     if _IMG_SIZE % out_size == 0:
@@ -284,7 +289,7 @@ class JAXVGGTFeatureExtractor:
     def aggregator_feature_shape(self) -> tuple[int, int, int]:
         """Shape of one frame's all-token pre-head global aggregator features."""
         return (
-            1 + self._aggregator.num_register_tokens + self.patch_grid ** 2,
+            1 + self._aggregator.num_register_tokens + self.patch_grid**2,
             self._aggregator.embed_dim,
         )
 
@@ -334,17 +339,21 @@ class JAXVGGTFeatureExtractor:
 
     def _warmup(self) -> None:
         """Pre-compile both cache states so the first real call is fast."""
-        dummy = jnp.zeros(
-            (1, 1, 3, _IMG_SIZE, _IMG_SIZE), dtype=self._dtype
-        )
+        dummy = jnp.zeros((1, 1, 3, _IMG_SIZE, _IMG_SIZE), dtype=self._dtype)
 
         # Frame 0: padded cache with valid_len=0 on every block.
         past0 = [self._new_padded_cache_entry() for _ in range(self._agg_depth)]
         last0 = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
         bud0 = self._compute_static_budgets(np.zeros(self._agg_depth, dtype=np.float32))
         out0 = self._aggregator_apply(
-            self._agg_params, dummy, past0, True, self._total_budget,
-            last0, True, bud0,
+            self._agg_params,
+            dummy,
+            past0,
+            True,
+            self._total_budget,
+            last0,
+            True,
+            bud0,
         )
         out0[0][-1].block_until_ready()
 
@@ -352,19 +361,21 @@ class JAXVGGTFeatureExtractor:
         _, _, past1, last1 = out0
         # Keep same budget (same last_scores pre-eviction) so shapes match.
         out1 = self._aggregator_apply(
-            self._agg_params, dummy, past1, False, self._total_budget,
-            last1, True, bud0,
+            self._agg_params,
+            dummy,
+            past1,
+            False,
+            self._total_budget,
+            last1,
+            True,
+            bud0,
         )
         out1[0][-1].block_until_ready()
 
         # Camera-head warmup: single graph covers all frames since the padded
         # cache keeps shapes stable regardless of valid_len.
-        past_cam0 = [
-            self._new_padded_camera_entry() for _ in range(self._cam_depth)
-        ]
-        pose_list_w, _ = self._camera_head_apply(
-            self._cam_params, out0[0], past_cam0
-        )
+        past_cam0 = [self._new_padded_camera_entry() for _ in range(self._cam_depth)]
+        pose_list_w, _ = self._camera_head_apply(self._cam_params, out0[0], past_cam0)
         pose_list_w[-1].block_until_ready()
 
     # ------------------------------------------------------------------
@@ -545,7 +556,7 @@ class JAXVGGTFeatureExtractor:
         # by Variant 1 before camera/point heads transform it into WP+CP. Keep
         # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
         final_tokens = self._aggregator_full_tokens(out_list)
-        return final_tokens[..., final_tokens.shape[-1] // 2:]
+        return final_tokens[..., final_tokens.shape[-1] // 2 :]
 
     def _run_optional_heads(
         self,
@@ -666,7 +677,9 @@ class JAXVGGTFeatureExtractor:
             forward_start=forward_start,
         )
         aggregator_full_tokens = self._aggregator_full_tokens(out_list)
-        aggregator_features = aggregator_full_tokens[..., aggregator_full_tokens.shape[-1] // 2:]
+        aggregator_features = aggregator_full_tokens[
+            ..., aggregator_full_tokens.shape[-1] // 2 :
+        ]
         self._frame_idx += 1
         return self._build_extract_output(
             aggregator_full_tokens=aggregator_full_tokens,

@@ -35,6 +35,7 @@ V1_EXCLUDE_PREFIXES: tuple[str, ...] = ("depth_head.", "track_head.")
 #  Transposition helpers
 # --------------------------------------------------------------------------- #
 
+
 def _conv2d_to_flax(t: np.ndarray) -> np.ndarray:
     """(O, I, H, W) -> (H, W, I, O)."""
     assert t.ndim == 4, t.shape
@@ -57,7 +58,7 @@ def _conv_transpose2d_to_flax(t: np.ndarray) -> np.ndarray:
     ~10-15 max-abs error.
     """
     assert t.ndim == 4, t.shape
-    jax_layout = np.transpose(t, (2, 3, 0, 1))   # (I, O, H, W) -> (H, W, I, O)
+    jax_layout = np.transpose(t, (2, 3, 0, 1))  # (I, O, H, W) -> (H, W, I, O)
     return np.flip(jax_layout, axis=(0, 1)).copy()
 
 
@@ -103,7 +104,10 @@ _LS_MAP = {"gamma": "gamma"}
 #  Rule builders for the repeated block families
 # --------------------------------------------------------------------------- #
 
-def _make_attention_rules(prefix: str, out_prefix: str, has_qk_norm: bool) -> list[_Rule]:
+
+def _make_attention_rules(
+    prefix: str, out_prefix: str, has_qk_norm: bool
+) -> list[_Rule]:
     """Rules for a transformer-block attention submodule."""
     rules = [
         _rule(
@@ -180,6 +184,7 @@ def _make_block_rules(prefix: str, out_prefix: str, has_qk_norm: bool) -> list[_
 # builders that RULES looks up. Instead, we just define them before use --
 # but RULES is computed at import, so we need to define these first.
 
+
 def _dinov2_block_rules(prefix: str, out_prefix: str, block_name: str) -> list[_Rule]:
     # DINOv2 blocks in the reference have no QK norm (qk_norm defaults to False
     # for vit_large) -- no k_norm / q_norm keys appear in the checkpoint under
@@ -240,10 +245,30 @@ RULES = [
     *_aggregator_block_rules(variant="frame"),
     *_aggregator_block_rules(variant="global"),
     _rule(r"camera_head\.empty_pose_tokens", r"camera_head", {}, None),
-    _rule(r"camera_head\.embed_pose\.(weight|bias)", r"camera_head.embed_pose", _LINEAR_MAP, "linear"),
-    _rule(r"camera_head\.token_norm\.(weight|bias)", r"camera_head.token_norm", _NORM_MAP, None),
-    _rule(r"camera_head\.trunk_norm\.(weight|bias)", r"camera_head.trunk_norm", _NORM_MAP, None),
-    _rule(r"camera_head\.adaln_norm\.(weight|bias)", r"camera_head.adaln_norm", _NORM_MAP, None),
+    _rule(
+        r"camera_head\.embed_pose\.(weight|bias)",
+        r"camera_head.embed_pose",
+        _LINEAR_MAP,
+        "linear",
+    ),
+    _rule(
+        r"camera_head\.token_norm\.(weight|bias)",
+        r"camera_head.token_norm",
+        _NORM_MAP,
+        None,
+    ),
+    _rule(
+        r"camera_head\.trunk_norm\.(weight|bias)",
+        r"camera_head.trunk_norm",
+        _NORM_MAP,
+        None,
+    ),
+    _rule(
+        r"camera_head\.adaln_norm\.(weight|bias)",
+        r"camera_head.adaln_norm",
+        _NORM_MAP,
+        None,
+    ),
     _rule(
         r"camera_head\.poseLN_modulation\.1\.(weight|bias)",
         r"camera_head.poseLN_modulation_1",
@@ -313,8 +338,15 @@ RULES = [
 #  Translation
 # --------------------------------------------------------------------------- #
 
-_PARAM_LEAF_NAMES = ("camera_token", "register_token", "cls_token", "mask_token",
-                     "register_tokens", "pos_embed", "empty_pose_tokens")
+_PARAM_LEAF_NAMES = (
+    "camera_token",
+    "register_token",
+    "cls_token",
+    "mask_token",
+    "register_tokens",
+    "pos_embed",
+    "empty_pose_tokens",
+)
 
 
 def _split_key_suffix(key: str) -> tuple[str, str]:
@@ -369,9 +401,7 @@ def _insert(tree: dict[str, Any], path: str, leaf: str, value: np.ndarray) -> No
     node[leaf] = value
 
 
-def _expand_path_template(
-    key: str, path_template: str, match: re.Match[str]
-) -> str:
+def _expand_path_template(key: str, path_template: str, match: re.Match[str]) -> str:
     """Expand a matched output path template for one PyTorch key."""
     try:
         return match.expand(path_template)
@@ -439,6 +469,7 @@ def load_pytorch_weights(
 #  Coverage / round-trip checks (Level-1 exit criterion)
 # --------------------------------------------------------------------------- #
 
+
 def verify_coverage(
     state_dict: dict[str, np.ndarray],
     report: dict[str, list[str]],
@@ -453,7 +484,9 @@ def verify_coverage(
     in_scope = [k for k in state_dict if not k.startswith(V1_EXCLUDE_PREFIXES)]
     mapped = set(report.get("mapped", []))
     missing = [k for k in in_scope if k not in mapped]
-    assert not missing, f"{len(missing)} in-scope keys not mapped; first 10: {missing[:10]}"
+    assert not missing, (
+        f"{len(missing)} in-scope keys not mapped; first 10: {missing[:10]}"
+    )
 
 
 def verify_per_leaf_roundtrip(
@@ -481,7 +514,9 @@ def verify_per_leaf_roundtrip(
                 f"Shape mismatch at {out_path}/{leaf_name}: got {got.shape}, expected {expected.shape} (from {key})"
             )
         if not np.array_equal(got, expected):
-            raise AssertionError(f"Value mismatch at {out_path}/{leaf_name} (from {key})")
+            raise AssertionError(
+                f"Value mismatch at {out_path}/{leaf_name} (from {key})"
+            )
 
 
 def count_leaves(tree: dict[str, Any]) -> int:
@@ -526,7 +561,9 @@ def load_checkpoint(repo: str = _DEFAULT_REPO) -> dict[str, np.ndarray]:
     """
     import sys
 
-    ivggt_src = Path(__file__).resolve().parents[3] / "external" / "InfiniteVGGT" / "src"
+    ivggt_src = (
+        Path(__file__).resolve().parents[3] / "external" / "InfiniteVGGT" / "src"
+    )
     if str(ivggt_src) not in sys.path:
         sys.path.insert(0, str(ivggt_src))
 
