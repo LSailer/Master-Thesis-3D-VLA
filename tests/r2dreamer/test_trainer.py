@@ -26,6 +26,15 @@ from src.r2dreamer.trainer import (
 )
 
 
+def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
+    cfg = TrainerConfig(output_dir="/tmp/r2dreamer-test")
+
+    assert cfg.val_every == 0
+    assert cfg.video_log_every == 0
+    assert cfg.val_video_episodes == 0
+    assert cfg.video_log_episodes == 0
+
+
 class _DummyEnv:
     """Minimal env stub — Trainer.__init__ does not call any of these methods."""
 

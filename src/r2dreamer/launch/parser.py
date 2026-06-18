@@ -30,13 +30,13 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
 
 
 def _add_val_train_args(p: argparse.ArgumentParser) -> None:
-    # Val-Episode-Loop (3D-36). 0 disables. Default 50_000 matches the
-    # checkpoint cadence so val signals land alongside checkpoints.
-    p.add_argument("--val_every", type=int, default=50_000,
+    # Val-Episode-Loop (3D-36). 0 disables. Default off keeps production runs
+    # scalars-only unless validation is explicitly requested.
+    p.add_argument("--val_every", type=int, default=0,
                    help="Run a deterministic val-episode loop every N steps (0 disables)")
     p.add_argument("--val_episodes", type=int, default=50,
                    help="Episodes per val-loop trigger")
-    p.add_argument("--val_video_episodes", type=int, default=1,
+    p.add_argument("--val_video_episodes", type=int, default=0,
                    help="Number of val episodes to record as W&B videos per trigger")
     p.add_argument("--val_max_episode_steps", type=int, default=500,
                    help="Per-episode step cap inside the val loop")
@@ -46,9 +46,9 @@ def _add_resume_video_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--resume_from", type=str, default=None)
     p.add_argument("--wandb_id", type=str, default=None,
                    help="W&B run-id to reattach to (resume='must')")
-    p.add_argument("--video_log_every", type=int, default=25_000,
+    p.add_argument("--video_log_every", type=int, default=0,
                    help="Log one Habitat episode video every N train steps")
-    p.add_argument("--video_log_episodes", type=int, default=1,
+    p.add_argument("--video_log_episodes", type=int, default=0,
                    help="Number of Habitat train episodes to record per interval")
     p.add_argument("--act_entropy", type=float, default=3e-2,
                    help="Actor entropy coefficient. 3e-2 is the Habitat 4-action ObjectNav "
@@ -187,7 +187,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")
     p.add_argument("--render_topdown", action="store_true")
-    p.add_argument("--log_video_episodes", type=int, default=3,
+    p.add_argument("--log_video_episodes", type=int, default=0,
                    help="Number of eval episodes to log as W&B videos")
     p.add_argument("--wandb_project", type=str, default=None,
                    help="W&B project for eval video logging")
