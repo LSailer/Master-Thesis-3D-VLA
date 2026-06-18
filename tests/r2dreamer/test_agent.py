@@ -242,10 +242,19 @@ class TestR2DreamerAgent:
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/vggt_frac" in metrics
 
-    def test_train_step_accepts_live_full_tokens_without_gate(self):
+    @pytest.mark.parametrize(
+        "encoder_type, token_key, token_shape",
+        [
+            ("vggt_house_full_tokens_nogate", "full_tokens", (1, 2, 6, 8)),
+            ("vggt_house_global_tokens_nogate", "global_tokens", (1, 6, 8)),
+        ],
+    )
+    def test_train_step_accepts_live_tokens_without_gate(
+        self, encoder_type, token_key, token_shape
+    ):
         cfg = R2DreamerConfig(
-            encoder_type="vggt_house_full_tokens_nogate",
-            obs_shape={"image": (3, 64, 64), "full_tokens": (6, 8)},
+            encoder_type=encoder_type,
+            obs_shape={"image": (3, 64, 64), token_key: (6, 8)},
             num_actions=4,
             deter_size=32,
             hidden_size=16,
@@ -276,7 +285,7 @@ class TestR2DreamerAgent:
         batch = {
             "obs": {
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
-                "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
+                token_key: jnp.zeros(token_shape, dtype=jnp.float32),
             },
             "actions": jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions

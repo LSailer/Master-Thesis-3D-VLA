@@ -209,6 +209,25 @@ VGGT_VARIANTS: dict[str, VGGTVariantSpec] = {
             "concatenates them directly without the hybrid scalar gate or WP/CP MLP."
         ),
     ),
+    "vggt_house_global_tokens_nogate": _vggt_variant(
+        encoder_type="vggt_house_global_tokens_nogate",
+        feature_kind="agg_tokens",
+        module_cls=wm_encoders.RGBGlobalTokenTransformerEncoder,
+        compute_heads=False,
+        agent_overrides={
+            "buffer_capacity": 1_000_000,
+            "vggt_token_dim": 1024,
+            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+        },
+        design_notes=(
+            "3D-90 no-gate global-token variant: replay stores only RGB64 while a "
+            "live bounded InfiniteVGGT stream exposes the 1374x1024 global-half "
+            "aggregator tokens. The trainable agent encoder computes one token "
+            "Transformer context from the singleton live token sequence per train "
+            "step, broadcasts that embedding across sampled RGB rows, and "
+            "concatenates without the hybrid scalar gate."
+        ),
+    ),
     "vggt_wp_cp_64": _vggt_variant(
         encoder_type="vggt_wp_cp_64",
         feature_kind="wp_cp",
@@ -494,6 +513,17 @@ class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
         return VGGTHouseFullTokenObsAdapter(self._extractor)
 
 
+class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
+    """L1 RGB replay + singleton global-token Transformer, no gate."""
+
+    variant = VGGT_VARIANTS["vggt_house_global_tokens_nogate"]
+
+    def _build_adapter(self) -> ObsAdapter:
+        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+
+        return VGGTHouseGlobalTokenObsAdapter(self._extractor)
+
+
 class VGGTWPCP64Encoder(VGGTEncoder):
     """WP+CP MLP at a finer 64x64 world-point grid."""
 
@@ -519,6 +549,7 @@ __all__ = [
     "HybridEncoder",
     "VGGTHouseContextEncoder",
     "VGGTHouseFullTokenNoGateEncoder",
+    "VGGTHouseGlobalTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
     "VGGTWP64CNNCPMLPEncoder",
 ]

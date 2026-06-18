@@ -11,6 +11,7 @@ from .specs import (
     VGGTEncoder,
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
+    VGGTHouseGlobalTokenNoGateEncoder,
     VGGTWPCP64Encoder,
     VGGTWP64CNNCPMLPEncoder,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "HybridEncoder",
     "VGGTHouseContextEncoder",
     "VGGTHouseFullTokenNoGateEncoder",
+    "VGGTHouseGlobalTokenNoGateEncoder",
     "VGGTWPCP64Encoder",
     "VGGTWP64CNNCPMLPEncoder",
 ]
