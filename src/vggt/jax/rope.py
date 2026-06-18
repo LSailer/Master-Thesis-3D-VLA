@@ -34,7 +34,7 @@ def compute_1d_rope_tables(
     if dim % 2 != 0:
         raise ValueError(f"dim must be even, got {dim}")
     exponents = jnp.arange(0, dim, 2, dtype=jnp.float32) / dim
-    inv_freq = 1.0 / (frequency ** exponents)
+    inv_freq = 1.0 / (frequency**exponents)
     positions = jnp.arange(max_pos, dtype=jnp.float32)
     angles = jnp.einsum("i,j->ij", positions, inv_freq)  # (max_pos, dim/2)
     angles = jnp.concatenate([angles, angles], axis=-1)  # (max_pos, dim)

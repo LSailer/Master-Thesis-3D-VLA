@@ -38,7 +38,8 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
 
         # Second moment
         exp_avg_sq = jax.tree.map(
-            lambda v, g: b2 * v + (1 - b2) * g ** 2, state.exp_avg_sq, updates)
+            lambda v, g: b2 * v + (1 - b2) * g**2, state.exp_avg_sq, updates
+        )
 
         # LR tracking for bias correction
         exp_avg_lr1 = state.exp_avg_lr1 * b1 + (1 - b1) * effective_lr
@@ -50,14 +51,16 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
 
         # Normalize gradient: g / (sqrt(v/bc2) + eps)
         denom = jax.tree.map(
-            lambda v: jnp.sqrt(v / jnp.maximum(exp_avg_lr2, 1e-30)) + eps,
-            exp_avg_sq)
+            lambda v: jnp.sqrt(v / jnp.maximum(exp_avg_lr2, 1e-30)) + eps, exp_avg_sq
+        )
         normalized = jax.tree.map(lambda g, d: g / d, updates, denom)
 
         # First moment of normalized gradient (scaled by effective_lr)
         exp_avg = jax.tree.map(
             lambda m, ng: b1 * m + (1 - b1) * effective_lr * ng,
-            state.exp_avg, normalized)
+            state.exp_avg,
+            normalized,
+        )
 
         # Final update: -step_size * exp_avg
         final = jax.tree.map(lambda m: -step_size * m, exp_avg)
@@ -69,9 +72,10 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
 
 def agc(grads, params, clip=0.3, pmin=1e-3):
     def clip_fn(g, p):
-        p_norm = jnp.maximum(jnp.sqrt(jnp.sum(p ** 2)), pmin)
-        g_norm = jnp.sqrt(jnp.sum(g ** 2))
+        p_norm = jnp.maximum(jnp.sqrt(jnp.sum(p**2)), pmin)
+        g_norm = jnp.sqrt(jnp.sum(g**2))
         max_norm = clip * p_norm
         scale = max_norm / jnp.maximum(g_norm, 1e-8)
         return jnp.where(g_norm > max_norm, g * scale, g)
+
     return jax.tree.map(clip_fn, grads, params)

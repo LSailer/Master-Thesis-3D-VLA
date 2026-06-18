@@ -15,6 +15,7 @@ import flax.linen as nn
 
 class Projector(nn.Module):
     """Single linear projection without bias (maps feat_size -> embed_dim)."""
+
     out_dim: int
 
     @nn.compact

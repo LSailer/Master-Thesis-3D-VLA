@@ -40,7 +40,9 @@ WARMUP_FRAMES = 3
 PHASES = ("input_prep", "aggregator", "camera_head", "point_head", "pool_transfer")
 
 
-def _profile_one_frame(ext: JAXVGGTFeatureExtractor, rgb: np.ndarray) -> dict[str, float]:
+def _profile_one_frame(
+    ext: JAXVGGTFeatureExtractor, rgb: np.ndarray
+) -> dict[str, float]:
     """Run one streaming frame, returning per-phase wall time in ms.
 
     Mirrors ``JAXVGGTFeatureExtractor.extract`` but inserts
@@ -108,7 +110,9 @@ def _profile_one_frame(ext: JAXVGGTFeatureExtractor, rgb: np.ndarray) -> dict[st
 
     # 4. Point head (DPT, jit-compiled, fixed shapes).
     t0 = time.perf_counter()
-    pts3d, _ = ext._point_head_apply(ext._pt_params, out_list, images, int(np.asarray(patch_start_idx)))
+    pts3d, _ = ext._point_head_apply(
+        ext._pt_params, out_list, images, int(np.asarray(patch_start_idx))
+    )
     pts3d = pts3d[:, 0]
     pts3d.block_until_ready()
     t["point_head"] = (time.perf_counter() - t0) * 1000.0
@@ -152,12 +156,19 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
     rows: list[dict[str, float]] = []
     for i in range(n_frames):
         rows.append(_profile_one_frame(ext, make_synthetic_rgb_frame(1000 + i)))
-        print(f"  frame {i+1}/{n_frames}: total={sum(rows[-1].values()):.1f}ms", flush=True)
+        print(
+            f"  frame {i + 1}/{n_frames}: total={sum(rows[-1].values()):.1f}ms",
+            flush=True,
+        )
 
     # Aggregate.
-    print("\nPer-phase wall time (ms), n={} frames, dtype={}".format(n_frames, dtype_name))
+    print(
+        "\nPer-phase wall time (ms), n={} frames, dtype={}".format(n_frames, dtype_name)
+    )
     print("-" * 78)
-    print(f"{'phase':<18} {'mean':>10} {'median':>10} {'std':>10} {'min':>10} {'max':>10} {'%':>6}")
+    print(
+        f"{'phase':<18} {'mean':>10} {'median':>10} {'std':>10} {'min':>10} {'max':>10} {'%':>6}"
+    )
     print("-" * 78)
     totals = np.array([sum(r.values()) for r in rows])
     for phase in PHASES:
@@ -179,7 +190,9 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--n-frames", type=int, default=10, help="Frames to time after warmup.")
+    p.add_argument(
+        "--n-frames", type=int, default=10, help="Frames to time after warmup."
+    )
     p.add_argument("--dtype", choices=["bf16", "fp32"], default="bf16")
     p.add_argument(
         "--trace",

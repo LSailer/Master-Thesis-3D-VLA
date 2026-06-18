@@ -23,7 +23,10 @@ MANIFEST_NAME = "MANIFEST.json"
 def _git(*args: str) -> str:
     """Run a git command and return stdout stripped. Lets git failures propagate."""
     return subprocess.run(
-        ("git", *args), check=True, capture_output=True, text=True,
+        ("git", *args),
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout.strip()
 
 
@@ -34,6 +37,7 @@ def _wandb_id() -> str | None:
         return env
     try:
         import wandb  # noqa: WPS433 — optional dep
+
         run = getattr(wandb, "run", None)
         return run.id if run is not None else None
     except Exception:

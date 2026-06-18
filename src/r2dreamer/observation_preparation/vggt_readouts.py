@@ -63,7 +63,9 @@ def _structured_world_points_camera_pose(
     }
 
 
-def _checked_feature(out: dict, key: str, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+def _checked_feature(
+    out: dict, key: str, expected_shape: tuple[int, ...]
+) -> jnp.ndarray:
     """Return a float32 VGGT readout after validating its contract shape."""
     features = out[key]
     if tuple(features.shape) != expected_shape:

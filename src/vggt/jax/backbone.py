@@ -169,4 +169,4 @@ class DinoV2Backbone(nn.Module):
 
         # Return patch tokens only: drop cls (index 0) and register tokens.
         # This mirrors the reference's `x_norm_patchtokens` slice.
-        return x[:, 1 + self.num_register_tokens:]
+        return x[:, 1 + self.num_register_tokens :]

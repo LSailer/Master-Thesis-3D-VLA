@@ -40,12 +40,12 @@ def _extract_goal_positions(env):
             for vp in goal.view_points:
                 pos = vp.agent_state.position
                 goal_positions.append(
-                    pos.tolist() if hasattr(pos, "tolist") else list(pos))
+                    pos.tolist() if hasattr(pos, "tolist") else list(pos)
+                )
                 break
         else:
             pos = goal.position
-            goal_positions.append(
-                pos.tolist() if hasattr(pos, "tolist") else list(pos))
+            goal_positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
     return goal_positions
 
 
@@ -69,7 +69,9 @@ def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
     return None
 
 
-def _resolve_eval_settings(args, *, encoder: str, checkpoint: str | None, output_dir: str | None):
+def _resolve_eval_settings(
+    args, *, encoder: str, checkpoint: str | None, output_dir: str | None
+):
     # CLI --encoder overrides shim kwarg if user passed it explicitly.
     eff_encoder = args.encoder if args.encoder is not None else encoder
 
@@ -81,7 +83,9 @@ def _resolve_eval_settings(args, *, encoder: str, checkpoint: str | None, output
 
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
     if eff_output_dir is None:
-        raise ValueError("output_dir must be set via evaluate(..., output_dir=...) or --output_dir")
+        raise ValueError(
+            "output_dir must be set via evaluate(..., output_dir=...) or --output_dir"
+        )
     return eff_encoder, eff_checkpoint, eff_output_dir
 
 
@@ -89,6 +93,7 @@ def _init_eval_wandb(args):
     if args.wandb_project is None or args.log_video_episodes <= 0:
         return None
     import wandb
+
     wandb.init(project=args.wandb_project, name=args.wandb_name)
     return wandb
 
@@ -103,7 +108,9 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
     needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
     default_resolution = 518 if needs_hires else 64
     render_resolution = (
-        args.render_resolution if args.render_resolution is not None else default_resolution
+        args.render_resolution
+        if args.render_resolution is not None
+        else default_resolution
     )
     hab_config = DreamerConfig(
         obs_shape=(3, render_resolution, render_resolution),
@@ -120,7 +127,9 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
     return env_instance, needs_hires, render_resolution
 
 
-def _make_eval_encoder(eff_encoder: str, encoder_registry: dict, needs_hires: bool, render_resolution: int):
+def _make_eval_encoder(
+    eff_encoder: str, encoder_registry: dict, needs_hires: bool, render_resolution: int
+):
     encoder_cls = encoder_registry[eff_encoder]
     enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
     return enc, enc.make_adapter(), enc.spec()
@@ -138,17 +147,36 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         return {}
 
     arch_fields = (
-        "deter_size", "hidden_size", "stoch_classes", "stoch_discrete",
-        "blocks", "dyn_layers", "obs_layers", "img_layers",
-        "encoder_depth", "encoder_kernel", "encoder_mults",
-        "vggt_embed_dim", "vggt_mlp_layers", "mlp_vggt_hidden",
-        "vggt_token_transformer_layers", "vggt_token_transformer_heads",
-        "vggt_token_projection_dim", "vggt_token_transformer_mlp_ratio",
+        "deter_size",
+        "hidden_size",
+        "stoch_classes",
+        "stoch_discrete",
+        "blocks",
+        "dyn_layers",
+        "obs_layers",
+        "img_layers",
+        "encoder_depth",
+        "encoder_kernel",
+        "encoder_mults",
+        "vggt_embed_dim",
+        "vggt_mlp_layers",
+        "mlp_vggt_hidden",
+        "vggt_token_transformer_layers",
+        "vggt_token_transformer_heads",
+        "vggt_token_projection_dim",
+        "vggt_token_transformer_mlp_ratio",
         "vggt_token_transformer_dropout",
-        "vggt_keep_register_tokens", "vggt_token_count", "vggt_token_dim",
-        "mlp_vggt_layers", "mlp_units", "mlp_layers_reward",
-        "mlp_layers_cont", "mlp_layers_actor", "mlp_layers_critic",
-        "twohot_bins", "decoder",
+        "vggt_keep_register_tokens",
+        "vggt_token_count",
+        "vggt_token_dim",
+        "mlp_vggt_layers",
+        "mlp_units",
+        "mlp_layers_reward",
+        "mlp_layers_cont",
+        "mlp_layers_actor",
+        "mlp_layers_critic",
+        "twohot_bins",
+        "decoder",
     )
     overrides = {
         key: tuple(saved[key]) if key == "encoder_mults" else saved[key]
@@ -183,7 +211,10 @@ def _make_eval_agent(args, eff_checkpoint: str | None, agent_config_kwargs: dict
         print("Using random agent")
         return None
     agent = R2DreamerAgent.from_checkpoint(
-        eff_checkpoint, num_actions=4, seed=args.seed, **agent_config_kwargs,
+        eff_checkpoint,
+        num_actions=4,
+        seed=args.seed,
+        **agent_config_kwargs,
     )
     print(f"Loaded checkpoint from step {agent.checkpoint_step}")
     return agent
@@ -202,12 +233,20 @@ def _start_eval_episode(env_instance, adapter):
     trajectory = [start_pos]
     headings = [_get_agent_heading(env_instance)]
     return (
-        obs, agent_obs, start_pos, goal_positions, scene_id,
-        object_category, trajectory, headings,
+        obs,
+        agent_obs,
+        start_pos,
+        goal_positions,
+        scene_id,
+        object_category,
+        trajectory,
+        headings,
     )
 
 
-def _initial_eval_video_frames(env_instance, obs, trajectory, goal_positions, record_video: bool):
+def _initial_eval_video_frames(
+    env_instance, obs, trajectory, goal_positions, record_video: bool
+):
     if not record_video:
         return []
     topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
@@ -237,8 +276,7 @@ def _make_eval_episode_result(
         "spl": float(obs.get("spl", 0.0)),
         "actions": actions_taken,
         "action_counts": {
-            name: actions_taken.count(idx)
-            for idx, name in _ACTIONS.items()
+            name: actions_taken.count(idx) for idx, name in _ACTIONS.items()
         },
         "start_position": start_pos,
         "goal_positions": goal_positions,
@@ -266,7 +304,8 @@ def _write_eval_episode_artifacts(
         _render_topdown(env_instance, trajectory, goal_positions, topdown_path)
     if record_video:
         log_episode_video(
-            wandb_module, f"eval/episode_video_{ep_idx}", video_frames, ep_idx)
+            wandb_module, f"eval/episode_video_{ep_idx}", video_frames, ep_idx
+        )
 
 
 def _run_eval_episode(
@@ -282,14 +321,24 @@ def _run_eval_episode(
     output_dir: str,
 ) -> tuple[dict, jax.Array]:
     (
-        obs, agent_obs, start_pos, goal_positions, scene_id,
-        object_category, trajectory, headings,
+        obs,
+        agent_obs,
+        start_pos,
+        goal_positions,
+        scene_id,
+        object_category,
+        trajectory,
+        headings,
     ) = _start_eval_episode(env_instance, adapter)
     actions_taken = []
     rewards = []
     record_video = wandb_module is not None and ep_idx < args.log_video_episodes
     video_frames = _initial_eval_video_frames(
-        env_instance, obs, trajectory, goal_positions, record_video,
+        env_instance,
+        obs,
+        trajectory,
+        goal_positions,
+        record_video,
     )
 
     for _step in range(500):
@@ -378,10 +427,15 @@ def evaluate(
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     eff_encoder, eff_checkpoint, eff_output_dir = _resolve_eval_settings(
-        args, encoder=encoder, checkpoint=checkpoint, output_dir=output_dir,
+        args,
+        encoder=encoder,
+        checkpoint=checkpoint,
+        output_dir=output_dir,
     )
     if eff_encoder not in encoder_registry:
-        raise KeyError(f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}")
+        raise KeyError(
+            f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}"
+        )
 
     # --- Resolve curriculum path (shared with train via launch._helpers) ---
     curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
@@ -394,12 +448,17 @@ def evaluate(
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
     env_instance, needs_hires, render_resolution = _make_eval_env(
-        args=args, curriculum_path=curriculum_path, eff_encoder=eff_encoder,
+        args=args,
+        curriculum_path=curriculum_path,
+        eff_encoder=eff_encoder,
     )
 
     # --- Build encoder + adapter ---
     enc, adapter, encoder_spec = _make_eval_encoder(
-        eff_encoder, encoder_registry, needs_hires, render_resolution,
+        eff_encoder,
+        encoder_registry,
+        needs_hires,
+        render_resolution,
     )
 
     # --- Build agent ---
@@ -409,7 +468,9 @@ def evaluate(
     # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn / hybrid) evaluates
     # correctly; the hybrid's (16404,) obs_shape and "hybrid" type flow through.
     agent_config_kwargs = _agent_config_kwargs(
-        encoder_spec, args=args, eff_checkpoint=eff_checkpoint,
+        encoder_spec,
+        args=args,
+        eff_checkpoint=eff_checkpoint,
     )
 
     config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)

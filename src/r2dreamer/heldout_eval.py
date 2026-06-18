@@ -44,9 +44,14 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     forward = agent._world_model_forward(params, batch, rng_key)
     B, T = obs_leading_shape(batch["obs"])
     feat = forward["feat"]
-    rew_logits = agent._modules["reward"].apply(
-        params["reward"], feat.reshape(B * T, -1),
-    ).reshape(B, T, -1)
+    rew_logits = (
+        agent._modules["reward"]
+        .apply(
+            params["reward"],
+            feat.reshape(B * T, -1),
+        )
+        .reshape(B, T, -1)
+    )
     pred = agent.twohot.pred(rew_logits).reshape(B, T)
     err = pred - batch["rewards"]
     return float(jnp.mean(err * err))
@@ -86,14 +91,19 @@ def _k_step_rollout_error(
     errors: dict[int, float] = {}
     for step in range(1, max_k + 1):
         stoch, deter = rssm.apply(
-            rssm_params, stoch, deter, actions[:, step - 1],
+            rssm_params,
+            stoch,
+            deter,
+            actions[:, step - 1],
             method=rssm.img_step,
             rngs={"sample": jax.random.fold_in(rng_key, step)},
         )
         if step in k_values:
             feat_pred = rssm.apply(rssm_params, stoch, deter, method=rssm.get_feat)
             feat_gt = rssm.apply(
-                rssm_params, post_stochs[:, step], post_deters[:, step],
+                rssm_params,
+                post_stochs[:, step],
+                post_deters[:, step],
                 method=rssm.get_feat,
             )
             err = jnp.mean(jnp.square(feat_pred - feat_gt))
@@ -125,7 +135,9 @@ def compute_heldout_metrics(
         for k, v in metrics.items():
             eval_sums[k] = eval_sums.get(k, 0.0) + float(v)
         rew_mse_sum += _reward_mse(agent, batch, k_rew)
-        for k, v in _k_step_rollout_error(agent, batch, k_roll, k_values=k_values).items():
+        for k, v in _k_step_rollout_error(
+            agent, batch, k_roll, k_values=k_values
+        ).items():
             rollout_sums[k] += v
         n += 1
 
@@ -136,7 +148,9 @@ def compute_heldout_metrics(
     out["heldout/reward_mse"] = rew_mse_sum / n
     for k, total in rollout_sums.items():
         out[f"heldout/k_step_rollout_mse/k{k}"] = total / n
-    out["heldout/reconstruction_nll"] = float("nan")  # No decoder — see module docstring.
+    out["heldout/reconstruction_nll"] = float(
+        "nan"
+    )  # No decoder — see module docstring.
     out["heldout/num_batches"] = float(n)
     return out
 
@@ -150,5 +164,7 @@ def metrics_table_row(metrics: dict[str, float]) -> dict[str, float]:
         "reward_mse": metrics.get("heldout/reward_mse", float("nan")),
         "k_step_rollout_k1": metrics.get("heldout/k_step_rollout_mse/k1", float("nan")),
         "k_step_rollout_k5": metrics.get("heldout/k_step_rollout_mse/k5", float("nan")),
-        "k_step_rollout_k15": metrics.get("heldout/k_step_rollout_mse/k15", float("nan")),
+        "k_step_rollout_k15": metrics.get(
+            "heldout/k_step_rollout_mse/k15", float("nan")
+        ),
     }

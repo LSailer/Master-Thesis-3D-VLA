@@ -20,7 +20,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.shared.video_utils import compose_frame, log_episode_video, render_topdown_frame
+from src.shared.video_utils import (
+    compose_frame,
+    log_episode_video,
+    render_topdown_frame,
+)
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from src.r2dreamer.checkpointing import (
     config_snapshot,
@@ -34,6 +38,7 @@ from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 # ---------------------------------------------------------------------------
 # Protocols
 # ---------------------------------------------------------------------------
+
 
 class Env(Protocol):
     def reset(self) -> dict: ...
@@ -71,8 +76,8 @@ class R2DreamerAgentLike(Protocol):
 # convert_batch
 # ---------------------------------------------------------------------------
 
-def convert_batch(batch: dict[str, Any],
-                  num_actions: int) -> dict[str, Any]:
+
+def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
     """Convert replay buffer output to agent training format.
 
     - actions: int32 (B,T) -> one_hot float32 (B,T,A)
@@ -93,9 +98,11 @@ def convert_batch(batch: dict[str, Any],
 # TrainerConfig
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TrainerConfig:
     """Controls the training loop (separate from R2DreamerConfig model arch)."""
+
     output_dir: str = "output/runs/r2dreamer"
     total_steps: int = 10_000_000
     prefill_steps: int = 5000
@@ -162,12 +169,16 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
     leave it False so the dashboard isn't doubly-noisy.
     """
     from src.shared.wandb_utils import EpisodeTracker
+
     tracker = EpisodeTracker(window=100, track_collision_rate=track_collision_rate)
     action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
 
     def episode_metrics_fn(
-        env: Any, last_obs: dict, episode_reward: float,
-        episode_steps: int, action_counts: np.ndarray,
+        env: Any,
+        last_obs: dict,
+        episode_reward: float,
+        episode_steps: int,
+        action_counts: np.ndarray,
     ) -> dict[str, Any]:
         success = last_obs.get("success", 0.0)
         spl = last_obs.get("spl", 0.0)
@@ -181,9 +192,14 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
         path_ratio = path_length / shortest_path if shortest_path > 0 else 0.0
 
         tracked = tracker.record(
-            reward=episode_reward, success=success, spl=spl,
-            category=category, scene_id=scene_raw,
-            softspl=softspl, dtg=dtg, collision_rate=collision_rate,
+            reward=episode_reward,
+            success=success,
+            spl=spl,
+            category=category,
+            scene_id=scene_raw,
+            softspl=softspl,
+            dtg=dtg,
+            collision_rate=collision_rate,
         )
 
         action_pcts = action_counts / max(episode_steps, 1)
@@ -194,8 +210,10 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
             "episode/shortest_path": shortest_path,
             "episode/path_ratio": path_ratio,
             "episode_reset": 1,
-            **{f"action/{action_names[i]}_pct": float(action_pcts[i])
-               for i in range(len(action_counts))},
+            **{
+                f"action/{action_names[i]}_pct": float(action_pcts[i])
+                for i in range(len(action_counts))
+            },
         }
 
     return {
@@ -207,6 +225,7 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
 # ---------------------------------------------------------------------------
 # Trainer
 # ---------------------------------------------------------------------------
+
 
 class Trainer:
     """Training loop: prefill -> train (train-ratio) -> log -> checkpoint.
@@ -248,7 +267,9 @@ class Trainer:
         # Build buffer from the Observation Preparation contract when present;
         # legacy adapters keep using their adapter attributes during migration.
         replay_contract = getattr(
-            getattr(self.obs_adapter, "contract", None), "replay_observation", None,
+            getattr(self.obs_adapter, "contract", None),
+            "replay_observation",
+            None,
         )
         if replay_contract is not None:
             obs_shape = replay_contract.buffer_shape()
@@ -258,12 +279,14 @@ class Trainer:
             obs_shape = self.obs_adapter.buffer_shape
             obs_dtype = self.obs_adapter.buffer_dtype
             normalize_obs = self.obs_adapter.normalize_on_sample
-        self.buffer = ReplayBuffer(BufferConfig(
-            capacity=agent_config.buffer_capacity,
-            obs_shape=obs_shape,
-            obs_dtype=obs_dtype,
-            normalize_obs=normalize_obs,
-        ))
+        self.buffer = ReplayBuffer(
+            BufferConfig(
+                capacity=agent_config.buffer_capacity,
+                obs_shape=obs_shape,
+                obs_dtype=obs_dtype,
+                normalize_obs=normalize_obs,
+            )
+        )
 
         # Resume from checkpoint (overwrite freshly-initialised agent state).
         self._resume_step = 0
@@ -289,6 +312,7 @@ class Trainer:
         self._wandb = None
         if trainer_config.wandb_project is not None:
             import wandb
+
             self._wandb = wandb
             init_kwargs: dict[str, Any] = dict(
                 project=trainer_config.wandb_project,
@@ -328,7 +352,9 @@ class Trainer:
                     # Skip random prefill — the trained policy collects on-policy
                     # transitions in _train_loop until buffer >= batch_steps.
                     # env.reset() / extractor.reset() fire at _train_loop entry.
-                    print(f"Resume mode: skipping prefill, jumping to step {self._resume_step}")
+                    print(
+                        f"Resume mode: skipping prefill, jumping to step {self._resume_step}"
+                    )
                 else:
                     self._prefill(rng_key, writer, f)
                 if tcfg.overfit_one_batch:
@@ -384,8 +410,13 @@ class Trainer:
             next_buffer_obs, _ = self._prepare_observation(self.obs_adapter, next_obs)
 
             success = next_obs.get("success", 0.0) > 0
-            self.buffer.add(buffer_obs, action, next_obs["reward"],
-                            next_obs["done"], terminal=success)
+            self.buffer.add(
+                buffer_obs,
+                action,
+                next_obs["reward"],
+                next_obs["done"],
+                terminal=success,
+            )
 
             if next_obs["done"]:
                 obs = self.env.reset()
@@ -400,7 +431,9 @@ class Trainer:
     # Train loop
     # ------------------------------------------------------------------
 
-    def _reset_train_episode(self) -> tuple[dict, np.ndarray | dict[str, np.ndarray], dict]:
+    def _reset_train_episode(
+        self,
+    ) -> tuple[dict, np.ndarray | dict[str, np.ndarray], dict]:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
@@ -411,7 +444,10 @@ class Trainer:
         return 0.0, 0, np.zeros(self.acfg.num_actions, dtype=int)
 
     def _start_train_video_if_due(
-        self, step: int, next_video_step: int, obs: dict,
+        self,
+        step: int,
+        next_video_step: int,
+        obs: dict,
     ) -> dict[str, Any] | None:
         if self._should_record_video(step, next_video_step):
             return self._start_video_recording(self.env, obs)
@@ -426,7 +462,10 @@ class Trainer:
     ) -> None:
         success = next_obs.get("success", 0.0) > 0
         self.buffer.add(
-            buffer_obs, action, next_obs["reward"], next_obs["done"],
+            buffer_obs,
+            action,
+            next_obs["reward"],
+            next_obs["done"],
             terminal=success,
         )
 
@@ -453,7 +492,13 @@ class Trainer:
         int,
     ]:
         self._on_episode_end(
-            last_obs, episode_reward, episode_steps, action_counts, step, writer, f,
+            last_obs,
+            episode_reward,
+            episode_steps,
+            action_counts,
+            step,
+            writer,
+            f,
         )
         if video_recording is not None:
             log_episode_video(
@@ -470,8 +515,14 @@ class Trainer:
         if self._should_record_video(step + 1, video_next_step):
             video_recording = self._start_video_recording(self.env, obs)
         return (
-            obs, buffer_obs, agent_obs, episode_reward, episode_steps,
-            action_counts, video_recording, video_next_step,
+            obs,
+            buffer_obs,
+            agent_obs,
+            episode_reward,
+            episode_steps,
+            action_counts,
+            video_recording,
+            video_next_step,
         )
 
     def _train_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
@@ -489,7 +540,9 @@ class Trainer:
         metrics: dict[str, Any] = {}
         video_next_step = start_step
         video_recording = self._start_train_video_if_due(
-            start_step, video_next_step, obs,
+            start_step,
+            video_next_step,
+            obs,
         )
 
         for step in range(start_step, tcfg.total_steps):
@@ -497,11 +550,14 @@ class Trainer:
             action = self.agent.act(agent_obs, act_key)
             next_obs = self.env.step(action)
             next_buffer_obs, next_agent_obs = self._prepare_observation(
-                self.obs_adapter, next_obs,
+                self.obs_adapter,
+                next_obs,
             )
 
             self._record_train_transition(
-                buffer_obs=buffer_obs, action=action, next_obs=next_obs,
+                buffer_obs=buffer_obs,
+                action=action,
+                next_obs=next_obs,
             )
             action_counts[action] += 1
             episode_reward += next_obs["reward"]
@@ -511,8 +567,14 @@ class Trainer:
 
             if next_obs["done"]:
                 (
-                    obs, buffer_obs, agent_obs, episode_reward, episode_steps,
-                    action_counts, video_recording, video_next_step,
+                    obs,
+                    buffer_obs,
+                    agent_obs,
+                    episode_reward,
+                    episode_steps,
+                    action_counts,
+                    video_recording,
+                    video_next_step,
                 ) = self._finish_train_episode(
                     last_obs=next_obs,
                     episode_reward=episode_reward,
@@ -546,9 +608,11 @@ class Trainer:
                         self._maybe_log_recon(batch, step)
 
             # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
-            if (self.val_env is not None
-                    and tcfg.val_every > 0
-                    and (step + 1) % tcfg.val_every == 0):
+            if (
+                self.val_env is not None
+                and tcfg.val_every > 0
+                and (step + 1) % tcfg.val_every == 0
+            ):
                 rng_key, val_key = jax.random.split(rng_key)
                 self._run_val_loop(val_key, step, writer, f)
 
@@ -590,13 +654,14 @@ class Trainer:
         self._append_video_frame(env, recording, obs)
         return recording
 
-    def _append_video_frame(self, env: Env, recording: dict[str, Any], obs: dict) -> None:
+    def _append_video_frame(
+        self, env: Env, recording: dict[str, Any], obs: dict
+    ) -> None:
         if "image" not in obs:
             return
         if recording["frames"]:
             recording["trajectory"].append(self._agent_position(env))
-        topdown = render_topdown_frame(
-            env, recording["trajectory"], recording["goals"])
+        topdown = render_topdown_frame(env, recording["trajectory"], recording["goals"])
         recording["frames"].append(compose_frame(obs["image"], topdown))
 
     # ------------------------------------------------------------------
@@ -648,11 +713,13 @@ class Trainer:
 
         loss_drop = (first_loss - last_loss) / max(abs(first_loss), 1e-12)
         writer.writerow([tcfg.overfit_steps - 1, "verify/overfit_loss_drop", loss_drop])
-        writer.writerow([
-            tcfg.overfit_steps - 1,
-            "verify/overfit_pass",
-            float(loss_drop >= tcfg.overfit_min_loss_drop),
-        ])
+        writer.writerow(
+            [
+                tcfg.overfit_steps - 1,
+                "verify/overfit_pass",
+                float(loss_drop >= tcfg.overfit_min_loss_drop),
+            ]
+        )
         f.flush()
         print(
             f"Overfit verify: first_loss={first_loss:.6g} "
@@ -673,12 +740,22 @@ class Trainer:
     # ------------------------------------------------------------------
 
     def _on_episode_end(
-        self, last_obs: dict, episode_reward: float, episode_steps: int,
-        action_counts: np.ndarray, step: int, writer: Any, f: Any,
+        self,
+        last_obs: dict,
+        episode_reward: float,
+        episode_steps: int,
+        action_counts: np.ndarray,
+        step: int,
+        writer: Any,
+        f: Any,
     ) -> dict[str, Any]:
         if self.episode_metrics_fn is not None:
             ep_metrics = self.episode_metrics_fn(
-                self.env, last_obs, episode_reward, episode_steps, action_counts,
+                self.env,
+                last_obs,
+                episode_reward,
+                episode_steps,
+                action_counts,
             )
         else:
             ep_metrics = {"episode/reward": episode_reward}
@@ -700,7 +777,11 @@ class Trainer:
         return ep_metrics
 
     def _log_train_metrics(
-        self, metrics: dict, step: int, writer: Any, f: Any,
+        self,
+        metrics: dict,
+        step: int,
+        writer: Any,
+        f: Any,
     ) -> None:
         now = time.time()
         elapsed = now - self._t0
@@ -799,22 +880,32 @@ class Trainer:
             agent_obs = next_agent_obs
 
         val_metrics = self.val_episode_metrics_fn(
-            self.val_env, obs, episode_reward, episode_steps, action_counts,
+            self.val_env,
+            obs,
+            episode_reward,
+            episode_steps,
+            action_counts,
         )
         if recording is not None:
             log_episode_video(
-                self._wandb, "val/episode_video", recording["frames"], step,
+                self._wandb,
+                "val/episode_video",
+                recording["frames"],
+                step,
             )
         return val_metrics, rng_key
 
     def _prefix_val_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
         return {
-            f"val/{k}" if not k.startswith("val/") else k: v
-            for k, v in metrics.items()
+            f"val/{k}" if not k.startswith("val/") else k: v for k, v in metrics.items()
         }
 
     def _log_val_metrics(
-        self, val_logged: dict[str, Any], step: int, writer: Any, f: Any,
+        self,
+        val_logged: dict[str, Any],
+        step: int,
+        writer: Any,
+        f: Any,
     ) -> None:
         for k, v in val_logged.items():
             writer.writerow([step, k, v])
@@ -823,7 +914,10 @@ class Trainer:
             self._wandb.log(val_logged, step=step)
 
     def _print_val_summary(
-        self, val_logged: dict[str, Any], step: int, elapsed: float,
+        self,
+        val_logged: dict[str, Any],
+        step: int,
+        elapsed: float,
     ) -> None:
         sr = val_logged.get("val/metrics/sr", 0.0)
         spl = val_logged.get("val/metrics/spl", 0.0)
@@ -840,7 +934,11 @@ class Trainer:
         )
 
     def _run_val_loop(
-        self, rng_key: jnp.ndarray, step: int, writer: Any, f: Any,
+        self,
+        rng_key: jnp.ndarray,
+        step: int,
+        writer: Any,
+        f: Any,
     ) -> None:
         """Deterministic Val-Episode-Loop (3D-36) + video recording (3D-41).
 
@@ -850,8 +948,11 @@ class Trainer:
         because the eval episode order is pinned by the curriculum JSON).
         """
         tcfg = self.tcfg
-        if (self.val_env is None or self.val_obs_adapter is None
-                or self.val_episode_metrics_fn is None):
+        if (
+            self.val_env is None
+            or self.val_obs_adapter is None
+            or self.val_episode_metrics_fn is None
+        ):
             return
 
         last_val_metrics: dict[str, Any] = {}
@@ -860,11 +961,12 @@ class Trainer:
 
         for ep_idx in range(tcfg.val_episodes):
             record_video = (
-                videos_recorded < tcfg.val_video_episodes
-                and self._wandb is not None
+                videos_recorded < tcfg.val_video_episodes and self._wandb is not None
             )
             last_val_metrics, rng_key = self._run_single_val_episode(
-                rng_key=rng_key, record_video=record_video, step=step,
+                rng_key=rng_key,
+                record_video=record_video,
+                step=step,
             )
             if record_video:
                 videos_recorded += 1

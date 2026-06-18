@@ -10,7 +10,9 @@ import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 # Ensure InfiniteVGGT source is importable.
-_IVGGT_SRC = str(Path(__file__).resolve().parent.parent.parent / "external" / "InfiniteVGGT" / "src")
+_IVGGT_SRC = str(
+    Path(__file__).resolve().parent.parent.parent / "external" / "InfiniteVGGT" / "src"
+)
 if _IVGGT_SRC not in sys.path:
     sys.path.insert(0, _IVGGT_SRC)
 
@@ -77,14 +79,12 @@ class VGGTFeatureExtractor:
 
         # Prefer Flash SDP kernels when available (PyTorch 2.0+).
         if prefer_flash_sdp and self.device.type == "cuda":
-            self._flash_sdp_ctx_factory = (
-                lambda: sdpa_kernel(
-                    [
-                        SDPBackend.FLASH_ATTENTION,
-                        SDPBackend.EFFICIENT_ATTENTION,
-                        SDPBackend.MATH,
-                    ]
-                )
+            self._flash_sdp_ctx_factory = lambda: sdpa_kernel(
+                [
+                    SDPBackend.FLASH_ATTENTION,
+                    SDPBackend.EFFICIENT_ATTENTION,
+                    SDPBackend.MATH,
+                ]
             )
         else:
             self._flash_sdp_ctx_factory = lambda: nullcontext()
@@ -114,9 +114,7 @@ class VGGTFeatureExtractor:
             self.model.camera_head = torch.compile(
                 self.model.camera_head, dynamic=True, **mode_kwargs
             )
-            self.model.point_head = torch.compile(
-                self.model.point_head, **mode_kwargs
-            )
+            self.model.point_head = torch.compile(self.model.point_head, **mode_kwargs)
 
         # Aggregator depth drives the per-layer KV-cache list length.
         self._agg_depth: int = self.model.aggregator.depth
@@ -203,8 +201,8 @@ class VGGTFeatureExtractor:
                         past_key_values_camera=self._past_key_values_camera,
                         use_cache=True,
                     )
-                pose_enc = pose_enc[-1]           # last iteration
-                camera_pose = pose_enc[:, 0, :]   # (B, 9)
+                pose_enc = pose_enc[-1]  # last iteration
+                camera_pose = pose_enc[:, 0, :]  # (B, 9)
 
                 # Prune camera-head KV cache to a fixed window if requested.
                 if self._max_camera_tokens is not None:
@@ -219,7 +217,9 @@ class VGGTFeatureExtractor:
 
                 # Point head (DPT upsampled).
                 pts3d, _ = self.model.point_head(
-                    aggregated_tokens, images=images, patch_start_idx=patch_start_idx,
+                    aggregated_tokens,
+                    images=images,
+                    patch_start_idx=patch_start_idx,
                 )
                 pts3d = pts3d[:, 0]  # (B, H, W, 3)  — remove sequence dim
 
@@ -231,7 +231,9 @@ class VGGTFeatureExtractor:
         # pts3d is (1, H, W, 3) with H=W=518.  Pool to 37×37.
         # adaptive_avg_pool2d works on (N, C, H, W) so permute channels.
         pts_chw = pts3d.permute(0, 3, 1, 2).float()  # (1, 3, H, W)
-        pts_down = F.adaptive_avg_pool2d(pts_chw, (_PATCH_GRID, _PATCH_GRID))  # (1, 3, 37, 37)
+        pts_down = F.adaptive_avg_pool2d(
+            pts_chw, (_PATCH_GRID, _PATCH_GRID)
+        )  # (1, 3, 37, 37)
         world_points = pts_down.permute(0, 2, 3, 1).squeeze(0)  # (37, 37, 3)
 
         # --- to numpy --------------------------------------------------------
@@ -260,6 +262,6 @@ class VGGTFeatureExtractor:
         # print(f"[BP#1] NaN={np.isnan(world_points_np).any()} Inf={np.isinf(world_points_np).any()}", flush=True)
         # print(f"[BP#1] camera_pose: shape={camera_pose_np.shape} values={camera_pose_np}", flush=True)
         return {
-            "world_points": world_points_np,   # (37, 37, 3) float32
-            "camera_pose": camera_pose_np,     # (9,)        float32
+            "world_points": world_points_np,  # (37, 37, 3) float32
+            "camera_pose": camera_pose_np,  # (9,)        float32
         }

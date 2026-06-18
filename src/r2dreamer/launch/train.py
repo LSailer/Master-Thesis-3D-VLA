@@ -11,7 +11,11 @@ if TYPE_CHECKING:
 
 
 def _resolve_curriculum_inputs(
-    *, env: str, args: Any, curriculum: str | None, env_registry: dict[str, Any],
+    *,
+    env: str,
+    args: Any,
+    curriculum: str | None,
+    env_registry: dict[str, Any],
 ) -> str | None:
     from src.r2dreamer.launch._helpers import resolve_curriculum_path
 
@@ -31,7 +35,9 @@ def _resolve_curriculum_inputs(
 
 def _make_encoder_bundle(encoder: str, args: Any, encoder_registry: dict[str, Any]):
     if encoder not in encoder_registry:
-        raise KeyError(f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}")
+        raise KeyError(
+            f"Unknown encoder {encoder!r}. Available: {list(encoder_registry)}"
+        )
     enc = encoder_registry[encoder].from_train_args(args)
     return enc, enc.make_adapter(), enc.spec()
 
@@ -46,7 +52,9 @@ def _effective_run_metadata(
     # CLI value (non-None) wins over shim kwarg.
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
     if eff_output_dir is None:
-        raise ValueError("output_dir must be set via train(..., output_dir=...) or --output_dir")
+        raise ValueError(
+            "output_dir must be set via train(..., output_dir=...) or --output_dir"
+        )
 
     eff_wandb_name = args.wandb_name if args.wandb_name is not None else wandb_name
     eff_wandb_tags: list[str] = list(wandb_tags) if wandb_tags is not None else []
@@ -86,7 +94,9 @@ def _make_env_instances(
     return env_fn(seed=args.seed), None, 17
 
 
-def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dict[str, dict]):
+def _agent_overrides_from_args(
+    args: Any, encoder_spec: Any, latent_presets: dict[str, dict]
+):
     agent_overrides = dict(encoder_spec.agent_overrides)
     # Diagnostic CLI overrides (None => keep config default / encoder override).
     for attr, override in (
@@ -113,10 +123,16 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
     preset = getattr(args, "latent_preset", "default")
     agent_overrides.update(latent_presets.get(preset, {}))
     for name in (
-        "deter_size", "stoch_classes", "stoch_discrete",
-        "mlp_vggt_hidden", "mlp_vggt_layers", "scale_decoder",
-        "vggt_token_transformer_layers", "vggt_token_transformer_heads",
-        "vggt_token_projection_dim", "vggt_token_transformer_mlp_ratio",
+        "deter_size",
+        "stoch_classes",
+        "stoch_discrete",
+        "mlp_vggt_hidden",
+        "mlp_vggt_layers",
+        "scale_decoder",
+        "vggt_token_transformer_layers",
+        "vggt_token_transformer_heads",
+        "vggt_token_projection_dim",
+        "vggt_token_transformer_mlp_ratio",
         "vggt_token_transformer_dropout",
     ):
         value = getattr(args, name, None)
@@ -137,8 +153,13 @@ def _agent_overrides_from_args(args: Any, encoder_spec: Any, latent_presets: dic
 
 
 def _make_agent_config(
-    *, args: Any, encoder_spec: Any, num_actions: int, output_dir: str,
-    agent_overrides: dict[str, Any], config_cls: type,
+    *,
+    args: Any,
+    encoder_spec: Any,
+    num_actions: int,
+    output_dir: str,
+    agent_overrides: dict[str, Any],
+    config_cls: type,
 ):
     from src.r2dreamer.observation_preparation import (
         encoder_module_kwargs_from_config,
@@ -170,8 +191,12 @@ def _make_agent_config(
 
 
 def _make_trainer_config(
-    *, args: Any, output_dir: str, wandb_name: str | None,
-    wandb_tags: list[str], trainer_config_cls: type,
+    *,
+    args: Any,
+    output_dir: str,
+    wandb_name: str | None,
+    wandb_tags: list[str],
+    trainer_config_cls: type,
 ):
     return trainer_config_cls(
         output_dir=output_dir,
@@ -277,11 +302,17 @@ def train(
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
     curriculum_path = _resolve_curriculum_inputs(
-        env=env, args=args, curriculum=curriculum, env_registry=env_registry,
+        env=env,
+        args=args,
+        curriculum=curriculum,
+        env_registry=env_registry,
     )
     enc, adapter, encoder_spec = _make_encoder_bundle(encoder, args, encoder_registry)
     eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
-        args=args, output_dir=output_dir, wandb_name=wandb_name, wandb_tags=wandb_tags,
+        args=args,
+        output_dir=output_dir,
+        wandb_name=wandb_name,
+        wandb_tags=wandb_tags,
     )
     env_instance, val_env_instance, num_actions = _make_env_instances(
         env=env,

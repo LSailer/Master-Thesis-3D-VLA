@@ -10,7 +10,9 @@ curriculum; crafter forbids one) intentionally stays in the callers.
 from __future__ import annotations
 
 
-def resolve_curriculum_path(curriculum_path_arg: str | None, curriculum: str | None) -> str | None:
+def resolve_curriculum_path(
+    curriculum_path_arg: str | None, curriculum: str | None
+) -> str | None:
     """Resolve a curriculum JSON path from the CLI arg or a registry name.
 
     ``--curriculum_path`` (``curriculum_path_arg``) is the explicit escape hatch and
@@ -24,6 +26,8 @@ def resolve_curriculum_path(curriculum_path_arg: str | None, curriculum: str | N
         return curriculum_path_arg
     if curriculum is not None:
         if curriculum not in CURRICULA:
-            raise KeyError(f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}")
+            raise KeyError(
+                f"Unknown curriculum {curriculum!r}. Available: {list(CURRICULA)}"
+            )
         return str(CURRICULA[curriculum])
     return None

@@ -16,7 +16,9 @@ from src.r2dreamer.observation_preparation.vggt import (
     wp_cp_dim,
 )
 from src.r2dreamer.observation_preparation.vggt_readouts import make_vggt_readout
-from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
+from src.vggt.jax.feature_extractor import (
+    JAXVGGTFeatureExtractor as VGGTFeatureExtractor,
+)
 
 
 VGGT_FEATURE_DIM = wp_cp_dim()  # 37*37*3 + 9
@@ -67,7 +69,9 @@ class VGGTObsAdapter(ObsAdapter):
             contract=self.contract,
         )
 
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
+    def transform(
+        self, obs_dict: dict
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         return self._readout.prepare(
             self._extractor,
             obs_dict["image"],

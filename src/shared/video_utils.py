@@ -61,7 +61,9 @@ def compose_frame(rgb: np.ndarray, topdown: np.ndarray) -> np.ndarray:
             return panel
         pad_top = (height - panel.shape[0]) // 2
         pad_bottom = height - panel.shape[0] - pad_top
-        return np.pad(panel, ((pad_top, pad_bottom), (0, 0), (0, 0)), constant_values=255)
+        return np.pad(
+            panel, ((pad_top, pad_bottom), (0, 0), (0, 0)), constant_values=255
+        )
 
     return np.concatenate([pad(left), pad(right)], axis=1).astype(np.uint8)
 
@@ -73,6 +75,7 @@ def render_topdown_frame(
 ) -> np.ndarray:
     """Render a top-down Habitat map frame as ``(H, W, 3) uint8``."""
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
@@ -80,6 +83,7 @@ def render_topdown_frame(
         nav = env.sample_navmesh(resolution=0.1)
     else:
         from src.environments.habitat import sample_navmesh
+
         nav = sample_navmesh(env._env, resolution=0.1)
     fig, ax = plt.subplots(1, 1, figsize=(2.56, 2.56), dpi=100)
 
@@ -106,8 +110,9 @@ def render_topdown_frame(
     return frame.astype(np.uint8)
 
 
-def log_episode_video(wandb_module: Any, key: str, frames: list[np.ndarray],
-                      step: int, fps: int = 10) -> Any | None:
+def log_episode_video(
+    wandb_module: Any, key: str, frames: list[np.ndarray], step: int, fps: int = 10
+) -> Any | None:
     """Log frames to W&B as an MP4 video, capped to ``MAX_VIDEO_FRAMES``."""
     if wandb_module is None or not frames:
         return None

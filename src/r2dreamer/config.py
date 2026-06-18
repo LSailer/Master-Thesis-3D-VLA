@@ -15,8 +15,12 @@ LATENT_PRESETS: dict[str, dict[str, int]] = {
 @dataclass
 class R2DreamerConfig:
     # --- Environment ---
-    obs_shape: Tuple[int, ...] | Mapping[str, Tuple[int, ...]] = (3, 64, 64)  # CHW format or structured fields
-    num_actions: int = 4   # Habitat default (STOP, FORWARD, TURN_LEFT, TURN_RIGHT); Crafter overrides to 17 in train.py
+    obs_shape: Tuple[int, ...] | Mapping[str, Tuple[int, ...]] = (
+        3,
+        64,
+        64,
+    )  # CHW format or structured fields
+    num_actions: int = 4  # Habitat default (STOP, FORWARD, TURN_LEFT, TURN_RIGHT); Crafter overrides to 17 in train.py
     max_episode_steps: int = 1000
 
     # --- RSSM ---
@@ -30,8 +34,12 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"  # canonical set: encoder_registry in src.r2dreamer.launch.registries
-    encoder_module_cls: Any = None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
+    encoder_type: str = (
+        "cnn"  # canonical set: encoder_registry in src.r2dreamer.launch.registries
+    )
+    encoder_module_cls: Any = (
+        None  # Flax nn.Module class; sourced from EncoderSpec.module_cls
+    )
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: Tuple[int, ...] = (2, 3, 4, 4)
@@ -58,14 +66,14 @@ class R2DreamerConfig:
     # --- Hybrid encoder (CNN on RGB + MLP on WP/CP, gated; 3D-50/51/52) ---
     # The hybrid's WP/CP branch has its own width/depth knobs (vggt_mlp_layers
     # above governs the standalone vggt/aggregator encoders).
-    mlp_vggt_hidden: int = 1024   # hidden width of the hybrid VGGT-branch MLP
-    mlp_vggt_layers: int = 2      # depth of the hybrid VGGT-branch MLP
+    mlp_vggt_hidden: int = 1024  # hidden width of the hybrid VGGT-branch MLP
+    mlp_vggt_layers: int = 2  # depth of the hybrid VGGT-branch MLP
     # --- Debug decoder probe (image reconstruction; OFF by default; 3D-51) ---
     # When enabled, trains a ConvDecoder from stop-gradient RSSM features for
     # W&B visualisation. It does not backprop reconstruction loss into the
     # encoder/RSSM/actor-critic objective.
-    decoder: bool = False         # build a ConvDecoder visualisation probe
-    scale_decoder: float = 1.0    # weight of decoder-only reconstruction loss
+    decoder: bool = False  # build a ConvDecoder visualisation probe
+    scale_decoder: float = 1.0  # weight of decoder-only reconstruction loss
     design_notes: str = ""
     # JSON-serializable Encoder Input Contract snapshot persisted to durable
     # run metadata. Runtime config may still hold encoder_module_cls; snapshots

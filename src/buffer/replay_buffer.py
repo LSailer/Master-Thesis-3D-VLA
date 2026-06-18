@@ -27,6 +27,7 @@ class BufferConfig:
         normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on
             sample. Mapping configs can choose this per field.
     """
+
     capacity: int
     obs_shape: ObsShape
     obs_dtype: ObsDType = "uint8"
@@ -197,9 +198,7 @@ class ReplayBuffer:
                 key: np.zeros((cap, *spec.shape), dtype=_np_dtype(spec.dtype))
                 for key, spec in field_specs.items()
             }
-            self._normalize = {
-                key: spec.normalize for key, spec in field_specs.items()
-            }
+            self._normalize = {key: spec.normalize for key, spec in field_specs.items()}
             self._keep_uint8_on_sample = {
                 key: spec.keep_uint8_on_sample for key, spec in field_specs.items()
             }
@@ -211,9 +210,14 @@ class ReplayBuffer:
         self.idx = 0
         self.size = 0
 
-    def add(self, obs: np.ndarray | Mapping[str, np.ndarray],
-            action: int, reward: float, done: bool,
-            terminal: bool = False) -> None:
+    def add(
+        self,
+        obs: np.ndarray | Mapping[str, np.ndarray],
+        action: int,
+        reward: float,
+        done: bool,
+        terminal: bool = False,
+    ) -> None:
         if isinstance(self.obs, Mapping):
             if not isinstance(obs, Mapping):
                 raise TypeError("mapping replay buffer requires mapping obs")
@@ -236,8 +240,15 @@ class ReplayBuffer:
     def sample(self, batch_size: int, seq_len: int) -> dict[str, jnp.ndarray]:
         starts = self._sample_starts(batch_size, seq_len)
         return _gather_sequence_batch(
-            starts, seq_len, self.obs, self.actions, self.rewards,
-            self.dones, self.terminals, self._normalize, self._keep_uint8_on_sample,
+            starts,
+            seq_len,
+            self.obs,
+            self.actions,
+            self.rewards,
+            self.dones,
+            self.terminals,
+            self._normalize,
+            self._keep_uint8_on_sample,
         )
 
     def _sample_starts(self, batch_size: int, seq_len: int) -> np.ndarray:
@@ -274,10 +285,10 @@ class ValReplayDataset:
     def __init__(self, path: str, normalize: bool = True):
         self._normalize = normalize
         data = np.load(path)
-        self.obs = data["obs"]          # (N, ...) uint8 or float32
+        self.obs = data["obs"]  # (N, ...) uint8 or float32
         self.actions = data["actions"]  # (N,) int32
         self.rewards = data["rewards"]  # (N,) float32
-        self.dones = data["dones"]      # (N,) bool
+        self.dones = data["dones"]  # (N,) bool
         self.terminals = data["terminals"]  # (N,) bool
 
         # Reconstruct episode boundaries from dones
@@ -288,10 +299,12 @@ class ValReplayDataset:
         self._ep_starts = self._ep_starts[self._ep_starts < len(self.obs)]
         # Episode lengths
         ends = np.concatenate([done_indices + 1, [len(self.obs)]])
-        self._ep_lengths = ends[:len(self._ep_starts)] - self._ep_starts
+        self._ep_lengths = ends[: len(self._ep_starts)] - self._ep_starts
 
-        print(f"ValReplayDataset: {len(self.obs)} steps, "
-              f"{len(self._ep_starts)} episodes from {path}")
+        print(
+            f"ValReplayDataset: {len(self.obs)} steps, "
+            f"{len(self._ep_starts)} episodes from {path}"
+        )
 
     def sample(self, batch_size: int, seq_len: int) -> dict:
         """Sample random subsequences, same format as ReplayBuffer.sample()."""
@@ -306,21 +319,30 @@ class ValReplayDataset:
         ep_idx = np.random.choice(valid, size=batch_size)
         ep_starts = self._ep_starts[ep_idx]
         ep_lens = self._ep_lengths[ep_idx]
-        offsets = np.array([
-            np.random.randint(0, l - seq_len + 1) for l in ep_lens
-        ])
+        offsets = np.array(
+            [np.random.randint(0, ep_len - seq_len + 1) for ep_len in ep_lens]
+        )
         starts = ep_starts + offsets
         return _gather_sequence_batch(
-            starts, seq_len, self.obs, self.actions, self.rewards,
-            self.dones, self.terminals, self._normalize, False,
+            starts,
+            seq_len,
+            self.obs,
+            self.actions,
+            self.rewards,
+            self.dones,
+            self.terminals,
+            self._normalize,
+            False,
         )
 
 
 def VGGTReplayBuffer(capacity: int, feature_dim: int = 4116) -> ReplayBuffer:
     """Backward-compat factory. Use ReplayBuffer(BufferConfig(...)) directly."""
-    return ReplayBuffer(BufferConfig(
-        capacity=capacity,
-        obs_shape=(feature_dim,),
-        obs_dtype="float32",
-        normalize_obs=False,
-    ))
+    return ReplayBuffer(
+        BufferConfig(
+            capacity=capacity,
+            obs_shape=(feature_dim,),
+            obs_dtype="float32",
+            normalize_obs=False,
+        )
+    )

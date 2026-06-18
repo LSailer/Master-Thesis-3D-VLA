@@ -13,15 +13,23 @@ import os
 import sys
 import time
 
+from src.r2dreamer.launch.parity.batch_utils import (
+    SEED,
+    WARMUP_STEPS,
+    BATCH_SIZE,
+    SEQ_LEN,
+    OBS_SHAPE_CHW,
+    NUM_ACTIONS,
+    collect_crafter_data,
+    precompute_batch_starts,
+    _convert_batch,
+    make_batch_torch,
+    make_pytorch_config,
+    make_crafter_spaces,
+)
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
 EXT = os.path.join(ROOT, "external", "r2dreamer")
-
-from src.r2dreamer.launch.parity.batch_utils import (
-    SEED, WARMUP_STEPS, BATCH_SIZE, SEQ_LEN, OBS_SHAPE_CHW,
-    NUM_ACTIONS, collect_crafter_data, precompute_batch_starts,
-    _convert_batch, make_batch_torch, make_pytorch_config, make_crafter_spaces,
-)
 
 LOG_EVERY = 100
 NUM_COLLECT = 20_000
@@ -30,6 +38,7 @@ NUM_COLLECT = 20_000
 def _train_step_pytorch(agent, data, initial):
     import torch
     from torch.amp import autocast
+
     torch.compiler.cudagraph_mark_step_begin()
     p_data = agent.preprocess(data)
     agent._update_slow_target()
@@ -51,8 +60,10 @@ def _run_jax(transitions, all_starts, train_steps, outpath):
     from src.r2dreamer.world_model.encoders import ConvEncoder
 
     cfg = R2DreamerConfig(
-        obs_shape=OBS_SHAPE_CHW, num_actions=NUM_ACTIONS,
-        batch_size=BATCH_SIZE, seq_len=SEQ_LEN,
+        obs_shape=OBS_SHAPE_CHW,
+        num_actions=NUM_ACTIONS,
+        batch_size=BATCH_SIZE,
+        seq_len=SEQ_LEN,
         encoder_module_cls=ConvEncoder,
     )
     rng = jax.random.PRNGKey(SEED)
@@ -84,11 +95,13 @@ def _run_jax(transitions, all_starts, train_steps, outpath):
             elapsed = time.perf_counter() - t_start
             sps = (i + 1) / elapsed
             eta = (train_steps - i - 1) / sps / 3600
-            print(f"  [JAX] step {i+1}/{train_steps} | loss={metrics.get('total_loss',0):.2f} | "
-                  f"dyn={metrics.get('loss/dyn',0):.2f} | {sps:.1f} sps | ETA {eta:.1f}h")
+            print(
+                f"  [JAX] step {i + 1}/{train_steps} | loss={metrics.get('total_loss', 0):.2f} | "
+                f"dyn={metrics.get('loss/dyn', 0):.2f} | {sps:.1f} sps | ETA {eta:.1f}h"
+            )
 
     elapsed = time.perf_counter() - t_start
-    print(f"  [JAX] Done in {elapsed/60:.1f} min ({train_steps/elapsed:.1f} sps)")
+    print(f"  [JAX] Done in {elapsed / 60:.1f} min ({train_steps / elapsed:.1f} sps)")
 
     with open(outpath, "w") as f:
         json.dump(rows, f)
@@ -99,6 +112,7 @@ def _run_jax(transitions, all_starts, train_steps, outpath):
 
 def _run_pytorch(transitions, all_starts, train_steps, outpath, device):
     import torch
+
     sys.path.insert(0, EXT)
     from dreamer import Dreamer
 
@@ -108,7 +122,9 @@ def _run_pytorch(transitions, all_starts, train_steps, outpath, device):
 
     for i in range(WARMUP_STEPS):
         data = make_batch_torch(transitions, all_starts[i], device)
-        stoch0 = torch.zeros(BATCH_SIZE, cfg.rssm.stoch, cfg.rssm.discrete, device=device)
+        stoch0 = torch.zeros(
+            BATCH_SIZE, cfg.rssm.stoch, cfg.rssm.discrete, device=device
+        )
         deter0 = torch.zeros(BATCH_SIZE, cfg.rssm.deter, device=device)
         _ = _train_step_pytorch(agent, data, (stoch0, deter0))
 
@@ -119,7 +135,9 @@ def _run_pytorch(transitions, all_starts, train_steps, outpath, device):
     t_start = time.perf_counter()
     for i in range(train_steps):
         data = make_batch_torch(transitions, all_starts[WARMUP_STEPS + i], device)
-        stoch0 = torch.zeros(BATCH_SIZE, cfg.rssm.stoch, cfg.rssm.discrete, device=device)
+        stoch0 = torch.zeros(
+            BATCH_SIZE, cfg.rssm.stoch, cfg.rssm.discrete, device=device
+        )
         deter0 = torch.zeros(BATCH_SIZE, cfg.rssm.deter, device=device)
         torch.cuda.synchronize()
         t0 = time.perf_counter()
@@ -129,8 +147,12 @@ def _run_pytorch(transitions, all_starts, train_steps, outpath, device):
 
         if (i + 1) % LOG_EVERY == 0:
             row = {"step": i + 1, "step_ms": (t1 - t0) * 1000}
-            row.update({k: float(v) if isinstance(v, torch.Tensor) else float(v)
-                        for k, v in mets.items()})
+            row.update(
+                {
+                    k: float(v) if isinstance(v, torch.Tensor) else float(v)
+                    for k, v in mets.items()
+                }
+            )
             rows.append(row)
 
         if (i + 1) % 1000 == 0:
@@ -139,11 +161,13 @@ def _run_pytorch(transitions, all_starts, train_steps, outpath, device):
             eta = (train_steps - i - 1) / sps / 3600
             loss = float(mets.get("opt/loss", 0))
             dyn = float(mets.get("loss/dyn", 0))
-            print(f"  [PT]  step {i+1}/{train_steps} | loss={loss:.2f} | "
-                  f"dyn={dyn:.2f} | {sps:.1f} sps | ETA {eta:.1f}h")
+            print(
+                f"  [PT]  step {i + 1}/{train_steps} | loss={loss:.2f} | "
+                f"dyn={dyn:.2f} | {sps:.1f} sps | ETA {eta:.1f}h"
+            )
 
     elapsed = time.perf_counter() - t_start
-    print(f"  [PT]  Done in {elapsed/60:.1f} min ({train_steps/elapsed:.1f} sps)")
+    print(f"  [PT]  Done in {elapsed / 60:.1f} min ({train_steps / elapsed:.1f} sps)")
 
     with open(outpath, "w") as f:
         json.dump(rows, f)
@@ -173,6 +197,7 @@ def run(*, train_steps=100_000, output_path=None, argv=None):
 
     import torch
     import jax
+
     torch.set_float32_matmul_precision("high")
     device = "cuda" if torch.cuda.is_available() else "cpu"
 

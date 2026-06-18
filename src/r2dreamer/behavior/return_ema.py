@@ -19,10 +19,12 @@ class ReturnEMA:
         return jnp.zeros(2)
 
     def update(self, state, returns):
-        quantiles = jnp.array([
-            jnp.percentile(returns, 5),
-            jnp.percentile(returns, 95),
-        ])
+        quantiles = jnp.array(
+            [
+                jnp.percentile(returns, 5),
+                jnp.percentile(returns, 95),
+            ]
+        )
         return self.alpha * quantiles + (1 - self.alpha) * state
 
     def get_stats(self, state):

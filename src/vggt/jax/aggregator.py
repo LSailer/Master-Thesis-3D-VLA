@@ -123,9 +123,9 @@ class _TokenLayout:
         return tokens
 
     def to_global(self, frame_tokens: jnp.ndarray) -> jnp.ndarray:
-        return frame_tokens.reshape(
-            self.B, self.S, self.P, self.embed_dim
-        ).reshape(self.B, self.S * self.P, self.embed_dim)
+        return frame_tokens.reshape(self.B, self.S, self.P, self.embed_dim).reshape(
+            self.B, self.S * self.P, self.embed_dim
+        )
 
     def split_layers(self, tokens: jnp.ndarray) -> jnp.ndarray:
         return tokens.reshape(self.B, self.S, self.P, self.embed_dim)
@@ -239,9 +239,9 @@ def _prepare_attention_geometry(
     positions_bs_p = _make_position_grid(
         layout.B, layout.S, grid, grid, patch_start_idx
     )
-    positions_b_sp = positions_bs_p.reshape(
-        layout.B, layout.S, layout.P, 2
-    ).reshape(layout.B, layout.S * layout.P, 2)
+    positions_b_sp = positions_bs_p.reshape(layout.B, layout.S, layout.P, 2).reshape(
+        layout.B, layout.S * layout.P, 2
+    )
     head_dim = layout.embed_dim // num_heads
     cos_t, sin_t = compute_1d_rope_tables(
         dim=head_dim // 2,
@@ -249,8 +249,10 @@ def _prepare_attention_geometry(
         frequency=rope_freq,
         dtype=dtype,
     )
-    global_mask = None if use_cache else _make_causal_global_mask(
-        layout.S, layout.P, dtype=jnp.float32
+    global_mask = (
+        None
+        if use_cache
+        else _make_causal_global_mask(layout.S, layout.P, dtype=jnp.float32)
     )
     return positions_bs_p, positions_b_sp, (cos_t, sin_t), global_mask
 
@@ -366,7 +368,7 @@ class Aggregator(nn.Module):
             mlp_ratio=4.0,
             num_register_tokens=self.num_register_tokens,
             init_values=1.0,  # DINOv2 default
-            norm_eps=1e-6,     # DINOv2 override
+            norm_eps=1e-6,  # DINOv2 override
             name="patch_embed",
         )(x)
 

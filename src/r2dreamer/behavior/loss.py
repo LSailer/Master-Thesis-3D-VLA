@@ -14,8 +14,20 @@ import jax.numpy as jnp
 from .imagination import _imagine, _lambda_return
 
 
-def behavior_loss(*, forward, params, modules, cfg, twohot,
-                  slow_critic_params, ema_state, return_ema, rng_key, B, T):
+def behavior_loss(
+    *,
+    forward,
+    params,
+    modules,
+    cfg,
+    twohot,
+    slow_critic_params,
+    ema_state,
+    return_ema,
+    rng_key,
+    B,
+    T,
+):
     """Compute policy + value losses on an imagined rollout.
 
     Args:
@@ -47,10 +59,14 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
     )
 
     imag_feats, imag_actions, _ = _imagine(
-        params["rssm"], params["actor"],
-        modules["rssm"], modules["actor"],
-        start_stoch, start_deter,
-        cfg_horizon, rng_key,
+        params["rssm"],
+        params["actor"],
+        modules["rssm"],
+        modules["actor"],
+        start_stoch,
+        start_deter,
+        cfg_horizon,
+        rng_key,
     )
     # Already-frozen inside _imagine, but guard at the boundary too
     imag_feats = jax.lax.stop_gradient(imag_feats)
@@ -60,15 +76,18 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
 
     # Frozen reward/cont/critic heads scoring the imagined trajectory
     imag_rew_logits = modules["reward"].apply(
-        jax.lax.stop_gradient(params["reward"]), imag_feat_flat)
+        jax.lax.stop_gradient(params["reward"]), imag_feat_flat
+    )
     imag_reward = twohot.pred(imag_rew_logits).reshape(B * T, cfg_horizon, 1)
 
     imag_cont_logits = modules["cont"].apply(
-        jax.lax.stop_gradient(params["cont"]), imag_feat_flat)
+        jax.lax.stop_gradient(params["cont"]), imag_feat_flat
+    )
     imag_cont = jax.nn.sigmoid(imag_cont_logits).reshape(B * T, cfg_horizon, 1)
 
     imag_val_logits = modules["critic"].apply(
-        jax.lax.stop_gradient(params["critic"]), imag_feat_flat)
+        jax.lax.stop_gradient(params["critic"]), imag_feat_flat
+    )
     imag_value = twohot.pred(imag_val_logits).reshape(B * T, cfg_horizon, 1)
 
     imag_slow_logits = modules["critic"].apply(slow_critic_params, imag_feat_flat)
@@ -80,16 +99,24 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
     last = jnp.zeros_like(imag_cont)
     term = 1.0 - imag_cont
     ret = _lambda_return(
-        last, term, imag_reward, imag_value, imag_value, disc, cfg.lamb,
+        last,
+        term,
+        imag_reward,
+        imag_value,
+        imag_value,
+        disc,
+        cfg.lamb,
     )  # (BT, H-1, 1)
 
     _, ret_scale = return_ema.get_stats(ema_state)
     adv = (ret - imag_value[:, :-1]) / ret_scale
 
     # ---- Actor loss: re-evaluate unfrozen actor on detached imagined feats ----
-    actor_logits = modules["actor"].apply(
-        params["actor"], imag_feat_flat
-    ).reshape(B * T, cfg_horizon, cfg.num_actions)
+    actor_logits = (
+        modules["actor"]
+        .apply(params["actor"], imag_feat_flat)
+        .reshape(B * T, cfg_horizon, cfg.num_actions)
+    )
 
     # Unimix mixing — matches PyTorch OneHotDist
     probs = jax.nn.softmax(actor_logits, axis=-1)
@@ -107,12 +134,15 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
     )
 
     # ---- Critic loss on imagined features ----
-    cri_logits_imag = modules["critic"].apply(
-        params["critic"], imag_feat_flat
-    ).reshape(B * T, cfg_horizon, cfg.twohot_bins)
+    cri_logits_imag = (
+        modules["critic"]
+        .apply(params["critic"], imag_feat_flat)
+        .reshape(B * T, cfg_horizon, cfg.twohot_bins)
+    )
 
     tar_padded = jnp.concatenate(
-        [ret, jnp.zeros_like(ret[:, -1:])], axis=1)  # (BT, H, 1)
+        [ret, jnp.zeros_like(ret[:, -1:])], axis=1
+    )  # (BT, H, 1)
 
     critic_loss_tar = twohot.loss(cri_logits_imag[:, :-1], tar_padded[:, :-1, 0])
     critic_loss_slow = twohot.loss(
@@ -120,8 +150,7 @@ def behavior_loss(*, forward, params, modules, cfg, twohot,
         jax.lax.stop_gradient(imag_slow_value[:, :-1, 0]),
     )
     losses["value"] = jnp.mean(
-        jax.lax.stop_gradient(weight[:, :-1, 0])
-        * (critic_loss_tar + critic_loss_slow)
+        jax.lax.stop_gradient(weight[:, :-1, 0]) * (critic_loss_tar + critic_loss_slow)
     )
 
     return losses, {}, ret

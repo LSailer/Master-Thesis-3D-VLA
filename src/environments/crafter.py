@@ -6,6 +6,7 @@ import numpy as np
 class CrafterEnv:
     def __init__(self, size=(64, 64), seed=None):
         import crafter
+
         self._env = crafter.Env(size=size, reward=True, seed=seed)
         self.num_actions = self._env.action_space.n  # 17
 

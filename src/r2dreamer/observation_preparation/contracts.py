@@ -44,7 +44,8 @@ def _tuple_value(config: Any, name: str) -> tuple[int, ...]:
 
 
 def encoder_module_kwargs_from_config(
-    config: Any, encoder_module_cls: type,
+    config: Any,
+    encoder_module_cls: type,
 ) -> dict[str, Any]:
     """Resolve Encoder Module constructor kwargs from an effective config."""
     class_name = encoder_module_cls.__name__
@@ -55,10 +56,12 @@ def encoder_module_kwargs_from_config(
             "mults": _tuple_value(config, "encoder_mults"),
         }
         if getattr(config, "encoder_type", None) == "vggt_wp_dense_cnn":
-            kwargs.update({
-                "input_kind": "world_points",
-                "embed_dim": int(config.vggt_embed_dim),
-            })
+            kwargs.update(
+                {
+                    "input_kind": "world_points",
+                    "embed_dim": int(config.vggt_embed_dim),
+                }
+            )
         return kwargs
     if class_name == "WP64CNNCPMLPEncoder":
         return {
@@ -173,16 +176,19 @@ class ObservationFormContract:
 
     @classmethod
     def from_snapshot(
-        cls, snapshot: Mapping[str, Any],
+        cls,
+        snapshot: Mapping[str, Any],
     ) -> "ObservationFormContract":
         kind = snapshot["kind"]
         if kind == "single":
             return cls(ObservationField.from_snapshot(snapshot["field"]))
         if kind == "structured":
-            return cls({
-                key: ObservationField.from_snapshot(field_snapshot)
-                for key, field_snapshot in snapshot["fields"].items()
-            })
+            return cls(
+                {
+                    key: ObservationField.from_snapshot(field_snapshot)
+                    for key, field_snapshot in snapshot["fields"].items()
+                }
+            )
         raise ValueError(f"unknown observation form snapshot kind {kind!r}")
 
 
@@ -215,7 +221,9 @@ class EncoderInputContract:
             "agent_observation": self.agent_observation.to_snapshot(),
             "encoder_input": self.encoder_input.to_snapshot(),
             "decoder_target": (
-                None if self.decoder_target is None else self.decoder_target.to_snapshot()
+                None
+                if self.decoder_target is None
+                else self.decoder_target.to_snapshot()
             ),
             "agent_overrides": dict(self.agent_overrides),
             "encoder_module_kwargs": dict(self.encoder_module_kwargs),
@@ -224,7 +232,8 @@ class EncoderInputContract:
 
     @classmethod
     def from_snapshot(
-        cls, snapshot: Mapping[str, Any],
+        cls,
+        snapshot: Mapping[str, Any],
     ) -> "EncoderInputContract":
         if int(snapshot.get("version", 1)) != 1:
             raise ValueError(

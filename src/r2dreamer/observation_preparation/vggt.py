@@ -22,7 +22,9 @@ from src.r2dreamer.observation_preparation.contracts import (
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
-VGGTFeatureKind = Literal["wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"]
+VGGTFeatureKind = Literal[
+    "wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"
+]
 HeadEncoderInputKind = Literal["flat_wp_cp", "structured_wp_cp", "world_points"]
 
 VGGT_IMAGE_SIZE = 518
@@ -92,7 +94,9 @@ def world_points_side_for_head_readout(extractor: Any, spec: HeadReadoutSpec) ->
     return int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
 
 
-def contract_world_points_hwc_shape(contract: EncoderInputContract) -> tuple[int, int, int]:
+def contract_world_points_hwc_shape(
+    contract: EncoderInputContract,
+) -> tuple[int, int, int]:
     """Resolve the extractor-facing HWC point-map shape from a structured contract."""
     shape_by_field = contract.replay_observation.buffer_shape()
     if not isinstance(shape_by_field, dict):
@@ -102,10 +106,14 @@ def contract_world_points_hwc_shape(contract: EncoderInputContract) -> tuple[int
         raise ValueError(f"expected CHW world-points contract shape, got {chw_shape}")
     channels, height, width = chw_shape
     if height != width:
-        raise ValueError(f"expected square world-points contract shape, got {chw_shape}")
+        raise ValueError(
+            f"expected square world-points contract shape, got {chw_shape}"
+        )
     expected_hwc_shape = world_points_hwc_shape(height)
     if channels != expected_hwc_shape[-1]:
-        raise ValueError(f"expected {expected_hwc_shape[-1]} world-point channels, got {channels}")
+        raise ValueError(
+            f"expected {expected_hwc_shape[-1]} world-point channels, got {channels}"
+        )
     return expected_hwc_shape
 
 
@@ -136,7 +144,9 @@ HYBRID_FEATURE_DIM = hybrid_feature_dim()
 def _env_observation(env_render_resolution: int) -> ObservationFormContract:
     return ObservationFormContract(
         {
-            "image": ObservationField((3, env_render_resolution, env_render_resolution), "uint8"),
+            "image": ObservationField(
+                (3, env_render_resolution, env_render_resolution), "uint8"
+            ),
             "is_first": ObservationField((), "bool"),
         }
     )
@@ -158,8 +168,12 @@ def _wp_cp_fields(
     camera_pose_dtype: str,
 ) -> dict[str, ObservationField]:
     return {
-        WORLD_POINTS_KEY: ObservationField(world_points_shape, world_points_dtype, normalize_on_sample=False),
-        CAMERA_POSE_KEY: ObservationField((VGGT_CAMERA_POSE_DIM,), camera_pose_dtype, normalize_on_sample=False),
+        WORLD_POINTS_KEY: ObservationField(
+            world_points_shape, world_points_dtype, normalize_on_sample=False
+        ),
+        CAMERA_POSE_KEY: ObservationField(
+            (VGGT_CAMERA_POSE_DIM,), camera_pose_dtype, normalize_on_sample=False
+        ),
     }
 
 
@@ -236,7 +250,9 @@ def _default_encoder_type(feature_kind: VGGTFeatureKind, wp_pool_size: int) -> s
     raise ValueError(f"unknown VGGT feature_kind {feature_kind!r}")
 
 
-def _default_module_cls(encoder_type: str, feature_kind: VGGTFeatureKind) -> type[nn.Module]:
+def _default_module_cls(
+    encoder_type: str, feature_kind: VGGTFeatureKind
+) -> type[nn.Module]:
     if encoder_type == "hybrid":
         return wm_encoders.HybridEncoder
     if spec := head_readout_spec(feature_kind):
@@ -246,13 +262,21 @@ def _default_module_cls(encoder_type: str, feature_kind: VGGTFeatureKind) -> typ
     return wm_encoders.VGGTEncoder
 
 
-def _vggt_shape_dtype(extractor: Any, feature_kind: VGGTFeatureKind) -> tuple[tuple[int, ...], str]:
+def _vggt_shape_dtype(
+    extractor: Any, feature_kind: VGGTFeatureKind
+) -> tuple[tuple[int, ...], str]:
     if feature_kind == "aggregator":
-        return (aggregator_pooled_dim(tuple(extractor.aggregator_feature_shape)),), "float32"
+        return (
+            aggregator_pooled_dim(tuple(extractor.aggregator_feature_shape)),
+        ), "float32"
     if feature_kind == "agg_raw":
-        return (aggregator_raw_dim(tuple(extractor.aggregator_feature_shape)),), "float16"
+        return (
+            aggregator_raw_dim(tuple(extractor.aggregator_feature_shape)),
+        ), "float16"
     if feature_kind == "agg_tokens":
-        return (aggregator_token_dim(tuple(extractor.aggregator_feature_shape)),), "float16"
+        return (
+            aggregator_token_dim(tuple(extractor.aggregator_feature_shape)),
+        ), "float16"
     raise ValueError(f"unknown non-head VGGT feature_kind {feature_kind!r}")
 
 
@@ -268,7 +292,9 @@ def build_vggt_contract(
 ) -> EncoderInputContract:
     """Build the Encoder Input Contract for one VGGT readout variant."""
     wp_pool_size = int(getattr(extractor, "wp_pool_size", VGGT_DEFAULT_WP_POOL_SIZE))
-    resolved_encoder_type = encoder_type or _default_encoder_type(feature_kind, wp_pool_size)
+    resolved_encoder_type = encoder_type or _default_encoder_type(
+        feature_kind, wp_pool_size
+    )
     if spec := head_readout_spec(feature_kind):
         image_size = int(getattr(extractor, "image_size", VGGT_IMAGE_SIZE))
         wp_side = world_points_side_for_head_readout(extractor, spec)
@@ -285,7 +311,9 @@ def build_vggt_contract(
         )
         encoder_input_by_kind = {
             "flat_wp_cp": ObservationFormContract(
-                ObservationField((wp_cp_dim(wp_pool_size),), "float32", normalize_on_sample=False)
+                ObservationField(
+                    (wp_cp_dim(wp_pool_size),), "float32", normalize_on_sample=False
+                )
             ),
             "structured_wp_cp": ObservationFormContract(agent_fields),
             "world_points": ObservationFormContract(
@@ -303,10 +331,13 @@ def build_vggt_contract(
             observation_preparation_type=resolved_encoder_type,
             encoder_type=resolved_encoder_type,
             env_render_resolution=render_resolution,
-            encoder_module_cls=encoder_module_cls or _default_module_cls(resolved_encoder_type, feature_kind),
+            encoder_module_cls=encoder_module_cls
+            or _default_module_cls(resolved_encoder_type, feature_kind),
             env_observation=_env_observation(render_resolution),
             replay_observation=ObservationFormContract(replay_fields),
-            agent_observation=ObservationFormContract({**agent_fields, "is_first": ObservationField((), "bool")}),
+            agent_observation=ObservationFormContract(
+                {**agent_fields, "is_first": ObservationField((), "bool")}
+            ),
             encoder_input=encoder_input,
             decoder_target=None,
             agent_overrides=resolved_overrides,
@@ -328,7 +359,8 @@ def build_vggt_contract(
         observation_preparation_type=resolved_encoder_type,
         encoder_type=resolved_encoder_type,
         env_render_resolution=render_resolution,
-        encoder_module_cls=encoder_module_cls or _default_module_cls(resolved_encoder_type, feature_kind),
+        encoder_module_cls=encoder_module_cls
+        or _default_module_cls(resolved_encoder_type, feature_kind),
         env_observation=_env_observation(render_resolution),
         replay_observation=ObservationFormContract(replay_field),
         agent_observation=_agent_features_observation(shape),
@@ -355,12 +387,20 @@ def build_hybrid_contract(
     )
 
     replay_fields = {
-        HYBRID_IMAGE_KEY: ObservationField(HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False),
-        HYBRID_WP_CP_KEY: ObservationField(wp_cp_shape, "float32", normalize_on_sample=False),
+        HYBRID_IMAGE_KEY: ObservationField(
+            HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
+        ),
+        HYBRID_WP_CP_KEY: ObservationField(
+            wp_cp_shape, "float32", normalize_on_sample=False
+        ),
     }
     agent_fields = {
-        HYBRID_IMAGE_KEY: ObservationField(HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False),
-        HYBRID_WP_CP_KEY: ObservationField(wp_cp_shape, "float32", normalize_on_sample=False),
+        HYBRID_IMAGE_KEY: ObservationField(
+            HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
+        ),
+        HYBRID_WP_CP_KEY: ObservationField(
+            wp_cp_shape, "float32", normalize_on_sample=False
+        ),
         "is_first": ObservationField((), "bool"),
     }
 
@@ -372,8 +412,16 @@ def build_hybrid_contract(
         env_observation=_env_observation(render_resolution),
         replay_observation=ObservationFormContract(replay_fields),
         agent_observation=ObservationFormContract(agent_fields),
-        encoder_input=ObservationFormContract(ObservationField((hybrid_feature_dim(wp_pool_size),), "float32")),
-        decoder_target=ObservationFormContract(ObservationField(HYBRID_IMAGE_SHAPE, "float32")),
-        agent_overrides=dict(agent_overrides if agent_overrides is not None else _DEFAULT_AGENT_OVERRIDES["hybrid"]),
+        encoder_input=ObservationFormContract(
+            ObservationField((hybrid_feature_dim(wp_pool_size),), "float32")
+        ),
+        decoder_target=ObservationFormContract(
+            ObservationField(HYBRID_IMAGE_SHAPE, "float32")
+        ),
+        agent_overrides=dict(
+            agent_overrides
+            if agent_overrides is not None
+            else _DEFAULT_AGENT_OVERRIDES["hybrid"]
+        ),
         design_notes=design_notes,
     )

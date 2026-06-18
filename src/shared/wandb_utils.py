@@ -124,5 +124,7 @@ class EpisodeTracker:
             )
         for cat, per in self._per_cat.items():
             for k, dq in per.items():
-                metrics[f"goal/{cat}/{self._OUTPUT_RENAME.get(k, k)}"] = float(np.mean(dq))
+                metrics[f"goal/{cat}/{self._OUTPUT_RENAME.get(k, k)}"] = float(
+                    np.mean(dq)
+                )
         return metrics
