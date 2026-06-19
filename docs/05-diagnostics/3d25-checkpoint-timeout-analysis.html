@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Why every collection episode hits max_episode_steps</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #ffffff;
+    --surface: #f8fafc;
+    --surface-2: #f1f5f9;
+    --accent: #2563eb;
+    --accent-soft: #dbeafe;
+    --warn: #d97706;
+    --warn-soft: #fef3c7;
+    --good: #059669;
+    --good-soft: #d1fae5;
+    --bad: #dc2626;
+    --bad-soft: #fee2e2;
+    --text: #0f172a;
+    --text-dim: #475569;
+    --text-mute: #94a3b8;
+    --border: #e2e8f0;
+    --shadow: 0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 56px 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    color: var(--text-dim);
+    font-size: 16px;
+    margin-bottom: 36px;
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 44px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 { font-size: 16px; font-weight: 600; margin: 22px 0 8px; }
+
+  p { margin-bottom: 12px; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 0.88em;
+    background: var(--surface-2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #1e293b;
+  }
+
+  pre {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 12px 0 18px;
+    color: #1e293b;
+  }
+
+  pre .hi   { color: #b45309; font-weight: 600; }
+  pre .add  { color: #065f46; font-weight: 600; }
+  pre .del  { color: #991b1b; font-weight: 600; }
+
+  ul, ol { margin: 8px 0 12px 22px; }
+  li { margin-bottom: 6px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: var(--shadow);
+  }
+
+  .tldr {
+    background: linear-gradient(180deg, var(--accent-soft) 0%, var(--surface) 100%);
+    border-color: #bfdbfe;
+    margin-bottom: 8px;
+  }
+
+  .tldr h2 { border: 0; margin-top: 0; margin-bottom: 12px; font-size: 18px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 12px 0 20px;
+  }
+
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--surface);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+  }
+
+  tbody tr:hover { background: var(--surface); }
+
+  td.num   { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  td.mono  { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; }
+
+  .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pill-good { background: var(--good-soft); color: var(--good); }
+  .pill-warn { background: var(--warn-soft); color: var(--warn); }
+  .pill-bad  { background: var(--bad-soft); color: var(--bad); }
+  .pill-blue { background: var(--accent-soft); color: var(--accent); }
+
+  .note {
+    background: var(--accent-soft);
+    border: 1px solid #bfdbfe;
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 14px;
+    color: #1e3a8a;
+    margin: 12px 0;
+  }
+  .note strong { color: #1e40af; }
+
+  .note-warn {
+    background: var(--warn-soft);
+    border-color: #fde68a;
+    border-left-color: var(--warn);
+    color: #78350f;
+  }
+  .note-warn strong { color: #92400e; }
+
+  .note-good {
+    background: var(--good-soft);
+    border-color: #a7f3d0;
+    border-left-color: var(--good);
+    color: #064e3b;
+  }
+  .note-good strong { color: #065f46; }
+
+  .note-bad {
+    background: var(--bad-soft);
+    border-color: #fecaca;
+    border-left-color: var(--bad);
+    color: #7f1d1d;
+  }
+  .note-bad strong { color: #991b1b; }
+
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .panel.train   { border-left: 4px solid var(--good); }
+  .panel.collect { border-left: 4px solid var(--bad); }
+  .panel h3 { margin-top: 0; }
+  .panel .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+  .panel ul { margin-left: 18px; }
+  .panel li { font-size: 14px; }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-mute);
+  }
+
+  @media (max-width: 720px) {
+    .split { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Why every collection episode hits <code>max_episode_steps</code></h1>
+<p class="subtitle">3D-25 · offline buffer collection · The CNN baseline that converged on <a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/a1aqhpnk">a1aqhpnk</a> never terminates an episode early during the rollout in <a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/j6fpgmg1">j6fpgmg1</a>. Every single one of the first 78 episodes ran the full 500 steps. This document shows the evidence, names the cause, and proposes the fix.</p>
+
+<div class="card tldr">
+  <h2>TL;DR</h2>
+  <p>The policy in <code>step_001000000.pkl</code> was trained on curriculum <strong>L1</strong>: <strong>one scene</strong> (<code>fK2vEV32Lag</code>) and <strong>one goal class</strong> (<code>chair</code>), 7499 train episodes. It never sees a goal-category input — the agent's <code>act()</code> consumes only <code>image</code> and <code>is_first</code>. What it learned is a fixed, scene-conditional chair-finding behavior.</p>
+  <p style="margin-top: 8px;">The collection sbatch passes neither <code>--curriculum-path</code> nor <code>--semantic</code>, so the env defaults to the <strong>full HM3D train split</strong> — 80+ unseen houses crossed with 6 goal classes the policy never trained on. Habitat terminates an episode only on goal-proximity success or on the step cap, and STOP (action 0) is a no-op. With near-zero success probability per episode, the cap is the only termination path. Result: 100 % of episodes run to 500 steps.</p>
+</div>
+
+<h2>The evidence</h2>
+
+<p>From <code>output/offline-buffer-3d25/slurm-4762927.out</code>, every log line shows exactly two new episodes per 1000 steps and <code>current_ep_steps=0</code> — meaning the log is emitted right after a freshly logged <code>reset()</code> consumed the boundary:</p>
+
+<pre>collected  1000/500000 transitions (episode  2, current_ep_steps=0)
+collected  2000/500000 transitions (episode  4, current_ep_steps=0)
+collected  3000/500000 transitions (episode  6, current_ep_steps=0)
+...
+collected 38000/500000 transitions (episode 76, current_ep_steps=0)
+collected 39000/500000 transitions (episode 78, current_ep_steps=0)</pre>
+
+<p>39 000 transitions divided by 78 episodes is <strong>exactly 500</strong>. Combine that with the cap in <a href="../../src/environments/habitat.py#L246"><code>src/environments/habitat.py:246</code></a>:</p>
+
+<pre>done = success &gt; 0 or self._step_count &gt;= self._cfg.max_episode_steps</pre>
+
+<p>Two boolean disjuncts can end an episode. The pattern says one of them never fires.</p>
+
+<div class="note note-bad"><strong>Implicit success rate so far: 0 / 78.</strong> No episode terminated through the <code>success</code> branch.</div>
+
+<h2>Where the mismatch sits — train vs. collect</h2>
+
+<p>Both runs load the same checkpoint, but they construct the environment very differently. Here is what each side actually does.</p>
+
+<div class="split">
+  <div class="panel train">
+    <h3>Training <span class="pill pill-good">a1aqhpnk</span></h3>
+    <p class="meta">scripts/r2dreamer/slurm/train_curriculum_l1.sbatch<br>scripts/r2dreamer/run_jax_habitat.py</p>
+    <ul>
+      <li>Curriculum <strong>L1</strong>: <code>level1_1house_1goal.json</code></li>
+      <li>Scenes: <code>["fK2vEV32Lag"]</code> — single house</li>
+      <li>Goal categories: <code>["chair"]</code> — single class</li>
+      <li>Episode pool: 7499 train, ~833 eval (90/10 split, filtered to episodes the WM has seen &lt; 200 times)</li>
+      <li>Total env interaction: 2.4 M steps · <code>--act_entropy 3e-2</code></li>
+      <li>Checkpoint snapshot: <code>step_001000000.pkl</code> (41 % through training)</li>
+    </ul>
+  </div>
+
+  <div class="panel collect">
+    <h3>Collection <span class="pill pill-bad">j6fpgmg1</span></h3>
+    <p class="meta">scripts/r2dreamer/slurm/collect_offline_buffer_3d25.sbatch<br>scripts/r2dreamer/collect_offline_buffer.py</p>
+    <ul>
+      <li>No <code>--curriculum-path</code> passed → defaults to <code>None</code></li>
+      <li>No <code>--semantic</code> flag</li>
+      <li><code>--split train</code> (default)</li>
+      <li>Resulting env: <strong>full HM3D train split</strong> — 80+ scenes × all 6 ObjectNav goal classes (chair, bed, plant, sofa, toilet, tv_monitor)</li>
+      <li><code>--max-episode-steps 500</code> (default)</li>
+      <li>Target: 500 000 transitions</li>
+    </ul>
+  </div>
+</div>
+
+<p>The env builder routes the curriculum flag here (<a href="../../src/environments/habitat.py#L97"><code>src/environments/habitat.py</code> around L97</a>):</p>
+
+<pre><span class="hi"># build_habitat_env passes curriculum_path into HabitatTaskConfig</span>
+if curriculum_path is not None:
+    split = "train"
+    with open(curriculum_path) as f:
+        cfg = json.load(f)
+    <span class="hi"># &hellip; then filters episodes to the (scene, category, ep_id) tuples in cfg</span>
+else:
+    <span class="hi"># the dataset is the raw HM3D split — every house, every goal class</span>
+    hab_cfg.habitat.dataset.split = split</pre>
+
+<p>So <code>curriculum_path=None</code> is not a "no-op" — it is the difference between <em>one house with chairs</em> and <em>the whole train split</em>.</p>
+
+<h2>Why the policy can't recover from this mismatch</h2>
+
+<h3>1. No goal conditioning</h3>
+
+<p>The agent's <code>act()</code> in <a href="../../src/r2dreamer/agent.py#L290"><code>src/r2dreamer/agent.py:290</code></a> takes <code>{"image": (3,64,64), "is_first": bool}</code> for the CNN encoder. There is no field for the goal category. During L1 training every episode was "find chair" so the policy never needed one — it just learned the visual pattern of chairs in <code>fK2vEV32Lag</code>. When the collection env asks it to find a <em>bed</em> in a different house, the policy is structurally incapable of representing that request.</p>
+
+<h3>2. Scene-specific learned behavior</h3>
+
+<p>One scene × one goal class for 2.4 M env steps is a degenerate setting that rewards memorizing the layout of <code>fK2vEV32Lag</code>. The L1 curriculum description in <code>level1_1house_1goal.json</code> is candid about this:</p>
+
+<pre>{
+  "name": "level1_1house_1goal",
+  "description": "Single house (fK2vEV32Lag), chair only — proves WM learns",
+  "scenes": ["fK2vEV32Lag"],
+  "categories": ["chair"],
+  ...
+}</pre>
+
+<p>"Proves WM learns" — i.e. it is a sanity-check curriculum, not a generalist policy. Asking it to navigate unseen houses is asking it to do something nobody trained for.</p>
+
+<h3>3. No way for the agent to "give up"</h3>
+
+<p>In standard Habitat ObjectNav, the agent calls <code>STOP</code> when it believes it has reached the goal; the env then checks proximity and emits <code>success</code> or failure. In this repo, <a href="../../src/environments/habitat.py#L220"><code>habitat.py:220–231</code></a> redefines STOP as a no-op — the env <em>automatically</em> declares success the moment <code>_is_success_distance(distance_to_goal)</code> is true. The agent has no behavioural lever for early termination. Its only paths to <code>done=True</code> are:</p>
+
+<ul>
+  <li><strong>Stumble within success radius</strong> of the goal object. Near-zero probability with no goal conditioning in a new house.</li>
+  <li><strong>Hit <code>max_episode_steps</code></strong>. Probability ~1.0 given the above.</li>
+</ul>
+
+<p>The 500/500 pattern is just these two probabilities resolving.</p>
+
+<h2>The fix</h2>
+
+<p>Add the L1 curriculum to the collection sbatch. The arg threading already exists end-to-end — <code>collect_offline_buffer.py:561</code> defines <code>--curriculum-path</code>, <code>:353</code> forwards it to <code>build_habitat_env</code>, and the env consumes it. Two lines in <a href="../../archiv/slurm-legacy-sbatch/collect_offline_buffer_3d25.sbatch"><code>collect_offline_buffer_3d25.sbatch</code></a>:</p>
+
+<pre>.venv/bin/python scripts/r2dreamer/collect_offline_buffer.py \
+    --checkpoint "${CNN_CHECKPOINT}" \
+    --n-steps 500000 \
+    --collect-seed 42 \
+    --out-dir data/offline_buffer \
+<span class="add">    --curriculum-path data/curriculum/level1_1house_1goal.json \</span>
+<span class="add">    --curriculum-mode train \</span>
+    --wandb-project 3d-vla-objectnav \
+    --wandb-name "3d25-offline-buffer-${SLURM_JOB_ID}" \
+    --wandb-tags "offline-buffer,3d-25,cnn-source,vggt-readouts" \
+    --wandb-init-timeout 600 \
+    --log-every 1000 \
+    --wandb-log-every 1000</pre>
+
+<p>With this change the rollout env is restricted to the exact 7499 episodes the policy was trained on, success becomes a regularly-firing termination branch, and the buffer fills with non-degenerate trajectories. Episode lengths will become a distribution (success at 60–250 steps for solved episodes, 500 for the residual failures) instead of a delta at 500.</p>
+
+<div class="note"><strong>If you also want the policy to see semantic targets,</strong> add <code>--semantic</code>. The current checkpoint was trained without it (L1 sbatch doesn't pass any flag that enables it), so leaving it off keeps observation parity with training.</div>
+
+<h2>The decision you actually have to make</h2>
+
+<p>The patch above gives you an <strong>in-distribution</strong> buffer. The current sbatch silently gives you an <strong>out-of-distribution</strong> buffer with the same checkpoint. Which one does 3D-25 want?</p>
+
+<table>
+  <thead>
+    <tr><th style="width: 22%">Buffer flavour</th><th style="width: 26%">What's in it</th><th>When the VGGT readout ablation wants this</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="pill pill-good">In-distribution</span><br><code>L1</code> curriculum</td>
+      <td>~7500 episodes in <code>fK2vEV32Lag</code>, chair goal, mixed success/failure trajectories with non-trivial reward signal</td>
+      <td>The readout has to predict something the policy is competent at — value, dynamics, planning targets. Matches the training distribution of the CNN baseline so the comparison is fair.</td>
+    </tr>
+    <tr>
+      <td><span class="pill pill-warn">Out-of-distribution</span><br>full HM3D train split (current)</td>
+      <td>~1000 random-walk trajectories of length 500 each, near-zero reward signal, near-zero goal-reach events</td>
+      <td>You want to probe whether VGGT readouts transfer to unseen visual distributions independent of policy competence. Less useful for "ablate the readout against the L1 baseline" because there is no L1 baseline behaviour to ablate.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The docstring at the top of <a href="../../archiv/offline-r2dreamer-20260602/scripts/r2dreamer/collect_offline_buffer.py#L1-L14"><code>collect_offline_buffer.py</code></a> calls this "the canonical offline replay buffer for the VGGT readout ablation". Canonical-and-ablation framing strongly suggests in-distribution: the readout needs trajectories where the latent state actually carries useful structure for the downstream task. Random-walk frames from unseen houses produce noisy readout targets.</p>
+
+<h2>Secondary observations</h2>
+
+<h3>Hidden-state reset is not the problem</h3>
+
+<p>Per-episode RSSM reset works: <code>habitat.py:216</code> returns <code>{"is_first": True, ...}</code> from <code>reset()</code>, the collect loop passes that through, and <code>agent.act()</code> zeros <code>_act_stoch</code> / <code>_act_deter</code> / <code>_act_prev_action</code> when <code>is_first</code> is true. Confirmed at <a href="../../src/r2dreamer/agent.py#L311-L314"><code>agent.py:311–314</code></a>. So the policy enters each episode with a clean recurrent state — the failure is not state pollution, it is the absence of useful behaviour to begin with.</p>
+
+<h3>Throughput won't reach 500 000 in 12 h</h3>
+
+<p>Current run rate is ~5.3 transitions/sec, projecting to roughly 228 000 transitions over 12 h. Even with the curriculum fix the buffer will likely cap below the requested 500 K within the SLURM walltime. Either bump <code>--time</code> (the gpu_h100_il queue has higher caps) or accept a partial buffer.</p>
+
+<h3>The dev smoke job crashed with SIGABRT, not TIMEOUT</h3>
+
+<p>Job <code>4762909</code> (dev) died at 13:03 with exit 134, last Python log being the HF Hub auth warning. Mem at 20 % so it isn't host OOM — most likely a JAX-XLA abort during compile or a transient HF download failure. Prod survived past the same wall-clock point so it skated through whatever transient bit dev. Worth setting <code>HF_TOKEN</code> in the sbatch env to close that failure mode for future runs.</p>
+
+<h2>Verification once the patch lands</h2>
+
+<p>After resubmitting with the curriculum path, check three signals before letting the run go for 12 h:</p>
+
+<ol>
+  <li><strong>Rollout log shows variable episode lengths.</strong> Grep <code>output/offline-buffer-3d25/slurm-&lt;jobid&gt;.err</code> for <code>collected</code> lines and confirm <code>current_ep_steps</code> varies across logs, not always 0 / 500.</li>
+  <li><strong><code>rollout_log.jsonl</code> contains <code>completed: true</code> entries with <code>steps &lt; 500</code>.</strong> Those are the success-branch terminations.</li>
+  <li><strong>W&amp;B <code>collect/episode_id</code> rises slower than 2 per 1000 steps.</strong> If episodes still hit 500 the rate stays at 2/1000; with successful episodes it drops.</li>
+</ol>
+
+<footer>
+  Generated 2026-05-21 · 3D-25 offline buffer collection diagnosis · evidence drawn from
+  <code>scripts/r2dreamer/collect_offline_buffer.py</code>,
+  <code>scripts/r2dreamer/slurm/collect_offline_buffer_3d25.sbatch</code>,
+  <code>scripts/r2dreamer/slurm/train_curriculum_l1.sbatch</code>,
+  <code>src/environments/habitat.py</code>,
+  <code>src/r2dreamer/agent.py</code>,
+  <code>data/curriculum/level1_1house_1goal.json</code>, and
+  <code>output/offline-buffer-3d25/slurm-4762927.out</code>.
+</footer>
+
+</div>
+</body>
+</html>

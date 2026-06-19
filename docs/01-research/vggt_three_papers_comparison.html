@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Three VGGT-Based Papers — Comparison for the DreamerV3 + 3D Thesis</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters: [{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+<style>
+:root{
+  --bg:#fdfdfa;
+  --fg:#1a1a1a;
+  --muted:#6b6b6b;
+  --accent:#1f5f8b;
+  --accent2:#7a3b2e;
+  --accent-soft:#e8f0f7;
+  --border:#e0ddd5;
+  --card:#ffffff;
+  --code-bg:#f4f1e8;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:'Charter','Iowan Old Style','Source Serif Pro',Georgia,serif;
+  font-size:16px;
+  line-height:1.65;
+}
+.container{max-width:1000px;margin:0 auto;padding:48px 32px 96px}
+h1,h2,h3,h4{font-family:'Helvetica Neue','Inter',system-ui,-apple-system,sans-serif;letter-spacing:-0.01em;line-height:1.25}
+h1{font-size:2.15em;margin-bottom:0.2em}
+h2{font-size:1.5em;margin-top:2.6em;padding-bottom:0.3em;border-bottom:2px solid var(--accent);color:var(--accent)}
+h3{font-size:1.18em;margin-top:1.8em;color:#222}
+h4{font-size:1em;margin-top:1.3em;color:var(--accent)}
+.subtitle{color:var(--muted);font-style:italic;margin-bottom:1.2em}
+.tldr{background:var(--accent-soft);border-left:4px solid var(--accent);padding:16px 22px;margin:24px 0;border-radius:4px}
+.tldr h3{margin-top:0;color:var(--accent)}
+.paper-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:22px 28px;margin:24px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+.paper-card .meta{font-family:'SF Mono',Menlo,monospace;font-size:0.85em;color:var(--muted);margin-bottom:14px}
+.arxiv{display:inline-block;background:#b31b1b;color:white;padding:2px 9px;border-radius:3px;font-weight:600;font-family:'SF Mono',Menlo,monospace;font-size:0.85em;margin-right:8px;text-decoration:none}
+.arxiv:hover{background:#8a1414}
+table{border-collapse:collapse;width:100%;margin:16px 0 24px;font-size:0.93em}
+th,td{border:1px solid var(--border);padding:10px 13px;text-align:left;vertical-align:top}
+th{background:var(--accent-soft);color:var(--accent);font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-weight:600;font-size:0.86em;letter-spacing:0.03em;text-transform:uppercase}
+tr:nth-child(even) td{background:#fafaf6}
+code{background:var(--code-bg);padding:2px 6px;border-radius:3px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.88em}
+pre{background:var(--code-bg);padding:12px 16px;border-radius:4px;overflow-x:auto;font-size:0.85em;line-height:1.5}
+.warn{background:#fff8e6;border-left:4px solid #d4a017;padding:12px 18px;margin:16px 0;border-radius:3px}
+.diff{background:#fef0ee;border-left:4px solid #b34a3b;padding:12px 18px;margin:16px 0;border-radius:3px}
+.fit{background:#ecf6ee;border-left:4px solid #4a7a4a;padding:12px 18px;margin:16px 0;border-radius:3px}
+.fit h4,.warn h4,.diff h4{margin-top:0}
+ul,ol{padding-left:1.6em}
+li{margin-bottom:0.35em}
+.toc{background:#f7f5ee;padding:14px 24px;border-radius:6px;margin:24px 0;font-size:0.94em}
+.toc ol{margin:6px 0 0;padding-left:1.6em}
+.toc a{color:var(--accent);text-decoration:none}
+.toc a:hover{text-decoration:underline}
+a{color:var(--accent)}
+hr{border:0;border-top:1px solid var(--border);margin:36px 0}
+.tag{display:inline-block;font-size:0.76em;padding:2px 8px;border-radius:10px;background:var(--accent-soft);color:var(--accent);margin-right:4px;font-family:'Helvetica Neue','Inter',system-ui,sans-serif}
+.tag.warn-tag{background:#fff0d6;color:#8c6e10}
+.tag.good-tag{background:#dceedd;color:#3d6b3d}
+footer{color:var(--muted);font-size:0.85em;margin-top:64px;text-align:center;border-top:1px solid var(--border);padding-top:24px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}
+.row > div{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px 18px}
+.row h4{margin-top:0}
+.callout-key{font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-size:0.95em;color:var(--accent2);font-weight:600;margin-top:1em}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>📚 Three VGGT-Based Papers — Comparison for Your DreamerV3 + 3D Thesis</h1>
+<p class="subtitle">VGGT-World &middot; MG-Nav &middot; VGGT-DP — read in light of your HM3D ObjectNav pipeline (StreamVGGT → R2Dreamer)</p>
+<p class="meta" style="font-family:'SF Mono',Menlo,monospace;font-size:0.85em;color:#888">Compiled 2026-05-09 &middot; sources verified on arXiv</p>
+
+<div class="tldr">
+<h3>🎯 TL;DR</h3>
+<ul>
+<li>All three papers <strong>freeze VGGT</strong> and add a small trainable head on top — none fine-tune the backbone, none use HM3D ObjectNav.</li>
+<li>All three feed VGGT's <strong>aggregator tokens</strong> into the downstream model. <strong>None</strong> of them use the decoded depth, point map, or camera-parameter heads. <em>This is the opposite of your current pipeline,</em> which feeds <code>world_points</code> + <code>camera_pose</code> from the DPT decoders.</li>
+<li>None of the three cite each other — they are <strong>concurrent</strong> works (Sep 2025 → Mar 2026), each citing only the original VGGT (Wang et al., CVPR 2025).</li>
+<li>Closest to your setup: <strong>VGGT-World</strong> (autoregressive geometry world model, conceptually a sibling to DreamerV3's RSSM but action-free). Most directly competitive territory: <strong>MG-Nav</strong> (HM3D, but ImageNav not ObjectNav, and its VGGT contribution is small).</li>
+<li>Borrow from each: <strong>layer-4 aggregator tap + forecast-improves-present auxiliary loss</strong> (VGGT-World), <strong>frame-wise token reuse</strong> (VGGT-DP), <strong>frozen-VGGT-as-feature validation</strong> (MG-Nav).</li>
+</ul>
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+<li><a href="#bg">VGGT in 30 seconds (shared baseline)</a></li>
+<li><a href="#vggt-world">Paper 1: VGGT-World</a></li>
+<li><a href="#mg-nav">Paper 2: MG-Nav</a></li>
+<li><a href="#vggt-dp">Paper 3: VGGT-DP</a></li>
+<li><a href="#compare">Side-by-side comparison</a></li>
+<li><a href="#common">Common concepts &amp; how the papers relate</a></li>
+<li><a href="#yours">Your current pipeline at a glance</a></li>
+<li><a href="#fit">Fit to your thesis — what to borrow, avoid, claim</a></li>
+<li><a href="#sources">Sources</a></li>
+</ol>
+</div>
+
+<h2 id="bg">1. 🧩 VGGT in 30 seconds</h2>
+
+<p>VGGT (<em>Visual Geometry Grounded Transformer</em>, Wang et al., CVPR 2025, Meta) takes <em>N</em> images and produces, in a single forward pass:</p>
+<ul>
+<li>A patch encoder (DINO-style) producing per-frame patch tokens.</li>
+<li>An <strong>aggregator</strong>: ~24 alternating <em>frame-wise</em> and <em>global</em> self-attention blocks, $d=1024$.</li>
+<li>Per-frame: $N_p$ patch tokens + 1 camera token + 4 register tokens (1 used, 3 reserved). Token count per frame $\approx N_p + 5$.</li>
+<li>DPT-style heads decoding aggregator features into <strong>depth maps</strong>, <strong>point maps</strong> (world_points), and <strong>camera parameters</strong>.</li>
+</ul>
+
+<p>Two natural ways to "use VGGT":</p>
+<ol>
+<li><strong>Aggregator-as-encoder</strong> — pull tokens out of the transformer trunk before the DPT decoders. Used by all three papers below.</li>
+<li><strong>Decoded-geometry-as-feature</strong> — read off the DPT outputs (point map, depth, camera). Used by your current pipeline.</li>
+</ol>
+
+<p class="callout-key">This split is the single most important axis for the rest of this report.</p>
+
+<hr>
+
+<h2 id="vggt-world">2. 🌍 Paper 1: VGGT-World</h2>
+
+<div class="paper-card">
+<div class="meta">
+<a class="arxiv" href="https://arxiv.org/abs/2603.12655" target="_blank">arXiv:2603.12655</a>
+<em>Sun, Wang, Zhang, Liu, Jia, Song, Huang, Luo</em> &middot; announced 2026-03-13
+</div>
+<strong>VGGT-World: Transforming VGGT into an Autoregressive Geometry World Model</strong>
+<div style="margin-top:8px">
+<span class="tag">geometry world model</span>
+<span class="tag">autoregressive</span>
+<span class="tag">flow matching</span>
+<span class="tag warn-tag">no actions</span>
+</div>
+</div>
+
+<h3>What they consume from VGGT</h3>
+<p>They tap the aggregator <strong>very early</strong>, at layer 4 of ~48, and use the <em>full token bundle</em> at that depth as the world state:</p>
+<p>$$\mathbf{z}_t = \Phi_{\text{enc}}(I_t) \in \mathbb{R}^{N \times d},\quad d=1024,\ N = N_p + 5$$</p>
+<p>i.e. all $N_p$ patch tokens <strong>plus the camera token + register tokens</strong> after just 4 alternating attention blocks. The remaining aggregator blocks $\Phi_{\text{dec}}$ (layers 5–47) and the DPT heads are <strong>kept frozen and used only at decode time</strong> to produce final depth / point clouds. Depth, point map and camera parameter outputs are <em>not</em> input to the model — only output.</p>
+
+<h3>Architecture on top of VGGT</h3>
+<p>An MM-DiT-style temporal flow transformer $F_\theta$ with <strong>8 dual-stream + 8 single-stream blocks</strong> and 3D RoPE. Operates directly in the $d=1024$ token space, no compression. Autoregressive in <strong>chunks of 4 frames</strong>; predicts <em>clean</em> latents (z-prediction, not v-prediction, not pixels):</p>
+<p>$$\mathbf{Z}_i \approx F_\theta(\mathbf{Z}_{i,\tau}, \tau, \mathbf{c}_i)$$</p>
+
+<h3>Training</h3>
+<ul>
+<li><strong>VGGT fully frozen</strong> (~1.3 B params). Only $F_\theta$ trains: <strong>0.43 B params</strong>.</li>
+<li>Datasets: <strong>KITTI, Cityscapes, TartanAir</strong>. No HM3D/MP3D/CO3D/RealEstate.</li>
+<li>Two-stage curriculum:
+  <ol>
+  <li><strong>Teacher Forcing</strong> with ground-truth conditions, weighted z-prediction loss.</li>
+  <li><strong>Trajectory-Consistent Flow Forcing</strong>: $\mathbf{c}^{\text{mix}}_{i+1} = (1-\lambda)\mathbf{Z}_i + \lambda\hat{\mathbf{Z}}_{i,\tau_{\text{mid}}}$ with $\lambda$ annealed $0\to1$.</li>
+  </ol>
+</li>
+<li>Loss: z-prediction only — <em>no</em> explicit depth/pointmap supervision.</li>
+<li>Hardware: <strong>1× RTX Pro 6000 (96 GB)</strong>. AdamW, lr=2e-4, batch 64→48.</li>
+</ul>
+
+<h3>Action conditioning</h3>
+<p class="warn"><strong>None.</strong> The world model is unconditional — pure passive video forecasting. Authors flag in Future Work that adding pose/action is "a promising direction." For Dreamer-style RL this is a <em>major</em> gap.</p>
+
+<h3>Evaluation</h3>
+<ul>
+<li>Tasks: depth forecasting (short ~200 ms / mid ~600 ms), point-cloud forecasting on TartanAir, camera-trajectory preservation.</li>
+<li>Baselines: Cosmos-4B/12B, VISTA, DINO-Foresight, Aether, WVD, Gen3R, Copy-Last-VGGT.</li>
+<li><strong>No comparison against DreamerV3 / GAIA / Genie</strong> — this paper sits in geometry forecasting, not RL world modelling.</li>
+</ul>
+
+<h3>Headline results &amp; key ablations</h3>
+<ul>
+<li>KITTI AbsRel ↓ 0.065 short / 0.098 mid; ~21% over DINO-Foresight.</li>
+<li>5× faster than Cosmos at inference; 1.9 s/frame.</li>
+<li><strong>z-prediction vs v-prediction</strong>: load-bearing — v-prediction collapses in $d=1024$.</li>
+<li><strong>Forecast-improves-present</strong> (Table 4): training the future-prediction objective <em>improves current-frame</em> geometry (Compl 1.22 → 1.06; CD 1.04 → 0.97). 🔑 <em>This is the most thesis-relevant ablation.</em></li>
+<li>No ablation on <em>which token type</em> matters (camera vs register vs patch) — they take the bundle.</li>
+</ul>
+
+<div class="fit">
+<h4>🟢 What you can borrow</h4>
+<ul>
+<li><strong>Tap layer 4 of the aggregator</strong> as world state — earlier than you'd guess; the rest of VGGT becomes a frozen renderer.</li>
+<li>Use <strong>future-prediction as an auxiliary objective</strong> during world-model learning; their Table 4 evidence that future-pred improves <em>present</em> reconstruction is exactly the kind of free lunch a Dreamer encoder could exploit.</li>
+<li><strong>0.43 B trainable on a single 96 GB GPU</strong> sets a sane scale ceiling for your dynamics head.</li>
+</ul>
+</div>
+<div class="diff">
+<h4>🔴 Where it doesn't apply</h4>
+<ul>
+<li>No actions → useless as-is for an RL agent.</li>
+<li>Driving + TartanAir only → no indoor / no Habitat.</li>
+<li>Doesn't address long-horizon drift, dynamic objects, or occlusion — all live issues for ObjectNav.</li>
+</ul>
+</div>
+
+<hr>
+
+<h2 id="mg-nav">3. 🧭 Paper 2: MG-Nav</h2>
+
+<div class="paper-card">
+<div class="meta">
+<a class="arxiv" href="https://arxiv.org/abs/2511.22609" target="_blank">arXiv:2511.22609</a>
+<em>Wang, Lin, Liu, Hu, Yu, Liu, Wang, Qi</em> (HKU + SUSTech) &middot; 2025-11-27
+</div>
+<strong>MG-Nav: Dual-Scale Visual Navigation via Sparse Spatial Memory</strong>
+<div style="margin-top:8px">
+<span class="tag">HM3D</span>
+<span class="tag">ImageNav</span>
+<span class="tag">topological memory</span>
+<span class="tag good-tag">closest task to yours</span>
+</div>
+</div>
+
+<h3>What they consume from VGGT</h3>
+<p><strong>Only pooled feature tokens of the current observation and the goal image</strong>:</p>
+<p>$$\mathbf{F}^G_{\text{obs}} = \text{flatten}(\text{pool}(\text{VGGT}(I_{\text{obs}}))), \quad \mathbf{F}^G_{\text{goal}} = \text{flatten}(\text{pool}(\text{VGGT}(I_{\text{goal}})))$$</p>
+<p>That's it. <strong>No depth, no point map, no camera token, no register tokens, no DPT heads.</strong> VGGT is reduced to "a feature extractor that happens to know geometry."</p>
+
+<h3>Dual-scale architecture</h3>
+<ul>
+<li><strong>Global scale</strong> — <em>Sparse Memory Graph</em> (SMG): a region-centric topological graph of nodes $\mathbf{v}=(\mathbf{P},\mathbf{F},\mathbf{O})$ holding region centre, DINOv2 keyframe embeddings, and Grounded-SAM object embeddings. <strong>Built offline</strong> from posed tour demos via FPS over camera extrinsics ($d=1.0$ m, $r=0.5$ m). Path-planning by A* over this graph using hybrid keyframe + object retrieval.</li>
+<li><strong>Local scale</strong> — frozen <em>NavDP</em> (Navigation Diffusion Policy) executes waypoints, switching from point-goal to image-goal mode for the final leg.</li>
+</ul>
+<p>VGGT enters via a small <em>VGGT-adapter</em> MLP that projects $[\mathbf{F}^G_{\text{obs}}\,|\,\mathbf{F}^G_{\text{goal}}]$ into NavDP's embedding space and concatenates with NavDP's own visual tokens. Bolt-on, not redesign.</p>
+
+<h3>Training</h3>
+<p class="warn"><strong>Effectively training-free.</strong> NavDP, DINOv2, Grounded-SAM, and VGGT are all pretrained and frozen. The paper does not document any training procedure for the VGGT-adapter MLP — biggest reproducibility gap. SMG is built offline from HM3D / MP3D tour demos.</p>
+
+<h3>Benchmarks</h3>
+<ul>
+<li>HM3D <strong>InstanceImageNav</strong> (1000 episodes, 36 val scenes) — note: <em>not</em> ObjectNav.</li>
+<li>MP3D ImageNav (1014 episodes, 5 test scenes).</li>
+<li>Simulation only, no real robot.</li>
+</ul>
+
+<h3>Headline results &amp; the ablation that matters</h3>
+<table>
+<thead><tr><th>Configuration</th><th>HM3D SR</th><th>HM3D SPL</th><th>Δ SR vs prev row</th></tr></thead>
+<tbody>
+<tr><td>NavDP only</td><td>24.70</td><td>12.60</td><td>—</td></tr>
+<tr><td>+ SMG</td><td>74.04</td><td>56.14</td><td><strong>+49.3</strong></td></tr>
+<tr><td>+ SMG + VGGT-adapter</td><td>78.50</td><td>59.27</td><td>+4.5</td></tr>
+</tbody>
+</table>
+<p class="callout-key">The dominant gain is from the topological prior (SMG); VGGT contributes a real but secondary +4.5 SR. So this paper does <em>not</em> demonstrate that VGGT alone is a strong nav prior — only that <em>frozen pooled VGGT features</em> add modest signal on top of an already-strong system.</p>
+
+<h3>Relation to other VGGT work</h3>
+<p>Cites <strong>only the original VGGT paper</strong>. Does not discuss VGGT-World or VGGT-DP. Adjacent concurrent works in the same lane: JanusVLN (2509.22548), LoGoPlanner (2512.19629), Reloc-VGGT (2512.21883).</p>
+
+<div class="fit">
+<h4>🟢 What you can borrow</h4>
+<ul>
+<li><strong>Validation that frozen VGGT features add navigation signal</strong> on HM3D — useful for your related-work justification.</li>
+<li>Their <strong>weak use of VGGT is an opening</strong>: they discard depth, point map, camera and register tokens. A Dreamer-style world model that <em>does</em> consume those is a clean differentiator.</li>
+<li>The <strong>SMG / NavDP separation</strong> mirrors a planner+policy decomposition you may want to compare against if your architecture is end-to-end.</li>
+</ul>
+</div>
+<div class="diff">
+<h4>🔴 Where it differs from your setup</h4>
+<ul>
+<li>InstanceImageNav (goal = image) ≠ ObjectNav (goal = category). Direct numerical comparison is unfair.</li>
+<li>SMG is built <em>offline from posed tour demos</em>; you're targeting online learning.</li>
+<li>No world model, no RSSM, no rollout — purely modular planner + frozen policy.</li>
+</ul>
+</div>
+
+<hr>
+
+<h2 id="vggt-dp">4. 🤖 Paper 3: VGGT-DP</h2>
+
+<div class="paper-card">
+<div class="meta">
+<a class="arxiv" href="https://arxiv.org/abs/2509.18778" target="_blank">arXiv:2509.18778</a>
+<em>Ge, Zhang, Xie, Zhang, Zhou, Wang</em> &middot; 2025-09-23
+</div>
+<strong>VGGT-DP: Generalizable Robot Control via Vision Foundation Models</strong>
+<div style="margin-top:8px">
+<span class="tag">manipulation</span>
+<span class="tag">diffusion policy</span>
+<span class="tag">FiLM</span>
+<span class="tag warn-tag">viewpoint-fragile</span>
+</div>
+</div>
+
+<h3>What they consume from VGGT</h3>
+<p>The <strong>aggregator output</strong>: per-view image (patch) tokens <em>plus</em> the camera token, concatenated:</p>
+<p>$$\mathcal{T}_{\text{vggt}} = \text{VGGT}_{\text{agg}}(\mathcal{I}) \in \mathbb{R}^{B\cdot T \times V \times (N_p+1) \times D}$$</p>
+<p>then average-pooled over the $V\cdot(N_p+1)$ axis to $\mathbb{R}^{B\cdot T \times D}$. Register tokens, depth and point map heads are <strong>not</strong> used.</p>
+
+<h3>Diffusion-policy integration</h3>
+<p>Standard <strong>Diffusion Policy 1D U-Net</strong> denoiser (Chi et al., RSS 2023) untouched. The pooled VGGT vector is encoded by a small Transformer, projected by an MLP, and injected into the U-Net via <strong>FiLM</strong> (no cross-attention, no channel concat).</p>
+
+<h3>Training</h3>
+<ul>
+<li>VGGT effectively frozen (no trainable params or adapters described on it).</li>
+<li>Datasets: <strong>MetaWorld only, 10 demos per task</strong>. No RT-X / DROID / RoboMimic.</li>
+<li>Loss: standard DDPM diffusion loss + <strong>auxiliary proprioception loss</strong> $\mathcal{L}_{\text{proprio}} = \mathbb{E}_t\|p_t - \hat{p}_t\|^2$ over $p_t = [q_t, x_t]$.</li>
+<li>3000 epochs, batch 128, AdamW lr=1e-4, EMA. Compute not reported.</li>
+<li>Two efficiency tricks worth noting:
+  <ul>
+  <li><strong>Frame-Wise Token Reuse (FTR)</strong>: cache VGGT tokens for previous frames; re-encode only the new frame.</li>
+  <li><strong>Random Token Pruning</strong>: drop a fraction $r_{\text{prune}}$ of patch tokens for regularisation.</li>
+  </ul>
+</li>
+</ul>
+
+<h3>Action representation, tasks, generalization</h3>
+<ul>
+<li>End-effector delta-pose $\Delta x_t \in \mathbb{R}^3$ + binary gripper. Obs horizon 2, prediction horizon 16.</li>
+<li>10 MetaWorld tasks — wins on 5/10 vs DP and DP3, loses on 5/10 (notably Disassemble, Peg Unplug Side, Pick Place).</li>
+<li><strong>OOD viewpoint study fails</strong>: success drops 39% → 5% at 5° rotation, 0% beyond 10°. Authors admit "lacks sufficient generalization to novel viewpoints" — striking given VGGT's geometric pretraining.</li>
+<li>No cross-embodiment, no real robot.</li>
+</ul>
+
+<h3>Ablation gap</h3>
+<p class="warn">No swap-in comparison against DINOv2 / CLIP / R3M / VC-1 / ResNet18, and no ablation over which VGGT output (patch vs camera vs depth vs pointmap) matters. The paper's "VGGT helps" claim is therefore underdetermined.</p>
+
+<div class="fit">
+<h4>🟢 What you can borrow</h4>
+<ul>
+<li><strong>Frame-Wise Token Reuse</strong> — direct fit for an online Dreamer agent that re-encodes a single new frame each step. Cheap latency win.</li>
+<li><strong>FiLM conditioning</strong> as a clean way to inject pooled VGGT into existing modules — analogous to how you might condition Dreamer's decoder.</li>
+<li>The <strong>auxiliary proprioception loss</strong> idea generalises: an auxiliary "predict camera pose / agent pose from VGGT features" loss could regularise your encoder.</li>
+</ul>
+</div>
+<div class="diff">
+<h4>🔴 Cautionary signal</h4>
+<ul>
+<li>Their <strong>viewpoint-fragility</strong> result is the most useful warning to your thesis: even with VGGT's geometric pretraining, naïve pooling does <em>not</em> automatically transfer across novel viewpoints. Whether <em>full</em> token sequences (no pooling) preserve viewpoint robustness is an open empirical question — and a thesis-worthy one.</li>
+</ul>
+</div>
+
+<hr>
+
+<h2 id="compare">5. 📊 Side-by-side comparison</h2>
+
+<table>
+<thead>
+<tr>
+<th>Axis</th>
+<th>VGGT-World</th>
+<th>MG-Nav</th>
+<th>VGGT-DP</th>
+<th>Your pipeline</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>arXiv ID / date</td>
+<td>2603.12655 (2026-03)</td>
+<td>2511.22609 (2025-11)</td>
+<td>2509.18778 (2025-09)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Domain</td>
+<td>Geometry forecasting</td>
+<td>HM3D / MP3D ImageNav</td>
+<td>MetaWorld manipulation</td>
+<td>HM3D ObjectNav (RL)</td>
+</tr>
+<tr>
+<td><strong>VGGT entry point</strong></td>
+<td>Layer-4 aggregator tokens (full bundle: patches + camera + registers, $d=1024$)</td>
+<td>Pooled aggregator features, flattened to a token sequence per image</td>
+<td>Final aggregator tokens (patches + camera token), avg-pooled</td>
+<td><strong>DPT-decoded</strong> world_points (37×37×3) + camera_pose (9) → 4116-dim flat vector</td>
+</tr>
+<tr>
+<td>Tokens used (count)</td>
+<td>$N_p + 5$ per frame</td>
+<td>1 pooled vector per image</td>
+<td>1 pooled vector per view</td>
+<td>1 flat vector per frame</td>
+</tr>
+<tr>
+<td>VGGT depth / pointmap heads?</td>
+<td>Used <em>only at decode</em> for output (frozen)</td>
+<td>Not used</td>
+<td>Not used</td>
+<td><strong>Used as input</strong> (world_points)</td>
+</tr>
+<tr>
+<td>VGGT trainable?</td>
+<td>Frozen</td>
+<td>Frozen</td>
+<td>Frozen (implicit)</td>
+<td>Frozen</td>
+</tr>
+<tr>
+<td>Trainable head</td>
+<td>0.43 B flow transformer (8 dual + 8 single MM-DiT blocks, 3D RoPE)</td>
+<td>Tiny MLP "VGGT-adapter" (size unstated)</td>
+<td>DP 1D U-Net + small Transformer + FiLM MLP</td>
+<td>Linear projection 4116 → 1024 + RSSM</td>
+</tr>
+<tr>
+<td>Action conditioning</td>
+<td><strong>None</strong></td>
+<td>Modular: A* planner picks waypoints; NavDP acts</td>
+<td>Diffusion policy on Δ-EE-pose</td>
+<td>Dreamer actor on RSSM latent</td>
+</tr>
+<tr>
+<td>Memory / temporal model</td>
+<td>Autoregressive flow transformer over 4-frame chunks; 3D RoPE</td>
+<td>Hand-engineered Sparse Memory Graph (offline)</td>
+<td>Obs window of 2 frames, no explicit memory</td>
+<td>RSSM stochastic + deterministic latent</td>
+</tr>
+<tr>
+<td>Training data</td>
+<td>KITTI, Cityscapes, TartanAir</td>
+<td>HM3D + MP3D tours (offline graphs)</td>
+<td>MetaWorld, 10 demos/task</td>
+<td>HM3D ObjectNav (online + replay)</td>
+</tr>
+<tr>
+<td>Loss</td>
+<td>z-prediction (latent flow matching)</td>
+<td>None (training-free) ‑ adapter undocumented</td>
+<td>DDPM + proprio aux</td>
+<td>Dreamer ELBO + reward</td>
+</tr>
+<tr>
+<td>Compute reported</td>
+<td>1× RTX Pro 6000 96 GB</td>
+<td>Not reported</td>
+<td>Not reported</td>
+<td>bwUniCluster (cluster context)</td>
+</tr>
+<tr>
+<td>Headline metric</td>
+<td>21–32% AbsRel improvement vs DINO-Foresight</td>
+<td>SR 78.5 / SPL 59.3 on HM3D InstanceImageNav</td>
+<td>5/10 wins on MetaWorld vs DP/DP3</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Citing VGGT-World?</td>
+<td>—</td>
+<td>No</td>
+<td>No (predates it)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Citing MG-Nav?</td>
+<td>No</td>
+<td>—</td>
+<td>No (predates it)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Citing VGGT-DP?</td>
+<td>No</td>
+<td>No</td>
+<td>—</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="common">6. 🔗 Common concepts &amp; how the papers relate</h2>
+
+<h3>What's shared across all three</h3>
+<ol>
+<li><strong>VGGT is always frozen.</strong> Nobody fine-tunes the 1.3 B-param backbone — head adapters do all the learning. This is now a community-wide pattern for VGGT-derivative work.</li>
+<li><strong>Aggregator-as-encoder, DPT-heads-discarded.</strong> All three papers treat VGGT as a transformer encoder and ignore its decoded geometry outputs. Even the world-model paper (which decodes <em>at the end</em>) only uses the heads as a frozen renderer; it does not feed depth or point maps into its dynamics.</li>
+<li><strong>Small trainable adapters.</strong> The new modules are 1–2 orders of magnitude smaller than VGGT itself.</li>
+<li><strong>No HM3D ObjectNav.</strong> None of the three has touched your specific benchmark.</li>
+<li><strong>No backbone-swap ablation.</strong> None of them shows that VGGT beats DINOv2 / CLIP / R3M / VC-1 with all else equal. The "VGGT helps" claim is empirically thinner than it sounds.</li>
+</ol>
+
+<h3>Where they diverge</h3>
+<table>
+<thead><tr><th>Concept</th><th>VGGT-World</th><th>MG-Nav</th><th>VGGT-DP</th></tr></thead>
+<tbody>
+<tr><td>Token granularity</td><td>Full token sequence</td><td>Pooled vector</td><td>Pooled vector</td></tr>
+<tr><td>Temporal model</td><td>Autoregressive, learned</td><td>Hand-built graph</td><td>Short window, no memory</td></tr>
+<tr><td>Action handling</td><td>None</td><td>Symbolic planner</td><td>Continuous diffusion</td></tr>
+<tr><td>Self-supervision</td><td>Future prediction</td><td>None (training-free)</td><td>Behaviour cloning + proprio</td></tr>
+</tbody>
+</table>
+
+<h3>How they relate to each other (citation graph)</h3>
+<p>None of the three papers cites another. They're concurrent independent attempts to plug VGGT into different downstream paradigms. Timeline:</p>
+<pre>2025-09  ── VGGT-DP  (manipulation, diffusion policy)
+2025-11  ── MG-Nav   (navigation, modular planner)
+2026-03  ── VGGT-World (world model, autoregressive)</pre>
+<p>Reading them <em>together</em> is a snapshot of how the community is feeling out VGGT's role: as a generic VFM encoder (DP), as a goal-image embedder (MG-Nav), or as the substrate for a learned dynamics model (World). Your thesis lives at the intersection of all three: <em>navigation</em> like MG-Nav, <em>policy learning</em> like VGGT-DP, with a <em>learned world model</em> like VGGT-World — except yours is action-conditioned (DreamerV3) and yours uses <em>decoded</em> geometry rather than tokens.</p>
+
+<hr>
+
+<h2 id="yours">7. 🛠️ Your current pipeline at a glance</h2>
+
+<p>From a survey of <code>~/Coding/Master-Thesis-3D-VLA</code>:</p>
+<ul>
+<li><strong>StreamVGGT</strong> loaded frozen via <code>modules/vggt/feature_extractor.py:34</code> and JAX twin <code>modules/vggt/jax/feature_extractor.py:60</code> (HF checkpoint <code>lch01/StreamVGGT</code>).</li>
+<li>Outputs selected: <strong>only</strong> <code>world_points</code> (pooled to 37×37×3 = 4107) + <code>camera_pose</code> (9). Concatenated into a 4116-dim flat vector at <code>modules/r2dreamer/adapters/vggt_adapter.py:15</code>.</li>
+<li>Fed into <strong>RSSM posterior encoder</strong> at <code>modules/r2dreamer/agent.py:233</code> → linear 4116 → 1024 (<code>modules/r2dreamer/networks.py:480</code>) → <code>R2RSSM</code> obs head (<code>networks.py:251</code>). Actor/critic see only the latent <code>feat</code>, not VGGT directly.</li>
+<li><strong>VGGT fully frozen</strong> (<code>requires_grad=False</code> at <code>feature_extractor.py:70</code>; <code>torch.no_grad</code> wrapper).</li>
+<li>UNITE alternative <em>planned, not built</em>. Mentioned in curriculum slides and <code>exploration.ipynb</code> as a future 3D semantic upgrade.</li>
+<li>Notebook hint at <code>modules/vggt/notebooks/exploration.ipynb:1778</code>: "replace [DPT head] with a custom 3D head (e.g. UNITE-style features)" — point-head architecture is intended to be swappable.</li>
+</ul>
+
+<div class="diff">
+<h4>⚠️ The architectural divergence</h4>
+<p>You feed VGGT's <strong>decoded</strong> geometry (DPT outputs) into Dreamer; all three papers feed VGGT's <strong>encoded</strong> tokens (aggregator outputs). Your representation is a 4116-dim dense vector with strong inductive bias toward 3D geometry; theirs are token sequences with rich semantics still attached. Both are defensible — but you should be able to <em>justify the choice</em> in your thesis, ideally with an ablation comparing both.</p>
+</div>
+
+<hr>
+
+<h2 id="fit">8. 🎓 Fit to your thesis — what to borrow, avoid, claim</h2>
+
+<h3>What each paper teaches your thesis</h3>
+
+<div class="row">
+<div>
+<h4>From VGGT-World</h4>
+<ul>
+<li><strong>Architectural pattern</strong>: split VGGT into encoder-prefix (frozen, used live) and decoder-suffix + DPT (frozen, used for reconstruction loss only). This is a clean way to add VGGT-based reconstruction as an auxiliary objective in Dreamer without paying the full forward at every step.</li>
+<li><strong>Forecast-improves-present</strong>: their Table 4 is direct evidence that adding a future-prediction loss makes <em>current</em> geometry features sharper. In Dreamer, your RSSM already learns next-state prediction — pair it with VGGT-decoded geometry as the reconstruction target.</li>
+<li><strong>z-prediction not v-prediction</strong> in $d=1024$ token space — relevant if you ever consider flow-matching variants of RSSM.</li>
+</ul>
+</div>
+<div>
+<h4>From MG-Nav</h4>
+<ul>
+<li><strong>Sanity check</strong>: frozen VGGT features add real but modest signal on HM3D (+4.5 SR over an already-strong baseline). Your thesis baseline numbers should expect a similar order of magnitude — claim moderation.</li>
+<li><strong>Their gap = your contribution</strong>: they do not use depth, point map, camera or register tokens. A Dreamer world model that <em>does</em> consume those is a clean differentiator with empirical room to win.</li>
+<li><strong>Memory question</strong>: they use an offline hand-built graph; you use a learned latent. State this contrast explicitly in your related-work — it's a real axis of contribution.</li>
+</ul>
+</div>
+<div>
+<h4>From VGGT-DP</h4>
+<ul>
+<li><strong>Frame-Wise Token Reuse</strong>: cache aggregator tokens for past frames, only re-encode the newest. Critical for online RL throughput. Direct copy-paste fit.</li>
+<li><strong>FiLM conditioning</strong> for injecting pooled VGGT into existing networks — analogous to conditioning your Dreamer decoder.</li>
+<li><strong>Auxiliary proprioception loss</strong> idea: an auxiliary "predict ego-motion from VGGT features" loss could regularise your encoder against viewpoint drift.</li>
+<li><strong>Cautionary tale</strong>: VGGT-DP fails OOD viewpoint at ≥10°. If you can show RSSM + VGGT preserves viewpoint robustness (e.g. via Habitat camera-noise eval), that's a publishable contribution.</li>
+</ul>
+</div>
+<div>
+<h4>What you should <em>not</em> borrow</h4>
+<ul>
+<li>From VGGT-World: action-free training. Dreamer needs action-conditioned dynamics — keep yours.</li>
+<li>From MG-Nav: training-free architecture. Your thesis is about <em>learned</em> 3D world models; modular planners aren't your story.</li>
+<li>From VGGT-DP: pooling away the spatial token grid. You can probably do better than a single pooled vector.</li>
+</ul>
+</div>
+</div>
+
+<h3>Concrete ablations a referee will expect</h3>
+<ol>
+<li><strong>Decoded vs. encoded VGGT</strong>: your current world_points + camera_pose <em>vs</em> aggregator tokens (matching the three papers). Same Dreamer backbone, swap only the front-end.</li>
+<li><strong>Frozen vs. LoRA-fine-tuned VGGT</strong>: nobody in this concurrent set has done this. A first result here is novel.</li>
+<li><strong>Backbone swap</strong>: VGGT vs DINOv2 vs CLIP vs R3M, all frozen, all feeding the same RSSM. All three papers skipped this; closing it strengthens the "geometry pretraining matters for navigation" claim.</li>
+<li><strong>Future-prediction auxiliary loss</strong> (from VGGT-World) added to RSSM training — ablate on/off and report HM3D SPL.</li>
+<li><strong>Viewpoint-OOD eval</strong> (from VGGT-DP's failure mode) — perturb Habitat camera by ±5°, ±10°, ±15° and measure SR/SPL degradation.</li>
+</ol>
+
+<h3>Three thesis-positioning sentences you can use almost verbatim</h3>
+<div class="fit">
+<p style="margin:6px 0"><strong>Related work — VGGT-World</strong>: "VGGT-World demonstrates that an autoregressive head on frozen VGGT aggregator tokens can forecast geometry without explicit depth supervision, and that doing so improves present-frame reconstruction. We extend this insight to an action-conditioned, online-RL setting by training Dreamer's RSSM on VGGT-derived geometry."</p>
+<p style="margin:6px 0"><strong>Related work — MG-Nav</strong>: "MG-Nav uses pooled VGGT features as a small adapter on top of a hand-engineered topological graph, contributing 4.5 SR on HM3D InstanceImageNav. Our work uses VGGT's decoded geometry directly inside a learned latent world model, removing the offline graph-construction step and targeting category-driven ObjectNav."</p>
+<p style="margin:6px 0"><strong>Related work — VGGT-DP</strong>: "VGGT-DP shows that pooled VGGT features can condition a diffusion policy via FiLM, but report severe degradation under ≥10° viewpoint perturbation. We retain VGGT's spatial structure and report viewpoint-OOD evaluations to test whether token-level conditioning preserves geometric robustness."</p>
+</div>
+
+<hr>
+
+<h2 id="sources">9. 📑 Sources</h2>
+<ul>
+<li>VGGT-World — <a href="https://arxiv.org/abs/2603.12655" target="_blank">arXiv:2603.12655</a> &middot; <a href="https://arxiv.org/html/2603.12655v1" target="_blank">HTML</a> &middot; <a href="https://huggingface.co/papers/2603.12655" target="_blank">HF page</a></li>
+<li>MG-Nav — <a href="https://arxiv.org/abs/2511.22609" target="_blank">arXiv:2511.22609</a> &middot; <a href="https://arxiv.org/html/2511.22609v1" target="_blank">HTML</a> &middot; <a href="https://huggingface.co/papers/2511.22609" target="_blank">HF page</a></li>
+<li>VGGT-DP — <a href="https://arxiv.org/abs/2509.18778" target="_blank">arXiv:2509.18778</a> &middot; <a href="https://arxiv.org/html/2509.18778v1" target="_blank">HTML</a></li>
+<li>Original VGGT — Wang et al., <em>Visual Geometry Grounded Transformer</em>, CVPR 2025.</li>
+<li>Adjacent VGGT-derivative work worth scanning: <a href="https://arxiv.org/abs/2509.15880" target="_blank">eVGGT (2509.15880)</a>, <a href="https://arxiv.org/abs/2510.15530" target="_blank">VO-DP (2510.15530)</a>, <a href="https://arxiv.org/abs/2509.22548" target="_blank">JanusVLN (2509.22548)</a>, LoGoPlanner (2512.19629), Reloc-VGGT (2512.21883).</li>
+</ul>
+
+<footer>
+Generated 2026-05-09 via parallel sub-agent research over arXiv + a local survey of <code>Master-Thesis-3D-VLA</code>.
+</footer>
+
+</div>
+</body>
+</html>

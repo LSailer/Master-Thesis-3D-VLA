@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Full-Resolution Worldpoints Run Check</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --ink: #202636;
+      --muted: #677084;
+      --line: #dfe3ec;
+      --blue: #285f9f;
+      --green: #18724a;
+      --amber: #9a5b00;
+      --red: #a4382f;
+      --soft-blue: #eaf2fb;
+      --soft-green: #e8f5ee;
+      --soft-amber: #fff4dc;
+      --soft-red: #fbe9e7;
+      --code: #f1f3f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.55 Inter, Aptos, "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 34px 24px 72px;
+    }
+    h1 {
+      font-size: 32px;
+      line-height: 1.15;
+      margin: 0 0 8px;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 21px;
+      margin: 34px 0 12px;
+      letter-spacing: 0;
+    }
+    h3 {
+      font-size: 16px;
+      margin: 18px 0 8px;
+    }
+    p { margin: 0 0 12px; }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+    }
+    pre {
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      font: 12px/1.45 "SF Mono", Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: 0; }
+    th {
+      color: var(--muted);
+      background: #f0f2f6;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    ul { margin: 0 0 12px 20px; padding: 0; }
+    li { margin: 5px 0; }
+    .lede {
+      color: var(--muted);
+      max-width: 920px;
+      margin-bottom: 24px;
+    }
+    .summary {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px 20px;
+    }
+    .summary p:last-child { margin-bottom: 0; }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0 4px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 15px;
+    }
+    .card .value {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1.1;
+      margin-bottom: 5px;
+    }
+    .card .label { color: var(--muted); }
+    .callout {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: var(--soft-blue);
+      margin: 14px 0;
+    }
+    .ok { border-left-color: var(--green); background: var(--soft-green); }
+    .warn { border-left-color: var(--amber); background: var(--soft-amber); }
+    .bad { border-left-color: var(--red); background: var(--soft-red); }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 12px;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .pill.ok { color: var(--green); border-color: #9bcdb2; background: var(--soft-green); }
+    .pill.warn { color: var(--amber); border-color: #e3bf72; background: var(--soft-amber); }
+    .pill.bad { color: var(--red); border-color: #d9a09a; background: var(--soft-red); }
+    .muted { color: var(--muted); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .path { overflow-wrap: anywhere; }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      main { padding: 24px 14px 60px; }
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .split { grid-template-columns: 1fr; }
+      table { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Full-Resolution Worldpoints Run Check</h1>
+  <p class="lede">Stand: 2026-06-11. Frage: Haben wir schon einen Job laufen lassen, der die dense VGGT-Worldpoints als volle <code>3&times;518&times;518</code> Observation nutzt, statt die &uuml;bliche gepoolte <code>37&times;37&times;3 + 9</code> WP/CP-Flachrepr&auml;sentation?</p>
+
+  <section class="summary">
+    <h2 style="margin-top:0">Kurzantwort</h2>
+    <p><strong>Ja, aber nur als kurzer, abgebrochener L1-Run, nicht als belastbarer 2M-Trainingslauf.</strong> W&amp;B enth&auml;lt genau einen passenden Full-Resolution-WP-Run: <a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/gx0q54y5">gx0q54y5 / wp-dense-cnn-4887406</a>. Seine Konfiguration belegt <code>encoder_type=vggt_wp_dense_cnn</code> und <code>obs_shape=[3, 518, 518]</code>. Er lief aber nur bis etwa <code>30.7k</code> Steps und wurde nach <code>4:30:47</code> extern beendet.</p>
+    <p><strong>Was wir sicher nicht haben:</strong> keinen abgeschlossenen oder ann&auml;hernd aussagekr&auml;ftigen 2M-Run mit vollen <code>518&times;518&times;3</code> Worldpoints. Die vorhandenen WP/CP-2M-Reports behandeln gepoolte <code>37&times;37</code> bzw. <code>64&times;64</code>-Varianten, nicht den dense-WP-CNN-Pfad.</p>
+  </section>
+
+  <div class="cards">
+    <div class="card"><div class="value">1 / 81</div><div class="label">Live-W&amp;B Runs mit dense-WP-Treffern</div></div>
+    <div class="card"><div class="value">30,676</div><div class="label">letzter Env-/Metric-Step</div></div>
+    <div class="card"><div class="value">4:30h</div><div class="label">SLURM-Laufzeit vor Cancel</div></div>
+    <div class="card"><div class="value">2M</div><div class="label">geplante Env-Steps, nicht Episoden</div></div>
+  </div>
+
+  <section>
+    <h2>Warum steht hier nur 30k?</h2>
+    <p><strong>Die <code>30,676</code> sind Environment-/Metric-Steps, nicht Episoden.</strong> Der Run hatte zu diesem Zeitpunkt <code>episode/count=63</code>. Er endete nicht, weil das Training regul&auml;r fertig war, sondern weil SLURM den Job nach <code>4:30:47</code> extern beendet hat.</p>
+    <p><strong>Auch das Ziel <code>2M</code> meint zwei Millionen Environment-Schritte, nicht zwei Millionen Episoden.</strong> Ein Environment-Step ist ein einzelner Agent-Action-Schritt in Habitat: Aktion w&auml;hlen, Umgebung einen Schritt weiterlaufen lassen, Transition in den Replay-Buffer schreiben. Eine Episode besteht aus vielen solchen Schritten und endet erst bei Erfolg, Timeout oder Abbruch. In diesem Run entsprechen <code>30,676</code> Env-Steps nur <code>63</code> abgeschlossenen Episoden.</p>
+    <p><strong>Full-resolution WP ist trotzdem deutlich schwerer als WP/CP37.</strong> Ein dense-WP-Frame hat <code>3*518*518 = 804,972</code> Werte; der Standard-WP/CP37-Vektor hat <code>37*37*3 + 9 = 4,116</code> Werte. Das ist etwa <code>196x</code> mehr rohe Beobachtungsdaten pro Frame, plus ein CNN &uuml;ber die volle Raumkarte statt eines kleinen MLPs &uuml;ber den flachen Vektor.</p>
+    <p><strong>Die fr&uuml;he Rate war etwa <code>6.8k</code> Steps/Stunde</strong>, w&auml;hrend vergleichbare WP/CP37-Runs im 2M-Runtime-Report grob bei <code>28k-34k</code> Steps/Stunde lagen. Das spricht f&uuml;r etwa <code>4-5x</code> niedrigeren Durchsatz in diesem kurzen dense-WP-Versuch. Wegen Compile-/cuDNN-Autotuning-Warnungen, Video-Logging und kurzer Laufzeit ist das aber nur eine grobe Diagnose, kein stabiler Langlauf-Durchsatz.</p>
+  </section>
+
+  <section>
+    <h2>Gefundener Full-Resolution-Run</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Feld</th>
+          <th>Wert</th>
+          <th>Interpretation</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>W&amp;B</td>
+          <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/gx0q54y5">gx0q54y5</a><br><span class="muted">wp-dense-cnn-4887406</span></td>
+          <td>Der einzige Live-W&amp;B-Treffer f&uuml;r <code>wp_dense</code>, <code>vggt_wp_dense_cnn</code>, <code>full-res-518</code> oder <code>wp-dense</code>.</td>
+        </tr>
+        <tr>
+          <td>Status</td>
+          <td><span class="pill bad">crashed / cancelled</span></td>
+          <td>W&amp;B meldet <code>crashed</code>; SLURM meldet <code>CANCELLED by 979142</code> nach 4:30:47.</td>
+        </tr>
+        <tr>
+          <td>Encoder</td>
+          <td><code>vggt_wp_dense_cnn</code></td>
+          <td>Das ist der konkrete Codepfad f&uuml;r dense Worldpoints als CNN-Observation.</td>
+        </tr>
+        <tr>
+          <td>Observation</td>
+          <td><code>[3, 518, 518]</code></td>
+          <td>Volle dense Worldpoints im CHW-Layout. Keine Kamera-Pose im Tensor.</td>
+        </tr>
+        <tr>
+          <td>Run-Ziel</td>
+          <td><code>total_steps=2,000,000</code></td>
+          <td>War als Produktionslauf gedacht, wurde aber sehr fr&uuml;h gestoppt.</td>
+        </tr>
+        <tr>
+          <td>Letzte Metrik</td>
+          <td><code>metrics/sr=0.0476</code>, <code>episode/count=63</code></td>
+          <td>Zu fr&uuml;h f&uuml;r eine belastbare Lernqualit&auml;ts-Aussage.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <p><strong>Nicht &uuml;berinterpretieren:</strong> Die beobachtete Rate w&auml;hrend der ersten 30k Steps ist wegen Compile-/Autotuning-Overhead und kurzer Laufzeit kein sauberer Durchsatzwert f&uuml;r einen langen Run. Sie reicht aber als Beleg, dass der dense-WP-Pfad wirklich gestartet und trainiert wurde.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lokale Evidenz</h2>
+    <div class="split">
+      <div class="card">
+        <h3>Manifest</h3>
+        <p>Das lokale Run-Manifest best&auml;tigt den dense-Pfad unabh&auml;ngig von W&amp;B:</p>
+        <pre>{
+  "encoder_type": "vggt_wp_dense_cnn",
+  "encoder_module_cls": "WPConvEncoder",
+  "obs_shape": [3, 518, 518],
+  "batch_size": 4,
+  "seq_len": 32,
+  "train_ratio": 128,
+  "buffer_capacity": 5000,
+  "total_steps": 2000000,
+  "wandb_id": "gx0q54y5",
+  "slurm_id": "4887406"
+}</pre>
+      </div>
+      <div class="card">
+        <h3>SLURM</h3>
+        <p>Der Job war kein sauberer Abschluss und kein normaler 48h-Timeout:</p>
+        <pre>JobID: 4887406
+JobName: wp-dense-cnn
+State: CANCELLED by 979142
+Elapsed: 04:30:47
+Node: uc2n907
+Memory Utilized: 14.20 GB / 96.00 GB</pre>
+      </div>
+    </div>
+
+    <h3>Log-Hinweis</h3>
+    <p>Die SLURM-Fehlerdatei zeigt auf H100/cuDNN Autotuning-Warnungen f&uuml;r die gro&szlig;en CNN-Convs und endet danach mit externer Terminierung:</p>
+    <pre>Results mismatch between different convolution algorithms. This is likely a bug/unexpected loss of precision in cudnn.
+Device: NVIDIA H100 PCIe
+cudnn version: 9.10.2
+...
+*** JOB 4887406 ON uc2n907 CANCELLED AT 2026-06-01T14:30:42 DUE to SIGNAL Terminated ***</pre>
+  </section>
+
+  <section>
+    <h2>Abgrenzung zu vorhandenen HTML-Seiten</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Seite</th>
+          <th>Was sie beantwortet</th>
+          <th>Warum sie nicht reicht</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="path"><a href="../03-method/3d48-vggt-wp-size.html">docs/3d48-vggt-wp-size.html</a></td>
+          <td>VGGT erzeugt intern dense <code>518&times;518&times;3</code> Worldpoints; unser Standard-WP/CP-Pfad pooled danach auf <code>37&times;37&times;3</code>.</td>
+          <td>Belegt Modell-/Feature-Form und Diagnose-Artefakt, aber keinen l&auml;ngeren Trainingsjob mit dense-WP-CNN.</td>
+        </tr>
+        <tr>
+          <td class="path"><a href="../03-method/wp-cp-learning.html">docs/wp-cp-learning.html</a></td>
+          <td>Erkl&auml;rt die Standard-WP/CP-Pipeline von RGB <code>518&times;518&times;3</code> zu <code>4116</code> Features.</td>
+          <td>Didaktische Pipeline-Seite; production path ist gepoolt, nicht dense-WP-CNN.</td>
+        </tr>
+        <tr>
+          <td class="path"><a href="wandb_2m_runtime_analysis.html">docs/notes/wandb_2m_runtime_analysis.html</a></td>
+          <td>Analysiert 2M-Runtime und Timeouts f&uuml;r WP/CP, Hybrid, Aggregator-Familien.</td>
+          <td>Enth&auml;lt WP/CP <code>37</code> und <code>64</code>, aber keinen dense-WP-CNN-Run.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Was wir als N&auml;chstes tun sollten</h2>
+    <div class="callout ok">
+      <p><strong>Weiterarbeit sollte von dieser Seite ausgehen.</strong> Sie verkn&uuml;pft die alte 3D-48-Feature-Evidenz mit dem einzigen echten W&amp;B-Trainingsversuch. Der n&auml;chste technische Schritt ist kein weiterer reiner Nachweis, sondern ein kontrollierter Wiederanlauf.</p>
+    </div>
+    <ul>
+      <li><strong>Vor einem neuen 2M-Run:</strong> zuerst einen kurzen H100-Smoke mit dense-WP-CNN und explizitem XLA/cuDNN-Autotuning-Handling fahren, weil der alte Log viele Conv-Autotuning-Mismatch-Warnungen enth&auml;lt.</li>
+      <li><strong>Konfiguration bewusst klein halten:</strong> der alte dense Run nutzte <code>batch_size=4</code>, <code>seq_len=32</code>, <code>train_ratio=128</code>, <code>buffer_capacity=5000</code>. Ein Vergleich gegen WP/CP37/WP/CP64 ist nur fair, wenn wir diese Unterschiede dokumentieren.</li>
+      <li><strong>Wenn Smoke stabil ist:</strong> einen neuen L1 dense-WP-CNN-Run starten, W&amp;B-Name eindeutig mit <code>wp-dense</code>/<code>full-res-518</code>, und ihn entweder auf 2M bringen oder bewusst als Profiling-Run markieren.</li>
+      <li><strong>F&uuml;r die Thesis:</strong> bis zu einem neuen Lauf nur sagen: dense-WP wurde implementiert und kurz gestartet, aber nicht als belastbare Ergebnisvariante ausgewertet.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Quellen</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Quelle</th>
+          <th>Verwendeter Befund</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/gx0q54y5">W&amp;B gx0q54y5</a></td>
+          <td>Run-Name, Status, Tags, Encoder, Observation-Shape, Step-/SR-Summary.</td>
+        </tr>
+        <tr>
+          <td class="path"><code>output/r2dreamer-curriculum-l1-vggt-wp-dense/run-4887406/MANIFEST.json</code></td>
+          <td>Lokale Konfiguration: <code>obs_shape=[3,518,518]</code>, <code>encoder_type=vggt_wp_dense_cnn</code>, <code>WPConvEncoder</code>.</td>
+        </tr>
+        <tr>
+          <td class="path"><code>output/r2dreamer-curriculum-l1-vggt-wp-dense/run-4887406/metrics.csv</code></td>
+          <td>Letzte lokale Metriken bei ca. <code>30.7k</code> Steps.</td>
+        </tr>
+        <tr>
+          <td class="path"><code>output/r2dreamer-curriculum-l1-vggt-wp-dense/slurm-4887406.err</code> und <code>.out</code></td>
+          <td>Autotuning-Warnungen, externe Terminierung, Laufzeit und Speicherverbrauch.</td>
+        </tr>
+        <tr>
+          <td><code>sacct -j 4887406</code></td>
+          <td>Scheduler-Status: <code>CANCELLED by 979142</code>, <code>04:30:47</code>, Node <code>uc2n907</code>.</td>
+        </tr>
+        <tr>
+          <td class="path"><a href="../03-method/3d48-vggt-wp-size.html">docs/3d48-vggt-wp-size.html</a></td>
+          <td>Feature-Evidenz: dense DPT point map existiert intern bei <code>518&times;518&times;3</code>, Standardpfad pooled auf <code>37&times;37&times;3</code>.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

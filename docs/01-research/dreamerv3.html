@@ -1,0 +1,1483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>From RL to DreamerV3 — Conceptual Bridge &amp; Deep Dive</title>
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]});"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --accent-green: #34d399;
+    --accent-amber: #fbbf24;
+    --accent-red: #f87171;
+    --accent-cyan: #22d3ee;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --border: #2d2d3d;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .slide-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .slide {
+    display: none;
+    width: 100%;
+    height: 100%;
+    padding: 50px 70px;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    animation: fadeIn 0.4s ease;
+  }
+
+  .slide.active { display: flex; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .slide-number {
+    position: fixed;
+    bottom: 20px;
+    right: 30px;
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-cyan));
+    transition: width 0.3s ease;
+    z-index: 100;
+  }
+
+  h1 {
+    font-size: 3.2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent2) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  h2 {
+    font-size: 2.2rem;
+    font-weight: 600;
+    margin-bottom: 28px;
+    color: #fff;
+  }
+
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--accent2);
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+  }
+
+  .subtitle {
+    font-size: 1.4rem;
+    color: var(--text-dim);
+    font-weight: 300;
+    line-height: 1.6;
+    max-width: 800px;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 4px 4px 4px 0;
+  }
+
+  .tag-accent { background: rgba(99,102,241,0.15); color: var(--accent2); border: 1px solid rgba(99,102,241,0.3); }
+  .tag-green { background: rgba(52,211,153,0.12); color: var(--accent-green); border: 1px solid rgba(52,211,153,0.25); }
+  .tag-amber { background: rgba(251,191,36,0.12); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.25); }
+  .tag-red { background: rgba(248,113,113,0.12); color: var(--accent-red); border: 1px solid rgba(248,113,113,0.25); }
+  .tag-cyan { background: rgba(34,211,238,0.12); color: var(--accent-cyan); border: 1px solid rgba(34,211,238,0.25); }
+
+  .card-grid {
+    display: grid;
+    gap: 16px;
+    margin-top: 14px;
+  }
+
+  .grid-2 { grid-template-columns: 1fr 1fr; }
+  .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--accent); }
+
+  .card h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #fff;
+  }
+
+  .card p, .card li {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  .card ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .card ul li {
+    padding: 3px 0;
+    padding-left: 16px;
+    position: relative;
+  }
+
+  .card ul li::before {
+    content: '\2192';
+    position: absolute;
+    left: 0;
+    color: var(--accent2);
+  }
+
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08), rgba(34,211,238,0.05));
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 14px;
+    padding: 22px 28px;
+    margin: 14px 0;
+  }
+
+  .highlight-box.green {
+    background: linear-gradient(135deg, rgba(52,211,153,0.08), rgba(34,211,238,0.05));
+    border-color: rgba(52,211,153,0.25);
+  }
+
+  .highlight-box.amber {
+    background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(248,113,113,0.05));
+    border-color: rgba(251,191,36,0.25);
+  }
+
+  .arrow-flow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 20px 0;
+    flex-wrap: wrap;
+  }
+
+  .flow-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .flow-arrow {
+    color: var(--accent2);
+    font-size: 1.3rem;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 58% 40%;
+    gap: 20px;
+    align-items: start;
+  }
+
+  .math-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 20px;
+    margin: 8px 0;
+    font-size: 1rem;
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.85rem;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface);
+    color: var(--accent2);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  tr:hover td { background: rgba(99,102,241,0.04); }
+
+  .nav-hint {
+    position: fixed;
+    bottom: 20px;
+    left: 30px;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    margin-left: 8px;
+  }
+
+  .badge-paper { background: rgba(251,191,36,0.2); color: var(--accent-amber); border: 1px solid rgba(251,191,36,0.3); }
+
+  .compact-list li {
+    padding: 2px 0 !important;
+    font-size: 0.82rem !important;
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progress"></div>
+
+<div class="slide-container">
+
+<!-- ============================================================ -->
+<!-- PART 1: CONCEPTUAL BRIDGE — From RL Basics to World Models   -->
+<!-- ============================================================ -->
+
+<!-- BRIDGE SLIDE 1: Title -->
+<div class="slide active" id="bridge-1">
+  <h3>Conceptual Bridge</h3>
+  <h1>From Reinforcement Learning<br>to DreamerV3</h1>
+  <div class="subtitle" style="margin-top: 16px;">
+    How the classic RL problem, actor-critic methods, and world models connect to form DreamerV3.
+  </div>
+  <div style="margin-top: 32px;">
+    <span class="tag tag-accent">RL Fundamentals</span>
+    <span class="tag tag-green">Actor-Critic</span>
+    <span class="tag tag-amber">World Models</span>
+    <span class="tag tag-cyan">DreamerV3</span>
+  </div>
+  <div class="highlight-box" style="margin-top: 32px; max-width: 780px;">
+    <strong style="color: #fff;">Reading order:</strong>
+    <span style="color: var(--text-dim);"> Slides 1&ndash;7 build the conceptual arc from RL basics to world models. Slides 8+ dive deep into DreamerV3 internals. Start here if you want to understand <em>why</em> DreamerV3 is designed the way it is.</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 2: The RL Problem -->
+<div class="slide" id="bridge-2">
+  <h3>Step 1</h3>
+  <h2>The Reinforcement Learning Problem</h2>
+
+  <div class="two-col" style="grid-template-columns: 55% 43%;">
+    <div>
+      <div class="card" style="margin-bottom: 14px; border-top: 3px solid var(--accent);">
+        <h4>The Agent-Environment Loop</h4>
+        <p style="margin-bottom: 14px;">An <strong>agent</strong> interacts with an <strong>environment</strong> in discrete time steps. At each step:</p>
+        <ul>
+          <li>The agent observes the current <strong>state</strong> \(s_t\)</li>
+          <li>The agent selects an <strong>action</strong> \(a_t\) according to its <strong>policy</strong> \(\pi(a_t \mid s_t)\)</li>
+          <li>The environment returns a <strong>reward</strong> \(r_t\) and the next <strong>state</strong> \(s_{t+1}\)</li>
+          <li>The agent's goal: maximize the <strong>cumulative discounted reward</strong> (return)</li>
+        </ul>
+        <div class="math-block" style="font-size: 0.9rem; margin-top: 12px;">
+          $$G_t = \sum_{k=0}^{\infty} \gamma^k r_{t+k}$$
+        </div>
+        <p style="margin-top: 8px; font-size: 0.85rem;">where \(\gamma \in [0,1)\) is the <strong>discount factor</strong> that makes the agent prefer sooner rewards.</p>
+      </div>
+    </div>
+
+    <div>
+      <!-- Agent-Environment Loop Diagram (SVG) -->
+      <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+        <svg viewBox="0 0 320 300" style="width: 100%; max-width: 320px;">
+          <!-- Agent box -->
+          <rect x="95" y="20" width="130" height="55" rx="12" fill="rgba(99,102,241,0.15)" stroke="#6366f1" stroke-width="2"/>
+          <text x="160" y="52" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="600" font-family="Inter, sans-serif">Agent</text>
+
+          <!-- Environment box -->
+          <rect x="95" y="220" width="130" height="55" rx="12" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="2"/>
+          <text x="160" y="252" text-anchor="middle" fill="#e2e8f0" font-size="16" font-weight="600" font-family="Inter, sans-serif">Environment</text>
+
+          <!-- Action arrow (Agent -> Environment, right side) -->
+          <path d="M 225 75 L 225 130 Q 225 145 225 145 L 225 220" fill="none" stroke="#fbbf24" stroke-width="2.5" marker-end="url(#arrowAmber)"/>
+          <text x="245" y="152" fill="#fbbf24" font-size="13" font-weight="500" font-family="Inter, sans-serif">action \(a_t\)</text>
+
+          <!-- State arrow (Environment -> Agent, left side) -->
+          <path d="M 95 220 L 95 155 Q 95 145 95 145 L 95 75" fill="none" stroke="#818cf8" stroke-width="2.5" marker-end="url(#arrowAccent)"/>
+          <text x="12" y="130" fill="#818cf8" font-size="13" font-weight="500" font-family="Inter, sans-serif">state \(s_{t+1}\)</text>
+
+          <!-- Reward arrow (curved, center) -->
+          <path d="M 140 220 Q 160 170 160 140 Q 160 110 160 75" fill="none" stroke="#34d399" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#arrowGreen)"/>
+          <text x="170" y="120" fill="#34d399" font-size="12" font-weight="500" font-family="Inter, sans-serif">reward \(r_t\)</text>
+
+          <!-- Arrow markers -->
+          <defs>
+            <marker id="arrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#fbbf24"/>
+            </marker>
+            <marker id="arrowAccent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#818cf8"/>
+            </marker>
+            <marker id="arrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#34d399"/>
+            </marker>
+          </defs>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 10px;">
+    <strong style="color: #fff;">Key idea:</strong>
+    <span style="color: var(--text-dim);"> The agent does not know the rules of the environment. It must learn a good policy <em>from experience</em>, by trial and error. This is the fundamental RL problem. The question is: <strong>how</strong> should the agent learn?</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 3: Model-Free RL / REINFORCE -->
+<div class="slide" id="bridge-3">
+  <h3>Step 2</h3>
+  <h2>Model-Free RL: Learning from Experience</h2>
+
+  <div class="card-grid grid-2" style="margin-bottom: 16px;">
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>The Direct Approach: Policy Gradient</h4>
+      <p style="margin-bottom: 10px;">The simplest idea: try actions in the real environment, observe which ones lead to high reward, and do more of those.</p>
+      <ul>
+        <li><strong>REINFORCE</strong> (Williams, 1992): the foundational policy gradient algorithm</li>
+        <li>If an action led to high reward, increase its probability</li>
+        <li>If an action led to low reward, decrease its probability</li>
+      </ul>
+      <div class="math-block" style="font-size: 0.85rem; margin-top: 12px;">
+        $$\nabla_\theta J(\theta) = \mathbb{E}\big[G_t \cdot \nabla_\theta \log \pi_\theta(a_t \mid s_t)\big]$$
+      </div>
+      <p style="margin-top: 8px; font-size: 0.82rem; color: var(--text-dim);">"Move the policy in the direction that makes high-return actions more likely."</p>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent-red);">
+      <h4>The Problem: High Variance</h4>
+      <p style="margin-bottom: 10px;">REINFORCE works in theory, but individual updates are very noisy:</p>
+      <ul>
+        <li>A single trajectory might get lucky or unlucky</li>
+        <li>The return \(G_t\) includes <strong>all</strong> future rewards, making it hard to tell which action was actually good</li>
+        <li>Sparse rewards make this worse: most trajectories get zero signal</li>
+        <li>Needs <strong>many</strong> real environment interactions to converge</li>
+      </ul>
+      <div class="highlight-box amber" style="margin-top: 12px; padding: 14px;">
+        <strong style="color: #fff;">Analogy:</strong>
+        <span style="color: var(--text-dim);"> Imagine learning to cook by making a full meal, tasting the result, then adjusting <em>every</em> step of the recipe equally. You cannot tell which step made it bad.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box">
+    <strong style="color: #fff;">Next question:</strong>
+    <span style="color: var(--text-dim);"> Can we reduce this variance by having a <em>second</em> network that estimates how good each state is, so we can evaluate individual actions rather than entire trajectories? This leads to <strong>actor-critic</strong> methods.</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 4: Actor-Critic -->
+<div class="slide" id="bridge-4">
+  <h3>Step 3</h3>
+  <h2>Actor-Critic: Two Networks, One Goal</h2>
+
+  <div class="two-col" style="grid-template-columns: 55% 43%;">
+    <div>
+      <div class="card" style="border-top: 3px solid var(--accent-green); margin-bottom: 14px;">
+        <h4>The Actor (Policy Network)</h4>
+        <p style="margin-bottom: 8px;">Decides <strong>what to do</strong>. Maps states to actions.</p>
+        <ul>
+          <li>Input: current state \(s_t\)</li>
+          <li>Output: probability distribution over actions \(\pi_\theta(a \mid s_t)\)</li>
+          <li>Updated via policy gradient (REINFORCE)</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent-amber); margin-bottom: 14px;">
+        <h4>The Critic (Value Network)</h4>
+        <p style="margin-bottom: 8px;">Judges <strong>how good a state is</strong>. Predicts future return.</p>
+        <ul>
+          <li>Input: current state \(s_t\)</li>
+          <li>Output: estimated return \(v_\psi(s_t) \approx \mathbb{E}[G_t \mid s_t]\)</li>
+          <li>Provides the <strong>baseline</strong> for the actor</li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-left: 4px solid var(--accent);">
+        <h4>Advantage = Actual - Expected</h4>
+        <div class="math-block" style="font-size: 0.85rem;">
+          $$\text{advantage} = \underbrace{G_t}_{\text{actual return}} - \underbrace{v_\psi(s_t)}_{\text{critic baseline}}$$
+        </div>
+        <ul class="compact-list" style="margin-top: 8px;">
+          <li><strong>Positive:</strong> action was better than expected, reinforce it</li>
+          <li><strong>Negative:</strong> action was worse than expected, discourage it</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <!-- Actor-Critic SVG Diagram -->
+      <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+        <svg viewBox="0 0 300 380" style="width: 100%; max-width: 300px;">
+          <defs>
+            <marker id="acArrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#34d399"/>
+            </marker>
+            <marker id="acArrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#fbbf24"/>
+            </marker>
+            <marker id="acArrowAccent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#818cf8"/>
+            </marker>
+            <marker id="acArrowRed" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#f87171"/>
+            </marker>
+          </defs>
+
+          <!-- Environment box -->
+          <rect x="85" y="310" width="130" height="50" rx="12" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="2"/>
+          <text x="150" y="340" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="600" font-family="Inter, sans-serif">Environment</text>
+
+          <!-- Actor box -->
+          <rect x="10" y="120" width="120" height="50" rx="12" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="2"/>
+          <text x="70" y="142" text-anchor="middle" fill="#34d399" font-size="12" font-weight="600" font-family="Inter, sans-serif">Actor</text>
+          <text x="70" y="158" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Inter, sans-serif">(picks actions)</text>
+
+          <!-- Critic box -->
+          <rect x="170" y="120" width="120" height="50" rx="12" fill="rgba(251,191,36,0.12)" stroke="#fbbf24" stroke-width="2"/>
+          <text x="230" y="142" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600" font-family="Inter, sans-serif">Critic</text>
+          <text x="230" y="158" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="Inter, sans-serif">(judges states)</text>
+
+          <!-- State s_t label at center top -->
+          <rect x="105" y="230" width="90" height="32" rx="8" fill="rgba(99,102,241,0.15)" stroke="#818cf8" stroke-width="1.5"/>
+          <text x="150" y="251" text-anchor="middle" fill="#818cf8" font-size="12" font-weight="500" font-family="Inter, sans-serif">state s_t</text>
+
+          <!-- Environment -> state box -->
+          <path d="M 150 310 L 150 268" fill="none" stroke="#818cf8" stroke-width="2" marker-end="url(#acArrowAccent)"/>
+
+          <!-- State -> Actor -->
+          <path d="M 115 230 L 70 176" fill="none" stroke="#818cf8" stroke-width="2" marker-end="url(#acArrowAccent)"/>
+
+          <!-- State -> Critic -->
+          <path d="M 185 230 L 230 176" fill="none" stroke="#818cf8" stroke-width="2" marker-end="url(#acArrowAccent)"/>
+
+          <!-- Actor -> Environment (action) -->
+          <path d="M 30 170 L 30 330 L 79 330" fill="none" stroke="#34d399" stroke-width="2.5" marker-end="url(#acArrowGreen)"/>
+          <text x="10" y="260" fill="#34d399" font-size="11" font-weight="500" font-family="Inter, sans-serif">action a_t</text>
+
+          <!-- Environment -> Actor (reward + next state, right side) -->
+          <path d="M 215 335 L 270 335 L 270 90 L 150 90" fill="none" stroke="#f87171" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#acArrowRed)"/>
+          <text x="225" y="80" fill="#f87171" font-size="10" font-weight="500" font-family="Inter, sans-serif">reward r_t</text>
+
+          <!-- Critic -> Actor (advantage arrow) -->
+          <path d="M 170 145 L 136 145" fill="none" stroke="#fbbf24" stroke-width="2" marker-end="url(#acArrowAmber)"/>
+          <text x="136" y="110" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600" font-family="Inter, sans-serif">advantage</text>
+          <text x="136" y="100" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">v(s_t)</text>
+
+          <!-- Advantage box -->
+          <rect x="55" y="30" width="190" height="40" rx="10" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.3)" stroke-width="1"/>
+          <text x="150" y="50" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="500" font-family="Inter, sans-serif">advantage = G_t - v(s_t)</text>
+          <text x="150" y="63" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">"was this action better than expected?"</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 10px;">
+    <strong style="color: #fff;">Limitation:</strong>
+    <span style="color: var(--text-dim);"> Both actor and critic still learn from <strong>real environment interactions</strong>. Every training step requires an actual step in the environment. Can we do better?</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 5: World Models -->
+<div class="slide" id="bridge-5">
+  <h3>Step 4</h3>
+  <h2>World Models: Learning to Dream</h2>
+
+  <div class="two-col" style="grid-template-columns: 48% 50%;">
+    <div>
+      <div class="card" style="border-top: 3px solid var(--accent); margin-bottom: 14px;">
+        <h4>The Key Insight</h4>
+        <p style="margin-bottom: 10px;">What if the agent could <strong>learn the rules of the environment</strong> and then practice inside its own head?</p>
+        <ul>
+          <li>A <strong>world model</strong> predicts: "if I do action \(a_t\) in state \(s_t\), what happens next?"</li>
+          <li>Once learned, the agent <strong>imagines</strong> trajectories without touching the real environment</li>
+          <li>The actor-critic trains on <strong>imagined experience</strong></li>
+        </ul>
+      </div>
+
+      <div class="card" style="border-top: 3px solid var(--accent-green);">
+        <h4>Model-Free vs. Model-Based</h4>
+        <table style="font-size: 0.82rem;">
+          <tr><th></th><th>Model-Free</th><th>Model-Based</th></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Learns</td><td>Policy directly</td><td>Environment model first</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Training data</td><td>Real steps only</td><td>Real + imagined</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Efficiency</td><td>Low</td><td>High</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Risk</td><td>None</td><td>Model errors</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Example</td><td>PPO, SAC</td><td>Dreamer, MuZero</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <!-- World Model SVG Diagram -->
+      <div style="display: flex; justify-content: center; align-items: flex-start; padding-top: 0;">
+        <svg viewBox="0 0 340 400" style="width: 100%; max-width: 340px;">
+          <defs>
+            <marker id="wmArrowGreen" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#34d399"/>
+            </marker>
+            <marker id="wmArrowAccent" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#818cf8"/>
+            </marker>
+            <marker id="wmArrowAmber" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#fbbf24"/>
+            </marker>
+            <marker id="wmArrowCyan" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 Z" fill="#22d3ee"/>
+            </marker>
+          </defs>
+
+          <!-- Label: Real World -->
+          <text x="170" y="18" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600" font-family="Inter, sans-serif" letter-spacing="1.5">REAL WORLD</text>
+
+          <!-- Real Environment box -->
+          <rect x="95" y="28" width="150" height="45" rx="10" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="2"/>
+          <text x="170" y="55" text-anchor="middle" fill="#e2e8f0" font-size="13" font-weight="600" font-family="Inter, sans-serif">Environment</text>
+
+          <!-- Replay Buffer -->
+          <rect x="95" y="108" width="150" height="35" rx="8" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="1.5"/>
+          <text x="170" y="130" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="600" font-family="Inter, sans-serif">Replay Buffer</text>
+
+          <!-- Arrow: Environment -> Replay Buffer -->
+          <path d="M 170 73 L 170 102" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#wmArrowGreen)"/>
+          <text x="205" y="92" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">(s, a, r, s')</text>
+
+          <!-- Dashed separator -->
+          <line x1="20" y1="158" x2="320" y2="158" stroke="#2d2d3d" stroke-width="1" stroke-dasharray="6 4"/>
+          <text x="170" y="175" text-anchor="middle" fill="#94a3b8" font-size="11" font-weight="600" font-family="Inter, sans-serif" letter-spacing="1.5">AGENT'S MIND</text>
+
+          <!-- World Model box (large, contains imagination) -->
+          <rect x="30" y="188" width="280" height="195" rx="14" fill="rgba(99,102,241,0.06)" stroke="#6366f1" stroke-width="2" stroke-dasharray="0"/>
+          <text x="170" y="210" text-anchor="middle" fill="#818cf8" font-size="13" font-weight="700" font-family="Inter, sans-serif">World Model</text>
+          <text x="170" y="224" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">learned environment simulator</text>
+
+          <!-- Arrow: Replay Buffer -> World Model -->
+          <path d="M 170 143 L 170 184" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#wmArrowCyan)"/>
+          <text x="245" y="168" fill="#22d3ee" font-size="9" font-weight="500" font-family="Inter, sans-serif">trains on</text>
+
+          <!-- Inside World Model: Imagined trajectory -->
+          <rect x="55" y="236" width="230" height="55" rx="8" fill="rgba(251,191,36,0.08)" stroke="rgba(251,191,36,0.3)" stroke-width="1"/>
+          <text x="170" y="254" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600" font-family="Inter, sans-serif">Imagined Trajectories</text>
+          <text x="170" y="268" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">s_1 &rarr; s_2 &rarr; s_3 &rarr; ... &rarr; s_T (predicted)</text>
+          <text x="170" y="282" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="Inter, sans-serif">with predicted rewards at each step</text>
+
+          <!-- Inside World Model: Actor + Critic -->
+          <rect x="60" y="303" width="100" height="36" rx="8" fill="rgba(52,211,153,0.12)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="110" y="325" text-anchor="middle" fill="#34d399" font-size="11" font-weight="600" font-family="Inter, sans-serif">Actor</text>
+
+          <rect x="180" y="303" width="100" height="36" rx="8" fill="rgba(251,191,36,0.1)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="230" y="325" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600" font-family="Inter, sans-serif">Critic</text>
+
+          <!-- Arrow: Imagined -> Actor -->
+          <path d="M 130 291 L 110 297" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#wmArrowAmber)"/>
+
+          <!-- Arrow: Imagined -> Critic -->
+          <path d="M 210 291 L 230 297" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#wmArrowAmber)"/>
+
+          <!-- Label: train on imagined data -->
+          <text x="170" y="358" text-anchor="middle" fill="#94a3b8" font-size="9" font-style="italic" font-family="Inter, sans-serif">both train entirely on imagined data</text>
+
+          <!-- Arrow: Actor back to Environment (dashed, for acting) -->
+          <path d="M 55 320 L 20 320 L 20 50 L 89 50" fill="none" stroke="#34d399" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#wmArrowGreen)"/>
+          <text x="10" y="185" fill="#34d399" font-size="9" font-weight="500" font-family="Inter, sans-serif" transform="rotate(-90, 10, 185)">acts in real env</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 4px;">
+    <strong style="color: #fff;">Historical context:</strong>
+    <span style="color: var(--text-dim);"> The idea of learning a model and planning inside it goes back to Sutton's <strong>Dyna</strong> architecture (1991). Ha &amp; Schmidhuber (2018) popularized the term "World Models" by showing agents could learn environment dynamics as a latent space and train controllers entirely in imagination. DreamerV3 is the modern culmination of this line of work.</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 6: Putting It All Together -->
+<div class="slide" id="bridge-6">
+  <h3>Step 5</h3>
+  <h2>DreamerV3: All Pieces Connected</h2>
+
+  <p style="color: var(--text-dim); margin-bottom: 16px; margin-top: -16px;">DreamerV3 combines the agent-environment loop, actor-critic, and world model into one integrated system.</p>
+  <p style="color: var(--text-dim); margin-bottom: 16px; margin-top: -8px;">For this repo's VGGT/R2Dreamer encoder and replay topology, see <a href="../02-architecture/architecture-data-flow.html" style="color: var(--accent2); font-weight: 600;">architecture-data-flow.html</a>.</p>
+
+  <div style="margin-bottom: 20px;">
+    <!-- Full DreamerV3 loop as connected flow -->
+    <div class="card" style="padding: 28px;">
+      <h4 style="margin-bottom: 16px;">The Complete Training Loop</h4>
+
+      <!-- Phase 1: Acting -->
+      <div style="margin-bottom: 16px;">
+        <span class="tag tag-accent" style="margin-bottom: 8px;">Phase 1: Acting in the Real Environment</span>
+        <div class="arrow-flow" style="margin: 8px 0;">
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent);">Agent observes \(s_t\)</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-green);">Actor picks \(a_t\)</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-amber);">Environment returns \(s_{t+1}, r_t\)</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-cyan);">Store in Replay Buffer</div>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-left: 4px;">Full episodes (up to 500 steps). This is the classic RL loop from Slide 2.</p>
+      </div>
+
+      <!-- Phase 2: World Model -->
+      <div style="margin-bottom: 16px;">
+        <span class="tag tag-green" style="margin-bottom: 8px;">Phase 2: Training the World Model</span>
+        <div class="arrow-flow" style="margin: 8px 0;">
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-green);">Sample 64-step windows</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-green);">Encode observations</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-green);">Learn transitions + rewards</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-green);">Reconstruct observations</div>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-left: 4px;">Learns local dynamics from short windows, not full episodes. 64 steps is enough for step-by-step transitions.</p>
+      </div>
+
+      <!-- Phase 3: Imagination -->
+      <div>
+        <span class="tag tag-amber" style="margin-bottom: 8px;">Phase 3: Actor-Critic in Imagination</span>
+        <div class="arrow-flow" style="margin: 8px 0;">
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-amber);">Pick starting states</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-amber);">Imagine 15 steps forward</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-amber);">Critic evaluates returns</div>
+          <div class="flow-arrow">&rarr;</div>
+          <div class="flow-box" style="font-size:0.8rem; border-color: var(--accent-amber);">Actor improves policy</div>
+        </div>
+        <p style="font-size: 0.82rem; color: var(--text-dim); margin-left: 4px;">No real environment needed. The actor-critic from Slide 4 now trains entirely in the world model's imagination.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box green">
+    <strong style="color: #fff;">Why this is powerful:</strong>
+    <span style="color: var(--text-dim);"> One real environment step produces training data for the world model, which then generates <em>unlimited</em> imagined experience for the actor-critic. The agent "practices in its head" rather than wasting real environment interactions. This makes DreamerV3 extremely sample-efficient.</span>
+  </div>
+</div>
+
+<!-- BRIDGE SLIDE 7: Transition to Deep Dive -->
+<div class="slide" id="bridge-7">
+  <h3>Summary</h3>
+  <h2>The Conceptual Stack</h2>
+
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 0; margin: 10px 0 20px 0;">
+    <!-- Layer 4: DreamerV3 -->
+    <div style="background: linear-gradient(135deg, rgba(52,211,153,0.15), rgba(34,211,238,0.1)); border: 2px solid var(--accent-green); border-radius: 14px; padding: 18px 40px; width: 80%; text-align: center; position: relative; z-index: 4;">
+      <strong style="color: var(--accent-green); font-size: 1.1rem;">DreamerV3</strong>
+      <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">World model (RSSM) + actor-critic trained in imagination. Fixed hyperparameters across all domains.</p>
+    </div>
+    <div style="font-size: 1.5rem; color: var(--accent2); margin: 4px 0;">&uarr;</div>
+
+    <!-- Layer 3: World Models -->
+    <div style="background: var(--surface); border: 2px solid var(--accent-amber); border-radius: 14px; padding: 18px 40px; width: 70%; text-align: center; position: relative; z-index: 3;">
+      <strong style="color: var(--accent-amber); font-size: 1.1rem;">World Models / Model-Based RL</strong>
+      <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">Learn a model of the environment. Train the policy by imagining trajectories instead of real interaction.</p>
+    </div>
+    <div style="font-size: 1.5rem; color: var(--accent2); margin: 4px 0;">&uarr;</div>
+
+    <!-- Layer 2: Actor-Critic -->
+    <div style="background: var(--surface); border: 2px solid var(--accent); border-radius: 14px; padding: 18px 40px; width: 60%; text-align: center; position: relative; z-index: 2;">
+      <strong style="color: var(--accent2); font-size: 1.1rem;">Actor-Critic</strong>
+      <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">Split into actor (picks actions) and critic (evaluates states). Critic reduces variance of policy gradient.</p>
+    </div>
+    <div style="font-size: 1.5rem; color: var(--accent2); margin: 4px 0;">&uarr;</div>
+
+    <!-- Layer 1: RL Problem -->
+    <div style="background: var(--surface); border: 2px solid var(--border); border-radius: 14px; padding: 18px 40px; width: 50%; text-align: center; position: relative; z-index: 1;">
+      <strong style="color: var(--text); font-size: 1.1rem;">Reinforcement Learning</strong>
+      <p style="font-size: 0.85rem; color: var(--text-dim); margin-top: 4px;">Agent-environment loop. Observe state, take action, receive reward. Maximize cumulative return.</p>
+    </div>
+  </div>
+
+  <div class="card-grid grid-2">
+    <div class="highlight-box" style="margin: 0;">
+      <strong style="color: #fff;">Each layer solves a limitation:</strong>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li><strong>RL:</strong> defines the problem</li>
+        <li><strong>Actor-Critic:</strong> reduces variance of policy gradient</li>
+        <li><strong>World Models:</strong> reduces need for real environment interaction</li>
+        <li><strong>DreamerV3:</strong> makes it work robustly across all domains</li>
+      </ul>
+    </div>
+    <div class="highlight-box amber" style="margin: 0;">
+      <strong style="color: #fff;">Next: DreamerV3 Deep Dive</strong>
+      <span style="color: var(--text-dim);"><br>The following slides go inside DreamerV3: the RSSM architecture, training details, robustness techniques, results, and ablations.</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- PART 2: DreamerV3 DEEP DIVE (original presentation)          -->
+<!-- ============================================================ -->
+
+<!-- SLIDE 8: DreamerV3 Title -->
+<div class="slide" id="slide-1">
+  <h3>Part 2: Paper Deep-Dive</h3>
+  <h1>DreamerV3<br>Mastering Diverse Domains<br>through World Models</h1>
+  <div class="subtitle" style="margin-top: 16px;">
+    Hafner, Pasukonis, Ba, Lillicrap (2024) &mdash; Google DeepMind &amp; University of Toronto
+  </div>
+  <div style="margin-top: 32px;">
+    <span class="tag tag-accent">World Models</span>
+    <span class="tag tag-green">Model-Based RL</span>
+    <span class="tag tag-cyan">RSSM</span>
+    <span class="tag tag-amber">150+ Tasks</span>
+  </div>
+  <div class="highlight-box" style="margin-top: 32px; max-width: 720px;">
+    <strong style="color: #fff;">Key claim:</strong>
+    <span style="color: var(--text-dim);"> A single algorithm with fixed hyperparameters outperforms specialized expert methods across 8 domains and 150+ tasks &mdash; including collecting diamonds in Minecraft from scratch.</span>
+  </div>
+</div>
+
+<!-- SLIDE 2: The Problem -->
+<div class="slide" id="slide-2">
+  <h3>Motivation</h3>
+  <h2>Why DreamerV3?</h2>
+
+  <div class="card-grid grid-2">
+    <div class="card" style="border-left: 4px solid var(--accent-red);">
+      <h4>The Problem with RL Today</h4>
+      <ul>
+        <li>Specialized algorithms tuned per domain</li>
+        <li>Hyperparameter tuning requires expertise + compute</li>
+        <li>Algorithms that work on Atari fail on robotics</li>
+        <li>Sparse rewards break most methods</li>
+        <li>Signal magnitudes vary by orders of magnitude</li>
+      </ul>
+    </div>
+    <div class="card" style="border-left: 4px solid var(--accent-green);">
+      <h4>DreamerV3's Promise</h4>
+      <ul>
+        <li><strong>One set of hyperparameters</strong> for all domains</li>
+        <li>Continuous and discrete action spaces</li>
+        <li>Dense and sparse rewards</li>
+        <li>Visual (pixels) and low-dimensional inputs</li>
+        <li>2D and 3D environments</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box amber" style="margin-top: 20px;">
+    <strong style="color: #fff;">Core idea:</strong>
+    <span style="color: var(--text-dim);"> Learn a world model, then train the policy entirely inside that model via imagined rollouts. Robustness techniques (symlog, return normalization, free bits) make this work across domains without tuning.</span>
+  </div>
+</div>
+
+<!-- SLIDE 3: Architecture Overview (Three Components) -->
+<div class="slide" id="slide-3">
+  <h3>Architecture</h3>
+  <h2>Three Neural Networks</h2>
+  <p style="color: var(--text-dim); margin-bottom: 14px; margin-top: -14px;">This is the generic DreamerV3 architecture. The current project-specific data flow is centralized in <a href="../02-architecture/architecture-data-flow.html" style="color: var(--accent2); font-weight: 600;">the global architecture page</a>.</p>
+
+  <div class="arrow-flow" style="justify-content: center; margin-bottom: 24px;">
+    <div class="flow-box" style="border-color: var(--accent); color: var(--accent2);"><strong>World Model</strong><br><span style="font-size:0.75rem; color:var(--text-dim);">learns environment dynamics</span></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color: var(--accent-amber); color: var(--accent-amber);"><strong>Critic</strong><br><span style="font-size:0.75rem; color:var(--text-dim);">judges outcomes</span></div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color: var(--accent-green); color: var(--accent-green);"><strong>Actor</strong><br><span style="font-size:0.75rem; color:var(--text-dim);">chooses actions</span></div>
+  </div>
+
+  <div class="card-grid grid-3">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>1. World Model (RSSM)</h4>
+      <p>Learns a compact latent representation of the environment via autoencoding. Predicts future states, rewards, and episode termination.</p>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Trained on <strong>real</strong> experience from replay buffer</li>
+        <li>Encoder: image/vector &rarr; latent</li>
+        <li>Decoder: latent &rarr; reconstruction</li>
+        <li>Predicts: rewards, continuation flags</li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>2. Critic</h4>
+      <p>Learns to predict the <strong>distribution</strong> of future returns from any model state. Uses distributional RL (not just mean).</p>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Trained on <strong>imagined</strong> trajectories</li>
+        <li>Categorical distribution over symexp bins</li>
+        <li>EMA-regularized for stability</li>
+        <li>Provides baseline for actor</li>
+      </ul>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>3. Actor</h4>
+      <p>Selects actions to maximize return, trained purely from imagined rollouts. Uses REINFORCE with entropy bonus.</p>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Trained on <strong>imagined</strong> trajectories</li>
+        <li>Works for discrete + continuous actions</li>
+        <li>Return-normalized advantage</li>
+        <li>Fixed entropy scale across all domains</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: #fff;">Training loop:</strong>
+    <span style="color: var(--text-dim);"> Collect experience &rarr; train world model on replayed data &rarr; imagine trajectories in model &rarr; train actor + critic on imagined data &rarr; repeat.</span>
+  </div>
+</div>
+
+<!-- SLIDE 4: RSSM World Model -->
+<div class="slide" id="slide-4">
+  <h3>World Model</h3>
+  <h2>Recurrent State-Space Model (RSSM)</h2>
+
+  <div class="two-col" style="grid-template-columns: 50% 48%;">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Model State: \(s_t = \{h_t, z_t\}\)</h4>
+        <p style="margin-bottom: 8px;">Each state has two parts:</p>
+        <ul>
+          <li><strong>\(h_t\)</strong> &mdash; deterministic recurrent state (GRU hidden state, captures history)</li>
+          <li><strong>\(z_t\)</strong> &mdash; stochastic discrete representation (32 categoricals with 32 classes each)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>RSSM Components</h4>
+        <table style="font-size: 0.82rem;">
+          <tr><td style="color:var(--accent2); font-weight:600;">Sequence model</td><td>\(h_t = f_\phi(h_{t-1}, z_{t-1}, a_{t-1})\)</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Encoder</td><td>\(z_t \sim q_\phi(z_t \mid h_t, x_t)\)</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Dynamics predictor</td><td>\(\hat{z}_t \sim p_\phi(\hat{z}_t \mid h_t)\)</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Reward predictor</td><td>\(\hat{r}_t \sim p_\phi(\hat{r}_t \mid h_t, z_t)\)</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Continue predictor</td><td>\(\hat{c}_t \sim p_\phi(\hat{c}_t \mid h_t, z_t)\)</td></tr>
+          <tr><td style="color:var(--accent2); font-weight:600;">Decoder</td><td>\(\hat{x}_t \sim p_\phi(\hat{x}_t \mid h_t, z_t)\)</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="margin-bottom: 14px; border-top: 3px solid var(--accent);">
+        <h4>World Model Loss</h4>
+        <div class="math-block" style="font-size: 0.85rem;">
+          $$\mathcal{L}(\phi) = \mathbb{E}_{q_\phi}\Big[\sum_{t=1}^{T}(\beta_\text{pred}\mathcal{L}_\text{pred} + \beta_\text{dyn}\mathcal{L}_\text{dyn} + \beta_\text{rep}\mathcal{L}_\text{rep})\Big]$$
+        </div>
+        <ul class="compact-list" style="margin-top: 8px;">
+          <li><strong>Prediction loss</strong> &mdash; reconstruct observations, rewards, continuation</li>
+          <li><strong>Dynamics loss</strong> &mdash; KL(encoder || prior), train predictor</li>
+          <li><strong>Representation loss</strong> &mdash; KL(encoder || prior), train encoder</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>Key Design Choices</h4>
+        <ul>
+          <li><strong>Discrete latents</strong> (32 x 32 categoricals) &mdash; combinatorial expressiveness</li>
+          <li><strong>Free bits</strong> &mdash; clip KL below 1 nat to avoid trivially small representations</li>
+          <li><strong>1% unimix</strong> &mdash; mix 99% network + 1% uniform to prevent zero probabilities</li>
+          <li><strong>Separate stop-gradients</strong> on dynamics vs. representation losses to balance learning</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 5: Training Loop Visualized -->
+<div class="slide" id="slide-5">
+  <h3>Training</h3>
+  <h2>Two-Phase Training Loop</h2>
+
+  <div class="card-grid grid-2" style="margin-bottom: 20px;">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>Phase A: World Model Learning</h4>
+      <p style="margin-bottom: 12px;">Train on <strong>real experience</strong> from the replay buffer.</p>
+
+      <div class="arrow-flow" style="margin: 8px 0;">
+        <div class="flow-box" style="font-size:0.8rem;">Replay Buffer</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">Encode \(x_t \to z_t\)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">Predict \(z_{t+1}, r_t, c_t\)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">Decode \(\hat{x}_t\)</div>
+      </div>
+
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Sequences sampled from uniform replay buffer</li>
+        <li>Batch: 16 sequences x 64 timesteps</li>
+        <li>Online queue with latent state caching</li>
+        <li>Reconstruction gradients shape representations</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>Phase B: Actor-Critic Learning</h4>
+      <p style="margin-bottom: 12px;">Train on <strong>imagined trajectories</strong> inside the world model.</p>
+
+      <div class="arrow-flow" style="margin: 8px 0;">
+        <div class="flow-box" style="font-size:0.8rem;">Start state \(s_t\)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">Actor picks \(a_t\)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">Model predicts \(s_{t+1}\)</div>
+        <div class="flow-arrow">&rarr;</div>
+        <div class="flow-box" style="font-size:0.8rem;">T=16 steps</div>
+      </div>
+
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Start from states encountered during world model training</li>
+        <li>Roll out T=16 imagined steps</li>
+        <li>Compute \(\lambda\)-returns from predicted rewards</li>
+        <li>No real environment interaction needed</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box green">
+    <strong style="color: #fff;">Why this works:</strong>
+    <span style="color: var(--text-dim);"> The world model provides unlimited synthetic experience for free. The actor can explore thousands of strategies in imagination without spending a single real environment step. This makes DreamerV3 extremely sample-efficient.</span>
+  </div>
+</div>
+
+<!-- SLIDE 6: Actor & Critic Details -->
+<div class="slide" id="slide-6">
+  <h3>Actor-Critic</h3>
+  <h2>Policy &amp; Value Learning</h2>
+
+  <div class="two-col" style="grid-template-columns: 50% 48%;">
+    <div>
+      <div class="card" style="border-top: 3px solid var(--accent-green); margin-bottom: 14px;">
+        <h4>Actor Loss (REINFORCE)</h4>
+        <div class="math-block" style="font-size: 0.82rem;">
+          $$\mathcal{L}(\theta) = -\sum_{t=1}^{T-1} \text{sg}\!\Big(\frac{R_t^\lambda - v_\psi(s_t)}{\max(1, S)}\Big) \cdot \log \pi_\theta(a_t \mid s_t) + \eta\, H[\pi_\theta]$$
+        </div>
+        <ul class="compact-list" style="margin-top: 10px;">
+          <li><strong>Advantage:</strong> \(R_t^\lambda - v_\psi(s_t)\) with stop-gradient</li>
+          <li><strong>Return normalization S:</strong> EMA of 5th&ndash;95th percentile range</li>
+          <li><strong>Denominator clamp:</strong> \(\max(1, S)\) &mdash; only scales down, never amplifies noise</li>
+          <li><strong>Entropy bonus:</strong> fixed \(\eta = 3 \times 10^{-4}\) across all domains</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Why REINFORCE over Reparameterization?</h4>
+        <ul>
+          <li>Works for <strong>both</strong> discrete and continuous actions</li>
+          <li>Same code path regardless of action space</li>
+          <li>Combined with return normalization, produces stable gradients</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="border-top: 3px solid var(--accent-amber); margin-bottom: 14px;">
+        <h4>Critic Loss (Distributional)</h4>
+        <div class="math-block" style="font-size: 0.82rem;">
+          $$\mathcal{L}(\psi) = -\sum_{t=1}^{T} \ln p_\psi(R_t^\lambda \mid s_t)$$
+        </div>
+        <ul class="compact-list" style="margin-top: 10px;">
+          <li>Predicts the <strong>distribution</strong> of returns, not just the mean</li>
+          <li>Categorical over exponentially spaced bins (symexp)</li>
+          <li>Handles multi-modal return distributions</li>
+          <li>Decouples gradient scale from target magnitude</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>\(\lambda\)-Returns</h4>
+        <div class="math-block" style="font-size: 0.82rem;">
+          $$R_t^\lambda = r_t + \gamma c_t \big((1-\lambda) v_t + \lambda R_{t+1}^\lambda\big)$$
+        </div>
+        <ul class="compact-list" style="margin-top: 8px;">
+          <li>\(\gamma = 0.997\), \(\lambda = 0.95\)</li>
+          <li>Continuation flag \(c_t\) handles episode boundaries</li>
+          <li>Bootstraps from critic at horizon \(T=16\)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7: Robustness Techniques -->
+<div class="slide" id="slide-7">
+  <h3>Key Innovation</h3>
+  <h2>Robustness Techniques</h2>
+  <p style="color: var(--text-dim); margin-bottom: 16px; margin-top: -16px;">These techniques enable fixed hyperparameters across all domains</p>
+
+  <div class="card-grid grid-2">
+    <div class="card" style="border-left: 4px solid var(--accent);">
+      <h4>Symlog &amp; Symexp Predictions</h4>
+      <div class="math-block" style="font-size: 0.82rem;">
+        $$\text{symlog}(x) = \text{sign}(x) \ln(|x|+1)$$
+        $$\text{symexp}(x) = \text{sign}(x)(\exp(|x|)-1)$$
+      </div>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Compresses large magnitudes, preserves sign</li>
+        <li>Identity near origin &mdash; small targets unaffected</li>
+        <li>Applied to observations, rewards, and returns</li>
+        <li>Decouples gradient magnitude from target magnitude</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-amber);">
+      <h4>Symexp Twohot Loss</h4>
+      <div class="math-block" style="font-size: 0.82rem;">
+        $$\hat{y} = \text{softmax}(f(x))^T B,\quad B = \text{symexp}([-20\ldots+20])$$
+      </div>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Predict continuous values via categorical distribution</li>
+        <li>Bins exponentially spaced via symexp</li>
+        <li>Twohot encoding: soft target across 2 nearest bins</li>
+        <li>Used for reward predictor and critic</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-green);">
+      <h4>Return Normalization</h4>
+      <div class="math-block" style="font-size: 0.82rem;">
+        $$S = \text{EMA}\big(\text{Per}(R^\lambda, 95) - \text{Per}(R^\lambda, 5),\; 0.99\big)$$
+      </div>
+      <ul class="compact-list" style="margin-top: 8px;">
+        <li>Normalizes returns to ~[0, 1] regardless of reward scale</li>
+        <li>Percentile-based, robust to outliers</li>
+        <li>\(\max(1, S)\) clamp: never amplifies small signals</li>
+        <li>Fixes sparse reward failure mode of std normalization</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-cyan);">
+      <h4>KL Balancing &amp; Free Bits</h4>
+      <ul>
+        <li><strong>Free bits:</strong> clip KL below 1 nat to focus learning on prediction loss when representations are already informative</li>
+        <li><strong>KL balancing:</strong> separate stop-gradients &mdash; dynamics loss trains the predictor, representation loss trains the encoder</li>
+        <li><strong>1% unimix:</strong> prevents zero probabilities in categoricals, ensures well-behaved KL</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: Sparse vs Dense Rewards -->
+<div class="slide" id="slide-8">
+  <h3>Core Challenge</h3>
+  <h2>Handling Sparse &amp; Dense Rewards</h2>
+
+  <div class="card-grid grid-2" style="margin-bottom: 16px;">
+    <div class="card" style="border-top: 3px solid var(--accent-red);">
+      <h4>The Problem</h4>
+      <p style="margin-bottom: 10px;">Reward scales vary by orders of magnitude across domains:</p>
+      <table style="font-size: 0.82rem;">
+        <tr><th>Domain</th><th>Reward Type</th><th>Scale</th></tr>
+        <tr><td style="color:var(--text);">Atari</td><td>Dense</td><td>Scores in 100s&ndash;10,000s</td></tr>
+        <tr><td style="color:var(--text);">Proprio Control</td><td>Dense</td><td>Small continuous values</td></tr>
+        <tr><td style="color:var(--text);">BSuite</td><td>Mixed</td><td>Binary to continuous</td></tr>
+        <tr><td style="color:var(--text);">Minecraft</td><td>Very sparse</td><td>Single +1 after 1000s of steps</td></tr>
+      </table>
+      <p style="margin-top: 10px; font-size: 0.85rem;">Standard approach: normalize by <strong>standard deviation</strong>. But under sparse rewards, std &asymp; 0, which <strong>amplifies random noise</strong> and stagnates learning.</p>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>DreamerV3's Solution: 5 Interlocking Mechanisms</h4>
+      <p style="margin-bottom: 8px; color: var(--text);">No single trick &mdash; a system of techniques that work together:</p>
+      <ul>
+        <li><strong style="color: var(--accent-amber);">1.</strong> Percentile return normalization with clamp</li>
+        <li><strong style="color: var(--accent-amber);">2.</strong> Symexp twohot for critic &amp; reward predictor</li>
+        <li><strong style="color: var(--accent-amber);">3.</strong> Symlog observation compression</li>
+        <li><strong style="color: var(--accent-amber);">4.</strong> Fixed entropy bonus</li>
+        <li><strong style="color: var(--accent-amber);">5.</strong> World model provides dense signal always</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card-grid grid-3">
+    <div class="card" style="border-left: 4px solid var(--accent-amber);">
+      <h4>1. Return Normalization (Key Mechanism)</h4>
+      <div class="math-block" style="font-size: 0.8rem;">
+        $$\text{advantage} = \frac{R_t^\lambda - v(s_t)}{\max(1,\; S)}$$
+        $$S = \text{EMA}(\text{Per}_{95} - \text{Per}_{5})$$
+      </div>
+      <ul class="compact-list" style="margin-top: 6px;">
+        <li><strong>Dense (S &gt;&gt; 1):</strong> divides returns down to ~[0,1], prevents gradient explosion</li>
+        <li><strong>Sparse (S &lt; 1):</strong> clamp kicks in, advantage passed <strong>untouched</strong> &mdash; never amplifies noise</li>
+        <li>Percentile-based, not std-based &mdash; robust to outliers</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-cyan);">
+      <h4>2. Symexp Twohot Critic</h4>
+      <p style="margin-bottom: 6px;">Critic predicts a <strong>categorical distribution</strong> over exponentially spaced bins, not a scalar.</p>
+      <ul class="compact-list">
+        <li>Reward of 10,000 &rarr; same gradient scale as 0.01</li>
+        <li>Multi-modal distributions (mostly 0, occasionally large) handled naturally</li>
+        <li>Decouples gradient magnitude from target magnitude</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-green);">
+      <h4>3&ndash;5. Supporting Mechanisms</h4>
+      <ul>
+        <li><strong>Symlog:</strong> compresses large observations, identity near zero &mdash; same network handles both scales</li>
+        <li><strong>Fixed entropy</strong> \(\eta = 3\!\times\!10^{-4}\): consistent exploration pressure. Dense rewards don't overwhelm it; sparse rewards don't let it dominate</li>
+        <li><strong>Reconstruction loss:</strong> world model gets dense learning signal from pixels at <em>every</em> timestep, even with zero reward &mdash; builds good representations before any reward is seen</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box amber" style="margin-top: 14px;">
+    <strong style="color: #fff;">Why this matters for Minecraft:</strong>
+    <span style="color: var(--text-dim);"> The agent must discover 12 items in a crafting tree with only sparse +1 signals. The world model learns environment dynamics from pixels (dense signal), while \(\max(1, S)\) ensures the rare reward signals aren't drowned in noise. Previous methods needed human demonstrations or curricula.</span>
+  </div>
+</div>
+
+<!-- SLIDE 9: Network Architecture -->
+<div class="slide" id="slide-8">
+  <h3>Implementation</h3>
+  <h2>Network Architecture &amp; Scaling</h2>
+
+  <div class="two-col" style="grid-template-columns: 55% 43%;">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Model Sizes</h4>
+        <table>
+          <tr><th>Parameters</th><th>12M</th><th>25M</th><th>50M</th><th>100M</th><th>200M</th><th>400M</th></tr>
+          <tr><td style="color:var(--text);">Hidden size (d)</td><td>256</td><td>384</td><td>512</td><td>768</td><td>1024</td><td>1536</td></tr>
+          <tr><td style="color:var(--text);">Recurrent units (8d)</td><td>1024</td><td>3072</td><td>4096</td><td>6144</td><td>8192</td><td>12288</td></tr>
+          <tr><td style="color:var(--text);">CNN channels (d/16)</td><td>16</td><td>24</td><td>32</td><td>48</td><td>64</td><td>96</td></tr>
+          <tr><td style="color:var(--text);">Codes per latent (d/16)</td><td>16</td><td>24</td><td>32</td><td>48</td><td>64</td><td>96</td></tr>
+        </table>
+        <p style="margin-top: 8px; font-size: 0.8rem;">Default: <strong>200M</strong> (12M for control suites). All hyperparameters fixed across sizes.</p>
+      </div>
+
+      <div class="card">
+        <h4>Network Components</h4>
+        <ul>
+          <li><strong>Encoder/Decoder:</strong> stride-2 CNNs (images) or 3-layer MLPs (vectors)</li>
+          <li><strong>Sequence model:</strong> Block-diagonal GRU (8 blocks) &mdash; scales without quadratic cost</li>
+          <li><strong>Actor &amp; Critic:</strong> 3-layer MLPs</li>
+          <li><strong>Predictors:</strong> 1-layer MLPs (reward, continue)</li>
+          <li><strong>Optimizer:</strong> LaProp with AGC (adaptive gradient clipping)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <div class="card" style="border-top: 3px solid var(--accent-green); margin-bottom: 14px;">
+        <h4>Scaling Properties</h4>
+        <ul>
+          <li>Performance increases <strong>monotonically</strong> with model size</li>
+          <li>Larger models are also more <strong>sample-efficient</strong></li>
+          <li>Higher replay ratios increase data efficiency predictably</li>
+          <li>All sizes trained on a <strong>single A100 GPU</strong></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h4>Replay Buffer</h4>
+        <ul>
+          <li>Uniform replay (no prioritized replay)</li>
+          <li>Online queue: new data enters immediately</li>
+          <li>Stores latent states, not raw observations</li>
+          <li>Replay ratio controls compute/data trade-off</li>
+          <li>Default ratio: 32 (Atari, DMLab, ProcGen)</li>
+        </ul>
+      </div>
+
+      <div class="highlight-box" style="margin-top: 14px;">
+        <strong style="color: #fff;">Key insight:</strong>
+        <span style="color: var(--text-dim);"> Performance rests on the unsupervised reconstruction loss &mdash; not on reward/value prediction gradients. This is unlike most prior model-based RL.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: Results -->
+<div class="slide" id="slide-9">
+  <h3>Results</h3>
+  <h2>8 Domains, 150+ Tasks, Fixed Hyperparameters</h2>
+
+  <div class="card-grid grid-4" style="margin-bottom: 16px;">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>Atari (57 tasks)</h4>
+      <p>200M frames. Outperforms MuZero, Rainbow, IQN, and PPO with a fraction of compute.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>Proprio Control (18)</h4>
+      <p>500K steps. New SOTA, beating D4PG, DMPO, and MPO on locomotion + manipulation.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>Visual Control (20)</h4>
+      <p>1M steps. Outperforms DrQ-v2 and CURL &mdash; methods specialized for visual RL with augmentation.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-cyan);">
+      <h4>DMLab (30 tasks)</h4>
+      <p>100M frames. Exceeds IMPALA and R2D2+ at 1B steps &mdash; 1000x more data-efficient.</p>
+    </div>
+  </div>
+
+  <div class="card-grid grid-4" style="margin-bottom: 16px;">
+    <div class="card">
+      <h4>ProcGen (16 tasks)</h4>
+      <p>50M frames. Matches tuned PPG expert, outperforms Rainbow. Tests generalization.</p>
+    </div>
+    <div class="card">
+      <h4>BSuite (23 tasks)</h4>
+      <p>SOTA especially in scale robustness. Outperforms Boot DQN on credit assignment + memory.</p>
+    </div>
+    <div class="card">
+      <h4>Atari100K (26 tasks)</h4>
+      <p>400K frames (2 hrs game time). Beats IRIS, TWM, SPR, SimPLe in data efficiency.</p>
+    </div>
+    <div class="card" style="border-top: 3px solid var(--accent-amber);">
+      <h4>Minecraft Diamond</h4>
+      <p><strong>First algorithm</strong> to collect diamonds from scratch. No human data, no curricula. 1 GPU, 9 days.</p>
+    </div>
+  </div>
+
+  <div class="highlight-box green">
+    <strong style="color: #fff;">Minecraft achievement:</strong>
+    <span style="color: var(--text-dim);"> Previous methods (VPT) required 720 GPUs + human demonstrations. DreamerV3 does it with 1 GPU and sparse rewards only &mdash; navigating a 12-item crafting tree in a procedurally generated 3D world.</span>
+  </div>
+</div>
+
+<!-- SLIDE 10: Ablations -->
+<div class="slide" id="slide-10">
+  <h3>Analysis</h3>
+  <h2>Ablations &amp; What Matters</h2>
+
+  <div class="card-grid grid-2">
+    <div class="card" style="border-top: 3px solid var(--accent);">
+      <h4>Robustness Techniques (each ablated)</h4>
+      <table style="font-size: 0.82rem;">
+        <tr><th>Ablation</th><th>Effect</th></tr>
+        <tr><td style="color:var(--text);">No obs symlog</td><td>Performance drops on high-magnitude domains</td></tr>
+        <tr><td style="color:var(--text);">No return normalization</td><td>Significant drop &mdash; second most important</td></tr>
+        <tr><td style="color:var(--text);">No symexp twohot (use Huber)</td><td>Moderate drop, especially varied reward scales</td></tr>
+        <tr><td style="color:var(--text);">No KL balance + free bits</td><td>Most impactful &mdash; largest single ablation drop</td></tr>
+        <tr><td style="color:var(--text);">Remove all techniques</td><td>Catastrophic failure across most domains</td></tr>
+      </table>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>Learning Signals</h4>
+      <table style="font-size: 0.82rem;">
+        <tr><th>Signal Removed</th><th>Effect</th></tr>
+        <tr><td style="color:var(--text);">No reward &amp; value gradients</td><td>Small drop &mdash; reconstruction carries most weight</td></tr>
+        <tr><td style="color:var(--text);">No reconstruction gradients</td><td>Large drop &mdash; confirms world model is the backbone</td></tr>
+      </table>
+      <div class="highlight-box" style="margin-top: 12px; padding: 14px 18px;">
+        <strong style="color: #fff;">Surprising finding:</strong>
+        <span style="color: var(--text-dim);"> The unsupervised reconstruction loss matters more than task-specific reward gradients. This suggests world models could benefit from unsupervised pretraining.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-grid grid-2" style="margin-top: 16px;">
+    <div class="card">
+      <h4>Model Size Scaling</h4>
+      <ul>
+        <li>12M &rarr; 400M: monotonic performance increase</li>
+        <li>Larger models need <strong>fewer environment steps</strong></li>
+        <li>Robust learning across all sizes tested</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Replay Ratio Scaling</h4>
+      <ul>
+        <li>Higher ratio = more gradient steps per env step</li>
+        <li>Predictably improves performance + data efficiency</li>
+        <li>Trade-off: more compute per environment step</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 11: DreamerV1 → V2 → V3 Evolution -->
+<div class="slide" id="slide-11">
+  <h3>Evolution</h3>
+  <h2>DreamerV1 &rarr; V2 &rarr; V3</h2>
+
+  <div class="card-grid grid-3">
+    <div class="card" style="border-top: 3px solid var(--text-dim);">
+      <h4>DreamerV1 (2020)</h4>
+      <ul>
+        <li>Continuous control only</li>
+        <li>Gaussian latent representations</li>
+        <li>Reparameterized policy gradient</li>
+        <li>Fixed reward scale</li>
+        <li>Separate tuning per domain</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent2);">
+      <h4>DreamerV2 (2021)</h4>
+      <ul>
+        <li>Discrete latents (32 x 32 categoricals)</li>
+        <li>Surpassed human on Atari</li>
+        <li>Straight-through gradients</li>
+        <li>KL balancing introduced</li>
+        <li>Still requires per-domain tuning</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-top: 3px solid var(--accent-green);">
+      <h4>DreamerV3 (2024)</h4>
+      <ul>
+        <li><strong>Fixed hyperparameters across all domains</strong></li>
+        <li>Symlog + symexp twohot predictions</li>
+        <li>Percentile return normalization</li>
+        <li>Free bits + 1% unimix</li>
+        <li>Block-diagonal GRU, LaProp + AGC</li>
+        <li>Model size scaling (12M&ndash;400M)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 20px;">
+    <strong style="color: #fff;">Summary of V3 additions:</strong>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; color: var(--text-dim); font-size: 0.88rem;">
+      <div><strong style="color:var(--accent2);">Robustness:</strong> symlog, free bits, unimix, percentile return norm, symexp twohot</div>
+      <div><strong style="color:var(--accent2);">Architecture:</strong> block-diagonal GRU, RMSNorm, SiLU activations</div>
+      <div><strong style="color:var(--accent2);">Optimizer:</strong> LaProp (RMSProp + momentum), AGC</div>
+      <div><strong style="color:var(--accent2);">Replay:</strong> larger capacity, online queue, latent state caching</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 12: Relevance to Thesis -->
+<div class="slide" id="slide-12">
+  <h3>Thesis Context</h3>
+  <h2>Why DreamerV3 for Our Work</h2>
+
+  <div class="card-grid grid-2">
+    <div class="card" style="border-left: 4px solid var(--accent);">
+      <h4>DreamerV3 as Baseline</h4>
+      <ul>
+        <li>State-of-the-art general-purpose world model</li>
+        <li>Works on visual 3D environments (DMLab, Minecraft)</li>
+        <li>Fixed hyperparameters &mdash; fair comparison baseline</li>
+        <li>Scales from 12M to 400M parameters</li>
+        <li>Single A100 GPU training &mdash; fits our compute budget</li>
+      </ul>
+    </div>
+
+    <div class="card" style="border-left: 4px solid var(--accent-green);">
+      <h4>Our Research Question</h4>
+      <ul>
+        <li>DreamerV3 uses only 2D pixel observations</li>
+        <li>Can we improve it with 3D semantic features (UNITE)?</li>
+        <li>RSSM encoder is the natural injection point</li>
+        <li>Test on HM3D ObjectNav &mdash; navigation needs spatial reasoning</li>
+        <li>Compare: 2D-only (baseline) vs. 2D + 3D (ours)</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="arrow-flow" style="justify-content: center; margin-top: 24px;">
+    <div class="flow-box" style="border-color: var(--accent);">DreamerV3 (2D pixels)</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color: var(--accent-green);">+ UNITE 3D Features</div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-box" style="border-color: var(--accent-amber);">Better ObjectNav?</div>
+  </div>
+
+  <div class="highlight-box amber" style="margin-top: 20px;">
+    <strong style="color: #fff;">Hypothesis:</strong>
+    <span style="color: var(--text-dim);"> The RSSM world model will build more accurate internal maps when given dense 3D semantic features, leading to better spatial reasoning and navigation performance compared to 2D pixel-only input.</span>
+  </div>
+</div>
+
+</div><!-- end slide-container -->
+
+<div class="slide-number" id="slideNum">1 / 13</div>
+<div class="nav-hint">&larr; &rarr; arrow keys to navigate</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  let current = 0;
+  const total = slides.length;
+
+  function showSlide(n) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(n, total - 1));
+    slides[current].classList.add('active');
+    document.getElementById('slideNum').textContent = `${current + 1} / ${total}`;
+    document.getElementById('progress').style.width = `${((current + 1) / total) * 100}%`;
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); showSlide(current + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); showSlide(current - 1); }
+    if (e.key === 'Home') showSlide(0);
+    if (e.key === 'End') showSlide(total - 1);
+  });
+
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) { diff > 0 ? showSlide(current + 1) : showSlide(current - 1); }
+  });
+
+  showSlide(0);
+</script>
+
+</body>
+</html>

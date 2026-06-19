@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>a1aqhpnk · v4 — KaTeX + real icons · entropy bonus, policy gradient, KL triple-log, Crafter A/B</title>
+
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\[', right: '\\]', display: true},
+            {left: '\\(', right: '\\)', display: false}
+          ],
+          throwOnError: false
+        });"></script>
+
+<style>
+  :root{
+    --bg:#fafafa; --fg:#1a1a1a; --muted:#666; --line:#ddd; --accent:#0066cc;
+    --good:#2a9a4a; --warn:#c47c1a; --bad:#c0392b; --code-bg:#f4f4f4;
+    --soft-blue:#e8f1ff; --soft-orange:#fff5e6; --soft-green:#e0f3e3; --soft-red:#fbeae7;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg);color:var(--fg);margin:0;padding:0;line-height:1.55}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 28px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:20px;margin:36px 0 12px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h3{font-size:16px;margin:20px 0 8px;color:var(--accent)}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:20px}
+  code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;background:var(--code-bg);padding:1px 5px;border-radius:3px}
+  pre{background:var(--code-bg);padding:10px 12px;border-radius:4px;overflow-x:auto;border:1px solid var(--line);font-size:12px;font-family:"SF Mono",Menlo,Consolas,monospace}
+  .tldr{background:#fff;border-left:4px solid var(--accent);padding:14px 18px;margin:14px 0;border-radius:0 4px 4px 0}
+  .tldr ul{margin:6px 0 0;padding-left:22px}
+  .tldr li{margin:4px 0}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13px;background:#fff}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#f0f0f0;font-weight:600}
+  td.num{text-align:right;font-family:"SF Mono",Menlo,Consolas,monospace}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin:14px 0}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:14px 0}
+  .card{background:#fff;border:1px solid var(--line);border-radius:4px;padding:14px 16px}
+  .card h4{margin:0 0 6px;font-size:14px;color:var(--accent)}
+  .card .v{font-size:22px;font-weight:600;font-family:"SF Mono",Menlo,Consolas,monospace}
+  .card .d{font-size:12px;color:var(--muted);margin-top:4px}
+  .good{color:var(--good)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  .tag{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid;margin-right:6px}
+  .tag.ok{color:var(--good);border-color:var(--good);background:#eaf6ec}
+  .tag.warn{color:var(--warn);border-color:var(--warn);background:#fbf2e3}
+  .tag.bad{color:var(--bad);border-color:var(--bad);background:#fbeae7}
+  .formula-box{background:#fff;border:1px solid var(--line);padding:14px 18px;border-radius:6px;margin:12px 0}
+  .formula-box .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px}
+  svg.scene{background:#fff;border:1px solid var(--line);border-radius:6px;display:block;margin:14px auto;max-width:100%;height:auto}
+  figure{margin:18px 0;text-align:center}
+  figcaption{font-size:12px;color:var(--muted);margin-top:6px;font-style:italic;max-width:900px;margin-left:auto;margin-right:auto;padding:0 20px}
+  .hint{background:#fff8e6;border-left:3px solid var(--warn);padding:10px 14px;font-size:13px;border-radius:0 4px 4px 0;margin:10px 0}
+  .ok-box{background:#eaf6ec;border-left:3px solid var(--good);padding:10px 14px;font-size:13px;border-radius:0 4px 4px 0;margin:10px 0}
+  .visual-callout{background:linear-gradient(135deg,#e8f1ff 0%,#fff 100%);border:1px solid #cce4ff;border-radius:6px;padding:14px 18px;margin:12px 0;font-size:14px}
+  .visual-callout strong{color:var(--accent)}
+  .quiet{color:var(--muted);font-size:12px}
+  .step-list{counter-reset:step;list-style:none;padding-left:0}
+  .step-list li{counter-increment:step;padding:8px 12px 8px 36px;position:relative;background:#fff;border:1px solid var(--line);border-radius:4px;margin:6px 0}
+  .step-list li::before{content:counter(step);position:absolute;left:10px;top:8px;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;text-align:center;font-size:12px;font-weight:600;line-height:20px}
+  .prompt-box{background:#fff;border:2px solid var(--accent);border-radius:6px;padding:18px 22px;margin:18px 0;position:relative}
+  .prompt-box::before{content:"🤖 prompt for coding agent";position:absolute;top:-12px;left:18px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px;letter-spacing:0.3px}
+  .prompt-box pre{background:#fafafa;border:1px solid var(--line);font-size:12px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}
+</style>
+</head>
+
+<body>
+
+<!-- =============================================================
+     LUCIDE ICON SYMBOLS — defined once, reused via <use href="#X">
+     All Lucide MIT-licensed; viewBox 0 0 24 24
+     ============================================================= -->
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <symbol id="ic-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2m16 0h2m-7-1v2m-6-2v2"/></symbol>
+    <symbol id="ic-gamepad" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 11h4M8 9v4m7-1h.01M18 10h.01m-.69-5H6.68a4 4 0 0 0-3.978 3.59l-.017.152C2.604 9.416 2 14.456 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.414-1.414A2 2 0 0 1 9.828 16h4.344a2 2 0 0 1 1.414.586L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.545-.604-6.584-.685-7.258q-.01-.075-.017-.151A4 4 0 0 0 17.32 5"/></symbol>
+    <symbol id="ic-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="ic-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76l-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></symbol>
+    <symbol id="ic-dice" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01M12 12h.01M8 16h.01"/></symbol>
+    <symbol id="ic-pickaxe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 13l-8.381 8.38a1 1 0 0 1-3.001-3L11 9.999m4.973-5.972A13 13 0 0 0 5.902 2.373c-1.398.342-1.092 2.158.277 2.601a19.9 19.9 0 0 1 5.822 3.024m4 4.001a19.9 19.9 0 0 1 3.024 5.824c.444 1.369 2.26 1.676 2.603.278A13 13 0 0 0 20 8.069"/><path d="M18.352 3.352a1.205 1.205 0 0 0-1.704 0l-5.296 5.296a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l5.296-5.296a1.205 1.205 0 0 0 0-1.704z"/></symbol>
+    <symbol id="ic-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+    <symbol id="ic-trending-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7h6v6"/><path d="m22 7l-8.5 8.5l-5-5L2 17"/></symbol>
+    <symbol id="ic-trending-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 17h6v-6"/><path d="m22 17l-8.5-8.5l-5 5L2 7"/></symbol>
+    <symbol id="ic-hand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2m0 4V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2m0 4.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></symbol>
+    <symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696a10.75 10.75 0 0 1 19.876 0a1 1 0 0 1 0 .696a10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="ic-brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5m3 8a4.17 4.17 0 0 1-3-4a4.17 4.17 0 0 1-3 4m8.598-6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></symbol>
+    <symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
+    <symbol id="ic-file-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5m-10 4.5L8 15l2 2.5m4-5l2 2.5l-2 2.5"/></symbol>
+    <symbol id="ic-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8m-10 4h4"/></symbol>
+    <symbol id="ic-flask" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2M6.453 15h11.094M8.5 2h7"/></symbol>
+    <symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12l2 2l4-4"/></symbol>
+    <symbol id="ic-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></symbol>
+    <symbol id="ic-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4m2-2h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+    <symbol id="ic-shuffle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 14l4 4l-4 4m0-20l4 4l-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-8.6a4 4 0 0 1 3.3-1.7H22M2 6h1.972a4 4 0 0 1 3.6 2.2M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/></symbol>
+    <symbol id="ic-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14l4-4M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<h1>a1aqhpnk · v4 (icons + KaTeX edition)</h1>
+<div class="sub">
+  Run: <code>sailer-luca-university-ulm/3d-vla-objectnav/a1aqhpnk</code> · 1.82M steps · <code>act_entropy=3·10⁻²</code> · SR ≈ 0.74<br>
+  Same content as v3 — every cartoon replaced with a Lucide icon (MIT licence, inlined as SVG <code>&lt;symbol&gt;</code> + <code>&lt;use&gt;</code>); every formula rendered with KaTeX.
+</div>
+
+<!-- =============================================================
+     FIG 0 — RL LOOP (hero) with bot + gamepad-2 + zap
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="380" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr-act" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2a9a4a"/></marker>
+    <marker id="arr-fb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#0066cc"/></marker>
+  </defs>
+
+  <text x="450" y="32" text-anchor="middle" font-size="16" font-weight="700">The Reinforcement Learning Loop</text>
+  <text x="450" y="50" text-anchor="middle" font-size="11" fill="#666">— where the policy lives, where the entropy bonus enters —</text>
+
+  <!-- Agent panel -->
+  <rect x="80" y="90" width="280" height="220" rx="14" fill="#e8f1ff" stroke="#0066cc" stroke-width="2"/>
+  <use href="#ic-bot" x="155" y="115" width="130" height="130" color="#0066cc"/>
+  <text x="220" y="270" text-anchor="middle" font-size="16" font-weight="700" fill="#0066cc">Agent</text>
+  <text x="220" y="290" text-anchor="middle" font-size="11" fill="#666">DreamerV3 actor + critic</text>
+
+  <!-- Environment panel -->
+  <rect x="540" y="90" width="280" height="220" rx="14" fill="#fff5e6" stroke="#c47c1a" stroke-width="2"/>
+  <use href="#ic-gamepad" x="615" y="115" width="130" height="130" color="#c47c1a"/>
+  <text x="680" y="270" text-anchor="middle" font-size="16" font-weight="700" fill="#c47c1a">Environment</text>
+  <text x="680" y="290" text-anchor="middle" font-size="11" fill="#666">HM3D ObjectNav · 4 actions</text>
+
+  <!-- Action arrow -->
+  <line x1="370" y1="170" x2="530" y2="170" stroke="#2a9a4a" stroke-width="3" marker-end="url(#arr-act)"/>
+  <rect x="395" y="148" width="110" height="24" rx="4" fill="#fff" stroke="#2a9a4a" stroke-width="1.2"/>
+  <text x="450" y="165" text-anchor="middle" font-size="13" font-weight="700" fill="#2a9a4a">action a_t</text>
+
+  <!-- Feedback arrow -->
+  <line x1="530" y1="230" x2="370" y2="230" stroke="#0066cc" stroke-width="3" marker-end="url(#arr-fb)"/>
+  <rect x="378" y="208" width="144" height="24" rx="4" fill="#fff" stroke="#0066cc" stroke-width="1.2"/>
+  <text x="438" y="225" text-anchor="middle" font-size="13" font-weight="700" fill="#0066cc">state s_t+1, reward</text>
+  <use href="#ic-zap" x="498" y="212" width="18" height="18" color="#c47c1a"/>
+
+  <text x="450" y="350" text-anchor="middle" font-size="11" fill="#999" font-style="italic">π keeps trying actions; the world responds; we learn.  η·H(π) is what keeps π from getting stuck on one action too early.</text>
+</svg>
+<figcaption>Figure 0 — the canonical RL loop. Bot icon = the agent, gamepad icon = the environment, lightning bolt = the reward signal. All Lucide-MIT, inlined.</figcaption>
+</figure>
+
+<div class="tldr">
+  <strong>TL;DR — three answers, one A/B plan</strong>
+  <ul>
+    <li><strong>Entropy bonus</strong> is the regulariser that keeps the policy <em>alive</em>. The only force pushing on $\pi$ when $A \approx 0$. Without it, the actor freezes on whichever action got an early lucky positive $A$.</li>
+    <li><strong>Policy gradient</strong> is the direction of learning. Magnitude is small <em>by design</em> — advantages are centred and percentile-normalised. Direction is what matters, not magnitude.</li>
+    <li><strong>Three identical metrics?</strong> Forward values are byte-identical (same KL[q‖p]). But $\mathrm{scale\_dyn}=1.0$ vs $\mathrm{scale\_rep}=0.1$ means gradient contributions differ 10×. <code>latent/kl_divergence</code> is purely cosmetic — <a href="https://github.com/LSailer/Master-Thesis-3D-VLA/issues/143" target="_blank">issue #143</a> filed.</li>
+    <li><strong>Crafter A/B</strong>: 3 cells × 3 seeds = 9 runs to W&amp;B project <code>r2dreamer-crafter-ab</code>. Pass criterion: fork-jax-paperent matches upstream-pt within $1\sigma$.</li>
+  </ul>
+</div>
+
+<h2>1 · The entropy bonus — what it does, visually</h2>
+
+<h3>1.1 Two distinct jobs in the actor loss</h3>
+
+<div class="formula-box">
+  <div class="lbl">actor loss · KaTeX-rendered</div>
+  $$ \mathcal{L}_\pi \;=\; \underbrace{-\,\mathbb{E}\!\left[\, w \cdot \mathrm{sg}(\hat A) \cdot \log \pi(a \mid s) \,\right]}_{\textcolor{#2a9a4a}{\textsf{policy gradient — direction}}} \;\; \underbrace{-\;\eta \cdot H(\pi)}_{\textcolor{#c47c1a}{\textsf{entropy bonus — temperature}}} $$
+</div>
+
+<!-- =============================================================
+     FIG 1 — TWO FORCES with compass + dice icons
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="320" viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="up-g" viewBox="0 0 10 10" refX="5" refY="0" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 10 L 5 0 L 10 10 z" fill="#2a9a4a"/></marker>
+    <marker id="dn-r" viewBox="0 0 10 10" refX="5" refY="10" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 5 10 L 10 0 z" fill="#c0392b"/></marker>
+  </defs>
+
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">Two forces shape the policy</text>
+
+  <!-- LEFT: Policy gradient = COMPASS (direction) -->
+  <g transform="translate(60,60)">
+    <rect x="0" y="0" width="350" height="220" rx="8" fill="#e0f3e3" stroke="#2a9a4a" stroke-width="1.5"/>
+    <use href="#ic-compass" x="20" y="14" width="36" height="36" color="#2a9a4a"/>
+    <text x="64" y="32" font-size="13" font-weight="700" fill="#2a9a4a">Policy gradient — "which way?"</text>
+    <text x="64" y="48" font-size="10" fill="#1a1a1a" font-style="italic">−w · sg(Â) · log π(a∣s)</text>
+
+    <!-- bars before -->
+    <g transform="translate(40, 80)">
+      <text x="65" y="-4" text-anchor="middle" font-size="10" fill="#666">before</text>
+      <rect x="0" y="40" width="22" height="40" fill="#a8d4ad" stroke="#2a9a4a"/>
+      <rect x="32" y="32" width="22" height="48" fill="#a8d4ad" stroke="#2a9a4a"/>
+      <rect x="64" y="36" width="22" height="44" fill="#a8d4ad" stroke="#2a9a4a"/>
+      <rect x="96" y="44" width="22" height="36" fill="#a8d4ad" stroke="#2a9a4a"/>
+      <line x1="-3" y1="80" x2="125" y2="80" stroke="#1a1a1a" stroke-width="0.8"/>
+      <text x="11" y="92" text-anchor="middle" font-size="9" fill="#666">F</text>
+      <text x="43" y="92" text-anchor="middle" font-size="9" fill="#666">L</text>
+      <text x="75" y="92" text-anchor="middle" font-size="9" fill="#666">R</text>
+      <text x="107" y="92" text-anchor="middle" font-size="9" fill="#666">S</text>
+    </g>
+
+    <text x="180" y="120" text-anchor="middle" font-size="20" fill="#2a9a4a">→</text>
+    <text x="180" y="138" text-anchor="middle" font-size="9" fill="#666">A=+0.3, −0.1, +0.0, −0.2</text>
+
+    <g transform="translate(220, 80)">
+      <text x="65" y="-4" text-anchor="middle" font-size="10" fill="#666">after PG step</text>
+      <rect x="0" y="22" width="22" height="58" fill="#7bbf80" stroke="#2a9a4a"/>
+      <rect x="32" y="40" width="22" height="40" fill="#7bbf80" stroke="#2a9a4a"/>
+      <rect x="64" y="36" width="22" height="44" fill="#7bbf80" stroke="#2a9a4a"/>
+      <rect x="96" y="58" width="22" height="22" fill="#7bbf80" stroke="#2a9a4a"/>
+      <line x1="-3" y1="80" x2="125" y2="80" stroke="#1a1a1a" stroke-width="0.8"/>
+      <text x="11" y="92" text-anchor="middle" font-size="9" fill="#666">F</text>
+      <text x="43" y="92" text-anchor="middle" font-size="9" fill="#666">L</text>
+      <text x="75" y="92" text-anchor="middle" font-size="9" fill="#666">R</text>
+      <text x="107" y="92" text-anchor="middle" font-size="9" fill="#666">S</text>
+      <path d="M 11 32 L 11 22" stroke="#2a9a4a" stroke-width="1.5" marker-end="url(#up-g)"/>
+      <path d="M 107 50 L 107 60" stroke="#c0392b" stroke-width="1.5" marker-end="url(#dn-r)"/>
+    </g>
+
+    <text x="175" y="206" text-anchor="middle" font-size="10" fill="#1a1a1a">A &gt; 0 → π(a) ↑    A &lt; 0 → π(a) ↓</text>
+  </g>
+
+  <!-- RIGHT: Entropy bonus = DICE (randomness/spread) -->
+  <g transform="translate(490,60)">
+    <rect x="0" y="0" width="350" height="220" rx="8" fill="#fbf2e3" stroke="#c47c1a" stroke-width="1.5"/>
+    <use href="#ic-dice" x="20" y="14" width="36" height="36" color="#c47c1a"/>
+    <text x="64" y="32" font-size="13" font-weight="700" fill="#c47c1a">Entropy bonus — "how committed?"</text>
+    <text x="64" y="48" font-size="10" fill="#1a1a1a" font-style="italic">−η · H(π)</text>
+
+    <g transform="translate(40, 80)">
+      <text x="65" y="-4" text-anchor="middle" font-size="10" fill="#666">collapsing</text>
+      <rect x="0" y="14" width="22" height="66" fill="#f0c97c" stroke="#c47c1a"/>
+      <rect x="32" y="68" width="22" height="12" fill="#f0c97c" stroke="#c47c1a"/>
+      <rect x="64" y="72" width="22" height="8" fill="#f0c97c" stroke="#c47c1a"/>
+      <rect x="96" y="64" width="22" height="16" fill="#f0c97c" stroke="#c47c1a"/>
+      <line x1="-3" y1="80" x2="125" y2="80" stroke="#1a1a1a" stroke-width="0.8"/>
+      <text x="11" y="92" text-anchor="middle" font-size="9" fill="#666">F</text>
+      <text x="43" y="92" text-anchor="middle" font-size="9" fill="#666">L</text>
+      <text x="75" y="92" text-anchor="middle" font-size="9" fill="#666">R</text>
+      <text x="107" y="92" text-anchor="middle" font-size="9" fill="#666">S</text>
+    </g>
+
+    <text x="180" y="120" text-anchor="middle" font-size="20" fill="#c47c1a">→</text>
+    <text x="180" y="138" text-anchor="middle" font-size="9" fill="#666">η · H(π) restores spread</text>
+
+    <g transform="translate(220, 80)">
+      <text x="65" y="-4" text-anchor="middle" font-size="10" fill="#666">after entropy push</text>
+      <rect x="0" y="36" width="22" height="44" fill="#dba74a" stroke="#c47c1a"/>
+      <rect x="32" y="46" width="22" height="34" fill="#dba74a" stroke="#c47c1a"/>
+      <rect x="64" y="50" width="22" height="30" fill="#dba74a" stroke="#c47c1a"/>
+      <rect x="96" y="44" width="22" height="36" fill="#dba74a" stroke="#c47c1a"/>
+      <line x1="-3" y1="80" x2="125" y2="80" stroke="#1a1a1a" stroke-width="0.8"/>
+      <text x="11" y="92" text-anchor="middle" font-size="9" fill="#666">F</text>
+      <text x="43" y="92" text-anchor="middle" font-size="9" fill="#666">L</text>
+      <text x="75" y="92" text-anchor="middle" font-size="9" fill="#666">R</text>
+      <text x="107" y="92" text-anchor="middle" font-size="9" fill="#666">S</text>
+    </g>
+
+    <text x="175" y="206" text-anchor="middle" font-size="10" fill="#1a1a1a">always pushes toward uniform — independent of A</text>
+  </g>
+</svg>
+<figcaption>Figure 1 — Compass icon = direction (policy gradient is informational but small). Dice icon = randomness (entropy bonus is steady and large, always pushing toward uniform). Both forces act every step.</figcaption>
+</figure>
+
+<div class="visual-callout">
+  <strong>Mental model.</strong> Imagine driving a car. The <strong>policy gradient</strong> is the steering wheel — it tells you which way to go, but only when you have information (advantage). The <strong>entropy bonus</strong> is the gas pedal — it keeps you moving even when you don't know where to steer. Without the gas pedal, you stop. Without the steering wheel, you crash into whatever's directly ahead.
+</div>
+
+<h3>1.2 Why a 4-action env needs 100× more entropy than a 17-action env</h3>
+
+<div class="formula-box">
+  <div class="lbl">entropy ceiling</div>
+  $$ H_{\max} \;=\; \ln |\mathcal{A}|, \qquad H_{\text{Habitat}} \le \ln 4 \approx 1.39, \quad H_{\text{Crafter}} \le \ln 17 \approx 2.83 $$
+</div>
+
+<!-- =============================================================
+     FIG 2 — entropy ceiling with bot vs pickaxe icons
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="320" viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">Maximum entropy is bounded by the action count</text>
+  <text x="450" y="42" text-anchor="middle" font-size="11" fill="#666">fewer actions, lower ceiling, smaller margin for error</text>
+
+  <!-- Habitat panel -->
+  <g transform="translate(70, 70)">
+    <rect x="0" y="0" width="340" height="220" rx="8" fill="#fff" stroke="#0066cc" stroke-width="2"/>
+    <use href="#ic-bot" x="14" y="12" width="32" height="32" color="#0066cc"/>
+    <text x="180" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#0066cc">Habitat ObjectNav · 4 actions</text>
+
+    <line x1="60" y1="60" x2="60" y2="180" stroke="#999"/>
+    <line x1="56" y1="60" x2="64" y2="60" stroke="#999"/>
+    <text x="50" y="64" text-anchor="end" font-size="10" fill="#666">2.83</text>
+    <text x="50" y="180" text-anchor="end" font-size="10" fill="#666">0</text>
+    <text x="22" y="120" text-anchor="middle" font-size="10" fill="#666" transform="rotate(-90,22,120)">entropy (nats)</text>
+
+    <line x1="60" y1="123" x2="320" y2="123" stroke="#0066cc" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="325" y="127" font-size="10" fill="#0066cc" font-weight="700">ln 4 ≈ 1.39</text>
+
+    <rect x="100" y="126" width="60" height="54" fill="#0066cc"/>
+    <text x="130" y="200" text-anchor="middle" font-size="10" fill="#666">observed</text>
+    <text x="130" y="212" text-anchor="middle" font-size="10" fill="#0066cc" font-weight="700">1.32 nats (95%)</text>
+
+    <rect x="200" y="172" width="60" height="8" fill="#c0392b"/>
+    <text x="230" y="200" text-anchor="middle" font-size="10" fill="#666">collapsed</text>
+    <text x="230" y="212" text-anchor="middle" font-size="10" fill="#c0392b" font-weight="700">0.087 (6%)</text>
+  </g>
+
+  <!-- Crafter panel -->
+  <g transform="translate(490, 70)">
+    <rect x="0" y="0" width="340" height="220" rx="8" fill="#fff" stroke="#c47c1a" stroke-width="2"/>
+    <use href="#ic-pickaxe" x="14" y="12" width="32" height="32" color="#c47c1a"/>
+    <text x="180" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c47c1a">Crafter · 17 actions</text>
+
+    <line x1="60" y1="60" x2="60" y2="180" stroke="#999"/>
+    <line x1="56" y1="60" x2="64" y2="60" stroke="#999"/>
+    <text x="50" y="64" text-anchor="end" font-size="10" fill="#666">2.83</text>
+    <text x="50" y="180" text-anchor="end" font-size="10" fill="#666">0</text>
+
+    <line x1="60" y1="60" x2="320" y2="60" stroke="#c47c1a" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="325" y="64" font-size="10" fill="#c47c1a" font-weight="700">ln 17 ≈ 2.83</text>
+
+    <line x1="60" y1="123" x2="320" y2="123" stroke="#999" stroke-width="0.8" stroke-dasharray="2,2"/>
+    <text x="325" y="127" font-size="9" fill="#999">ln 4</text>
+
+    <rect x="130" y="78" width="80" height="102" fill="#c47c1a"/>
+    <text x="170" y="200" text-anchor="middle" font-size="10" fill="#666">paper value</text>
+    <text x="170" y="212" text-anchor="middle" font-size="10" fill="#c47c1a" font-weight="700">~2.4 nats (85%)</text>
+  </g>
+
+  <text x="240" y="305" text-anchor="middle" font-size="11" fill="#1a1a1a">$\eta = 3{\cdot}10^{-2}$ → $\eta H \approx 0.040$ <tspan fill="#666">(loud, healthy)</tspan></text>
+  <text x="660" y="305" text-anchor="middle" font-size="11" fill="#1a1a1a">$\eta = 3{\cdot}10^{-4}$ → $\eta H \approx 0.0007$ <tspan fill="#666">(quiet, sufficient)</tspan></text>
+</svg>
+<figcaption>Figure 2 — Bot icon labels Habitat (4 discrete actions); pickaxe labels Crafter (17 actions, mining-themed). With only 4 actions the ceiling is 1.39 nats and small commitments drop $H$ fast — that's why this fork uses $\eta = 3{\cdot}10^{-2}$ vs. the paper's $3{\cdot}10^{-4}$.</figcaption>
+</figure>
+
+<div class="hint">
+  <strong>The thesis-paragraph version</strong> (now in <code>content/Appendix.tex:12–14</code>): "The actor entropy bonus $\eta \cdot H(\pi)$ acts as a regularizer rather than a primary objective: it prevents the policy from collapsing to a single action before the world model has seen enough trajectories. It is the only force keeping $\pi(a \mid s)$ stochastic when the advantage signal $A \approx 0$…"
+</div>
+
+<h2>2 · The policy gradient — small magnitude is by design</h2>
+
+<h3>2.1 Why $\mathbb{E}[\hat A] \approx 0$ by construction</h3>
+
+<div class="formula-box">
+  <div class="lbl">percentile-normalised advantage (DreamerV3 §3)</div>
+  $$ \hat A \;=\; \frac{\mathrm{sg}\!\bigl(R_\lambda - V_\psi(s)\bigr)}{\max\!\bigl(1,\; \mathrm{Per}_{95}(R_\lambda) - \mathrm{Per}_{5}(R_\lambda)\bigr)} $$
+</div>
+
+<!-- =============================================================
+     FIG 3 — advantage distribution with trending icons
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="260" viewBox="0 0 900 260" xmlns="http://www.w3.org/2000/svg">
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">The advantage distribution is centred at zero</text>
+
+  <line x1="100" y1="190" x2="800" y2="190" stroke="#1a1a1a" stroke-width="1"/>
+  <line x1="450" y1="70" x2="450" y2="200" stroke="#999" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <text x="450" y="64" text-anchor="middle" font-size="11" fill="#666">𝔼[Â] ≈ 0</text>
+
+  <!-- bell curve -->
+  <path d="M 150 190 Q 250 188, 320 175 Q 380 155, 420 115 Q 440 90, 450 85 Q 460 90, 480 115 Q 520 155, 580 175 Q 650 188, 750 190" fill="#cce4ff" stroke="#0066cc" stroke-width="2"/>
+
+  <line x1="150" y1="190" x2="150" y2="205" stroke="#666"/>
+  <text x="150" y="220" text-anchor="middle" font-size="11" fill="#666">Â = −1</text>
+  <line x1="450" y1="190" x2="450" y2="205" stroke="#666"/>
+  <text x="450" y="220" text-anchor="middle" font-size="11" fill="#666">Â = 0</text>
+  <line x1="750" y1="190" x2="750" y2="205" stroke="#666"/>
+  <text x="750" y="220" text-anchor="middle" font-size="11" fill="#666">Â = +1</text>
+
+  <!-- Trending-down on the left -->
+  <use href="#ic-trending-down" x="170" y="120" width="34" height="34" color="#c0392b"/>
+  <text x="187" y="170" text-anchor="middle" font-size="11" fill="#c0392b" font-weight="700">π(a) ↓</text>
+
+  <!-- Trending-up on the right -->
+  <use href="#ic-trending-up" x="700" y="120" width="34" height="34" color="#2a9a4a"/>
+  <text x="717" y="170" text-anchor="middle" font-size="11" fill="#2a9a4a" font-weight="700">π(a) ↑</text>
+
+  <text x="450" y="135" text-anchor="middle" font-size="11" fill="#666">most actions cluster near baseline →</text>
+  <text x="450" y="150" text-anchor="middle" font-size="11" fill="#666">|PG| is small per step</text>
+</svg>
+<figcaption>Figure 3 — trending-down icon for $\hat A &lt; 0$ (push $\pi(a)$ down); trending-up icon for $\hat A &gt; 0$ (push $\pi(a)$ up). The advantage is centred by the value baseline, so $\mathbb{E}[\hat A] \approx 0$ over a batch — that's why $|\text{PG}|$ is small per step.</figcaption>
+</figure>
+
+<h3>2.2 The asymmetry of jobs</h3>
+
+<table>
+<thead><tr><th></th><th style="color:var(--good)"><svg width="14" height="14" style="vertical-align:middle;margin-right:4px"><use href="#ic-compass" color="#2a9a4a"/></svg> Policy gradient</th><th style="color:var(--warn)"><svg width="14" height="14" style="vertical-align:middle;margin-right:4px"><use href="#ic-dice" color="#c47c1a"/></svg> Entropy bonus</th></tr></thead>
+<tbody>
+<tr><td><strong>Magnitude</strong></td><td>noisy, mean ≈ 0</td><td>steady, large</td></tr>
+<tr><td><strong>Information content</strong></td><td>"which way to go"</td><td>"don't commit yet"</td></tr>
+<tr><td><strong>Cumulative effect</strong></td><td>directional drift over many batches</td><td>restoring force back to uniform</td></tr>
+<tr><td><strong>If you remove it</strong></td><td>policy stays uniform — no learning</td><td>policy collapses to argmax of early noise — locked-in bad policy</td></tr>
+</tbody>
+</table>
+
+<h2>3 · Why three logs for one number</h2>
+
+<div class="formula-box">
+  <div class="lbl">forward — same scalar; backward — different gradient routes</div>
+  $$ \mathcal{L}_{\text{dyn}} \;=\; \mathrm{KL}\!\bigl[\,\mathrm{sg}(q) \,\big\|\, p\,\bigr], \qquad
+     \mathcal{L}_{\text{rep}} \;=\; \mathrm{KL}\!\bigl[\,q \,\big\|\, \mathrm{sg}(p)\,\bigr] $$
+  $$ \mathcal{L}_{\text{total}} \;\supset\; \underbrace{1.0 \cdot \mathcal{L}_{\text{dyn}}}_{\text{trains prior}} \;+\; \underbrace{0.1 \cdot \mathcal{L}_{\text{rep}}}_{\text{trains encoder}} $$
+</div>
+
+<!-- =============================================================
+     FIG 4 — KL forward+backward graph with hand (stop_grad)
+              + brain (encoder) + eye (posterior) + layers (prior)
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="340" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="kl-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#0066cc"/></marker>
+    <marker id="kl-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c47c1a"/></marker>
+    <marker id="kl-black" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1a1a1a"/></marker>
+    <marker id="kl-grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#999"/></marker>
+    <marker id="kl-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2a9a4a"/></marker>
+  </defs>
+
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">Forward: one KL → three logs.&nbsp;&nbsp;Backward: two distinct gradient routes.</text>
+
+  <!-- Posterior (encoder) -->
+  <g transform="translate(50, 70)">
+    <rect x="0" y="0" width="140" height="50" rx="8" fill="#cce4ff" stroke="#0066cc" stroke-width="1.5"/>
+    <use href="#ic-eye" x="10" y="14" width="22" height="22" color="#0066cc"/>
+    <text x="80" y="22" font-size="12" font-weight="700" fill="#0066cc">posterior q(z∣h,o)</text>
+    <text x="80" y="36" font-size="9" fill="#666">from encoder</text>
+  </g>
+
+  <!-- Prior (RSSM) -->
+  <g transform="translate(50, 130)">
+    <rect x="0" y="0" width="140" height="50" rx="8" fill="#fff5e6" stroke="#c47c1a" stroke-width="1.5"/>
+    <use href="#ic-layers" x="10" y="14" width="22" height="22" color="#c47c1a"/>
+    <text x="80" y="22" font-size="12" font-weight="700" fill="#c47c1a">prior p(z∣h)</text>
+    <text x="80" y="36" font-size="9" fill="#666">from RSSM</text>
+  </g>
+
+  <!-- KL operator -->
+  <circle cx="280" cy="130" r="32" fill="#fff" stroke="#1a1a1a" stroke-width="2"/>
+  <text x="280" y="128" text-anchor="middle" font-size="13" font-weight="700">KL</text>
+  <text x="280" y="144" text-anchor="middle" font-size="10">[ q ‖ p ]</text>
+
+  <!-- arrows in -->
+  <line x1="190" y1="95" x2="250" y2="115" stroke="#0066cc" stroke-width="2" marker-end="url(#kl-blue)"/>
+  <line x1="190" y1="155" x2="250" y2="142" stroke="#c47c1a" stroke-width="2" marker-end="url(#kl-orange)"/>
+
+  <!-- single value -->
+  <g transform="translate(360, 110)">
+    <rect x="0" y="0" width="100" height="40" rx="6" fill="#fff" stroke="#1a1a1a" stroke-width="1.5"/>
+    <text x="50" y="18" text-anchor="middle" font-size="11" font-weight="700">1 scalar</text>
+    <text x="50" y="32" text-anchor="middle" font-size="11" font-family="SF Mono,Menlo,monospace">3.4534…</text>
+  </g>
+  <line x1="313" y1="130" x2="358" y2="130" stroke="#1a1a1a" stroke-width="2" marker-end="url(#kl-black)"/>
+
+  <!-- 3 log targets -->
+  <g transform="translate(530, 60)">
+    <rect x="0" y="0" width="220" height="40" rx="4" fill="#e0f3e3" stroke="#2a9a4a"/>
+    <use href="#ic-check" x="10" y="10" width="20" height="20" color="#2a9a4a"/>
+    <text x="120" y="20" text-anchor="middle" font-size="11" font-weight="700" fill="#2a9a4a"><tspan font-family="SF Mono,monospace">loss/dyn</tspan></text>
+    <text x="120" y="32" text-anchor="middle" font-size="9" fill="#666">scale=1.0 in total_loss</text>
+
+    <rect x="0" y="55" width="220" height="40" rx="4" fill="#e0f3e3" stroke="#2a9a4a"/>
+    <use href="#ic-check" x="10" y="65" width="20" height="20" color="#2a9a4a"/>
+    <text x="120" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#2a9a4a"><tspan font-family="SF Mono,monospace">loss/rep</tspan></text>
+    <text x="120" y="87" text-anchor="middle" font-size="9" fill="#666">scale=0.1 in total_loss</text>
+
+    <rect x="0" y="110" width="220" height="40" rx="4" fill="#fbeae7" stroke="#c0392b" stroke-dasharray="4,3"/>
+    <use href="#ic-alert" x="10" y="120" width="20" height="20" color="#c0392b"/>
+    <text x="120" y="130" text-anchor="middle" font-size="11" font-weight="700" fill="#c0392b"><tspan font-family="SF Mono,monospace">latent/kl_divergence</tspan></text>
+    <text x="120" y="142" text-anchor="middle" font-size="9" fill="#666">no gradient · drop me (#143)</text>
+  </g>
+
+  <line x1="463" y1="118" x2="528" y2="80" stroke="#999" stroke-width="1.5" marker-end="url(#kl-grey)"/>
+  <line x1="463" y1="130" x2="528" y2="135" stroke="#999" stroke-width="1.5" marker-end="url(#kl-grey)"/>
+  <line x1="463" y1="142" x2="528" y2="190" stroke="#999" stroke-width="1.5" marker-end="url(#kl-grey)"/>
+
+  <!-- BACKWARD divider -->
+  <line x1="50" y1="225" x2="850" y2="225" stroke="#1a1a1a" stroke-dasharray="2,2"/>
+  <text x="50" y="240" font-size="11" font-weight="700" fill="#999">BACKWARD (gradient flow):</text>
+
+  <!-- backward: dyn route -->
+  <g transform="translate(80, 255)">
+    <rect x="0" y="0" width="140" height="40" rx="6" fill="#fff" stroke="#0066cc" stroke-width="1.5"/>
+    <use href="#ic-eye" x="10" y="10" width="20" height="20" color="#0066cc"/>
+    <use href="#ic-hand" x="100" y="10" width="20" height="20" color="#c0392b"/>
+    <text x="60" y="22" font-size="11" font-weight="700" fill="#0066cc">posterior</text>
+    <text x="60" y="34" font-size="9" fill="#c0392b">stop_grad</text>
+
+    <rect x="200" y="0" width="140" height="40" rx="6" fill="#fff5e6" stroke="#c47c1a" stroke-width="1.5"/>
+    <use href="#ic-layers" x="210" y="10" width="20" height="20" color="#c47c1a"/>
+    <text x="270" y="22" font-size="11" font-weight="700" fill="#c47c1a">prior</text>
+    <text x="270" y="34" font-size="9" fill="#666">∇ flows here</text>
+
+    <line x1="200" y1="20" x2="140" y2="20" stroke="#2a9a4a" stroke-width="2.5" marker-end="url(#kl-green)"/>
+    <text x="170" y="56" text-anchor="middle" font-size="10" fill="#2a9a4a" font-weight="700">loss/dyn → trains the prior</text>
+  </g>
+
+  <!-- backward: rep route -->
+  <g transform="translate(530, 255)">
+    <rect x="0" y="0" width="140" height="40" rx="6" fill="#cce4ff" stroke="#0066cc" stroke-width="1.5"/>
+    <use href="#ic-eye" x="10" y="10" width="20" height="20" color="#0066cc"/>
+    <text x="60" y="22" font-size="11" font-weight="700" fill="#0066cc">posterior</text>
+    <text x="60" y="34" font-size="9" fill="#666">∇ flows here</text>
+
+    <rect x="200" y="0" width="140" height="40" rx="6" fill="#fff" stroke="#c47c1a" stroke-width="1.5"/>
+    <use href="#ic-layers" x="210" y="10" width="20" height="20" color="#c47c1a"/>
+    <use href="#ic-hand" x="300" y="10" width="20" height="20" color="#c0392b"/>
+    <text x="270" y="22" font-size="11" font-weight="700" fill="#c47c1a">prior</text>
+    <text x="270" y="34" font-size="9" fill="#c0392b">stop_grad</text>
+
+    <line x1="140" y1="20" x2="200" y2="20" stroke="#2a9a4a" stroke-width="2.5" marker-end="url(#kl-green)"/>
+    <text x="170" y="56" text-anchor="middle" font-size="10" fill="#2a9a4a" font-weight="700">loss/rep → trains the encoder</text>
+  </g>
+</svg>
+<figcaption>Figure 4 — Eye icon = the posterior $q$ (from the encoder, "looks at" the observation); layers icon = the prior $p$ (RSSM rollout, "stacked" latent state); hand icon = stop_grad. Top: one KL scalar is forwarded to three log keys. Bottom: the two loss-side keys actually drive different gradients.</figcaption>
+</figure>
+
+<table>
+<thead><tr><th>Metric</th><th>Forward</th><th>Scale in <code>total_loss</code></th><th>Gradient route</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td><code>loss/dyn</code></td><td class="num">$\mathrm{KL}[q\|p]$</td><td class="num"><strong>1.0</strong></td><td>→ prior weights</td><td>train the prior to imagine the posterior</td></tr>
+<tr><td><code>loss/rep</code></td><td class="num">$\mathrm{KL}[q\|p]$</td><td class="num"><strong>0.1</strong></td><td>→ encoder + posterior weights</td><td>regularise posterior toward predictable structure</td></tr>
+<tr><td><code>latent/kl_divergence</code></td><td class="num">$\mathrm{KL}[q\|p]$</td><td class="num">— (not in loss)</td><td>none</td><td>info only — proposed for removal (<a href="https://github.com/LSailer/Master-Thesis-3D-VLA/issues/143" target="_blank">#143</a>)</td></tr>
+</tbody>
+</table>
+
+<h2>4 · Upstream code reference (visual map)</h2>
+
+<!-- =============================================================
+     FIG 5 — code map with file-code (working) + archive (archived)
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="240" viewBox="0 0 900 240" xmlns="http://www.w3.org/2000/svg">
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">Where the code lives</text>
+
+  <!-- Fork (left) -->
+  <g transform="translate(80, 60)">
+    <rect x="0" y="0" width="320" height="150" rx="8" fill="#e0f3e3" stroke="#2a9a4a" stroke-width="2"/>
+    <use href="#ic-file-code" x="14" y="12" width="32" height="32" color="#2a9a4a"/>
+    <text x="180" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#2a9a4a">Fork (working tree)</text>
+    <text x="160" y="50" text-anchor="middle" font-size="10" fill="#666" font-family="SF Mono,monospace">modules/r2dreamer/</text>
+    <line x1="20" y1="60" x2="300" y2="60" stroke="#2a9a4a" stroke-width="0.8" stroke-dasharray="2,2"/>
+    <text x="20" y="78" font-size="11">• <tspan font-family="SF Mono,monospace">scripts/run_jax_crafter.py</tspan></text>
+    <text x="20" y="96" font-size="11">• $\eta = 3{\cdot}10^{-2}$ (Habitat-tuned)</text>
+    <text x="20" y="114" font-size="11">• Stack: JAX/Flax</text>
+    <text x="20" y="132" font-size="11">• Encoder: CNN <em>or</em> VGGT (3D)</text>
+    <text x="160" y="148" text-anchor="middle" font-size="10" fill="#999" font-style="italic">— our experiments live here —</text>
+  </g>
+
+  <!-- Upstream (right) -->
+  <g transform="translate(500, 60)">
+    <rect x="0" y="0" width="320" height="150" rx="8" fill="#fbf2e3" stroke="#c47c1a" stroke-width="2" stroke-dasharray="6,4"/>
+    <use href="#ic-archive" x="14" y="12" width="32" height="32" color="#c47c1a"/>
+    <text x="180" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c47c1a">Upstream (archived 2026-04-27)</text>
+    <text x="160" y="50" text-anchor="middle" font-size="10" fill="#666" font-family="SF Mono,monospace">archiv/r2dreamer-pytorch-20260425/</text>
+    <line x1="20" y1="60" x2="300" y2="60" stroke="#c47c1a" stroke-width="0.8" stroke-dasharray="2,2"/>
+    <text x="20" y="78" font-size="11">• <tspan font-family="SF Mono,monospace">run_pytorch_crafter.py</tspan></text>
+    <text x="20" y="96" font-size="11">• $\eta = 3{\cdot}10^{-4}$ (paper)</text>
+    <text x="20" y="114" font-size="11">• Stack: PyTorch</text>
+    <text x="20" y="132" font-size="11">• Encoder: CNN only (RGB)</text>
+    <text x="160" y="148" text-anchor="middle" font-size="10" fill="#999" font-style="italic">— canonical R2-Dreamer reference —</text>
+  </g>
+
+  <!-- arrow between -->
+  <line x1="405" y1="135" x2="495" y2="135" stroke="#1a1a1a" stroke-dasharray="3,3" stroke-width="1.5"/>
+  <text x="450" y="130" text-anchor="middle" font-size="10" fill="#666">A/B</text>
+</svg>
+<figcaption>Figure 5 — file-code icon = the live working tree; archive icon = the dormant reference. Note: <code>networks.py:1</code>'s docstring still cites <code>NM512/r2dreamer</code>, but that's a different DreamerV3 PyTorch port — fix before publishing.</figcaption>
+</figure>
+
+<h2>5 · Crafter A/B — visual run matrix</h2>
+
+<!-- =============================================================
+     FIG 6 — run matrix with flask + check + alert icons
+     ============================================================= -->
+<figure>
+<svg class="scene" width="900" height="340" viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg">
+  <text x="450" y="24" text-anchor="middle" font-size="14" font-weight="700">Crafter A/B · 9 runs · W&amp;B project <tspan font-family="SF Mono,monospace">r2dreamer-crafter-ab</tspan></text>
+
+  <!-- Cell A -->
+  <g transform="translate(50, 60)">
+    <rect x="0" y="0" width="260" height="240" rx="8" fill="#fff5e6" stroke="#c47c1a" stroke-width="2"/>
+    <use href="#ic-archive" x="16" y="14" width="28" height="28" color="#c47c1a"/>
+    <text x="160" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c47c1a">Cell A — upstream-pt</text>
+    <text x="130" y="48" text-anchor="middle" font-size="10" fill="#666">reference baseline</text>
+    <line x1="20" y1="60" x2="240" y2="60" stroke="#c47c1a" stroke-dasharray="2,2"/>
+    <text x="20" y="80" font-size="11">Code: <tspan font-family="SF Mono,monospace">archiv/r2dreamer-pytorch</tspan></text>
+    <text x="20" y="100" font-size="11">$\eta = 3{\cdot}10^{-4}$ (paper)</text>
+    <text x="20" y="120" font-size="11">Encoder: RGB CNN</text>
+    <text x="20" y="140" font-size="11">Steps: 1M · Seeds: {0,1,2}</text>
+    <line x1="20" y1="156" x2="240" y2="156" stroke="#c47c1a" stroke-dasharray="2,2"/>
+    <text x="130" y="178" text-anchor="middle" font-size="11" font-weight="700">expected:</text>
+    <text x="130" y="194" text-anchor="middle" font-size="11" fill="#c47c1a">Crafter score ≥ 13</text>
+    <text x="130" y="210" text-anchor="middle" font-size="10" fill="#666">(paper: 14.5 ± 1.2)</text>
+    <text x="130" y="230" text-anchor="middle" font-size="10" font-style="italic" fill="#999">3 runs · ~24h</text>
+  </g>
+
+  <!-- Cell B -->
+  <g transform="translate(320, 60)">
+    <rect x="0" y="0" width="260" height="240" rx="8" fill="#e0f3e3" stroke="#2a9a4a" stroke-width="2"/>
+    <use href="#ic-flask" x="16" y="14" width="28" height="28" color="#2a9a4a"/>
+    <text x="160" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#2a9a4a">Cell B — fork-jax-paperent</text>
+    <text x="130" y="48" text-anchor="middle" font-size="10" fill="#666">port equivalence test</text>
+    <line x1="20" y1="60" x2="240" y2="60" stroke="#2a9a4a" stroke-dasharray="2,2"/>
+    <text x="20" y="80" font-size="11">Code: <tspan font-family="SF Mono,monospace">modules/r2dreamer (JAX)</tspan></text>
+    <text x="20" y="100" font-size="11">$\eta = 3{\cdot}10^{-4}$ (matches A)</text>
+    <text x="20" y="120" font-size="11">Encoder: RGB CNN, no 3D</text>
+    <text x="20" y="140" font-size="11">Steps: 1M · Seeds: {0,1,2}</text>
+    <line x1="20" y1="156" x2="240" y2="156" stroke="#2a9a4a" stroke-dasharray="2,2"/>
+    <text x="130" y="178" text-anchor="middle" font-size="11" font-weight="700">pass criterion:</text>
+    <text x="130" y="194" text-anchor="middle" font-size="11" fill="#2a9a4a">within $1\sigma$ of Cell A</text>
+    <text x="130" y="210" text-anchor="middle" font-size="10" fill="#666">(score, reward, H trajectory)</text>
+    <use href="#ic-check" x="115" y="220" width="14" height="14" color="#2a9a4a"/>
+    <text x="138" y="232" text-anchor="middle" font-size="10" font-style="italic" fill="#999">3 runs · ~24h</text>
+  </g>
+
+  <!-- Cell C -->
+  <g transform="translate(590, 60)">
+    <rect x="0" y="0" width="260" height="240" rx="8" fill="#fbeae7" stroke="#c0392b" stroke-width="2"/>
+    <use href="#ic-alert" x="16" y="14" width="28" height="28" color="#c0392b"/>
+    <text x="160" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#c0392b">Cell C — fork-jax-habitatent</text>
+    <text x="130" y="48" text-anchor="middle" font-size="10" fill="#666">stress test</text>
+    <line x1="20" y1="60" x2="240" y2="60" stroke="#c0392b" stroke-dasharray="2,2"/>
+    <text x="20" y="80" font-size="11">Code: <tspan font-family="SF Mono,monospace">modules/r2dreamer (JAX)</tspan></text>
+    <text x="20" y="100" font-size="11">$\eta = 3{\cdot}10^{-2}$ (Habitat-tuned)</text>
+    <text x="20" y="120" font-size="11">Encoder: RGB CNN, no 3D</text>
+    <text x="20" y="140" font-size="11">Steps: 1M · Seeds: {0,1,2}</text>
+    <line x1="20" y1="156" x2="240" y2="156" stroke="#c0392b" stroke-dasharray="2,2"/>
+    <text x="130" y="178" text-anchor="middle" font-size="11" font-weight="700">expected:</text>
+    <text x="130" y="194" text-anchor="middle" font-size="11" fill="#c0392b">score lower than B</text>
+    <text x="130" y="210" text-anchor="middle" font-size="10" fill="#666">(too much exploration on 17-action)</text>
+    <text x="130" y="230" text-anchor="middle" font-size="10" font-style="italic" fill="#999">3 runs · ~24h</text>
+  </g>
+
+  <line x1="60" y1="320" x2="840" y2="320" stroke="#1a1a1a" stroke-width="0.8" stroke-dasharray="3,3"/>
+  <text x="450" y="335" text-anchor="middle" font-size="11" fill="#1a1a1a">total: <tspan font-weight="700">9 runs</tspan> · ~72 GPU-hours · 1 H100 weekend</text>
+</svg>
+<figcaption>Figure 6 — Archive icon for the reference cell (frozen upstream). Flask icon for the equivalence test (Cell B is the only "must pass" — fork ≠ upstream by &gt;$1\sigma$ would mean a port bug). Alert icon for the stress test.</figcaption>
+</figure>
+
+<h2>6 · Coding-agent prompt — paste this</h2>
+
+<div class="prompt-box">
+<pre>You are running a fair A/B comparison between two implementations of R2-Dreamer
+on the Crafter environment. Both must log to a NEW W&B project so the results
+are isolated from prior Habitat work.
+
+REPO LAYOUT (already on disk):
+  fork (JAX, working tree):  /Users/lucamac/Coding/Master-Thesis-3D-VLA/modules/r2dreamer/
+  upstream (PyTorch, archived): /Users/lucamac/Coding/Master-Thesis-3D-VLA/archiv/r2dreamer-pytorch-20260425/
+
+W&amp;B PROJECT (create if missing):
+  entity:  sailer-luca-university-ulm
+  project: r2dreamer-crafter-ab
+
+RUN MATRIX (9 runs total — 3 cells × 3 seeds):
+
+  CELL A — upstream-pt (PyTorch reference)
+    cmd: python run_pytorch_crafter.py
+         --seed {0,1,2}
+         --steps 1000000
+         --act_entropy 3e-4
+         --wandb_project r2dreamer-crafter-ab
+         --wandb_name upstream-pt-s{seed}
+         --wandb_tags upstream,pytorch,crafter,act_entropy_3e-4
+    cwd: archiv/r2dreamer-pytorch-20260425/
+
+  CELL B — fork-jax-paperent (JAX port, paper entropy)
+    cmd: uv run python modules/r2dreamer/scripts/run_jax_crafter.py
+         --seed {0,1,2}
+         --steps 1000000
+         --act_entropy 3e-4
+         --encoder cnn
+         --wandb_project r2dreamer-crafter-ab
+         --wandb_name fork-jax-paperent-s{seed}
+         --wandb_tags fork,jax,crafter,act_entropy_3e-4
+
+  CELL C — fork-jax-habitatent (JAX port, Habitat-tuned entropy)
+    cmd: uv run python modules/r2dreamer/scripts/run_jax_crafter.py
+         --seed {0,1,2}
+         --steps 1000000
+         --act_entropy 3e-2
+         --encoder cnn
+         --wandb_project r2dreamer-crafter-ab
+         --wandb_name fork-jax-habitatent-s{seed}
+         --wandb_tags fork,jax,crafter,act_entropy_3e-2
+
+PRE-FLIGHT CHECKLIST (do all before launching anything):
+  1. Verify `crafter` package is installed in both envs:
+       (fork)     uv run python -c "import crafter; print(crafter.__version__)"
+       (upstream) cd archiv/r2dreamer-pytorch-20260425 &amp;&amp; python -c "import crafter"
+     If missing in either env, install with the correct package manager.
+
+  2. Confirm both CLIs accept the flags above. If not, add thin pass-throughs
+     to launch/parser.py — DO NOT touch the training logic, only the CLI.
+
+  3. Verify defaults match the upstream paper: imagination_horizon=15,
+     train_ratio=512, batch_size=16, seq_len=64, kl_free=1.0,
+     scale_dyn=1.0, scale_rep=0.1.
+
+  4. SLURM template adaptation:
+       Source: modules/r2dreamer/scripts/slurm/train_curriculum_l1.sbatch
+       Adapt: --steps 1000000, drop curriculum setup, set --time=10:00:00.
+       Generate 9 sbatch files (one per run), submit with sbatch.
+
+EXECUTION ORDER:
+  Phase 1: Cell A seed 0 + Cell B seed 0 + Cell C seed 0  (smoke, in parallel)
+  Phase 2: If smoke runs reach 100k steps without crashing AND log to W&amp;B,
+           launch the remaining 6 runs.
+
+REPORTING (after all runs complete):
+  Generate a markdown comparison report at:
+    /Users/lucamac/Coding/master-thesis/crafter_ab_results_v1.md
+  Include: Crafter score (mean±std per cell), episode reward curves,
+           entropy trajectory (verify cell B and cell A match within 1σ),
+           policy/value loss trajectories, KL trajectory.
+
+CONSTRAINTS:
+  - Do NOT modify the JAX agent.py, networks.py, or upstream archived code.
+  - Do NOT add 3D feature flags. This A/B is RGB-only port equivalence.
+  - If a run produces NaN or crashes, capture the trace and report.
+  - Budget: ~72 GPU-hours. Stop and report if any run exceeds 12 wallclock h.</pre>
+</div>
+
+<h2>7 · What changed in v4</h2>
+
+<table>
+<thead><tr><th>Change</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><svg width="14" height="14"><use href="#ic-bot" color="#0066cc"/></svg> Hand-drawn cartoons replaced with Lucide icons (bot, gamepad, zap, compass, dice, pickaxe, trending, hand, eye, layers, file-code, archive, flask, check, alert)</td><td><span class="tag ok">done</span> · 22 icons</td></tr>
+<tr><td><svg width="14" height="14"><use href="#ic-sparkles" color="#0066cc"/></svg> KaTeX renders all formulas — actor loss, advantage normaliser, KL identity, entropy ceiling</td><td><span class="tag ok">done</span></td></tr>
+<tr><td><svg width="14" height="14"><use href="#ic-gauge" color="#0066cc"/></svg> Single <code>&lt;defs&gt;</code> block defines all icons as <code>&lt;symbol&gt;</code>; figures reference via <code>&lt;use href="#ic-X"&gt;</code> — clean DOM, recolourable</td><td><span class="tag ok">done</span></td></tr>
+<tr><td><svg width="14" height="14"><use href="#ic-shuffle" color="#0066cc"/></svg> Mental model "driving a car" callout (steering=PG, gas=entropy)</td><td><span class="tag ok">kept</span></td></tr>
+<tr><td><code>networks.py:1</code> docstring fix (NM512 → archived path)</td><td><span class="tag warn">pending</span></td></tr>
+<tr><td>Real W&amp;B time-series via Chart.js (instead of hand-drawn polylines)</td><td><span class="tag warn">future</span> · v5 candidate</td></tr>
+<tr><td>Mermaid for the run-matrix flowchart (text-based, version-controllable)</td><td><span class="tag warn">future</span> · v5 candidate</td></tr>
+</tbody>
+</table>
+
+<p class="quiet">Generated 2026-05-08. v1: <code>a1aqhpnk_loss_metrics_v1.html</code>. v2: <code>a1aqhpnk_loss_metrics_v2.html</code>. v3: <code>a1aqhpnk_loss_metrics_v3.html</code>. Icons: Lucide (MIT) via <a href="https://api.iconify.design" target="_blank">api.iconify.design</a>. Math: <a href="https://katex.org" target="_blank">KaTeX</a> 0.16.11 (MIT).</p>
+
+</div>
+</body>
+</html>

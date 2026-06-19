@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Model-Based RL — Books &amp; Theses Overview</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5c6370;
+    --accent: #0b5fff;
+    --accent-soft: #e7efff;
+    --border: #e3e6ea;
+    --card: #fafbfc;
+    --tier1: #e8f5e9;
+    --tier1-border: #66bb6a;
+    --tier2: #fff8e1;
+    --tier2-border: #ffb300;
+    --tier3: #ede7f6;
+    --tier3-border: #7e57c2;
+    --tier4: #e1f5fe;
+    --tier4-border: #29b6f6;
+    --code-bg: #f4f5f7;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  .container { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  header.hero {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 20px;
+    margin-bottom: 28px;
+  }
+  header.hero h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.01em; }
+  header.hero p { margin: 0; color: var(--muted); font-size: 15px; }
+  nav.toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 0 0 36px;
+    font-size: 14px;
+  }
+  nav.toc strong { display: block; margin-bottom: 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  nav.toc ul { margin: 0; padding-left: 18px; }
+  nav.toc li { margin: 2px 0; }
+  nav.toc a { color: var(--accent); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  h2 {
+    font-size: 22px;
+    margin: 40px 0 14px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid var(--accent);
+    letter-spacing: -0.005em;
+  }
+  h3 { font-size: 18px; margin: 24px 0 8px; }
+  h4 { font-size: 15px; margin: 14px 0 6px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 14px 0;
+    background: var(--card);
+  }
+  .card.book { border-left: 4px solid var(--accent); }
+  .card .meta { color: var(--muted); font-size: 13px; margin: 0 0 8px; }
+  .card .title { font-weight: 600; font-size: 16px; margin: 0 0 4px; }
+  .card ul { margin: 8px 0 0; padding-left: 22px; }
+  .card li { margin: 3px 0; }
+  .card .assess {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 8px 12px;
+    margin: 10px 0 0;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .tier {
+    margin: 24px 0 12px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+  .tier-1 { background: var(--tier1); border-left: 4px solid var(--tier1-border); }
+  .tier-2 { background: var(--tier2); border-left: 4px solid var(--tier2-border); }
+  .tier-3 { background: var(--tier3); border-left: 4px solid var(--tier3-border); }
+  .tier-4 { background: var(--tier4); border-left: 4px solid var(--tier4-border); }
+  a { color: var(--accent); }
+  a:hover { text-decoration: underline; }
+  code, kbd { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; font-size: 90%; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--card); font-weight: 600; }
+  .flag {
+    display: inline-block;
+    background: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffe69c;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 12px;
+    margin-left: 6px;
+  }
+  .pill {
+    display: inline-block;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-radius: 10px;
+    padding: 1px 9px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .pill.phd { background: #fde7e7; color: #c62828; }
+  .pill.msc { background: #e8f5e9; color: #2e7d32; }
+  footer {
+    margin-top: 60px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+  .summary-box {
+    background: linear-gradient(180deg, var(--accent-soft) 0%, #ffffff 100%);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin: 16px 0 28px;
+  }
+  .summary-box h3 { margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header class="hero">
+  <h1>Model-Based Reinforcement Learning — Books &amp; Theses Overview</h1>
+  <p>Curated for a master's thesis on <strong>DreamerV3 + 3D features (VGGT / UNITE) on HM3D ObjectNav</strong>. Compiled 2026-05-18.</p>
+</header>
+
+<nav class="toc">
+  <strong>Contents</strong>
+  <ul>
+    <li><a href="#summary">TL;DR — core reading set</a></li>
+    <li><a href="#books">Part 1 — Books on Model-Based RL</a></li>
+    <li><a href="#theses">Part 2 — Master's &amp; PhD theses on MBRL</a></li>
+    <li><a href="#mapping">Part 3 — Suggested usage in your thesis</a></li>
+    <li><a href="#refs">References &amp; links</a></li>
+  </ul>
+</nav>
+
+<section id="summary" class="summary-box">
+  <h3>TL;DR — core reading set</h3>
+  <p>If you read only five sources to ground a DreamerV3 + 3D-features thesis in MBRL:</p>
+  <ol>
+    <li><strong>Moerland et al. (2023)</strong> — the unifying MBRL survey/monograph; primary framework citation.</li>
+    <li><strong>Plaat (2022), Chapter 5</strong> — best textbook chapter explicitly covering Dreamer / PlaNet.</li>
+    <li><strong>Sutton &amp; Barto (2018), Chapter 8</strong> — canonical reference for the planning-vs-learning distinction and Dyna.</li>
+    <li><strong>Hafner (2024)</strong> — the Dreamer PhD thesis; canonical for every architectural choice in your code.</li>
+    <li><strong>Deisenroth (2010)</strong> — PILCO; historical anchor for the data-efficiency argument for MBRL.</li>
+  </ol>
+  <p style="margin-bottom:0; color: var(--muted); font-size: 13px;">
+    Conceptually: MBRL learns a transition model $\hat{p}(s_{t+1}\mid s_t,a_t)$ and a reward model $\hat{r}(s_t,a_t)$, then either plans (MPC, MCTS) or trains a policy on imagined rollouts $\hat{\tau} = (\hat{s}_0,a_0,\hat{s}_1,\ldots)$. DreamerV3 sits in the latter camp: it learns a latent RSSM and trains an actor–critic on imagined latent trajectories.
+  </p>
+</section>
+
+<!-- ============================ BOOKS ============================ -->
+<h2 id="books">Part 1 — Books on Model-Based Reinforcement Learning</h2>
+
+<p style="color: var(--muted);">Ordered by relevance to world-model agents. Each entry notes whether MBRL is the main topic or a chapter, the level of treatment, and a one-line assessment.</p>
+
+<div class="tier tier-1">Core — must-read for an MBRL thesis</div>
+
+<div class="card book">
+  <p class="title">1. Moerland, Broekens, Plaat &amp; Jonker — <em>Model-based Reinforcement Learning: A Survey</em></p>
+  <p class="meta">Foundations &amp; Trends in ML 16(1), now publishers, 2023 · ~118 pp. · <span class="pill">MBRL: entire book</span></p>
+  <ul>
+    <li><strong>Structure:</strong> §3 categories of MBRL · §4 dynamics-model learning (stochasticity, uncertainty, partial observability, multi-step prediction, abstraction) · §5 integration of planning and learning · §6 implicit MBRL (value-equivalent models, learning-to-plan) · §7 benefits (data efficiency, exploration, transfer, safety).</li>
+    <li><strong>Methods:</strong> Dyna, PETS, World Models, PlaNet, Dreamer, MuZero, AlphaZero, MCTS, value-equivalent models, MPC, latent-space planning.</li>
+    <li><strong>Level:</strong> graduate / research monograph.</li>
+  </ul>
+  <p class="assess">The single most useful reference for your thesis. The §4–§6 taxonomy maps directly onto design choices for a DreamerV3-style agent (latent dynamics, imagination horizon, planning budget). <a href="https://arxiv.org/abs/2006.16712">arXiv:2006.16712</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">2. Plaat — <em>Deep Reinforcement Learning</em></p>
+  <p class="meta">Springer, 2022 · <span class="pill">MBRL: Chapter 5</span></p>
+  <ul>
+    <li><strong>Chapter 5 "Model-Based Reinforcement Learning"</strong> sits between policy-based RL (Ch. 4) and self-play (Ch. 6). Covers tabular models, learned-NN dynamics, planning vs. learning, latent models incl. World Models / PlaNet / Dreamer, and links forward to MuZero in Ch. 6.</li>
+    <li><strong>Level:</strong> graduate textbook, accessible.</li>
+  </ul>
+  <p class="assess">Best textbook-style introduction with explicit Dreamer/PlaNet coverage at thesis-intro level. Pair with the Moerland survey. <a href="https://arxiv.org/abs/2201.02135">arXiv:2201.02135</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">3. Sutton &amp; Barto — <em>Reinforcement Learning: An Introduction</em>, 2nd ed.</p>
+  <p class="meta">MIT Press, 2018 · <span class="pill">MBRL: Chapter 8</span></p>
+  <ul>
+    <li><strong>Chapter 8 "Planning and Learning with Tabular Methods":</strong> 8.1 Models &amp; Planning · 8.2 Dyna · 8.3 When the Model Is Wrong · 8.4 Prioritized Sweeping · 8.5 Expected vs. Sample Updates · 8.6 Trajectory Sampling · 8.7 Real-time DP · 8.8 Planning at Decision Time · 8.9 Heuristic Search · 8.10 Rollout · 8.11 MCTS.</li>
+    <li><strong>Methods:</strong> Dyna-Q, prioritized sweeping, MCTS, rollout.</li>
+    <li><strong>Level:</strong> introductory / graduate.</li>
+  </ul>
+  <p class="assess">Canonical citation for the planning-vs-learning distinction and Dyna-style background updates that DreamerV3 generalizes. Use for foundations; doesn't cover deep latent world models. <a href="http://incompleteideas.net/book/the-book-2nd.html">Book site</a></p>
+</div>
+
+<div class="tier tier-2">Optimal-control / MPC framings</div>
+
+<div class="card book">
+  <p class="title">4. Bertsekas — <em>Reinforcement Learning and Optimal Control</em></p>
+  <p class="meta">Athena Scientific, 2019 · <span class="pill">MBRL: book-wide (ADP viewpoint)</span></p>
+  <ul>
+    <li>Whole book builds on the model-based / approximate-DP viewpoint. Heavy on one-step / multistep lookahead, parametric approximation, rollout (§4.4ff), MCTS, and the equivalence between MPC and rollout.</li>
+    <li><strong>Level:</strong> graduate / research, mathematically demanding.</li>
+  </ul>
+  <p class="assess">Useful as the optimal-control bridge: frames imagination horizon as approximate-in-value-space lookahead, and Dreamer's actor–critic over imagined trajectories as actor–critic-with-rollout. Not where you'll find Dreamer itself. <a href="https://www.mit.edu/~dimitrib/RLbook.html">Book site</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">5. Bertsekas — <em>Lessons from AlphaZero for Optimal, Model Predictive, and Adaptive Control</em></p>
+  <p class="meta">Athena Scientific, 2022 · <span class="pill">MBRL: entire book</span></p>
+  <ul>
+    <li>Unifies AlphaZero (off-line training + on-line rollout) with MPC and adaptive control via Newton's method.</li>
+    <li><strong>Level:</strong> research monograph.</li>
+  </ul>
+  <p class="assess">Excellent for a "Discussion / Related Work" section linking learned-model agents (MuZero/Dreamer) to classical MPC. <a href="https://arxiv.org/abs/2108.10315">arXiv:2108.10315</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">6. Powell — <em>Reinforcement Learning and Stochastic Optimization</em></p>
+  <p class="meta">Wiley, 2022 · ~1100 pp. · <span class="pill">MBRL: Part on Lookahead Policies</span></p>
+  <ul>
+    <li><strong>Chapter 19 "Direct Lookahead Policies":</strong> deterministic lookahead = MPC; stochastic lookahead; six classes of approximation; "policy-within-a-policy" structure. Four-class taxonomy (PFA, CFA, VFA, DLA).</li>
+    <li><strong>Level:</strong> graduate, encyclopedic.</li>
+  </ul>
+  <p class="assess">Useful vocabulary if your thesis addresses OR/control audiences. Cite for the <code>MPC = direct-lookahead</code> identity. <a href="https://castle.princeton.edu/rlso/">CASTLE Lab</a></p>
+</div>
+
+<div class="tier tier-3">Surveys, theory, and edited volumes</div>
+
+<div class="card book">
+  <p class="title">7. François-Lavet et al. — <em>An Introduction to Deep Reinforcement Learning</em></p>
+  <p class="meta">FnT in ML 11(3-4), 2018 · ~150 pp. · <span class="pill">MBRL: Chapter 6</span></p>
+  <ul>
+    <li><strong>Chapter 6:</strong> 6.1 Pure model-based methods · 6.2 Integrating model-free and model-based methods.</li>
+    <li>Predates DreamerV2/V3 but covers World Models, I2A, Dyna-style hybrids.</li>
+  </ul>
+  <p class="assess">Compact and citable; supersede with Moerland (2023) for current methods. <a href="https://arxiv.org/abs/1811.12560">arXiv:1811.12560</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">8. Szepesvári — <em>Algorithms for Reinforcement Learning</em></p>
+  <p class="meta">Morgan &amp; Claypool, 2010 (Springer reissue 2022) · ~100 pp.</p>
+  <ul>
+    <li>Touches R-MAX, E³, certainty equivalence in the Control chapter. No deep MBRL.</li>
+    <li><strong>Level:</strong> graduate, theoretical.</li>
+  </ul>
+  <p class="assess">Cite for PAC-MDP / sample-complexity arguments behind the "models are sample-efficient" claim. <a href="https://sites.ualberta.ca/~szepesva/rlbook.html">Book site</a></p>
+</div>
+
+<div class="card book">
+  <p class="title">9. Wiering &amp; van Otterlo (eds.) — <em>Reinforcement Learning: State-of-the-Art</em></p>
+  <p class="meta">Springer ALO 12, 2012</p>
+  <ul>
+    <li>Hester &amp; Stone chapter "Learning and Using Models": cleanest tabular-MBRL chapter overview (pre-deep-learning).</li>
+  </ul>
+  <p class="assess">Historical anchor for the model-learning-then-planning paradigm; dated for methods. <a href="https://link.springer.com/book/10.1007/978-3-642-27645-3">Volume</a></p>
+</div>
+
+<div class="tier tier-4">Practitioner / introductory (limited MBRL)</div>
+
+<div class="grid-2">
+  <div class="card book">
+    <p class="title">10. Lapan — <em>Deep RL Hands-On</em>, 3rd ed.</p>
+    <p class="meta">Packt, Nov 2024</p>
+    <p>No dedicated MBRL chapter, but <strong>Chapter 20 "MuZero"</strong>. PyTorch code reference only. Skip unless you need code. <a href="https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On-Third-Edition">GitHub</a></p>
+  </div>
+  <div class="card book">
+    <p class="title">11. Morales — <em>Grokking Deep RL</em></p>
+    <p class="meta">Manning, 2020</p>
+    <p>Deep-MBRL essentially absent. Friendly model-free primer; <strong>skip for MBRL</strong>. <a href="https://www.manning.com/books/grokking-deep-reinforcement-learning">Publisher</a></p>
+  </div>
+</div>
+
+<p style="font-size:14px;color:var(--muted);">No mainstream textbook to date has a full Dreamer / world-models chapter beyond Plaat (2022). For state-of-the-art coverage, use Moerland (2023) plus the primary <a href="https://www.nature.com/articles/s41586-025-08744-2">DreamerV3 Nature 2025</a> paper.</p>
+
+<!-- ============================ THESES ============================ -->
+<h2 id="theses">Part 2 — Master's &amp; PhD theses on Model-Based RL</h2>
+
+<div class="tier tier-1">Tier 1 — Direct lineage (Dreamer / World Models / PILCO)</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>1. Danijar Hafner — <em>Embodied Intelligence Through World Models</em></p>
+  <p class="meta">University of Toronto (ECE), 2024 · Supervisor: Jimmy Ba</p>
+  <ul>
+    <li><strong>Summary:</strong> The canonical Dreamer thesis. Develops PlaNet → DreamerV1/V2/V3, the Recurrent State-Space Model (RSSM), symlog scaling, and DreamerV3's single-hyperparameter generalization across 150+ tasks.</li>
+    <li><strong>Methods:</strong> PlaNet, DreamerV1/V2/V3, RSSM, latent imagination.</li>
+  </ul>
+  <p class="assess"><strong>The foundational reference for your codebase.</strong> Cite for every architectural choice in DreamerV3. <a href="http://hdl.handle.net/1807/140956">UToronto Scholaris</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>2. Marc Peter Deisenroth — <em>Efficient Reinforcement Learning using Gaussian Processes</em></p>
+  <p class="meta">KIT, 2010 · Co-advisor: Carl Edward Rasmussen (Cambridge)</p>
+  <ul>
+    <li><strong>Summary:</strong> Introduces <strong>PILCO</strong> — probabilistic, data-efficient model-based policy search using GP dynamics models with analytic gradients via moment matching. Cart-pole swing-up solved in 17.5 s of physical interaction.</li>
+    <li><strong>Methods:</strong> PILCO, GP dynamics, probabilistic policy search, model-bias mitigation.</li>
+  </ul>
+  <p class="assess">Historical antecedent of modern world-model RL. Best citation for the "data efficiency of MBRL" framing in your related-work chapter. <a href="https://www.ias.informatik.tu-darmstadt.de/uploads/Publications/phd_thesis_deisenroth.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>3. Anusha Nagabandi — <em>Model-based Deep RL for Robotic Systems</em></p>
+  <p class="meta">UC Berkeley EECS, August 2020 · Supervisor: Sergey Levine</p>
+  <ul>
+    <li><strong>Summary:</strong> Deep-MBRL framework for legged locomotion (6-DoF) and dexterous manipulation (Shadow Hand, 24-DoF). Neural-network dynamics + MPC, then meta-learning for online adaptation (MoLe, PDDM).</li>
+    <li><strong>Methods:</strong> NN dynamics, MPC/CEM, meta-learned dynamics, model-free fine-tuning.</li>
+  </ul>
+  <p class="assess">Best single source on how deep dynamics models transfer to real robots. <a href="https://www2.eecs.berkeley.edu/Pubs/TechRpts/2020/EECS-2020-158.html">EECS Tech Report</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>4. Thanard Kurutach — <em>Learning, Planning, and Acting with Models</em></p>
+  <p class="meta">UC Berkeley EECS, May 2021 · Supervisors: Stuart Russell, Pieter Abbeel</p>
+  <ul>
+    <li><strong>Summary:</strong> Model-ensemble TRPO (ME-TRPO), Causal InfoGAN for plannable representations, and visual planning for manipulation.</li>
+    <li><strong>Methods:</strong> Ensemble dynamics, latent plannable representations, visual planning.</li>
+  </ul>
+  <p class="assess">Relevant to plugging VGGT/UNITE 3D features into a Dreamer-style world model. <a href="https://www2.eecs.berkeley.edu/Pubs/TechRpts/2021/EECS-2021-39.pdf">EECS Tech Report</a></p>
+</div>
+
+<div class="tier tier-2">Tier 2 — Deep RL foundations around world models</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>5. Chelsea Finn — <em>Learning to Learn with Gradients</em></p>
+  <p class="meta">UC Berkeley EECS, August 2018 · Supervisors: Pieter Abbeel, Sergey Levine · <em>ACM Doctoral Dissertation Award 2018</em></p>
+  <ul>
+    <li>Introduces MAML; the visual-foresight chapter learns video-prediction world models for robot pushing/manipulation and plans with sampling-based MPC in pixel space.</li>
+  </ul>
+  <p class="assess">Early example of visual world models for robotics — predecessor to Dreamer's latent approach. <a href="https://ai.stanford.edu/~cbfinn/_files/dissertation.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>6. Pieter Abbeel — <em>Apprenticeship Learning and RL with Application to Robotic Control</em></p>
+  <p class="meta">Stanford CS, August 2008 · Supervisor: Andrew Y. Ng</p>
+  <ul>
+    <li>Early model-based RL on real helicopters and cars using learned dynamics plus inverse-RL-derived rewards.</li>
+  </ul>
+  <p class="assess">Foundational "MBRL works on real hardware" reference. <a href="https://ai.stanford.edu/~pabbeel/thesis/thesis.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>7. Sergey Levine — <em>Motor Skill Learning with Local Trajectory Methods</em></p>
+  <p class="meta">Stanford CS, 2014 · Supervisor: Vladlen Koltun</p>
+  <ul>
+    <li>Guided policy search via local linear-Gaussian dynamics — precursor to deep MBRL.</li>
+  </ul>
+  <p class="assess">Roots of the Berkeley MBRL school. <span class="flag">URL unverified — check Stanford SearchWorks</span></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>8. Volodymyr Mnih — <em>Machine Learning for Aerial Image Labeling</em></p>
+  <p class="meta">University of Toronto CS, 2013 · Supervisor: Geoffrey Hinton</p>
+  <ul>
+    <li>The thesis itself is on aerial image labeling — Mnih is the DQN architect; cite for context on the deep-RL → world-model transition.</li>
+  </ul>
+  <p class="assess">Background for the "from model-free to model-based deep RL" narrative. <a href="https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf">PDF</a></p>
+</div>
+
+<div class="tier tier-3">Tier 3 — Search-based MBRL (AlphaZero / MuZero family)</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>9. Ivo Danihelka — <em>Planning and Policy Improvement</em></p>
+  <p class="meta">UCL (with DeepMind), 2023 · Supervisor: David Silver</p>
+  <ul>
+    <li>Develops Gumbel AlphaZero / Gumbel MuZero, advancing policy-improvement operators inside learned-model search.</li>
+  </ul>
+  <p class="assess">Companion reference for the <em>discrete-action / search-based</em> branch of MBRL — contrast with Dreamer. <a href="https://discovery.ucl.ac.uk/id/eprint/10167022/2/ivo_danihelka_thesis.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>10. UCL — <em>Learning to Search in Reinforcement Learning</em></p>
+  <p class="meta">UCL Discovery, DeepMind-affiliated · likely Thomas Anthony (Expert Iteration)</p>
+  <ul>
+    <li>Search-based RL combining deep networks with MCTS; develops Expert Iteration.</li>
+  </ul>
+  <p class="assess"><span class="flag">Author/title not fully verified — confirm via the repository page before citing.</span> <a href="https://discovery.ucl.ac.uk/id/eprint/10166147/">UCL record</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>11. Vincent François-Lavet — <em>Contributions to Deep RL and Applications in Smartgrids</em></p>
+  <p class="meta">University of Liège, 2017 · Supervisor: Damien Ernst</p>
+  <ul>
+    <li>Includes <strong>CRAR</strong> (Combined RL via Abstract Representations) — jointly learns model-free Q-values and a model-based latent dynamics model. Early hybrid world-model approach.</li>
+  </ul>
+  <p class="assess">Clean exposition of latent-space planning vs. pixel reconstruction trade-offs — directly applicable to how VGGT/UNITE features should feed an RSSM. <a href="http://vincent.francois-l.be/files/PhD_thesis_Vincent_FRANCOIS.pdf">PDF</a></p>
+</div>
+
+<div class="tier tier-4">Tier 4 — Recent (2021–2025): navigation, embodied agents, 3D perception</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>12. Lisa Lee — <em>Learning Embodied Agents with Scalably-Supervised RL</em></p>
+  <p class="meta">CMU MLD, 2021 · Supervisors: Ruslan Salakhutdinov, Eric Xing</p>
+  <ul>
+    <li>Trains embodied agents in 3D environments from first-person RGB with language-specified goals; scalable supervision for navigation and instruction-following.</li>
+    <li>Mostly model-free with auxiliary self-supervision, but includes latent world-model components.</li>
+  </ul>
+  <p class="assess">Direct precedent for the ObjectNav setting in HM3D-style 3D scenes. <a href="https://ml.cmu.edu/research/phd-dissertation-pdfs/lslee_phd_mld_2021.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>13. Cherie Ho — <em>Flexible Perception for High-Performance Robot Navigation</em></p>
+  <p class="meta">CMU Robotics Institute, 2025 · Supervisor: Sebastian Scherer</p>
+  <ul>
+    <li>Perception architectures for robot navigation under varying sensing modalities; learned representations for downstream planning.</li>
+  </ul>
+  <p class="assess">Practical reference for how 3D perception integrates with downstream navigation policies — analogous to plugging VGGT/UNITE into ObjectNav. <a href="https://www.ri.cmu.edu/app/uploads/2025/05/cherieh_phd_robotics_2025.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill msc">MSc</span>14. Wenli Xiao — <em>Foundation Control Model for General Embodied Intelligence</em></p>
+  <p class="meta">CMU Robotics Institute (MSR), 2025</p>
+  <ul>
+    <li>Foundation models for embodied control — world-model-adjacent.</li>
+  </ul>
+  <p class="assess">Useful template for an MSc thesis bridging large pretrained models and control. <a href="https://www.ri.cmu.edu/app/uploads/2025/05/MSR_Thesis-1.pdf">PDF</a></p>
+</div>
+
+<div class="card">
+  <p class="title"><span class="pill phd">PhD</span>15. Stanford — <em>Manipulation and Reasoning Methods for Embodied Object Navigation</em></p>
+  <p class="meta">Stanford University</p>
+  <ul>
+    <li>Combines manipulation and high-level reasoning for embodied object navigation — adjacent to your HM3D ObjectNav scope.</li>
+  </ul>
+  <p class="assess"><span class="flag">Author name not extracted from search snippet — verify on the Stanford landing page.</span> <a href="https://stacks.stanford.edu/file/druid:pk887jt7161/Thesis-1-augmented.pdf">PDF</a></p>
+</div>
+
+<h4>What is <em>not</em> a thesis</h4>
+<ul>
+  <li><strong>Ha &amp; Schmidhuber, "World Models" (2018)</strong> is a NeurIPS paper, not a thesis. Cite the paper directly: <a href="https://arxiv.org/abs/1803.10122">arXiv:1803.10122</a>.</li>
+  <li><strong>DayDreamer (Wu, Escontrela, Hafner, Goldberg, Abbeel, CoRL 2022)</strong> — paper, not a thesis. <a href="https://arxiv.org/abs/2206.14176">arXiv:2206.14176</a></li>
+  <li><strong>Sebastian Thrun's PhD (1995, Bonn)</strong> is on explanation-based neural-network learning, not directly MBRL.</li>
+</ul>
+
+<!-- ============================ MAPPING ============================ -->
+<h2 id="mapping">Part 3 — Suggested usage in your thesis</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Thesis chapter</th>
+      <th>Primary citations</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Background / Foundations</td>
+      <td>Sutton &amp; Barto Ch. 8; Szepesvári; François-Lavet FnT</td>
+      <td>Dyna, planning-vs-learning, PAC-MDP sample complexity</td>
+    </tr>
+    <tr>
+      <td>Related Work (MBRL)</td>
+      <td>Moerland survey; Plaat Ch. 5; Hafner PhD; Deisenroth PhD</td>
+      <td>Taxonomy, PILCO → World Models → Dreamer arc</td>
+    </tr>
+    <tr>
+      <td>Method (RSSM, latent dynamics)</td>
+      <td>Hafner PhD; Kurutach PhD; Nagabandi PhD</td>
+      <td>Architectural choices, ensemble dynamics, MPC interaction</td>
+    </tr>
+    <tr>
+      <td>3D features + RL motivation</td>
+      <td>Finn PhD (visual foresight); Ho PhD (perception-for-nav); Lee PhD (embodied 3D)</td>
+      <td>Why visual / 3D representations matter for downstream control</td>
+    </tr>
+    <tr>
+      <td>Discussion (links to MPC / search)</td>
+      <td>Bertsekas (2019, 2022); Powell Ch. 19; Danihelka PhD</td>
+      <td>Bridges to optimal control and search-based MBRL</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>Mental model</h4>
+<p>
+Across all of this material, MBRL boils down to choosing four design axes:
+</p>
+<ol>
+  <li><strong>Model representation:</strong> tabular · GP · NN ensemble · latent RSSM · value-equivalent.</li>
+  <li><strong>How the model is used:</strong> background updates (Dyna) · imagination rollouts · MPC planning · MCTS search · value-equivalent gradient through the model.</li>
+  <li><strong>Where the loss lives:</strong> reconstruction in pixel space (PlaNet, World Models) · latent-only / value-equivalent (DreamerV3 partially, MuZero) · model-free auxiliary.</li>
+  <li><strong>Uncertainty:</strong> single model · ensemble · probabilistic (GP, Bayesian NN) · ignored.</li>
+</ol>
+<p>
+DreamerV3's slot is: <em>latent RSSM, imagination rollouts, mostly reconstruction-based loss with symlog scaling, single model.</em> Your 3D-features contribution lives entirely in axis 1 (replacing pixel-conv encoders with VGGT/UNITE features), so the literature axis you'll lean on hardest is "model representation" — i.e. Hafner's RSSM design choices, Kurutach's representation-for-planning thread, and the visual-foresight line in Finn.
+</p>
+
+<!-- ============================ REFS ============================ -->
+<h2 id="refs">References &amp; links</h2>
+
+<h4>Books</h4>
+<ul>
+  <li><a href="https://arxiv.org/abs/2006.16712">Moerland et al. — Model-based RL: A Survey (FnT, 2023)</a></li>
+  <li><a href="https://link.springer.com/book/10.1007/978-981-19-0638-1">Plaat — Deep RL (Springer, 2022)</a> · <a href="https://arxiv.org/abs/2201.02135">arXiv</a></li>
+  <li><a href="http://incompleteideas.net/book/the-book-2nd.html">Sutton &amp; Barto — RL: An Introduction (2nd ed.)</a></li>
+  <li><a href="https://www.mit.edu/~dimitrib/RLbook.html">Bertsekas — RL and Optimal Control (2019)</a></li>
+  <li><a href="https://arxiv.org/abs/2108.10315">Bertsekas — Lessons from AlphaZero (2022)</a> · <a href="http://www.athenasc.com/Lessons.html">Athena</a></li>
+  <li><a href="https://castle.princeton.edu/rlso/">Powell — RL and Stochastic Optimization (Wiley, 2022)</a></li>
+  <li><a href="https://arxiv.org/abs/1811.12560">François-Lavet et al. — Intro to Deep RL (FnT, 2018)</a></li>
+  <li><a href="https://sites.ualberta.ca/~szepesva/rlbook.html">Szepesvári — Algorithms for RL</a></li>
+  <li><a href="https://link.springer.com/book/10.1007/978-3-642-27645-3">Wiering &amp; van Otterlo — RL: State-of-the-Art (Springer, 2012)</a></li>
+  <li><a href="https://github.com/PacktPublishing/Deep-Reinforcement-Learning-Hands-On-Third-Edition">Lapan — Deep RL Hands-On 3rd ed. (Packt, 2024)</a></li>
+  <li><a href="https://www.manning.com/books/grokking-deep-reinforcement-learning">Morales — Grokking Deep RL</a></li>
+  <li><a href="https://www.nature.com/articles/s41586-025-08744-2">Hafner et al. — DreamerV3 (Nature, 2025)</a></li>
+</ul>
+
+<h4>Theses</h4>
+<ul>
+  <li><a href="http://hdl.handle.net/1807/140956">Hafner — Embodied Intelligence Through World Models (UToronto, 2024)</a></li>
+  <li><a href="https://www.ias.informatik.tu-darmstadt.de/uploads/Publications/phd_thesis_deisenroth.pdf">Deisenroth — Efficient RL using GPs (KIT, 2010)</a></li>
+  <li><a href="https://www2.eecs.berkeley.edu/Pubs/TechRpts/2020/EECS-2020-158.html">Nagabandi — Model-based Deep RL for Robotics (Berkeley, 2020)</a></li>
+  <li><a href="https://www2.eecs.berkeley.edu/Pubs/TechRpts/2021/EECS-2021-39.pdf">Kurutach — Learning, Planning, and Acting with Models (Berkeley, 2021)</a></li>
+  <li><a href="https://ai.stanford.edu/~cbfinn/_files/dissertation.pdf">Finn — Learning to Learn with Gradients (Berkeley, 2018)</a></li>
+  <li><a href="https://ai.stanford.edu/~pabbeel/thesis/thesis.pdf">Abbeel — Apprenticeship Learning and RL (Stanford, 2008)</a></li>
+  <li><a href="https://www.cs.toronto.edu/~vmnih/docs/Mnih_Volodymyr_PhD_Thesis.pdf">Mnih — ML for Aerial Image Labeling (UToronto, 2013)</a></li>
+  <li><a href="https://discovery.ucl.ac.uk/id/eprint/10167022/2/ivo_danihelka_thesis.pdf">Danihelka — Planning and Policy Improvement (UCL, 2023)</a></li>
+  <li><a href="https://discovery.ucl.ac.uk/id/eprint/10166147/">Learning to Search in RL (UCL)</a></li>
+  <li><a href="http://vincent.francois-l.be/files/PhD_thesis_Vincent_FRANCOIS.pdf">François-Lavet — Contributions to Deep RL (Liège, 2017)</a></li>
+  <li><a href="https://ml.cmu.edu/research/phd-dissertation-pdfs/lslee_phd_mld_2021.pdf">Lee — Learning Embodied Agents (CMU, 2021)</a></li>
+  <li><a href="https://www.ri.cmu.edu/app/uploads/2025/05/cherieh_phd_robotics_2025.pdf">Ho — Flexible Perception for Robot Navigation (CMU, 2025)</a></li>
+  <li><a href="https://www.ri.cmu.edu/app/uploads/2025/05/MSR_Thesis-1.pdf">Xiao — Foundation Control Model (CMU, 2025)</a></li>
+  <li><a href="https://stacks.stanford.edu/file/druid:pk887jt7161/Thesis-1-augmented.pdf">Stanford — Embodied Object Navigation thesis</a></li>
+</ul>
+
+<h4>Adjacent papers (not theses)</h4>
+<ul>
+  <li><a href="https://arxiv.org/abs/1803.10122">Ha &amp; Schmidhuber — World Models (2018)</a></li>
+  <li><a href="https://arxiv.org/abs/2301.04104">Hafner et al. — DreamerV3 paper (2023)</a></li>
+  <li><a href="https://arxiv.org/abs/2206.14176">Wu et al. — DayDreamer (CoRL 2022)</a></li>
+</ul>
+
+<footer>
+  Compiled by two parallel research subagents on 2026-05-18. Entries flagged with <span class="flag">unverified</span> should be confirmed at the source URL before citing in your thesis.
+</footer>
+
+</div>
+</body>
+</html>

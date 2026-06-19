@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Diagnosis v5 — act_entropy 3e-2 vs 3e-4 empirical resolution</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1a1a1a; --muted: #5b5b5b;
+    --accent: #b54a2b; --accent2: #2c5e8e; --accent3: #5d4b8a;
+    --good: #2f7a4f; --warn: #c98b1f; --bad: #b03030;
+    --rule: #d8d4cb; --code-bg: #f3efe6; --card-bg: #ffffff;
+    --hi-ent: #2c5e8e; --lo-ent: #b54a2b;
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Source Serif Pro",
+                      Charter, Georgia, "Times New Roman", serif;
+         background: var(--bg); color: var(--fg); line-height: 1.55; margin: 0; padding: 0 0 4rem 0; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 2.2rem 1.4rem; }
+  h1 { font-size: 1.85rem; margin: 0 0 .25rem 0; line-height: 1.2; }
+  h1 + .sub { color: var(--muted); font-size: .95rem; margin: 0 0 1rem 0;
+              font-family: -apple-system, "Inter", "Helvetica Neue", sans-serif; }
+  h2 { font-size: 1.25rem; margin: 2.4rem 0 .6rem 0; border-bottom: 1px solid var(--rule); padding-bottom: .25rem; }
+  h3 { font-size: 1.04rem; margin: 1.4rem 0 .35rem 0; }
+  h4 { font-size: .95rem; margin: 1.0rem 0 .3rem 0; color: var(--accent2); }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .8rem 1.2rem; padding: 0; }
+  li { margin: .2rem 0; }
+  code, pre, .mono { font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: .85em; }
+  code { background: var(--code-bg); padding: .07em .35em; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: .8rem 1rem; border-radius: 6px;
+        overflow-x: auto; border: 1px solid var(--rule); font-size: .8rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  .tldr { background: var(--card-bg); border: 1px solid var(--rule);
+          border-left: 4px solid var(--accent); border-radius: 6px;
+          padding: .9rem 1.1rem; margin: 1rem 0 1.6rem 0; }
+  .tldr h2 { margin-top: 0; border: none; padding: 0; font-size: 1.05rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; margin: .8rem 0; }
+  .card { background: var(--card-bg); border: 1px solid var(--rule); border-radius: 6px; padding: .7rem .85rem; }
+  .card .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .v { font-size: 1.1rem; font-weight: 600; margin-top: .15rem; }
+  .card .v.good { color: var(--good); } .card .v.warn { color: var(--warn); } .card .v.bad { color: var(--bad); }
+  .card .delta { font-size: .78rem; color: var(--muted); margin-top: .1rem; font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .tag { display: inline-block; font-size: .72rem; background: var(--code-bg); color: var(--muted);
+         padding: .07em .5em; border-radius: 10px; margin-right: .3em; border: 1px solid var(--rule);
+         font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .tag.warn { color: var(--warn); border-color: #e7c789; background: #fff7e3; }
+  .tag.bad  { color: var(--bad);  border-color: #e8b3b3; background: #fdeeee; }
+  .tag.good { color: var(--good); border-color: #b3d8c1; background: #e9f5ee; }
+  .tag.info { color: var(--accent2); border-color: #b8cee0; background: #ecf3fa; }
+  .figure { margin: 1.2rem 0; padding: 1rem 1rem .6rem 1rem; background: var(--card-bg);
+            border: 1px solid var(--rule); border-radius: 6px; }
+  .figure figcaption { font-size: .82rem; color: var(--muted); margin-top: .5rem;
+                       font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .figure svg { display: block; max-width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0 1rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
+                   font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .82rem; }
+  .math { background: var(--code-bg); padding: .8rem 1rem; border-radius: 6px;
+          border: 1px solid var(--rule);
+          font-family: "Latin Modern Math", "Cambria Math", "STIX Two Math", "Charter", Georgia, serif;
+          text-align: center; font-size: 1.02rem; margin: .8rem 0; }
+  .math .small { font-size: .85em; color: var(--muted); }
+  .verdict { margin: .6rem 0; padding: .55rem .85rem; border-left: 3px solid var(--good);
+             background: #f0f7f3; font-size: .9rem; }
+  .verdict.warn { border-color: var(--warn); background: #fdf7e7; }
+  .verdict.bad  { border-color: var(--bad);  background: #fceeee; }
+  .verdict.info { border-color: var(--accent2); background: #ecf3fa; }
+  .ref { font-size: .82rem; color: var(--muted); }
+  .ref a { color: var(--accent2); text-decoration: none; border-bottom: 1px dotted var(--accent2); }
+  .ref a:hover { border-bottom-style: solid; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+  .footnotes { font-size: .82rem; color: var(--muted); }
+  details { margin: .5rem 0; }
+  details summary { cursor: pointer; color: var(--accent2); font-size: .9rem; }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
+  @media (max-width: 760px) { .twocol { grid-template-columns: 1fr; } }
+  .panel { background: var(--card-bg); border: 1px solid var(--rule); border-radius: 6px; padding: .8rem 1rem; }
+  .panel h4 { margin-top: 0; }
+  .panel.hi-ent { border-left: 4px solid var(--hi-ent); }
+  .panel.lo-ent { border-left: 4px solid var(--lo-ent); }
+  .crosslink { display: inline-block; padding: .35rem .7rem; background: var(--code-bg);
+               border: 1px solid var(--rule); border-radius: 4px; font-family: -apple-system, sans-serif;
+               font-size: .85rem; color: var(--accent2); text-decoration: none; margin-right: .35rem; margin-bottom: .35rem; }
+  .crosslink:hover { background: var(--card-bg); }
+  .severity { display: inline-block; padding: .07em .5em; border-radius: 3px;
+              font-size: .72rem; font-weight: 600; font-family: -apple-system, sans-serif; }
+  .sev-low { background: #e9f5ee; color: var(--good); }
+  .sev-mid { background: #fff7e3; color: var(--warn); }
+  .sev-hi  { background: #fdeeee; color: var(--bad); }
+  mark { background: #ffe89e; padding: 0 .1em; }
+  .runref { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .84em;
+            color: var(--muted); }
+  .legend { display: inline-flex; gap: .8rem; font-size: .82rem;
+            font-family: -apple-system, sans-serif; align-items: center; margin: .3rem 0 .2rem 0; }
+  .legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: .3em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<a class="crosslink" href="./er5ze5m6_diagnosis.html">v1</a>
+<a class="crosslink" href="./er5ze5m6_diagnosis_v2.html">v2</a>
+<a class="crosslink" href="./er5ze5m6_diagnosis_v3.html">v3</a>
+<a class="crosslink" href="./er5ze5m6_diagnosis_v4.html">v4</a>
+
+<h1>Diagnosis v5 — <code>act_entropy</code> 3e-2 vs 3e-4: the experiment</h1>
+<p class="sub">
+  v4 left this as <em>the</em> open empirical question. Two A/B runs settled it.
+  <span class="tag info">a1aqhpnk &nbsp;·&nbsp; 3e-2</span>
+  <span class="tag info">6nn4t1ky &nbsp;·&nbsp; 3e-4</span>
+  <span class="tag">issue-142 metrics now logged</span>
+</p>
+
+<div class="tldr">
+<h2>TL;DR — the paper default <code>3e-4</code> collapses the policy on Habitat 4-action ObjectNav</h2>
+<ul>
+  <li>Same code, same env, same optimizer, same architecture; only <code>act_entropy</code> (and seed) differ. Both ran ~17.4 h on the same hardware to ~1.74 M steps.</li>
+  <li><strong>Success rate:</strong> 3e-2 → <mark>SR 0.74</mark> (peak 0.82). 3e-4 → <mark>SR 0.16</mark>, after a brief flirt with 0.45 around step 700 k that regressed.</li>
+  <li><strong>Entropy:</strong> 3e-2 stays at <code>~1.32</code> nats (max for 4 actions = ln 4 ≈ 1.386, so ≈ 95 % of max). 3e-4 collapsed to <code>~0.087</code> by step 250 k and never recovered. <strong>This is the smoking gun.</strong></li>
+  <li><strong>Action distribution at the end:</strong> 3e-2 is balanced (forward 28 % / left 23 % / right 32 % / stop 17 %). 3e-4 is a left-spinner (forward 26 % / <mark>left 65 %</mark> / right 1.2 % / stop 7.6 %).</li>
+  <li><strong>Value head runs away</strong> on the 3e-4 side: <code>actor/ret_scale</code> climbs from ~16 to <mark>91</mark>, <code>return_mean</code> climbs to <mark>56</mark> while real episode reward stays <em>negative</em> (mean −1.31). The bootstrap target inflates a self-consistent fantasy because the policy never explores.</li>
+  <li><strong>Policy gradient is dead:</strong> <code>loss/policy</code> oscillates around <code>≈ ±1·10⁻⁴</code> on the 3e-4 run vs. a healthy <code>≈ −0.04</code> on the 3e-2 run. A near-deterministic actor with stable returns means <code>𝔼[A · log π]</code> ≈ 0; the only thing that could reopen the policy is the entropy bonus, and at <code>η = 3·10⁻⁴</code> it is too small.</li>
+  <li><strong>Reference check (R2-Dreamer fork):</strong> <code>3e-4</code> is the canonical paper / parity value (<code>modules/r2dreamer/launch/parity/batch_utils.py:90</code>); the fork's argparse default is <code>3e-2</code> with an inline comment calling it the "Habitat 4-action ObjectNav baseline" precisely because <code>3e-4</code> "collapses the policy here" (<code>modules/r2dreamer/launch/parser.py:30</code>). v5 confirms that comment empirically, with metrics.</li>
+</ul>
+<p style="margin:.7rem 0 0 0"><strong>Action:</strong> close v4 finding #1 (<em>act_entropy</em>) as <span class="tag good">resolved — keep 3·10⁻²</span>. Cite this run pair in the thesis.</p>
+</div>
+
+<!-- ============================================================== -->
+<h2>1 — Setup</h2>
+
+<p>Both runs come from the curriculum-L1 (single house <code>fK2vEV32Lag</code>, single goal <em>chair</em>) sweep. The seed differs by 1 (<code>4367942</code> vs <code>4367943</code>) but every other knob is identical.</p>
+
+<table>
+<thead><tr><th>Knob</th><th>a1aqhpnk (3e-2)</th><th>6nn4t1ky (3e-4)</th></tr></thead>
+<tbody>
+<tr><td><code>act_entropy</code></td><td class="num">3·10⁻² &nbsp; <span class="tag warn">override</span></td><td class="num">3·10⁻⁴ &nbsp; <span class="tag info">paper / parity</span></td></tr>
+<tr><td><code>seed</code></td><td class="num">4367942</td><td class="num">4367943</td></tr>
+<tr><td><code>lr / β₁ / β₂ / ε</code></td><td class="num">4e-5 / 0.9 / 0.999 / 1e-20</td><td class="num">4e-5 / 0.9 / 0.999 / 1e-20</td></tr>
+<tr><td><code>batch_size · seq_len</code></td><td class="num">16 · 64</td><td class="num">16 · 64</td></tr>
+<tr><td><code>imagination_horizon</code></td><td class="num">15</td><td class="num">15</td></tr>
+<tr><td><code>horizon</code> (γ = 1 − 1/H)</td><td class="num">333  → γ ≈ 0.99700</td><td class="num">333  → γ ≈ 0.99700</td></tr>
+<tr><td><code>twohot_bins</code></td><td class="num">255</td><td class="num">255</td></tr>
+<tr><td><code>success_bonus</code> · <code>step_penalty</code></td><td class="num">+10 · −0.01</td><td class="num">+10 · −0.01</td></tr>
+<tr><td><code>num_actions</code></td><td class="num">4 (FWD / L / R / STOP)</td><td class="num">4 (FWD / L / R / STOP)</td></tr>
+<tr><td>steps reached / target</td><td class="num">1.757 M / 2 M</td><td class="num">1.738 M / 2 M</td></tr>
+<tr><td>state at snapshot</td><td><span class="tag good">running</span></td><td><span class="tag good">running</span></td></tr>
+</tbody>
+</table>
+
+<p class="ref">Both runs are tagged <code>issue-142</code>, <code>actor-return-stats</code>, <code>advantage-diag</code>, <code>ret-scale-diag</code>, <code>weight-mean-diag</code> — i.e. they are the diagnostic-instrumentation runs called for in v4's P0. So we now have what v4 said was needed to settle this.</p>
+
+<!-- ============================================================== -->
+<h2>2 — Top-line: success rate &amp; episode reward</h2>
+
+<div class="grid">
+  <div class="card"><div class="k">SR — 3e-2</div><div class="v good">0.74</div><div class="delta">peak 0.82 around step 1.03 M</div></div>
+  <div class="card"><div class="k">SR — 3e-4</div><div class="v bad">0.16</div><div class="delta">peak 0.45 around step 700 k, then regressed</div></div>
+  <div class="card"><div class="k">Episode reward — 3e-2</div><div class="v good">+11.57</div><div class="delta">success bonus dominates</div></div>
+  <div class="card"><div class="k">Episode reward — 3e-4</div><div class="v bad">−3.41</div><div class="delta">step penalty dominates (timeouts)</div></div>
+  <div class="card"><div class="k">SPL — 3e-2</div><div class="v good">0.539</div><div class="delta">routes are reasonably efficient</div></div>
+  <div class="card"><div class="k">SPL — 3e-4</div><div class="v bad">0.085</div><div class="delta">a successful rollout is rare and meandering</div></div>
+</div>
+
+<figure class="figure">
+<div class="legend">
+  <span><span class="sw" style="background:#2c5e8e"></span>3e-2 (a1aqhpnk)</span>
+  <span><span class="sw" style="background:#b54a2b"></span>3e-4 (6nn4t1ky)</span>
+</div>
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" aria-label="success rate over training steps">
+  <!-- axes -->
+  <line x1="60" y1="20" x2="60" y2="180" stroke="#888"/>
+  <line x1="60" y1="180" x2="700" y2="180" stroke="#888"/>
+  <text x="55" y="24" font-size="10" text-anchor="end" fill="#5b5b5b">1.00</text>
+  <text x="55" y="60" font-size="10" text-anchor="end" fill="#5b5b5b">0.75</text>
+  <text x="55" y="100" font-size="10" text-anchor="end" fill="#5b5b5b">0.50</text>
+  <text x="55" y="140" font-size="10" text-anchor="end" fill="#5b5b5b">0.25</text>
+  <text x="55" y="184" font-size="10" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="380" y="208" font-size="11" text-anchor="middle" fill="#5b5b5b">step (× 10⁶)</text>
+  <text x="60"  y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">0</text>
+  <text x="380" y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">1.0</text>
+  <text x="700" y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">1.75</text>
+  <!-- target line at SR=0.74 -->
+  <line x1="60" y1="60" x2="700" y2="60" stroke="#bbb" stroke-dasharray="3 4" opacity=".6"/>
+  <!-- 3e-2 trajectory: SR samples (step, sr) - 3e-2 series -->
+  <!-- map x: 0..1750000 -> 60..700; y: 0..1 -> 180..20 -->
+  <!-- Using observed history points -->
+  <path d="M 138 102 L 165 81 L 183 82 L 184 84 L 189 76 L 211 70 L 211 71 L 212 73 L 224 67 L 295 60 L 320 76 L 312 64 L 330 67 L 336 76 L 369 70 L 369 73 L 387 60 L 422 73 L 462 81 L 521 64 L 535 60 L 539 64 L 549 70 L 569 73 L 657 64 L 660 60 L 660 60 L 666 64 L 678 67"
+        stroke="#2c5e8e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <!-- 3e-4 trajectory -->
+  <path d="M 153 146 L 153 146 L 153 146 L 153 146 L 153 146 L 153 146 L 293 159 L 301 122 L 301 122 L 315 108 L 315 110 L 315 113 L 315 114 L 341 148 L 341 150"
+        stroke="#b54a2b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <!-- annotations -->
+  <text x="688" y="64" font-size="10" fill="#2c5e8e" text-anchor="end">3e-2: SR ≈ 0.74</text>
+  <text x="350" y="156" font-size="10" fill="#b54a2b" text-anchor="start">3e-4: peak 0.45 → drops back to 0.16</text>
+</svg>
+<figcaption>Sampled <code>metrics/sr</code> over training. The 3e-2 run reaches the SR ≈ 0.7 plateau by step 700 k and stays there. The 3e-4 run pokes above 0.4 once (around step 700 k, while the value head was still close to the truth) and then reverts as the value head runs away — see §4.</figcaption>
+</figure>
+
+<!-- ============================================================== -->
+<h2>3 — Entropy: the policy collapses early</h2>
+
+<p>Actor entropy in the policy distribution is <code>−Σ p log p</code>. With four actions it is bounded above by <code>ln 4 ≈ 1.386</code>. Both runs start near-uniform; in the 3e-4 run, the <strong>collapse happens before the first metric is logged</strong> — the earliest sample we have is at step 253 k and entropy is already at 0.08.</p>
+
+<figure class="figure">
+<div class="legend">
+  <span><span class="sw" style="background:#2c5e8e"></span>3e-2 (a1aqhpnk)</span>
+  <span><span class="sw" style="background:#b54a2b"></span>3e-4 (6nn4t1ky)</span>
+  <span style="color:#888">— — — uniform-policy max ln 4 ≈ 1.386</span>
+</div>
+<svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" aria-label="actor entropy over training steps">
+  <line x1="60" y1="20" x2="60" y2="190" stroke="#888"/>
+  <line x1="60" y1="190" x2="700" y2="190" stroke="#888"/>
+  <text x="55" y="24" font-size="10" text-anchor="end" fill="#5b5b5b">1.5</text>
+  <text x="55" y="80" font-size="10" text-anchor="end" fill="#5b5b5b">1.0</text>
+  <text x="55" y="135" font-size="10" text-anchor="end" fill="#5b5b5b">0.5</text>
+  <text x="55" y="194" font-size="10" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="380" y="218" font-size="11" text-anchor="middle" fill="#5b5b5b">step (× 10⁶)</text>
+  <text x="60"  y="208" font-size="9" text-anchor="middle" fill="#5b5b5b">0</text>
+  <text x="380" y="208" font-size="9" text-anchor="middle" fill="#5b5b5b">1.0</text>
+  <text x="700" y="208" font-size="9" text-anchor="middle" fill="#5b5b5b">1.75</text>
+  <!-- ln 4 line: y = 1.386, mapped (1.5 -> 24, 0 -> 190); pos = 24 + (1.5-1.386)/1.5 * (190-24) = 24 + 12.6 = 36.6 -->
+  <line x1="60" y1="37" x2="700" y2="37" stroke="#888" stroke-dasharray="3 4" opacity=".6"/>
+  <text x="700" y="34" font-size="9" fill="#888" text-anchor="end">ln 4</text>
+  <!-- 3e-2 entropy: stays around 1.30-1.36, mapped y = 190 - val/1.5 * 166 -->
+  <!-- For e=1.34, y ≈ 190 - 1.34/1.5 * 166 = 190 - 148.3 = 41.7 -->
+  <path d="M 138 41 L 165 45 L 183 45 L 184 43 L 189 39 L 211 51 L 211 50 L 212 47 L 224 46 L 295 46 L 312 47 L 320 47 L 330 47 L 336 51 L 369 49 L 387 42 L 404 41 L 422 47 L 462 50 L 521 50 L 535 51 L 539 49 L 549 50 L 569 50 L 657 47 L 660 46 L 666 46 L 678 46"
+        stroke="#2c5e8e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 3e-4 entropy: ~0.08, y ≈ 190 - 0.087/1.5*166 = 190 - 9.6 = 180.4 -->
+  <path d="M 153 181 L 153 180 L 153 181 L 153 180 L 153 181 L 153 181 L 293 180 L 301 180 L 301 180 L 315 181 L 315 180 L 315 181 L 315 181 L 341 180 L 341 181"
+        stroke="#b54a2b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="688" y="46" font-size="10" fill="#2c5e8e" text-anchor="end">≈ 1.32 (95% of max)</text>
+  <text x="688" y="175" font-size="10" fill="#b54a2b" text-anchor="end">≈ 0.087 (6% of max)</text>
+</svg>
+<figcaption>Policy entropy across training. The flat line near 1.32 nats (3e-2) is what a working actor looks like under DreamerV3's entropy bonus. The flat line near 0.087 (3e-4) is a near-deterministic actor; with four legal actions, this corresponds to <code>p_argmax ≈ 0.97</code>.</figcaption>
+</figure>
+
+<details>
+  <summary>Entropy vs argmax probability (mapping)</summary>
+  <p>For a 4-way categorical with argmax mass <code>p</code> and uniform tail, entropy is <code>H(p) = −p ln p − 3·((1−p)/3)·ln((1−p)/3)</code>. <code>H = 0.087</code> ⇒ <code>p ≈ 0.974</code>. <code>H = 1.32</code> ⇒ <code>p ≈ 0.30</code> (close to uniform). So the 3e-4 actor takes its preferred action 97 % of the time; the 3e-2 actor takes its preferred action 30 % of the time — proper exploration.</p>
+</details>
+
+<!-- ============================================================== -->
+<h2>4 — Action distribution: the 3e-4 actor is a left-spinner</h2>
+
+<figure class="figure">
+<svg viewBox="0 0 720 200" xmlns="http://www.w3.org/2000/svg" aria-label="action distribution at end of run">
+  <g font-family="-apple-system, sans-serif" font-size="11">
+    <text x="60" y="20" font-weight="600" fill="#5b5b5b">Action distribution at last logged step (rolling action_hist over 1 episode)</text>
+    <!-- 3e-2 -->
+    <text x="60" y="55" font-weight="600" fill="#2c5e8e">3e-2</text>
+    <text x="105" y="55" fill="#5b5b5b">a1aqhpnk</text>
+    <!-- bar -->
+    <rect x="200" y="42" width="196" height="20" fill="#2c5e8e" opacity=".85"/>     <!-- forward 28%  → 196 px = 0.28*700 -->
+    <rect x="396" y="42" width="159" height="20" fill="#5d4b8a" opacity=".85"/>     <!-- left 23% -->
+    <rect x="555" y="42" width="92"  height="20" fill="#2f7a4f" opacity=".85"/>     <!-- right 32% wait we miscalc-->
+    <!--   recompute: x runs 200..480 for total range; total fraction = 0.28+0.23+0.32+0.17 = 1.0; total px = 280
+            forward 0.28 → 78.4 px → x:200..278
+            left    0.23 → 64.4 px → x:278..343
+            right   0.32 → 89.6 px → x:343..432
+            stop    0.17 → 47.6 px → x:432..480
+            -->
+    <rect x="200" y="42" width="78"  height="20" fill="#2c5e8e" opacity=".9"/>
+    <rect x="278" y="42" width="64"  height="20" fill="#c98b1f" opacity=".9"/>
+    <rect x="342" y="42" width="90"  height="20" fill="#5d4b8a" opacity=".9"/>
+    <rect x="432" y="42" width="48"  height="20" fill="#2f7a4f" opacity=".9"/>
+    <!-- labels inside -->
+    <text x="239" y="56" fill="#fff" text-anchor="middle" font-size="10">FWD 28%</text>
+    <text x="310" y="56" fill="#fff" text-anchor="middle" font-size="10">L 23%</text>
+    <text x="387" y="56" fill="#fff" text-anchor="middle" font-size="10">R 32%</text>
+    <text x="456" y="56" fill="#fff" text-anchor="middle" font-size="10">STOP 17%</text>
+
+    <!-- 3e-4 -->
+    <text x="60"  y="105" font-weight="600" fill="#b54a2b">3e-4</text>
+    <text x="105" y="105" fill="#5b5b5b">6nn4t1ky</text>
+    <!-- forward 26% → 73 px, left 65% → 182 px, right 1.2% → 3.4 px, stop 7.6% → 21.3 px; total 280 -->
+    <rect x="200" y="92" width="73"  height="20" fill="#2c5e8e" opacity=".9"/>
+    <rect x="273" y="92" width="182" height="20" fill="#c98b1f" opacity=".9"/>
+    <rect x="455" y="92" width="3"   height="20" fill="#5d4b8a" opacity=".9"/>
+    <rect x="458" y="92" width="22"  height="20" fill="#2f7a4f" opacity=".9"/>
+    <text x="237" y="106" fill="#fff" text-anchor="middle" font-size="10">FWD 26%</text>
+    <text x="365" y="106" fill="#fff" text-anchor="middle" font-size="11">LEFT 65%</text>
+    <text x="469" y="106" fill="#fff" text-anchor="middle" font-size="9">STOP</text>
+    <text x="455" y="125" fill="#b03030" text-anchor="middle" font-size="9">R≈1%</text>
+
+    <!-- legend -->
+    <g transform="translate(60,150)">
+      <rect width="14" height="10" fill="#2c5e8e"/><text x="20" y="9" font-size="10">forward</text>
+      <rect x="80" width="14" height="10" fill="#c98b1f"/><text x="100" y="9" font-size="10">left</text>
+      <rect x="140" width="14" height="10" fill="#5d4b8a"/><text x="160" y="9" font-size="10">right</text>
+      <rect x="210" width="14" height="10" fill="#2f7a4f"/><text x="230" y="9" font-size="10">stop</text>
+    </g>
+    <text x="60" y="185" fill="#5b5b5b" font-size="10">3e-2 takes all four actions; 3e-4 takes <code>right</code> on ~1 % of steps and runs into walls.</text>
+  </g>
+</svg>
+<figcaption>Action histograms from the most recent rollout window of each run. <code>action/right_pct = 0.012</code> on the 3e-4 side means the policy turns right essentially never — it only ever turns left, which (combined with low <code>stop</code>) is why episodes time out at the 500-step cap and rack up the <code>−5</code> step-penalty floor.</figcaption>
+</figure>
+
+<!-- ============================================================== -->
+<h2>5 — The value head runs away to a self-consistent fantasy</h2>
+
+<p>This is the most interesting part. Once the policy collapses, the world model only ever sees one trajectory family (the spin), so the actor's bootstrapped target <code>r + γ·V'</code> stabilises — but at a value <em>completely disconnected</em> from the actual environment reward. The percentile normaliser <code>S = max(1, Per95 − Per5)</code> tracks that target, and the actor optimisation continues against the inflated scale.</p>
+
+<div class="grid">
+  <div class="card"><div class="k">actor/return_mean — 3e-2</div><div class="v good">+5.9</div><div class="delta">consistent with episode reward 11.6 × success rate</div></div>
+  <div class="card"><div class="k">actor/return_mean — 3e-4</div><div class="v bad">+56.5</div><div class="delta">while real episode reward is <strong>−3.4</strong></div></div>
+  <div class="card"><div class="k">actor/value_mean — 3e-2</div><div class="v good">+5.88</div><div class="delta">tracks return_mean (Δ = 0.02)</div></div>
+  <div class="card"><div class="k">actor/value_mean — 3e-4</div><div class="v bad">+55.96</div><div class="delta">tracks return_mean (Δ = 0.50) — value head and target are <em>self-consistent</em></div></div>
+  <div class="card"><div class="k">ret_scale (Per95 − Per5) — 3e-2</div><div class="v good">15.84</div><div class="delta">stable in 13 – 17 range across training</div></div>
+  <div class="card"><div class="k">ret_scale (Per95 − Per5) — 3e-4</div><div class="v bad">90.94</div><div class="delta">grew 16 → 35 → 91 monotonically</div></div>
+  <div class="card"><div class="k">ret_offset (Per5) — 3e-2</div><div class="v">−2.38</div><div class="delta">low end of returns is below 0 (timeouts)</div></div>
+  <div class="card"><div class="k">ret_offset (Per5) — 3e-4</div><div class="v bad">+27.99</div><div class="delta">all returns above zero in the imagined rollouts</div></div>
+</div>
+
+<figure class="figure">
+<div class="legend">
+  <span><span class="sw" style="background:#2c5e8e"></span>3e-2: ret_scale</span>
+  <span><span class="sw" style="background:#b54a2b"></span>3e-4: ret_scale</span>
+</div>
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg" aria-label="ret_scale over training steps">
+  <line x1="60" y1="20" x2="60" y2="180" stroke="#888"/>
+  <line x1="60" y1="180" x2="700" y2="180" stroke="#888"/>
+  <text x="55" y="24" font-size="10" text-anchor="end" fill="#5b5b5b">100</text>
+  <text x="55" y="76" font-size="10" text-anchor="end" fill="#5b5b5b">66</text>
+  <text x="55" y="128" font-size="10" text-anchor="end" fill="#5b5b5b">33</text>
+  <text x="55" y="184" font-size="10" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="380" y="208" font-size="11" text-anchor="middle" fill="#5b5b5b">step (× 10⁶)</text>
+  <text x="60"  y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">0</text>
+  <text x="380" y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">1.0</text>
+  <text x="700" y="200" font-size="9" text-anchor="middle" fill="#5b5b5b">1.75</text>
+  <!-- map y: 0..100 -> 180..20 (range 160) -->
+  <!-- 3e-2 ret_scale ≈ 13-17, y ≈ 180 - val/100*160 -->
+  <path d="M 138 159 L 165 156 L 183 156 L 184 156 L 189 158 L 211 156 L 211 156 L 212 157 L 224 156 L 295 157 L 320 158 L 312 156 L 330 156 L 336 156 L 369 156 L 387 153 L 404 154 L 422 153 L 462 156 L 521 156 L 535 156 L 539 156 L 549 156 L 569 156 L 657 157 L 660 156 L 660 156 L 666 156 L 678 156"
+        stroke="#2c5e8e" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 3e-4 ret_scale: 15.6 → 35 → 39 → 91 -->
+  <!-- step→x:    253k→152, 660k→301, 700k→315, 770k→341, 1.74M→700; ret_scale 15.6→155, 35→124, 39→117, 91→34 -->
+  <path d="M 152 155 L 153 156 L 154 155 L 154 154 L 155 153 L 156 154 L 293 122 L 301 124 L 301 124 L 315 127 L 315 127 L 315 124 L 315 124 L 341 117 L 341 118 L 700 35"
+        stroke="#b54a2b" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="690" y="40" font-size="10" fill="#b54a2b" text-anchor="end">ret_scale → 91</text>
+  <text x="690" y="160" font-size="10" fill="#2c5e8e" text-anchor="end">ret_scale ≈ 15</text>
+</svg>
+<figcaption>The percentile-based return normaliser <code>ret_scale</code> across training. The 3e-2 run's normaliser stays bounded and tracks the actual reward range (success +10, timeouts −5). The 3e-4 normaliser grows ≈ 6× as the value head's bootstrap target inflates inside imagination.</figcaption>
+</figure>
+
+<div class="math">
+returns inside imagination &nbsp;=&nbsp; r̂<sub>0</sub> + γ r̂<sub>1</sub> + γ² r̂<sub>2</sub> + ⋯ + γ<sup>15</sup> V̂<sub>15</sub>
+<div class="small">If <code>V̂</code> drifts from the true expected return and the policy is locked, the bootstrap closes the loop on the drifted value. Entropy bonus is the only thing that can break the loop.</div>
+</div>
+
+<!-- ============================================================== -->
+<h2>6 — The policy gradient is dead</h2>
+
+<p>The actor loss in r2dreamer (cf. <code>modules/r2dreamer/agent.py</code> as audited in v4) is roughly</p>
+<div class="math">
+ℒ<sub>π</sub> &nbsp;=&nbsp; − w · A · log π(a|s) &nbsp;−&nbsp; η · H(π)
+</div>
+
+<p>With <code>η = 3·10⁻⁴</code>, a near-deterministic policy, and a self-consistent value head:</p>
+<ul>
+  <li><strong>The advantage is small</strong>: <code>actor/advantage_std = 0.023</code> on 3e-4 vs <code>0.059</code> on 3e-2 (the spread shrinks ~2.5×). The world is locked into one trajectory shape, so <code>r + γV' − V</code> is small.</li>
+  <li><strong>The entropy term is small</strong>: <code>η·H ≈ 3·10⁻⁴ · 0.087 = 2.6·10⁻⁵</code>. That is what is left of the gradient that <em>could</em> push the policy back toward exploration.</li>
+  <li><strong>The total loss is essentially zero</strong>:</li>
+</ul>
+
+<table>
+<thead><tr><th>Quantity</th><th class="num">3e-2</th><th class="num">3e-4</th><th class="num">ratio</th></tr></thead>
+<tbody>
+<tr><td><code>loss/policy</code> (typical)</td><td class="num">−0.041</td><td class="num">+1·10⁻⁴</td><td class="num">~ 400×</td></tr>
+<tr><td><code>actor/grad_norm</code></td><td class="num">0.0098</td><td class="num">0.015</td><td class="num">close — gradient norm is dominated by the noise floor on the 3e-4 side</td></tr>
+<tr><td><code>actor/advantage_std</code></td><td class="num">0.059</td><td class="num">0.023</td><td class="num">~ 2.5×</td></tr>
+<tr><td><code>actor/advantage_mean</code></td><td class="num">+0.0013</td><td class="num">+0.0055</td><td class="num">3e-4 has small but persistent positive bias — it keeps reinforcing the spin</td></tr>
+<tr><td><code>actor/weight_mean</code></td><td class="num">0.970</td><td class="num">0.976</td><td class="num">≈ same — both runs see γ ≈ 0.997 cumprod</td></tr>
+</tbody>
+</table>
+
+<div class="verdict bad">
+<strong>Mechanism:</strong> low-η + early stochastic preference → entropy collapses → no exploration → world model only sees one trajectory family → bootstrap target stabilises (anywhere) → percentile normaliser follows → advantage variance shrinks → policy gradient ≈ 0 → entropy bonus too small to reopen the policy. The system is in a local fixed point that the optimiser cannot escape.
+</div>
+
+<!-- ============================================================== -->
+<h2>7 — Reference check: is 3e-4 really the R2-Dreamer canonical default?</h2>
+
+<p>Yes. From a direct read of this fork:</p>
+
+<div class="twocol">
+<div class="panel hi-ent">
+<h4>Argparse / config — the active default</h4>
+<pre><code># modules/r2dreamer/launch/parser.py:30
+parser.add_argument(
+    "--act_entropy", type=float, default=3e-2,
+    help=(
+        "3e-2 is the Habitat 4-action ObjectNav baseline; "
+        "the DreamerV3 paper default 3e-4 (tuned for 17-action "
+        "Crafter) collapses the policy here."
+    ),
+)
+# modules/r2dreamer/config.py:72
+act_entropy: float = 3e-2</code></pre>
+<p style="font-size:.82rem;color:var(--muted);margin-top:.4rem">
+The fork's working default is <code>3e-2</code>, with an explicit comment naming the 3e-4 / 4-action collapse as the reason. v5 confirms that comment empirically.
+</p>
+</div>
+<div class="panel lo-ent">
+<h4>Parity / reference config — the canonical paper value</h4>
+<pre><code># modules/r2dreamer/launch/parity/batch_utils.py:90
+"act_entropy": 3e-4,   # DreamerV3 / R2-Dreamer reference
+# (used by parity reruns of the original Crafter setup)</code></pre>
+<p style="font-size:.82rem;color:var(--muted);margin-top:.4rem">
+The parity harness uses <code>3e-4</code> when reproducing original DreamerV3 / R2-Dreamer numbers on Crafter. <code>notebooks/stop_collapse_analysis.ipynb</code> labels <code>3e-4</code> as <strong>"Default"</strong> and <code>3e-2</code> as <strong>"100× higher entropy bonus"</strong>.
+</p>
+</div>
+</div>
+
+<p>So the user's framing is right: <strong>3e-4 = paper / parity default; 3e-2 = environment-specific override</strong>. v5 just demonstrates the override is necessary, with metrics.</p>
+
+<!-- ============================================================== -->
+<h2>8 — Why DreamerV3's paper default doesn't transfer here</h2>
+
+<p>Hafner et al. tuned <code>η = 3·10⁻⁴</code> on Crafter (17 discrete actions) and on procedural game environments where the actor benefits from extrinsic-reward density. Two relevant differences for 4-action Habitat ObjectNav:</p>
+
+<ol>
+  <li><strong>17 actions vs 4 actions.</strong> The maximum entropy for 4 actions is <code>ln 4 ≈ 1.39</code>; for 17 actions it is <code>ln 17 ≈ 2.83</code>. <em>Relative</em> contribution of <code>η·H</code> vs <code>A·log π</code> in DreamerV3's loss scales with both <code>H</code> <em>and</em> the per-action gradient mass. Cutting from 17 to 4 actions shrinks the maximum entropy bonus by ≈ 2× <em>before</em> any collapse.</li>
+  <li><strong>Reward sparsity profile.</strong> Crafter rewards are dense achievement-based (~22 unlock targets, mostly small positive). ObjectNav-chair gives a single +10 at episode end and a continuous −0.01 per step. The advantage signal is only large for ~0.05 % of steps — the rest of the time, the gradient on log π is essentially noise. With <code>η = 3·10⁻⁴</code> there is nothing to keep the actor exploring during those long quiet stretches.</li>
+  <li><strong>Percentile normaliser cold-start.</strong> v3 already noted that <code>S = max(1, Per95 − Per5)</code> initialises at <code>S = 1</code> when both percentiles are zeros. That is fine — but it means early-training advantages are not down-weighted, so any small-but-systematic preference (e.g. "left turn looked good in the first batch") gets amplified. Combined with low <code>η</code>, this is the recipe for the 250 k-step entropy collapse we observe.</li>
+</ol>
+
+<p>None of these undermine the paper — they explain why the same hyperparameter does not auto-transfer to a 4-action sparse-terminal-reward environment.</p>
+
+<!-- ============================================================== -->
+<h2>9 — What to write up &amp; what to do next</h2>
+
+<table>
+<thead><tr><th>Item</th><th>Action</th><th>Status</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Method.tex / Hyperparameter table</strong></td>
+  <td>Document <code>act_entropy = 3·10⁻²</code> and add a footnote: <em>"100× the DreamerV3 paper default; needed because the 4-action ObjectNav setting collapses the policy at 3·10⁻⁴ (see ablation, §X)"</em>. Cite a1aqhpnk vs 6nn4t1ky.</td>
+  <td><span class="severity sev-mid">to do</span></td>
+</tr>
+<tr>
+  <td><strong>Results / Ablations</strong></td>
+  <td>Add the SR-vs-step plot (§2) and entropy-vs-step plot (§3) as a single ablation figure. The contrast is clean enough to be one of the cleanest ablations in the thesis.</td>
+  <td><span class="severity sev-mid">to do</span></td>
+</tr>
+<tr>
+  <td><strong>v4 finding #1 (act_entropy)</strong></td>
+  <td>Mark <span class="tag good">closed — empirically resolved</span>. Was: "Keep 3·10⁻²; needed because percentile normalizer doesn't fire early on this env." v5 confirms the necessity and gives the mechanism (entropy collapse + value-head runaway, not just normaliser cold-start).</td>
+  <td><span class="severity sev-low">closed</span></td>
+</tr>
+<tr>
+  <td><strong>One outstanding question</strong></td>
+  <td>Is <code>3·10⁻²</code> the optimum, or just <em>good enough</em>? Worth one or two more points (e.g. <code>1·10⁻²</code>, <code>1·10⁻¹</code>) on the same env if the cluster has time. v5 only establishes that <code>3·10⁻⁴ ≪ 3·10⁻²</code>, not that 3·10⁻² is best.</td>
+  <td><span class="severity sev-mid">optional</span></td>
+</tr>
+<tr>
+  <td><strong>Crafter parity run</strong></td>
+  <td>v3/v4's standing recommendation: run this codebase on Crafter with the parity config (which uses <code>3·10⁻⁴</code>) and check whether SR matches the published number. If yes, every other suspected divergence is closed too.</td>
+  <td><span class="severity sev-mid">P2</span></td>
+</tr>
+<tr>
+  <td><strong>v4 finding #2 (Per5 cold start, init at (−5, +10))</strong></td>
+  <td>Less urgent now. v5 shows the percentile <em>normaliser</em> is symptomatic of the collapse, not a primary cause. Still cheap to do for cleanliness.</td>
+  <td><span class="severity sev-low">P3</span></td>
+</tr>
+</tbody>
+</table>
+
+<!-- ============================================================== -->
+<h2>10 — Updated divergence summary across v1 – v5</h2>
+
+<table>
+<thead><tr><th>Item</th><th>Severity</th><th>Found in</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>act_entropy = 3·10⁻²</code> vs paper 3·10⁻⁴</td><td><span class="severity sev-low">empirical / resolved</span></td><td>v2 / v3 / v4 / v5</td><td><span class="tag good">closed — keep 3·10⁻², documented</span></td></tr>
+<tr><td>Percentile <code>S</code> initialization at zeros</td><td><span class="severity sev-low">cosmetic</span></td><td>v3 (issue #142)</td><td>Logging now in place; symptomatic, not causal — close after Crafter parity</td></tr>
+<tr><td>Method.tex described STOP-required success</td><td><span class="severity sev-low">writing</span></td><td>v3</td><td><span class="tag good">fixed in commit 589c014</span></td></tr>
+<tr><td>Actor weight missing <code>/disc</code> correction</td><td><span class="severity sev-low">low</span></td><td>v4 §1</td><td>Optional one-line fix; ~0.3 % uniform shrink, doesn't change relative gradients</td></tr>
+<tr><td>Replay buffer <code>is_first</code> off-by-one suspicion</td><td><span class="severity sev-low">none</span></td><td>v4 §2</td><td><span class="tag good">no bug</span></td></tr>
+<tr><td>R2TwoHotDist target-squash divergence</td><td><span class="severity sev-low">caveat</span></td><td>v4 §3</td><td>Matches modern danijar; no functional divergence</td></tr>
+<tr><td>Per5 offset never subtracted</td><td><span class="severity sev-low">none</span></td><td>v3</td><td>Both forks equivalent</td></tr>
+<tr><td>Continue head trained on raw <code>1−is_terminal</code></td><td><span class="severity sev-low">none</span></td><td>v4 §1</td><td>Equivalent to <code>contdisc=False</code></td></tr>
+</tbody>
+</table>
+
+<p>v5 is the first version where <em>every</em> standing finding is either closed or marked as cosmetic. The remaining work is Crafter parity (v3/v4 P2) and writing.</p>
+
+<hr/>
+<p class="footnotes">
+Generated 2026-05-08. Run data: <a class="ref" href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/a1aqhpnk">a1aqhpnk</a> · <a class="ref" href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/6nn4t1ky">6nn4t1ky</a> (W&amp;B, sailer-luca-university-ulm/3d-vla-objectnav). Metrics sampled via the W&amp;B MCP at snapshot time (a1aqhpnk: 1.757 M / 2 M steps; 6nn4t1ky: 1.738 M / 2 M steps; both still running). R2-Dreamer reference paths verified in <code>~/Coding/Master-Thesis-3D-VLA</code> at HEAD: <code>parser.py:30</code>, <code>config.py:72</code>, <code>parity/batch_utils.py:90</code>. v1 – v4 linked at top.
+</p>
+
+</div>
+</body>
+</html>

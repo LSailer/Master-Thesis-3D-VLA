@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Simple RL Baselines for World-Model Evaluation</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #161a22;
+    --panel-2: #1d2230;
+    --text: #e6e8ee;
+    --muted: #9aa3b2;
+    --accent: #7aa2ff;
+    --accent-2: #9d8cff;
+    --good: #6ee7a4;
+    --warn: #ffcf6e;
+    --border: #2a3142;
+    --code-bg: #0b0d12;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --panel-2: #f0f2f7;
+      --text: #1a1d24;
+      --muted: #5b6473;
+      --accent: #2f5cff;
+      --accent-2: #6e4cff;
+      --good: #1f9b5e;
+      --warn: #b67700;
+      --border: #dde1ea;
+      --code-bg: #eef0f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }
+  header h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p.lede { color: var(--muted); margin: 0 0 4px; }
+  header .meta { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 16px 0;
+  }
+  .why-card {
+    border-left: 3px solid var(--accent);
+  }
+  h2 { font-size: 20px; margin: 28px 0 8px; letter-spacing: -0.01em; }
+  h3 { font-size: 16px; margin: 0 0 6px; }
+  .option {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 14px 0;
+  }
+  .option header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .option header .title { display: flex; align-items: baseline; gap: 10px; }
+  .option header .title .num {
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .option header .title h3 { margin: 0; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .badge.planning { color: var(--accent); }
+  .badge.learned { color: var(--accent-2); }
+  .badge.easy { color: var(--good); }
+  .badge.medium { color: var(--warn); }
+  .one-line { color: var(--muted); margin: 0 0 10px; font-style: italic; }
+  dl { display: grid; grid-template-columns: 180px 1fr; gap: 6px 14px; margin: 0; }
+  dt { color: var(--muted); font-size: 13px; }
+  dd { margin: 0; font-size: 14px; }
+  .hp code { font-size: 12.5px; }
+  code, pre {
+    font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-size: 13px;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .links { margin-top: 10px; font-size: 13px; }
+  .links a { display: inline-block; margin-right: 14px; }
+  ul.compact { margin: 6px 0 0; padding-left: 18px; }
+  ul.compact li { margin: 2px 0; }
+  .pairing {
+    background: linear-gradient(135deg, rgba(122,162,255,0.10), rgba(157,140,255,0.10));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 24px 0;
+  }
+  .pairing h2 { margin-top: 0; }
+  table.compare {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+    font-size: 13.5px;
+  }
+  table.compare th, table.compare td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.compare th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  table.compare td.name { white-space: nowrap; }
+  footer { color: var(--muted); font-size: 12.5px; margin-top: 36px; text-align: center; }
+  @media (max-width: 640px) {
+    dl { grid-template-columns: 1fr; gap: 2px 0; }
+    dt { margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Simple RL Baselines for World-Model Evaluation</h1>
+  <p class="lede">6 options: 5 that exercise the world model directly, plus a model-free reference (PPO) for sample-efficiency comparison.</p>
+  <p class="meta">Compiled 2026-05-06 · for thesis world-model evaluation</p>
+</header>
+
+<section class="card why-card">
+  <h2 style="margin-top:0">Why move beyond random?</h2>
+  <p style="margin:0">A random policy wanders. It only stress-tests the world model on the dynamics of <em>aimless</em> trajectories. The interesting question — <strong>does the model predict correctly along reward-relevant trajectories?</strong> — needs a policy that <em>tries</em>. Each baseline below exposes a different failure mode of the learned model.</p>
+</section>
+
+<h2>Comparison at a glance</h2>
+<table class="compare">
+  <thead>
+    <tr>
+      <th>#</th><th>Method</th><th>Type</th><th>LoC</th><th>Training?</th><th>Failure mode it exposes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td class="name">Random Shooting MPC</td><td>Planning</td><td>~50</td><td>No</td><td>Reward miscalibration</td></tr>
+    <tr><td>2</td><td class="name">CEM-MPC</td><td>Planning</td><td>~80</td><td>No</td><td>Overconfidence on optimal manifold</td></tr>
+    <tr><td>3</td><td class="name">Dyna-Q</td><td>Hybrid</td><td>~100</td><td>Yes (Q)</td><td>Compounding rollout error</td></tr>
+    <tr><td>4</td><td class="name">REINFORCE + baseline</td><td>Learned policy</td><td>~150</td><td>Yes (π, V)</td><td>Gradient-signal corruption</td></tr>
+    <tr><td>5</td><td class="name">DQN (SB3)</td><td>Learned policy</td><td>~5 (SB3)</td><td>Yes</td><td>Value-function distortion</td></tr>
+    <tr><td>6</td><td class="name">PPO (SBX, JAX)</td><td>Model-free reference</td><td>~10 (SBX)</td><td>Yes (real env)</td><td>Sample-efficiency floor — is WM helping?</td></tr>
+  </tbody>
+</table>
+
+<!-- OPTION 1 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">01</span><h3>Random Shooting MPC (RS)</h3></div>
+    <div class="badges">
+      <span class="badge planning">planning</span>
+      <span class="badge easy">easy · ~50 LoC</span>
+      <span class="badge">no training</span>
+    </div>
+  </header>
+  <p class="one-line">Sample N action sequences, score each by rolling out through the world model, execute the first action of the best one. Receding horizon.</p>
+  <dl>
+    <dt>Why better than random</dt>
+    <dd>Directly <em>uses</em> the world model to act, so trajectories concentrate where the model claims reward is high. If the model is wrong, divergence in the real env becomes immediately visible.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>N</code> ≈ 500–2000 candidates · <code>H</code> ≈ 10–30 horizon · uniform action sampling</dd>
+    <dt>When it's the right pick</dt>
+    <dd>Canonical first model-based baseline. Exposes <strong>exploitation bias</strong> — regions where the model is overoptimistic about reward.</dd>
+  </dl>
+  <div class="links">
+    <a href="https://arxiv.org/abs/1708.02596">Nagabandi et al. 2017 (paper)</a>
+    <a href="https://www.cs.toronto.edu/~tingwuwang/mbrl.html">MBRL benchmarking notes</a>
+  </div>
+</article>
+
+<!-- OPTION 2 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">02</span><h3>Cross-Entropy Method MPC (CEM)</h3></div>
+    <div class="badges">
+      <span class="badge planning">planning</span>
+      <span class="badge easy">easy · ~80 LoC</span>
+      <span class="badge">no training</span>
+    </div>
+  </header>
+  <p class="one-line">Same MPC loop as RS, but instead of uniform sampling, fit a Gaussian over actions, take top-k elites, refit, repeat. The planner inside PETS and PlaNet.</p>
+  <dl>
+    <dt>Why better than random</dt>
+    <dd>Concentrates samples on high-reward action sequences faster than RS. Pushes the world model along narrow, near-optimal trajectories — exactly the regime where overconfidence hurts most.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>pop</code> ≈ 100–500 · <code>elites</code> ≈ 10% · <code>iters</code> ≈ 3–5 · horizon <code>H</code> · initial variance</dd>
+    <dt>When it's the right pick</dt>
+    <dd>When RS is too sparse to find good trajectories within budget. Standard baseline in any modern world-model paper. Exposes <strong>overconfidence on the optimal manifold</strong>.</dd>
+  </dl>
+  <div class="links">
+    <a href="https://arxiv.org/abs/1805.12114">Chua et al. 2018 — PETS (paper)</a>
+    <a href="https://github.com/kchua/handful-of-trials">Reference code</a>
+    <a href="https://arxiv.org/pdf/2008.06389">iCEM improvements</a>
+  </div>
+</article>
+
+<!-- OPTION 3 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">03</span><h3>Dyna-Q</h3></div>
+    <div class="badges">
+      <span class="badge learned">learned policy</span>
+      <span class="badge easy">easy · ~100 LoC</span>
+      <span class="badge">tabular or NN</span>
+    </div>
+  </header>
+  <p class="one-line">Q-learning where each real transition triggers k extra Q-updates from simulated transitions sampled from the learned model. Sutton's original integrated planning + learning architecture.</p>
+  <dl>
+    <dt>Why better than random</dt>
+    <dd>Produces a learned policy <em>from world-model rollouts</em>. Any bias in the model directly poisons the policy — and the gap between model-trained-policy behavior in the model vs. the real env is exactly what you want to measure.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>α</code> learning rate · <code>γ</code> discount · <code>ε</code>-greedy · <code>k</code> ≈ 5–50 planning steps</dd>
+    <dt>When it's the right pick</dt>
+    <dd>Discrete or low-dim envs. Cleanest separation of "model error" vs. "RL algorithm complexity" — almost no moving parts. Exposes <strong>compounding rollout error</strong>: k-step simulated updates magnify model bias.</dd>
+  </dl>
+  <div class="links">
+    <a href="http://incompleteideas.net/book/ebook/node96.html">Sutton &amp; Barto Ch. 8</a>
+    <a href="https://github.com/FareedKhan-dev/all-rl-algorithms/blob/master/5_dyna_q.ipynb">Reference notebook</a>
+  </div>
+</article>
+
+<!-- OPTION 4 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">04</span><h3>REINFORCE with value baseline</h3></div>
+    <div class="badges">
+      <span class="badge learned">learned policy</span>
+      <span class="badge medium">medium · ~150 LoC</span>
+      <span class="badge">continuous OK</span>
+    </div>
+  </header>
+  <p class="one-line">Vanilla Monte-Carlo policy gradient. Sample episodes, compute returns, subtract a learned value baseline, gradient-ascend on log-prob × advantage.</p>
+  <dl>
+    <dt>Why better than random</dt>
+    <dd>Continuous-action capable, single small MLP, fully learned policy. Two clean evaluation protocols: (a) train inside the world model, deploy in real env → measures whether the model supports policy <em>improvement</em>; (b) train in real env, roll out in model → measures fidelity on competent trajectories.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>lr</code> · <code>γ</code> · episode batch size · entropy coefficient (optional)</dd>
+    <dt>When it's the right pick</dt>
+    <dd>You want a learned-policy companion to the planning baselines without PPO's clip/GAE/minibatch machinery. Exposes whether the world model supports <strong>gradient-based policy improvement</strong>, not just planning.</dd>
+  </dl>
+  <div class="links">
+    <a href="https://huggingface.co/blog/deep-rl-pg">HuggingFace PyTorch tutorial</a>
+    <a href="https://github.com/NadeemWard/pytorch_simple_policy_gradients">Reference repo</a>
+    <a href="https://rl-book.com/learn/policy_gradients/reinforce_baseline/">rl-book chapter</a>
+  </div>
+</article>
+
+<!-- OPTION 5 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">05</span><h3>DQN (off-the-shelf via Stable-Baselines3)</h3></div>
+    <div class="badges">
+      <span class="badge learned">learned policy</span>
+      <span class="badge easy">trivial · ~5 LoC w/ SB3</span>
+      <span class="badge">discrete only</span>
+    </div>
+  </header>
+  <p class="one-line">Deep Q-learning with replay buffer + target net. <code>DQN("MlpPolicy", env).learn(10_000)</code> — five lines and you have a competent baseline.</p>
+  <dl>
+    <dt>Why better than random</dt>
+    <dd>Mature, well-tested. Train it on the world model's simulated transitions and evaluate in the real env (classic Dyna-style eval); the gap reveals where the model's predicted Q-landscape misaligns with reality.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>lr</code> ≈ 1e-3 · buffer size · batch ≈ 64 · target update freq · ε-decay schedule</dd>
+    <dt>When it's the right pick</dt>
+    <dd>Discrete-action envs where you want a "real" model-free RL baseline as an upper-bound reference, without writing it yourself. Exposes <strong>value-function distortion</strong> in the world model.</dd>
+  </dl>
+  <div class="links">
+    <a href="https://stable-baselines3.readthedocs.io/en/master/modules/dqn.html">SB3 DQN docs</a>
+    <a href="https://huggingface.co/sb3/dqn-CartPole-v1">Pretrained CartPole DQN</a>
+  </div>
+</article>
+
+<!-- OPTION 6 -->
+<article class="option">
+  <header>
+    <div class="title"><span class="num">06</span><h3>PPO (off-the-shelf via SBX, JAX)</h3></div>
+    <div class="badges">
+      <span class="badge learned">model-free reference</span>
+      <span class="badge easy">trivial · ~10 LoC w/ SBX</span>
+      <span class="badge">discrete + image obs</span>
+    </div>
+  </header>
+  <p class="one-line">Proximal Policy Optimization, on-policy, JAX-jitted via Stable-Baselines Jax (SBX). <code>PPO("CnnPolicy", env).learn(N)</code> — same API as SB3, but JAX backend matches the rest of the stack.</p>
+  <dl>
+    <dt>Why this baseline</dt>
+    <dd>Different role from Options 1–5: PPO does <em>not</em> probe the world model. It's the <strong>model-free reference point</strong> — train PPO on the real env at the same env-step budget as DreamerV3, and the gap (or its absence) tells you whether the world model is buying anything. The headline "world models are sample-efficient" claim only holds if DreamerV3-3D beats PPO at matched frames.</dd>
+    <dt>Hyperparameters</dt>
+    <dd class="hp"><code>n_steps</code> ≈ 128–2048 · <code>batch_size</code> ≈ 64 · <code>n_epochs</code> ≈ 4–10 · <code>γ</code> ≈ 0.99 · <code>clip_range</code> ≈ 0.2 · <code>ent_coef</code> ≈ 0.0–0.01 · <code>VecFrameStack(k=4)</code> as memory proxy</dd>
+    <dt>When it's the right pick</dt>
+    <dd>You need a credible model-free reference for sample-efficiency curves and reviewers will expect one. SBX keeps you on JAX (no PyTorch for one baseline), supports discrete actions and CNN policies out of the box, and inherits SB3's EvalCallback / W&B integration so curves overlay your DreamerV3 runs cleanly.</dd>
+    <dt>Caveat</dt>
+    <dd>Neither SBX nor SB3 ships recurrent PPO. ObjectNav is a POMDP — feed-forward PPO with frame-stacking will plateau below DD-PPO+LSTM (the Habitat-lab gold standard). Document this gap; the comparison is still meaningful as long as DreamerV3 is also evaluated without external recurrence.</dd>
+  </dl>
+  <div class="links">
+    <a href="https://github.com/araffin/sbx">SBX repo</a>
+    <a href="https://stable-baselines3.readthedocs.io/en/master/modules/ppo.html">SB3 PPO docs (same API)</a>
+    <a href="https://arxiv.org/abs/1911.00357">DD-PPO / Habitat ObjectNav reference</a>
+  </div>
+</article>
+
+<!-- PAIRING -->
+<section class="pairing">
+  <h2>Recommended minimal set for the thesis</h2>
+  <p style="margin:0 0 10px">Pick one from each row — they expose <em>distinct</em> failure modes, so running all three gives a much richer picture than running three variants of the same idea.</p>
+  <ul class="compact">
+    <li><strong>🎯 Planning, no training:</strong> Random Shooting (Option 1). Trivial; gives you the "does planning through the model work at all?" signal.</li>
+    <li><strong>🔬 Stronger planner:</strong> CEM-MPC (Option 2). Same code shape as RS, exposes a different failure mode.</li>
+    <li><strong>🧠 Learned policy:</strong> REINFORCE (Option 4). Tests whether the model's gradient signal is usable for policy improvement.</li>
+    <li><strong>📐 External reference:</strong> PPO via SBX (Option 6). Not a WM probe — the model-free reference that makes the sample-efficiency claim falsifiable.</li>
+  </ul>
+  <p style="margin:10px 0 0; color:var(--muted)">If you only have time for one upgrade over random, start with <strong>Random Shooting MPC</strong> — it's the cheapest meaningful baseline in the entire model-based RL literature. Add <strong>PPO (SBX)</strong> when you're ready to publish — reviewers will ask for a model-free reference even if WM probes are strong.</p>
+</section>
+
+<footer>
+  Sources consolidated from web research · 2026-05-06
+</footer>
+
+</div>
+</body>
+</html>

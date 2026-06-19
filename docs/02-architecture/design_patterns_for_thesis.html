@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Design Patterns for a Thesis Codebase — DreamerV3 + 3D-VLA</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #57606a;
+    --soft: #f6f8fa;
+    --soft-2: #eef2f6;
+    --border: #d0d7de;
+    --border-soft: #e6ebf0;
+    --accent: #0969da;
+    --accent-soft: #ddf4ff;
+    --good: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+    --code-bg: #f6f8fa;
+    --code-fg: #24292f;
+    --shadow: 0 1px 0 rgba(27,31,36,.04);
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body {
+    margin: 0; font-family: var(--sans);
+    font-size: 15.5px; line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 56px 28px 96px; }
+  header.hero { border-bottom: 1px solid var(--border-soft); padding-bottom: 22px; margin-bottom: 28px; }
+  header.hero .tag {
+    display: inline-block; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); background: var(--soft); border: 1px solid var(--border-soft);
+    padding: 3px 9px; border-radius: 999px;
+  }
+  h1 { font-size: 30px; line-height: 1.2; margin: 14px 0 6px; letter-spacing: -0.01em; }
+  h2 { font-size: 22px; margin: 44px 0 10px; letter-spacing: -0.005em;
+       border-bottom: 1px solid var(--border-soft); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin: 26px 0 6px; }
+  h4 { font-size: 15px; margin: 18px 0 4px; }
+  p { margin: 8px 0 12px; }
+  .lede { color: var(--muted); font-size: 16px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, kbd {
+    font-family: var(--mono); font-size: 0.88em;
+    background: var(--code-bg); color: var(--code-fg);
+    padding: 1.5px 5px; border-radius: 4px; border: 1px solid var(--border-soft);
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 14px 16px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: transparent; border: 0; padding: 0; }
+  blockquote {
+    border-left: 3px solid var(--border); margin: 12px 0; padding: 2px 14px;
+    color: var(--muted); background: var(--soft); border-radius: 0 8px 8px 0;
+  }
+  ul, ol { padding-left: 22px; } li { margin: 4px 0; }
+  table {
+    width: 100%; border-collapse: collapse; margin: 12px 0 20px;
+    font-size: 14px; box-shadow: var(--shadow);
+  }
+  th, td {
+    text-align: left; padding: 9px 11px;
+    border-bottom: 1px solid var(--border-soft); vertical-align: top;
+  }
+  th { background: var(--soft); font-weight: 600; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: 0; }
+  .grid { display: grid; gap: 14px; }
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  @media (max-width: 720px) { .grid.cols-2 { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--border-soft); border-radius: 10px;
+    padding: 14px 16px; background: var(--bg);
+  }
+  .card h3 { margin-top: 4px; }
+  .pill {
+    display: inline-block; font-size: 11.5px; letter-spacing: .03em;
+    padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border-soft); background: var(--soft);
+    color: var(--muted); margin-right: 4px;
+  }
+  .pill.good { color: var(--good); border-color: #aff5b4; background: #dafbe1; }
+  .pill.warn { color: var(--warn); border-color: #f5d36c; background: #fff8c5; }
+  .pill.bad  { color: var(--bad);  border-color: #ffcecb; background: #ffebe9; }
+  .pill.accent { color: var(--accent); border-color: #b6e3ff; background: var(--accent-soft); }
+  .callout {
+    border: 1px solid var(--border-soft); border-left: 4px solid var(--accent);
+    background: var(--soft); padding: 12px 14px; border-radius: 8px; margin: 14px 0;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.good { border-left-color: var(--good); }
+  .src-list { font-size: 14px; }
+  .src-list li { margin: 6px 0; }
+  .small { font-size: 13px; color: var(--muted); }
+  .kbd-path { font-family: var(--mono); font-size: 12.5px; color: var(--muted); }
+  .toc {
+    background: var(--soft); border: 1px solid var(--border-soft);
+    border-radius: 10px; padding: 12px 16px 14px; margin: 12px 0 30px;
+  }
+  .toc h4 { margin: 4px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 28px; }
+  @media (max-width: 720px) { .toc ol { columns: 1; } }
+  .footnote { font-size: 12.5px; color: var(--muted); }
+  hr { border: 0; border-top: 1px solid var(--border-soft); margin: 30px 0; }
+  .verdict { font-weight: 600; }
+  .verdict.adopt { color: var(--good); }
+  .verdict.maybe { color: var(--warn); }
+  .verdict.skip  { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <span class="tag">Master Thesis · 3D-VLA · Part II</span>
+  <h1>Design patterns for thesis code</h1>
+  <p class="lede">A granular companion to <a href="restructure_overview.html">restructure_overview.html</a>. That report set the <em>architectural</em> boundaries (modules, protocols, dependency direction). This one zooms in on the <em>day-to-day</em> patterns: Gang-of-Four moves, Python idioms, and reproducibility patterns — with an opinionated verdict per item for a single-author thesis.</p>
+  <p class="small">Generated 2026-05-11 · sources verified against O'Reilly TOCs, official Python/Flax/JAX docs, and PEPs.</p>
+</header>
+
+<nav class="toc">
+  <h4>Contents</h4>
+  <ol>
+    <li><a href="#how-to-read">How to read this</a></li>
+    <li><a href="#gof">Classic design patterns (GoF + Fowler)</a></li>
+    <li><a href="#idioms">Python idioms for JAX/Flax</a></li>
+    <li><a href="#repro">Reproducibility &amp; experiment patterns</a></li>
+    <li><a href="#anti">Anti-patterns to call out</a></li>
+    <li><a href="#adopt">What to actually adopt — the short list</a></li>
+    <li><a href="#checklist">Thesis reproducibility checklist (10 items)</a></li>
+    <li><a href="#sources">Sources</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="how-to-read">1 · How to read this</h2>
+
+<p>Each pattern carries one of three verdicts for this thesis:</p>
+<ul>
+  <li><span class="verdict adopt">ADOPT</span> — concrete duplication smell already present in <code>Master-Thesis-3D-VLA</code>; the pattern pays its tax immediately.</li>
+  <li><span class="verdict maybe">MAYBE</span> — useful once a second instance shows up. Don't introduce preemptively.</li>
+  <li><span class="verdict skip">SKIP</span> — well-known pattern that loses to "Hydra + a dataclass + a function" at thesis scale.</li>
+</ul>
+
+<div class="callout">
+  <strong>The single rule that drives every verdict</strong> — Karpathy's heuristic in <em>A Recipe for Training Neural Networks</em>: introduce an abstraction the <em>second</em> time you copy-paste, not the first. Most GoF patterns fail this test at thesis scale; a few survive.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="gof">2 · Classic design patterns (GoF + Fowler)</h2>
+
+<div class="grid cols-2">
+
+<div class="card">
+  <h3>① Factory Method <span class="verdict skip">SKIP*</span></h3>
+  <p><span class="pill">GoF Ch. 3</span> <span class="pill">Head First Design Patterns 2e, Ch. 4</span></p>
+  <p>A function that returns a concrete object selected at runtime.</p>
+  <p>*<strong>Already free</strong> via <code>hydra.utils.instantiate({"_target_": ...})</code>. Writing a hand-rolled <code>build_encoder()</code> on top of Hydra is duplication, not abstraction. For three encoders, the registry you already have in <code>launch/registries.py</code> is enough.</p>
+</div>
+
+<div class="card">
+  <h3>② Builder <span class="verdict skip">SKIP</span></h3>
+  <p><span class="pill">GoF Ch. 3</span> <span class="pill">Bloch, Effective Java Item 2</span></p>
+  <p>Step-by-step assembly of a many-piece object. Bloch's threshold: 4+ params, some optional.</p>
+  <p>For DreamerV3 (encoder + RSSM + heads + actor + critic), a frozen <code>@dataclass</code> config + Hydra structured configs already covers this. Only revisit if you find yourself writing the same <code>if cfg.aux is not None: agent.aux = ...</code> glue in three places.</p>
+</div>
+
+<div class="card">
+  <h3>③ Adapter <span class="verdict adopt">ADOPT</span></h3>
+  <p><span class="pill">GoF Ch. 4</span> <span class="pill">Fowler 2e</span></p>
+  <p>Bridge two incompatible interfaces without modifying either side.</p>
+  <p>You already have <code>VGGTObsAdapter</code> — formalize it: VGGT/UNITE output dict → flat embedding satisfying <code>EncoderProtocol</code>. The earlier report's plan to move adapters into <code>vggt/adapter.py</code> + <code>shared/adapters/</code> is exactly this pattern.</p>
+</div>
+
+<div class="card">
+  <h3>④ Decorator (Env Wrappers) <span class="verdict adopt">ADOPT</span></h3>
+  <p><span class="pill">GoF Ch. 4</span> <span class="pill">Gymnasium Wrapper</span></p>
+  <p>Add behavior by wrapping, not subclassing. <em>The</em> canonical RL idiom.</p>
+<pre><code>env = HabitatObjectNav(cfg)
+env = FrameStack(env, k=4)
+env = RewardShaping(env, success_bonus=10.0)
+env = ActionRepeat(env, n=2)</code></pre>
+  <p>Standardize on <code>gymnasium.Wrapper</code> subclasses — don't invent custom ones for things Gymnasium ships (<code>FrameStackObservation</code>, <code>TimeLimit</code>).</p>
+</div>
+
+<div class="card">
+  <h3>⑤ Observer / Callback <span class="verdict maybe">MAYBE</span></h3>
+  <p><span class="pill">GoF Ch. 5</span> <span class="pill">PyTorch Lightning</span></p>
+  <p>Decouple "training loop" from things that observe it (loggers, checkpoints, eval).</p>
+  <p>Adopt once you have ≥3 cross-cutting concerns. <code>trainer.py</code> is at the threshold today: logging, checkpointing, manifest writing, eval — all mixed in. Extracting <code>Callback</code> objects is the cleanest way to shrink it (M3 in the migration plan).</p>
+</div>
+
+<div class="card">
+  <h3>⑥ Template Method <span class="verdict skip">SKIP</span></h3>
+  <p><span class="pill">GoF Ch. 5</span></p>
+  <p>Parent defines the algorithm skeleton; subclasses fill in variable steps.</p>
+  <p>In Python, composition + a <code>loss_fn</code> callable is cleaner than inheritance. Most thesis code that reaches for Template Method should reach for <strong>Strategy</strong> instead — which you already have via the registry.</p>
+</div>
+
+<div class="card">
+  <h3>⑦ Command <span class="verdict maybe">MAYBE</span></h3>
+  <p><span class="pill">GoF Ch. 5</span></p>
+  <p>Encapsulate a request as a serializable object — queue it, log it, replay it.</p>
+<pre><code>@dataclass
+class TrainCommand:
+    cfg_path: str; seed: int; resume_from: str | None
+    def execute(self): return train(load(self.cfg_path), self.seed, self.resume_from)
+    def to_json(self): ...</code></pre>
+  <p>Genuinely useful for SLURM audit trail — every job is replayable months later. Pairs with the MANIFEST pattern (§4).</p>
+</div>
+
+<div class="card">
+  <h3>⑧ Composite <span class="verdict maybe">MAYBE</span></h3>
+  <p><span class="pill">GoF Ch. 4</span></p>
+  <p>Treat individual and grouped objects uniformly via a shared interface.</p>
+<pre><code>class CompositeEncoder(Encoder):
+    def __init__(self, parts): self.parts = parts
+    def __call__(self, obs):
+        return jnp.concatenate([p(obs) for p in self.parts], -1)</code></pre>
+  <p>Worth it when you do <strong>multi-modal ablations</strong> (RGB-only vs RGB+3D) without touching the agent. Nested configs themselves are already Composite via OmegaConf — don't re-invent it for configs.</p>
+</div>
+
+<div class="card">
+  <h3>⑨ Memento (Checkpoint) <span class="verdict adopt">ADOPT*</span></h3>
+  <p><span class="pill">GoF Ch. 5</span></p>
+  <p>Externalize state for later restore, without violating encapsulation.</p>
+  <p>*This <em>is</em> ML checkpointing. Honour the convention: <code>state_dict() / load_state_dict()</code> in PyTorch, <code>flax.training.orbax_utils</code> in Flax. Don't roll your own. The migration step that splits <code>trainer/checkpoint.py</code> is the formal seam.</p>
+</div>
+
+<div class="card">
+  <h3>⑩ State <span class="verdict skip">SKIP</span></h3>
+  <p><span class="pill">GoF Ch. 5</span></p>
+  <p>Behavior changes when internal state changes — looks like a class change.</p>
+  <p>For three modes (warmup / training / eval), a plain <code>if</code> wins. State pattern pays only at 5+ modes spread across many methods.</p>
+</div>
+
+<div class="card">
+  <h3>⑪ Null Object <span class="verdict adopt">ADOPT</span></h3>
+  <p><span class="pill">Fowler 2e — Introduce Special Case</span></p>
+  <p>A do-nothing object that satisfies the interface, killing <code>if x is not None</code>.</p>
+<pre><code>class NoOpLogger:
+    def log_scalar(self, *a, **k): pass
+    def log_video(self, *a, **k):  pass</code></pre>
+  <p>Cheap, high payoff. Pair with <code>IdentityEncoder</code> as a no-3D-features ablation that needs no special-casing in the agent.</p>
+</div>
+
+<div class="card">
+  <h3>⑫ Fowler's refactoring moves <span class="verdict adopt">ADOPT</span></h3>
+  <p><span class="pill">Refactoring 2e</span></p>
+  <p>Day-to-day vocabulary, applied in small steps:</p>
+  <ul>
+    <li><strong>Extract Function</strong> — when <code>train_step</code> grows past one screen.</li>
+    <li><strong>Extract Class</strong> — when <code>Trainer</code> accumulates checkpoint + logging + eval logic. Precursor to Callback ⑤.</li>
+    <li><strong>Replace Conditional with Polymorphism</strong> — when an <code>if encoder_name ==</code> ladder appears in more than one place. The smell is <em>repeated</em> switches.</li>
+    <li><strong>Move Function</strong> — when a helper lives on <code>Trainer</code> but only touches <code>Agent</code> state.</li>
+  </ul>
+</div>
+
+</div>
+
+<!-- ============================================================ -->
+<h2 id="idioms">3 · Python idioms for JAX/Flax</h2>
+
+<p>Language-specific patterns that don't appear in GoF, grouped by problem area.</p>
+
+<h3>A · Configuration &amp; constants</h3>
+<table>
+  <thead><tr><th>Idiom</th><th>Source</th><th>Use for</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>@dataclass(frozen=True, slots=True)</code></td>
+      <td><em>Fluent Python 2e</em> Ch. 5</td>
+      <td>Every config object. Pairs natively with Hydra structured configs.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td><code>enum.StrEnum</code> (3.11+)</td>
+      <td><em>Effective Python 3e</em> Ch. 6; Python <code>enum</code> HOWTO</td>
+      <td><code>EncoderKind</code>, <code>AgentPhase</code> — kills magic strings, autocompleted in editors.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td><code>typing.Final</code></td>
+      <td>PEP 591</td>
+      <td>Module-level constants — <code>OBS_KEYS: Final[tuple[str, ...]] = (...)</code>. Static-checker hint only.</td>
+      <td><span class="verdict maybe">MAYBE</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>B · State &amp; pytrees (JAX/Flax)</h3>
+<table>
+  <thead><tr><th>Idiom</th><th>Source</th><th>Use for</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>flax.struct.PyTreeNode</code></td>
+      <td>Flax <code>flax.struct</code> docs; JAX pytree docs</td>
+      <td><code>AgentState</code>, <code>WorldModelState</code>. Plain <code>@dataclass</code> isn't a pytree — <code>jit/grad/vmap</code> choke. Mark static fields with <code>struct.field(pytree_node=False)</code>.</td>
+      <td><span class="verdict adopt">ADOPT</span> · the cornerstone idiom</td>
+    </tr>
+    <tr>
+      <td><code>NamedTuple</code></td>
+      <td><em>Fluent Python 2e</em> Ch. 5; JAX pytree docs</td>
+      <td>Lightweight <code>Transition(obs, action, reward, done, next_obs)</code> records in the replay buffer. Native pytree; zero registration.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>C · Control flow &amp; resources</h3>
+<table>
+  <thead><tr><th>Idiom</th><th>Source</th><th>Use for</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>@contextlib.contextmanager</code></td>
+      <td><em>Effective Python 3e</em> Item 82</td>
+      <td>Timing blocks, JAX device scopes, eval-mode toggles — anywhere you have try/finally pairs.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td>Generators (<code>yield</code>)</td>
+      <td><em>Effective Python 3e</em> Items 43–47</td>
+      <td>Streaming buffer sampling, eval rollouts. But: prefer <code>jax.lax.scan</code> for inner training loops where JAX needs known shapes.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>D · Typing &amp; interfaces</h3>
+<table>
+  <thead><tr><th>Idiom</th><th>Source</th><th>Use for</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>typing.Protocol</code> + <code>@runtime_checkable</code></td>
+      <td><em>Fluent Python 2e</em> Ch. 13; PEP 544</td>
+      <td>The Encoder, Env, Buffer, Logger contracts (see <a href="restructure_overview.html#boundaries">§7 of Part I</a>). <code>@runtime_checkable</code> only checks member <em>existence</em>, not signatures.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td>Type aliases &amp; <code>NewType</code></td>
+      <td><em>Fluent Python 2e</em> Ch. 8; PEP 484/613</td>
+      <td><code>ObsBatch: TypeAlias = dict[str, jax.Array]</code>. Reserve <code>NewType</code> for truly meaningful units (Embedding vs Logits) — overuse becomes noise.</td>
+      <td><span class="verdict adopt">ADOPT</span> (aliases) · <span class="verdict maybe">MAYBE</span> (NewType)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>E · Reuse, composition &amp; dispatch</h3>
+<table>
+  <thead><tr><th>Idiom</th><th>Source</th><th>Use for</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>@functools.cache</code></td>
+      <td><em>Fluent Python 2e</em> Ch. 9</td>
+      <td>Heavy deterministic setup (HM3D scene metadata, pretrained-weight loading). <strong>Never</strong> on <code>jit</code>-traced functions or functions taking arrays — keys must be hashable.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td><code>functools.partial</code></td>
+      <td><em>Effective Python 3e</em> Item 39</td>
+      <td>Optimizer/env factories: <code>partial(optax.adamw, learning_rate=cfg.lr)</code>. Slatkin's explicit guidance: prefer over <code>lambda</code> for glue.</td>
+      <td><span class="verdict adopt">ADOPT</span></td>
+    </tr>
+    <tr>
+      <td><code>__init_subclass__</code></td>
+      <td><em>Effective Python 3e</em> Item 49; PEP 487</td>
+      <td>Self-registering encoders without a global registry dict.</td>
+      <td><span class="verdict maybe">MAYBE</span> — import-time side-effects are subtle; only adopt if the manual registry truly bothers you.</td>
+    </tr>
+    <tr>
+      <td>Mixins vs composition</td>
+      <td><em>Fluent Python 2e</em> Ch. 14</td>
+      <td>Default to <strong>composition</strong> in Flax codebases — mixins break pytree flattening if they add non-field attrs. Reserve mixins for truly stateless behavior.</td>
+      <td><span class="verdict skip">SKIP mixins</span> · default to composition</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="repro">4 · Reproducibility &amp; experiment patterns</h2>
+
+<p>These are the patterns that turn a thesis codebase into something a reviewer (or future-you) can re-run and trust. Many already exist in <code>Master-Thesis-3D-VLA</code> in seed form — formalize them.</p>
+
+<h3>Seed-management pattern</h3>
+<p>Reseed every RNG that touches the run: Python <code>random</code>, NumPy, <code>torch.manual_seed</code>, <code>torch.cuda.manual_seed_all</code>, plus <code>PYTHONHASHSEED</code> and <code>CUBLAS_WORKSPACE_CONFIG</code> for cuBLAS determinism. PyTorch DataLoader workers each need their own <code>worker_init_fn</code> because they fork before seeds propagate. For JAX, thread an explicit <code>PRNGKey</code> through every call — never use a global. <span class="small">Source: <a href="https://pytorch.org/docs/stable/notes/randomness.html">PyTorch Reproducibility notes</a>.</span></p>
+
+<h3>MANIFEST / Frozen-run pattern <span class="pill good">already partially implemented</span></h3>
+<p>On run start, write a <code>MANIFEST.json</code> recording git SHA, branch, dirty flag, full config, wandb id, SLURM job id, hostname, Python version, start time. On exit, append end-time + status. <code>modules/r2dreamer/manifest.py</code> already does this. The discipline that completes the pattern:</p>
+<ul>
+  <li>Refuse to start with <code>git_dirty=True</code> unless <code>--allow-dirty</code> is passed; record the override.</li>
+  <li>Pin <code>pixi.lock</code> into the run dir alongside the manifest.</li>
+  <li><code>tests/test_manifest.py</code> already captures the schema as a contract — keep that test green through every refactor.</li>
+</ul>
+<p class="small">Source: <a href="https://www.jmlr.org/papers/v22/20-303.html">Pineau et al., <em>Improving Reproducibility in Machine Learning Research</em>, JMLR 22(164), 2021</a>; <a href="https://www.cs.mcgill.ca/~jpineau/ReproducibilityChecklist.pdf">ML Reproducibility Checklist v2.0</a>.</p>
+
+<h3>Hydra config-group ablation matrix</h3>
+<p>Orthogonal config groups: <code>encoder/{vggt,unite,resnet}</code>, <code>world_model/{dreamer_v3,...}</code>, <code>task/{objectnav_hm3d}</code>. A full sweep:</p>
+<pre><code>python train.py -m encoder=vggt,unite,resnet seed=0,1,2</code></pre>
+<p class="small">Source: <a href="https://hydra.cc/docs/tutorials/basic/running_your_app/multi-run/">Hydra Multi-run docs</a>, <a href="https://hydra.cc/docs/patterns/configuring_experiments/">Configuring Experiments pattern</a>.</p>
+
+<h3>One-config-per-table-row</h3>
+<p>Each row in your thesis results table → one named experiment config (<code>configs/experiment/ablation_no_3d.yaml</code>) that fully overrides the base. The config name is logged into MANIFEST and the wandb run tag → <code>grep</code> from caption to config to run.</p>
+<p class="small">Source: <a href="https://www.jmlr.org/papers/v23/21-1342.html">Huang et al., CleanRL, JMLR 23, 2022</a> — strongest published instantiation of one-variant-one-file.</p>
+
+<h3>SLURM patterns (bwUniCluster)</h3>
+<ul>
+  <li><strong>Requeue-on-preempt:</strong> <code>#SBATCH --requeue</code> + SIGTERM handler that flushes the latest checkpoint. <a href="https://slurm.schedmd.com/preempt.html">SLURM Preemption docs</a>.</li>
+  <li><strong>Idempotent epoch:</strong> on startup, scan <code>$RUN_DIR/checkpoints/</code> for the latest step and resume — config plus checkpoint must be sufficient. <em>Never</em> keep state only in RAM (the replay buffer is the killer; checkpoint it to disk shards every N steps).</li>
+  <li><strong>Result file is the contract:</strong> every eval episode appends one JSON line to <code>results.jsonl</code>. Downstream plotting reads <em>only</em> that file — partial files are still valid input. <a href="https://academic.oup.com/bioinformatics/article/28/19/2520/290322">Köster &amp; Rahmann, Snakemake, Bioinformatics 2012</a> — files-as-edges is the entire philosophy.</li>
+</ul>
+
+<h3>Caption-the-SHA</h3>
+<p>Every figure/table caption in <code>writing/</code> records the <code>code/</code> commit SHA that produced it (e.g. <code>Fig 4.2 (code@a1b2c3d)</code>). Since <code>code/</code> is public and <code>writing/</code> is private, the SHA is the only legal cross-repo reference. The thesis <code>CLAUDE.md</code> already mandates this — fold the rule into a pre-commit hook that scans LaTeX for figure captions missing a SHA.</p>
+
+<!-- ============================================================ -->
+<h2 id="anti">5 · Anti-patterns to call out</h2>
+
+<table>
+  <thead><tr><th>Anti-pattern</th><th>Why it bites</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Notebook spaghetti</td>
+      <td>Hidden kernel state, non-linear execution, no diffs. Allowed <em>only</em> for read-only plotting from a committed <code>results.jsonl</code>; never for training logic.</td>
+      <td><a href="https://docs.google.com/presentation/d/1n2RlMdmv1p25Xy5thJUhkKGvjtV-dkAIsUXP-AL4ffI/edit">Grus, <em>I Don't Like Notebooks</em>, JupyterCon 2018</a></td>
+    </tr>
+    <tr>
+      <td>Magic hyperparams</td>
+      <td><code>LR = 3e-4</code> scattered across files. Cure: one Hydra config tree; no module-level numeric literals beyond mathematical constants.</td>
+      <td>Karpathy, <em>Recipe</em></td>
+    </tr>
+    <tr>
+      <td>Silent NaN</td>
+      <td>"A misconfigured neural net will throw exceptions only if you're lucky." Cure: assert <code>loss.isfinite()</code> per step; log <code>grad_norm / param_norm / actor_entropy / value_loss</code> separately; fail fast.</td>
+      <td><a href="http://karpathy.github.io/2019/04/25/recipe/">Karpathy, <em>A Recipe for Training Neural Networks</em></a></td>
+    </tr>
+    <tr>
+      <td>Untracked manual rerun</td>
+      <td>Re-running a stage outside the pipeline silently overwrites a logged number. Cure: every result file records its producing command + MANIFEST.</td>
+      <td>Snakemake / DVC philosophy</td>
+    </tr>
+    <tr>
+      <td>Wandb-only metrics</td>
+      <td>If wandb is the only place a number lives, you lose it when the project quota lapses. Always also write to disk.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>London-mockist tests over tensor code</td>
+      <td>Mocks pin call patterns; numerical code mutates call patterns constantly. Stay Chicago-style: assert shape/dtype/finiteness/loss-decreases.</td>
+      <td><a href="https://chuniversiteit.nl/programming/chicago-and-london-schools-of-tdd">Chicago vs London TDD</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="adopt">6 · What to actually adopt — the short list</h2>
+
+<div class="callout good">
+  <strong>The pareto set.</strong> Eight patterns + idioms cover ~80% of the cleanup value for this thesis. Everything else waits for the second duplication.
+</div>
+
+<table>
+  <thead><tr><th>#</th><th>Pattern / idiom</th><th>What it gives you here</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td><strong>Adapter</strong> (GoF ③)</td><td>VGGT/UNITE → <code>EncoderProtocol</code> bridge. Already half-built as <code>VGGTObsAdapter</code>.</td></tr>
+    <tr><td>2</td><td><strong>Decorator / Gym Wrapper</strong> (GoF ④)</td><td>Standardized env composition: FrameStack, RewardShaping, ActionRepeat, TimeLimit.</td></tr>
+    <tr><td>3</td><td><strong>Null Object</strong> (Fowler ⑪)</td><td><code>NoOpLogger</code>, <code>IdentityEncoder</code> — kills <code>if x is not None</code> branches.</td></tr>
+    <tr><td>4</td><td><strong>Memento / state_dict</strong> (GoF ⑨)</td><td>Honour the convention. Use Orbax (Flax) or <code>state_dict</code> (PyTorch); don't roll your own.</td></tr>
+    <tr><td>5</td><td><strong>Fowler's small refactorings</strong></td><td>Extract Function / Extract Class / Replace Conditional with Polymorphism — applied weekly.</td></tr>
+    <tr><td>6</td><td><strong><code>flax.struct.PyTreeNode</code></strong></td><td>The cornerstone for <code>AgentState</code>, <code>WorldModelState</code> in JAX.</td></tr>
+    <tr><td>7</td><td><strong><code>@dataclass(frozen=True)</code> + <code>typing.Protocol</code> + <code>StrEnum</code></strong></td><td>The "interface +&nbsp;config&nbsp;+&nbsp;mode" trio. Pairs with Hydra structured configs.</td></tr>
+    <tr><td>8</td><td><strong>MANIFEST + caption-the-SHA + one-config-per-row</strong></td><td>The reproducibility tripod. Manifest is already there; complete it with the discipline rules.</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="checklist">7 · Thesis reproducibility checklist (10 items)</h2>
+
+<ol>
+  <li><code>set_global_seed(seed)</code> reseeds Python / NumPy / torch / torch.cuda + sets <code>PYTHONHASHSEED</code>, <code>CUBLAS_WORKSPACE_CONFIG</code>; called once at top of <code>train.py</code> and once per DataLoader worker.</li>
+  <li>Every run dir contains <code>MANIFEST.json</code> + a copy of the resolved Hydra config + <code>pixi.lock</code>.</li>
+  <li>Training refuses to start with <code>git_dirty=True</code> unless <code>--allow-dirty</code> is set; the flag is recorded in the manifest.</li>
+  <li>One Hydra experiment config = one thesis-table row; config filename is logged to wandb tag + MANIFEST.</li>
+  <li>Checkpoints written every N steps include replay-buffer state; resume from latest is a no-op if step matches.</li>
+  <li>SLURM script uses <code>--requeue</code> and traps SIGTERM to flush checkpoint and MANIFEST end-status.</li>
+  <li>Eval writes one JSON line per episode to <code>results.jsonl</code>; downstream plots read only that file.</li>
+  <li>Every figure/table caption in the thesis includes the <code>code/</code> commit SHA used to produce it.</li>
+  <li>Numbers in the paper are pulled (via build script) from committed <code>results.jsonl</code> — never typed by hand.</li>
+  <li>No notebooks in the training path. Notebooks allowed <em>only</em> for read-only plotting from <code>results.jsonl</code>; committed with cleared outputs.</li>
+</ol>
+
+<!-- ============================================================ -->
+<hr />
+<h2 id="sources">8 · Sources</h2>
+
+<h4>Classic design pattern books</h4>
+<ul class="src-list">
+  <li>Gamma, Helm, Johnson, Vlissides. <em>Design Patterns: Elements of Reusable Object-Oriented Software</em>. Addison-Wesley, 1994.</li>
+  <li>Freeman &amp; Robson. <em>Head First Design Patterns</em>, 2nd ed. O'Reilly, 2021. <a href="https://www.oreilly.com/library/view/head-first-design/9781492077992/">TOC</a> · <a href="https://www.oreilly.com/library/view/head-first-design/9781492077992/ch04.html">Ch. 4 The Factory Pattern</a></li>
+  <li>Ayeva &amp; Kasampalis. <em>Mastering Python Design Patterns</em>, 3rd ed. Packt 2024 (available on O'Reilly). <a href="https://www.oreilly.com/library/view/mastering-python-design/9781837639618/">link</a></li>
+  <li>Bloch, Joshua. <em>Effective Java</em>, 3rd ed. Addison-Wesley, 2018. Item 2 "Consider a builder when faced with many constructor parameters" — <a href="https://www.informit.com/articles/article.aspx?p=1216151&amp;seqNum=2">InformIT excerpt</a></li>
+  <li>Fowler, Martin. <em>Refactoring</em>, 2nd ed. Addison-Wesley / O'Reilly, 2018. <a href="https://refactoring.com/catalog/">Catalog</a> · <a href="https://refactoring.com/catalog/replaceConditionalWithPolymorphism.html">Replace Conditional with Polymorphism</a> · <a href="https://refactoring.com/catalog/introduceSpecialCase.html">Introduce Special Case (Null Object)</a> · <a href="https://martinfowler.com/articles/refactoring-2nd-changes.html">2e Changes</a></li>
+</ul>
+
+<h4>Python idioms (O'Reilly)</h4>
+<ul class="src-list">
+  <li>Ramalho, Luciano. <em>Fluent Python</em>, 2nd ed. O'Reilly, 2022.
+    <a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/ch05.html">Ch. 5</a> ·
+    <a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/ch08.html">Ch. 8</a> ·
+    <a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/ch09.html">Ch. 9</a> ·
+    <a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/ch13.html">Ch. 13</a> ·
+    <a href="https://www.oreilly.com/library/view/fluent-python-2nd/9781492056348/ch14.html">Ch. 14</a>
+  </li>
+  <li>Slatkin, Brett. <em>Effective Python: 125 Specific Ways to Write Better Python</em>, 3rd ed. O'Reilly, 2024. <a href="https://www.oreilly.com/library/view/effective-python-125/9780138172398/">TOC</a> · <a href="https://www.oreilly.com/library/view/effective-python-125/9780138172398/ch06.xhtml">Ch. 6 Comprehensions and Generators</a> · <a href="https://www.informit.com/articles/article.aspx?p=3203546&amp;seqNum=10">Item 39 partial vs lambda</a> · <a href="https://www.informit.com/articles/article.aspx?p=3203546&amp;seqNum=9">Item 38 wraps</a></li>
+  <li>Real Python — <a href="https://realpython.com/python-protocol/">Python Protocols: Leveraging Structural Subtyping</a> · <a href="https://realpython.com/python-with-statement/">Python's <code>with</code> Statement</a></li>
+</ul>
+
+<h4>Python PEPs &amp; docs</h4>
+<ul class="src-list">
+  <li><a href="https://peps.python.org/pep-0544/">PEP 544 — Protocols: Structural subtyping</a></li>
+  <li><a href="https://peps.python.org/pep-0591/">PEP 591 — <code>Final</code> qualifier</a></li>
+  <li><a href="https://peps.python.org/pep-0487/">PEP 487 — Simpler customisation of class creation (<code>__init_subclass__</code>)</a></li>
+  <li><a href="https://docs.python.org/3/library/contextlib.html">Python — <code>contextlib</code></a> · <a href="https://docs.python.org/3/howto/enum.html">enum HOWTO (<code>StrEnum</code> 3.11+)</a></li>
+</ul>
+
+<h4>JAX / Flax / ML libs</h4>
+<ul class="src-list">
+  <li><a href="https://docs.jax.dev/en/latest/pytrees.html">JAX — Pytrees</a> · <a href="https://docs.jax.dev/en/latest/custom_pytrees.html">Custom pytree nodes</a></li>
+  <li><a href="https://flax.readthedocs.io/en/latest/api_reference/flax.struct.html">Flax — <code>flax.struct</code> API</a></li>
+  <li><a href="https://pytorch.org/docs/stable/notes/randomness.html">PyTorch — Reproducibility notes</a></li>
+  <li><a href="https://gymnasium.farama.org/api/wrappers/">Gymnasium — Wrappers</a> · <a href="https://gymnasium.farama.org/tutorials/gymnasium_basics/implementing_custom_wrappers/">Custom Wrappers tutorial</a></li>
+  <li><a href="https://lightning.ai/docs/pytorch/stable/extensions/callbacks.html">PyTorch Lightning — Callback</a></li>
+  <li><a href="https://hydra.cc/docs/tutorials/structured_config/intro/">Hydra — Structured Configs</a> · <a href="https://hydra.cc/docs/tutorials/basic/running_your_app/multi-run/">Multi-run</a> · <a href="https://hydra.cc/docs/patterns/configuring_experiments/">Configuring Experiments</a></li>
+</ul>
+
+<h4>Reproducibility &amp; HPC</h4>
+<ul class="src-list">
+  <li>Pineau, J. <em>et al.</em> <a href="https://www.jmlr.org/papers/v22/20-303.html">Improving Reproducibility in Machine Learning Research</a>. JMLR 22(164), 2021. · <a href="https://www.cs.mcgill.ca/~jpineau/ReproducibilityChecklist.pdf">ML Reproducibility Checklist v2.0</a></li>
+  <li>Huang, S. <em>et al.</em> <a href="https://www.jmlr.org/papers/v23/21-1342.html">CleanRL: High-quality Single-file Implementations</a>. JMLR 23, 2022.</li>
+  <li>Köster, J. &amp; Rahmann, S. <a href="https://academic.oup.com/bioinformatics/article/28/19/2520/290322">Snakemake — a scalable bioinformatics workflow engine</a>. Bioinformatics, 2012.</li>
+  <li><a href="https://slurm.schedmd.com/preempt.html">SLURM — Preemption</a></li>
+  <li>Akiba, T. <em>et al.</em> <a href="https://arxiv.org/abs/1907.10902">Optuna: A Next-generation Hyperparameter Optimization Framework</a>, KDD 2019.</li>
+  <li>Karpathy, A. <a href="http://karpathy.github.io/2019/04/25/recipe/">A Recipe for Training Neural Networks</a>, 2019.</li>
+  <li>Grus, J. <a href="https://docs.google.com/presentation/d/1n2RlMdmv1p25Xy5thJUhkKGvjtV-dkAIsUXP-AL4ffI/edit">I Don't Like Notebooks</a>, JupyterCon 2018.</li>
+  <li>Healy, K. <a href="https://kieranhealy.org/files/papers/plain-person-text.pdf">The Plain Person's Guide to Plain Text Social Science</a></li>
+  <li>Huyen, C. <em>Designing Machine Learning Systems</em>. O'Reilly, 2022. <a href="https://www.oreilly.com/library/view/designing-machine-learning/9781098107956/">link</a></li>
+  <li><a href="https://chuniversiteit.nl/programming/chicago-and-london-schools-of-tdd">Chicago vs London schools of TDD</a></li>
+</ul>
+
+<p class="footnote">Every link above was reachable at generation time. Citations were verified by the research subagents against the listed publishers; if a URL drifts, search the title.</p>
+
+</main>
+</body>
+</html>

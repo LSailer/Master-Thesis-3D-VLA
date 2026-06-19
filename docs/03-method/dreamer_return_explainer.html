@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DreamerV3 Critic Return Intuition</title>
+  <script>
+    window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] } };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.55; max-width: 980px; margin: 36px auto; padding: 0 24px; color: #172033; }
+    h1, h2 { line-height: 1.15; }
+    .card { border: 1px solid #d9e1ec; border-radius: 14px; padding: 18px 22px; margin: 18px 0; background: #fbfdff; }
+    .eq { font-size: 1.15rem; background: #f5f7fb; padding: 12px 16px; border-radius: 10px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+    th, td { border: 1px solid #d9e1ec; padding: 9px 11px; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    th { background: #eef3f9; }
+    .good { color: #146c43; font-weight: 700; }
+    .note { color: #516070; }
+    code { background: #eef3f9; padding: 2px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h1>DreamerV3 critic return: numbers intuition</h1>
+
+  <div class="card">
+    <h2>1. Plain discounted return $R_t$</h2>
+    <p>The paper defines the ideal infinite-horizon return as:</p>
+    <div class="eq">$$R_t = \sum_{\tau=0}^{\infty} \gamma^\tau r_{t+\tau}$$</div>
+    <p>Expanded:</p>
+    <div class="eq">$$R_t = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \gamma^3 r_{t+3} + \cdots$$</div>
+    <p><strong>Key point:</strong> the exponent is the distance from now. Reward 10 steps after $t$ gets weight $\gamma^{10}$.</p>
+  </div>
+
+  <div class="card">
+    <h2>2. Example with $\gamma = 0.997$</h2>
+    <p>Assume rewards are:</p>
+    <div class="eq">$$r_t=1,\quad r_{t+1}=2,\quad r_{t+2}=0,\quad r_{t+3}=5,\quad r_{t+4}=1$$</div>
+    <table>
+      <thead><tr><th>reward</th><th>raw reward</th><th>discount weight</th><th>discounted contribution</th></tr></thead>
+      <tbody>
+        <tr><td>$r_t$</td><td>1</td><td>$0.997^0 = 1.000000$</td><td>$1.000$</td></tr>
+        <tr><td>$r_{t+1}$</td><td>2</td><td>$0.997^1 = 0.997000$</td><td>$1.994$</td></tr>
+        <tr><td>$r_{t+2}$</td><td>0</td><td>$0.997^2 = 0.994009$</td><td>$0.000$</td></tr>
+        <tr><td>$r_{t+3}$</td><td>5</td><td>$0.997^3 = 0.991027$</td><td>$4.955$</td></tr>
+        <tr><td>$r_{t+4}$</td><td>1</td><td>$0.997^4 = 0.988054$</td><td>$0.988$</td></tr>
+      </tbody>
+    </table>
+    <div class="eq">$$R_t \approx 1 + 1.994 + 0 + 4.955 + 0.988 = 8.937$$</div>
+    <p class="note">This ignores rewards after $t+4$. In the true $R_t$, all later rewards also count, but increasingly discounted.</p>
+  </div>
+
+  <div class="card">
+    <h2>3. How far does $\gamma=0.997$ look?</h2>
+    <table>
+      <thead><tr><th>future step distance $n$</th><th>weight $\gamma^n$</th><th>meaning</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>0.997</td><td>almost full weight</td></tr>
+        <tr><td>10</td><td>0.970</td><td>still very important</td></tr>
+        <tr><td>100</td><td>0.740</td><td>still matters a lot</td></tr>
+        <tr><td>500</td><td>0.222</td><td>much weaker</td></tr>
+        <tr><td>1000</td><td>0.0495</td><td>small, but not zero</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>4. DreamerV3 cannot imagine forever</h2>
+    <p>DreamerV3 imagines only a short horizon, for example $T=16$. Therefore it uses the critic's value estimate at the end.</p>
+    <p>The paper uses the bootstrapped $\lambda$-return:</p>
+    <div class="eq">$$R_t^\lambda = r_t + \gamma c_t \left((1-\lambda)v_t + \lambda R_{t+1}^\lambda\right)$$</div>
+    <div class="eq">$$R_T^\lambda = v_T$$</div>
+    <ul>
+      <li>$r_t$: reward predicted by the world model now</li>
+      <li>$\gamma$: discount for future rewards</li>
+      <li>$c_t$: continuation flag; if episode ends, future is cut off</li>
+      <li>$v_t$: critic's current estimate of future return</li>
+      <li>$\lambda$: how much to use multi-step imagined rewards instead of immediately trusting the critic</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>5. Numeric $\lambda$-return example</h2>
+    <p>Use:</p>
+    <div class="eq">$$\gamma=0.997,\quad \lambda=0.95,\quad c_t=1$$</div>
+    <p>Imagined rewards and final critic value:</p>
+    <div class="eq">$$r_0=1,\quad r_1=2,\quad r_2=0,\quad r_3=5,\quad v_4=10$$</div>
+    <p>Compute backward:</p>
+    <div class="eq">$$R_4^\lambda = v_4 = 10$$</div>
+    <div class="eq">$$R_3^\lambda = 5 + 0.997 \cdot 10 = 14.970$$</div>
+    <div class="eq">$$R_2^\lambda = 0 + 0.997 \cdot 14.970 = 14.925$$</div>
+    <div class="eq">$$R_1^\lambda = 2 + 0.997 \cdot 14.925 = 16.880$$</div>
+    <div class="eq">$$R_0^\lambda = 1 + 0.997 \cdot 16.880 = 17.829$$</div>
+    <p class="note">This simplified version acts like $\lambda=1$ because we only used the final bootstrap. With $\lambda<1$, each step also mixes in the local critic value $v_t$.</p>
+  </div>
+
+  <div class="card">
+    <h2>6. Full $\lambda<1$ example with local values</h2>
+    <p>Now include local critic estimates:</p>
+    <div class="eq">$$v_0=12,\quad v_1=11,\quad v_2=9,\quad v_3=8,\quad v_4=10$$</div>
+    <p>With $\lambda=0.95$, each step uses:</p>
+    <div class="eq">$$(1-\lambda)v_t + \lambda R_{t+1}^\lambda = 0.05v_t + 0.95R_{t+1}^\lambda$$</div>
+    <p>Backward calculation:</p>
+    <div class="eq">$$R_4^\lambda = 10$$</div>
+    <div class="eq">$$R_3^\lambda = 5 + 0.997(0.05\cdot 8 + 0.95\cdot 10) = 14.870$$</div>
+    <div class="eq">$$R_2^\lambda = 0 + 0.997(0.05\cdot 9 + 0.95\cdot 14.870) = 14.536$$</div>
+    <div class="eq">$$R_1^\lambda = 2 + 0.997(0.05\cdot 11 + 0.95\cdot 14.536) = 16.314$$</div>
+    <div class="eq">$$R_0^\lambda = 1 + 0.997(0.05\cdot 12 + 0.95\cdot 16.314) = 17.048$$</div>
+  </div>
+
+  <div class="card">
+    <h2>7. Critic loss feeling</h2>
+    <p>The critic predicts a distribution over possible returns:</p>
+    <div class="eq">$$v_\psi(R_t \mid s_t)$$</div>
+    <p>Training target is the computed $\lambda$-return, e.g.:</p>
+    <div class="eq">$$R_0^\lambda = 17.048$$</div>
+    <p>The loss is negative log-likelihood:</p>
+    <div class="eq">$$\mathcal{L}(\psi) = -\sum_{t=1}^T \ln p_\psi(R_t^\lambda \mid s_t)$$</div>
+    <p>Meaning: if the critic assigns high probability to the target return, loss is low. If it assigns low probability, loss is high.</p>
+    <table>
+      <thead><tr><th>critic probability for target $R_t^\lambda$</th><th>loss $-\ln p$</th><th>feeling</th></tr></thead>
+      <tbody>
+        <tr><td>0.80</td><td>0.223</td><td class="good">good prediction</td></tr>
+        <tr><td>0.20</td><td>1.609</td><td>bad</td></tr>
+        <tr><td>0.01</td><td>4.605</td><td>very bad</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Intuition:</strong> the critic learns to put probability mass near the return target computed from imagined rewards plus bootstrapping.</p>
+  </div>
+</body>
+</html>

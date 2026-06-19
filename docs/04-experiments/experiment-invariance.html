@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Experiment: VGGT First-Frame Invariance</title>
+  <style>
+    :root {
+      --ink:#1e2528; --muted:#667174; --paper:#f7f4ef; --panel:#fffdfa;
+      --line:#ddd4c8; --green:#1f7a64; --rust:#b75f3a; --blue:#2f5f87;
+      --gold:#b88a2b; --red:#a13e3a; --shadow:0 18px 50px rgba(30,37,40,.10);
+    }
+    *{box-sizing:border-box} body{margin:0;color:var(--ink);background:linear-gradient(90deg,rgba(47,95,135,.08) 1px,transparent 1px),linear-gradient(0deg,rgba(47,95,135,.06) 1px,transparent 1px),var(--paper);background-size:32px 32px;font:16px/1.55 Georgia,"Times New Roman",serif}
+    a{color:var(--blue)} .wrap{max-width:1180px;margin:0 auto;padding:38px 22px 58px}
+    header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:28px;align-items:end;border-bottom:3px solid var(--ink);padding-bottom:24px;margin-bottom:26px}
+    .eyebrow{margin:0 0 10px;color:var(--rust);font:700 12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase}
+    h1{margin:0;font-size:clamp(34px,5vw,64px);line-height:.96} h2{font-size:30px;margin:36px 0 14px} h3{margin:0 0 8px;font-size:20px}
+    .stamp{border:2px solid var(--ink);background:var(--panel);padding:14px 16px;min-width:230px;box-shadow:8px 8px 0 rgba(183,95,58,.18);font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.stamp strong{display:block;font-size:20px}
+    .panel,.card,figure{background:var(--panel);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:16px}.panel{padding:22px 24px;margin:18px 0}.lead{font-size:19px}.muted{color:var(--muted)}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:18px}.card strong{display:block;font-size:28px;color:var(--blue);line-height:1.1;margin-top:6px}.warn{border-left:6px solid var(--rust)}.ok{border-left:6px solid var(--green)}
+    table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left}th{font:700 12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase;color:var(--muted);background:#f1ebe2}td:nth-child(n+2){font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}tr:last-child td{border-bottom:0}
+    figure{margin:16px 0;padding:14px}figure img{width:100%;height:auto;border:1px solid var(--line);border-radius:12px;background:white}figcaption{color:var(--muted);font-size:14px;margin-top:8px}.thumbs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.plots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.full{grid-column:1/-1}.note{font-size:14px;color:var(--muted)}
+    @media(max-width:900px){header,.grid,.grid.two,.thumbs,.plots{grid-template-columns:1fr}.stamp{min-width:0}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">Supervisor Meeting · Experiment 1</p>
+      <h1>VGGT First-Frame Invariance</h1>
+    </div>
+    <div class="stamp"><strong>19.06.2026</strong>Vorläufige Meeting-Seite<br><a href="../index.html">← Index</a></div>
+  </header>
+
+  <section class="panel warn">
+    <h2 style="margin-top:0">Kernaussage</h2>
+    <p class="lead">Beim gleichen physischen Viewpoint ist die vom Modell konsumierte VGGT-Repräsentation stark abhängig davon, welches Bild im Streaming-Fenster als erstes Referenzbild verwendet wurde. Im sauberen Teleport-Protokoll ist das RGB-Bild identisch; trotzdem sind raw World Points nahezu unkorreliert und der Dreamer-Belief bleibt deutlich verschieden.</p>
+    <p class="note">Quelle: <code>code/docs/3d-invariance-vggt-first-frame.html</code>; R2Dreamer L1, 2M-step checkpoint, HM3D house <code>fK2vEV32Lag.basis.glb</code>. Keine starre oder skalierende Alignment-Korrektur angewandt.</p>
+  </section>
+
+  <div class="grid">
+    <div class="card"><span class="muted">Teleport raw WP cosine</span><strong>-0.001</strong><span class="note">identisches RGB, andere First-Frame-Referenz</span></div>
+    <div class="card"><span class="muted">Teleport encoder cosine</span><strong>0.313</strong><span class="note">Embedding nicht invariant</span></div>
+    <div class="card"><span class="muted">Teleport RSSM JS</span><strong>0.437 nats</strong><span class="note">max. ln2 ≈ 0.69</span></div>
+  </div>
+
+  <h2>Versuchsaufbau</h2>
+  <section class="panel">
+    <p>VGGT liefert World Points (37×37×3) und Camera Pose relativ zum ersten Frame des Fensters. Getestet wurden zwei Protokolle mit fünf Startposen und ca. 30 Frames je Sequenz:</p>
+    <ul>
+      <li><b>Navigate:</b> Agent läuft real zurück; Positionen stimmen überein, Heading/RGB kann abweichen.</li>
+      <li><b>Teleport:</b> Agent wird auf exakt dieselben Forward-Posen gesetzt; Position, Heading und RGB sind identisch. Dadurch isoliert dieses Protokoll den Effekt der First-Frame-Referenz.</li>
+    </ul>
+  </section>
+
+  <div class="thumbs">
+    <figure><img src="supervisor-meeting-assets/invariance-navigate-forward.png" alt="Navigate forward"><figcaption>Navigate · forward</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-navigate-backward.png" alt="Navigate backward"><figcaption>Navigate · backward</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-teleport-forward.png" alt="Teleport forward"><figcaption>Teleport · forward</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-teleport-replay.png" alt="Teleport replay"><figcaption>Teleport · replay, identisches Bild</figcaption></figure>
+  </div>
+
+  <h2>Zahlen</h2>
+  <table>
+    <tr><th>Metrik</th><th>Navigate</th><th>Teleport (clean)</th></tr>
+    <tr><td>Raw WP cosine</td><td>0.501</td><td>-0.001</td></tr>
+    <tr><td>Raw WP L2</td><td>33.354</td><td>49.322</td></tr>
+    <tr><td>Encoder embedding cosine</td><td>0.456</td><td>0.313</td></tr>
+    <tr><td>Camera-pose cosine</td><td>0.918</td><td>0.701</td></tr>
+    <tr><td>Camera-pose L2</td><td>0.753</td><td>1.740</td></tr>
+    <tr><td>RSSM belief JS</td><td>0.440 nats</td><td>0.437 nats</td></tr>
+    <tr><td>RSSM memory cosine</td><td>0.637</td><td>0.625</td></tr>
+  </table>
+
+  <h2>Plots</h2>
+  <div class="plots">
+    <figure class="full"><img src="supervisor-meeting-assets/invariance-similarity-bars.png" alt="Similarity bars"><figcaption><b>Hauptplot:</b> Repräsentationsähnlichkeit auf 0…1-Skala. Raw World Points, Encoder-Embedding und RSSM-Memory sind nicht invariant.</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-hybrid-pointcloud.png" alt="Point Cloud Overlay"><figcaption>Overlay der World Points im gleichen Koordinatensystem; keine Alignment-Korrektur.</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-topdown-zoom.png" alt="Top-down zoom"><figcaption>Top-down-Projektion: dieselbe Szene liegt in unterschiedlichen First-Frame-Koordinatensystemen.</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-belief-js.png" alt="RSSM belief JS"><figcaption>RSSM-Belief-Divergenz bleibt entlang der Sequenz hoch; nicht nur ein transienter Effekt.</figcaption></figure>
+    <figure><img src="supervisor-meeting-assets/invariance-density.png" alt="Occupancy density"><figcaption>Alternative kompakte Darstellung: Occupancy-Dichte im Floor-Plane.</figcaption></figure>
+  </div>
+
+  <h2>Diskussion fürs Meeting</h2>
+  <div class="grid two">
+    <section class="panel ok"><h3>Warum relevant</h3><p>Wenn dieselbe physische Situation je nach Episodenstart in einer anderen Repräsentation landet, muss Dreamer diese Referenzabhängigkeit zusätzlich lernen. Das kann Generalisierung und Replay-Mixing erschweren.</p></section>
+    <section class="panel"><h3>Was noch offen ist</h3><p>Ob diese Nicht-Invarianz die Hauptursache für schwache ObjectNav-Performance ist, ist noch nicht bewiesen. Nächster Schritt: mit Performance-Ablationen verbinden und mögliche Normalisierung/Alignment-Varianten prüfen.</p></section>
+  </div>
+</div>
+</body>
+</html>

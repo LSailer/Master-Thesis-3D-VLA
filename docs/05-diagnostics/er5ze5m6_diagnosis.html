@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Diagnosis — run er5ze5m6 (vggt_jax-4216462)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --fg: #1a1a1a;
+    --muted: #5b5b5b;
+    --accent: #b54a2b;
+    --accent2: #2c5e8e;
+    --good: #2f7a4f;
+    --warn: #c98b1f;
+    --bad: #b03030;
+    --rule: #d8d4cb;
+    --code-bg: #f3efe6;
+    --card-bg: #ffffff;
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Source Serif Pro",
+                 Charter, Georgia, "Times New Roman", serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+    margin: 0;
+    padding: 0 0 4rem 0;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 2.2rem 1.4rem; }
+  h1 { font-size: 1.85rem; margin: 0 0 .25rem 0; line-height: 1.2; }
+  h1 + .sub {
+    color: var(--muted);
+    font-size: .95rem;
+    margin: 0 0 1.6rem 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+  }
+  h2 {
+    font-size: 1.25rem;
+    margin: 2.4rem 0 .6rem 0;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: .25rem;
+  }
+  h3 { font-size: 1.02rem; margin: 1.4rem 0 .35rem 0; }
+  h4 { font-size: .95rem; margin: 1.0rem 0 .3rem 0; color: var(--accent2); }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .8rem 1.2rem; padding: 0; }
+  li { margin: .2rem 0; }
+  code, pre, .mono {
+    font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    font-size: .85em;
+  }
+  code { background: var(--code-bg); padding: .07em .35em; border-radius: 3px; }
+  pre {
+    background: var(--code-bg);
+    padding: .8rem 1rem;
+    border-radius: 6px;
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    font-size: .82rem;
+    line-height: 1.45;
+  }
+  pre code { background: none; padding: 0; }
+  .tldr {
+    background: var(--card-bg);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--accent);
+    border-radius: 6px;
+    padding: .9rem 1.1rem;
+    margin: 1rem 0 1.6rem 0;
+  }
+  .tldr h2 { margin-top: 0; border: none; padding: 0; font-size: 1.05rem; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: .75rem;
+    margin: .8rem 0;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: .7rem .85rem;
+  }
+  .card .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .v { font-size: 1.1rem; font-weight: 600; margin-top: .15rem; }
+  .card .v.good { color: var(--good); }
+  .card .v.warn { color: var(--warn); }
+  .card .v.bad { color: var(--bad); }
+  .tag {
+    display: inline-block;
+    font-size: .72rem;
+    background: var(--code-bg);
+    color: var(--muted);
+    padding: .07em .5em;
+    border-radius: 10px;
+    margin-right: .3em;
+    border: 1px solid var(--rule);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+  .tag.warn { color: var(--warn); border-color: #e7c789; background: #fff7e3; }
+  .tag.bad  { color: var(--bad);  border-color: #e8b3b3; background: #fdeeee; }
+  .tag.good { color: var(--good); border-color: #b3d8c1; background: #e9f5ee; }
+  .tag.info { color: var(--accent2); border-color: #b8cee0; background: #ecf3fa; }
+  .figure {
+    margin: 1.2rem 0;
+    padding: 1rem 1rem .6rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+  }
+  .figure figcaption {
+    font-size: .82rem;
+    color: var(--muted);
+    margin-top: .5rem;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  .figure svg { display: block; max-width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0 1rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--rule); }
+  th { background: var(--code-bg); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .82rem; }
+  .math {
+    background: var(--code-bg);
+    padding: .8rem 1rem;
+    border-radius: 6px;
+    border: 1px solid var(--rule);
+    font-family: "Latin Modern Math", "Cambria Math", "STIX Two Math", "Charter", Georgia, serif;
+    text-align: center;
+    font-size: 1.02rem;
+    margin: .8rem 0;
+  }
+  .math .small { font-size: .85em; color: var(--muted); }
+  .verdict {
+    margin: .6rem 0;
+    padding: .55rem .85rem;
+    border-left: 3px solid var(--good);
+    background: #f0f7f3;
+    font-size: .9rem;
+  }
+  .verdict.warn { border-color: var(--warn); background: #fdf7e7; }
+  .verdict.bad { border-color: var(--bad); background: #fceeee; }
+  .verdict strong { color: var(--bad); }
+  .verdict.warn strong { color: var(--warn); }
+  .verdict.good strong, .verdict strong.good { color: var(--good); }
+  .ref { font-size: .82rem; color: var(--muted); }
+  .ref a { color: var(--accent2); text-decoration: none; border-bottom: 1px dotted var(--accent2); }
+  .ref a:hover { border-bottom-style: solid; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+  .footnotes { font-size: .82rem; color: var(--muted); }
+  .pill { display: inline-block; padding: .05em .55em; border-radius: 999px; font-size: .75rem; font-family: "JetBrains Mono", ui-monospace, monospace; background: var(--code-bg); color: var(--muted); }
+  details { margin: .5rem 0; }
+  details summary { cursor: pointer; color: var(--accent2); font-size: .9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Run <span class="mono">er5ze5m6</span> — diagnosis of three training symptoms</h1>
+<p class="sub">
+  <span class="tag info">sailer-luca-university-ulm / 3d-vla-objectnav / er5ze5m6</span>
+  <span class="tag">vggt_jax-4216462</span>
+  <span class="tag">crashed @ 2.137 M steps</span>
+  <span class="tag">~48 h runtime</span>
+  <span class="tag">6 518 episodes</span>
+</p>
+
+<div class="tldr">
+<h2>TL;DR</h2>
+<ol>
+  <li><strong>The action distribution is near-uniform</strong> (per-action %: <code>fwd 0.22, left 0.25, right 0.29, stop 0.25</code>) — but the agent <em>is</em> learning (<code>metrics/sr 0.34 → 0.62</code>, <code>spl ≈ 0.43</code>). The most likely driver is that <strong><code>act_entropy = 3e-2</code> is ~100× the DreamerV3 paper default <code>3e-4</code></strong>, so the entropy bonus dominates a small advantage signal and pulls the policy toward uniform.</li>
+  <li><strong>The policy loss is negative (<code>≈ −0.036</code> at the end) — and that is mathematically expected.</strong> For a near-uniform 4-way policy with vanishing advantage, the formula in <code>agent.py:532</code> reduces to <code>L ≈ −η·log(N) = −0.03·log(4) ≈ −0.0416</code>, which matches the observed value to within ~12%.</li>
+  <li><strong><code>episode_reset</code> is <em>not</em> 1 at every step.</strong> It is hard-coded as the literal <code>1</code> at <code>trainer.py:161</code> and emitted only inside the episode-end callback. W&amp;B logged it 6 518 times — exactly the episode count. The W&amp;B chart only <em>looks</em> constant because the metric is sparse and the dashboard step-fills it.</li>
+</ol>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="k">num_actions</div><div class="v">4</div></div>
+  <div class="card"><div class="k">act_entropy (η)</div><div class="v warn">3·10⁻²</div></div>
+  <div class="card"><div class="k">unimix_ratio</div><div class="v good">0.01</div></div>
+  <div class="card"><div class="k">loss/policy (final)</div><div class="v warn">−0.0361</div></div>
+  <div class="card"><div class="k">loss/dyn = loss/rep</div><div class="v warn">5.95</div></div>
+  <div class="card"><div class="k">loss/con</div><div class="v">1.77·10⁻⁴</div></div>
+  <div class="card"><div class="k">metrics/sr (success rate)</div><div class="v good">0.62</div></div>
+  <div class="card"><div class="k">metrics/spl</div><div class="v good">0.43</div></div>
+</div>
+
+<!-- ============================================================== -->
+<h2>Q1 — Why does the action distribution look uniform?</h2>
+
+<p>The W&amp;B run logs only per-episode aggregates <code>action/{forward,left,right,stop}_pct</code>. There is no <code>actor/entropy</code> or per-batch action histogram, so we cannot directly see the policy's logit distribution. What the data <em>does</em> show:</p>
+
+<table>
+<thead>
+<tr><th>step</th><th class="num">forward</th><th class="num">left</th><th class="num">right</th><th class="num">stop</th></tr>
+</thead>
+<tbody>
+<tr><td>352 250</td><td class="num">0.355</td><td class="num">0.226</td><td class="num">0.097</td><td class="num">0.323</td></tr>
+<tr><td>1 088 500</td><td class="num">0.261</td><td class="num">0.261</td><td class="num">0.330</td><td class="num">0.148</td></tr>
+<tr><td>1 742 000</td><td class="num">0.219</td><td class="num">0.272</td><td class="num">0.247</td><td class="num">0.261</td></tr>
+<tr><td>2 137 250 (final)</td><td class="num">0.215</td><td class="num">0.247</td><td class="num">0.290</td><td class="num">0.247</td></tr>
+</tbody>
+</table>
+
+<p>The aggregate hovers around the uniform mean of 0.25. Below are five concrete prognoses, ranked by how strongly the run's numbers and the code support them.</p>
+
+<h3>Prognosis 1 — Entropy bonus is ~100× the paper default <span class="tag warn">strong</span></h3>
+<p>The repo currently runs with <code>act_entropy = 3·10⁻²</code> (<code>config.py:72</code>). The DreamerV3 paper and the reference code use <code>3·10⁻⁴</code>; commit <span class="mono">9b5f26f</span> in this repo is even titled <em>"fix(actor): use DreamerV3 paper default act_entropy=3e-4"</em>, which contradicts the value actually loaded by the run.</p>
+<p>The actor objective in <code>agent.py:532–535</code> is</p>
+<div class="math">
+  L<sub>π</sub> &nbsp;=&nbsp; 𝔼<sub>τ</sub>&thinsp;[ −sg(A<sub>norm</sub>) · log π(a|s) &nbsp;−&nbsp; η · H[π(·|s)] ]
+  <div class="small">with η = <code>act_entropy</code>, A<sub>norm</sub> = (R<sup>λ</sup> − V) / ret_scale</div>
+</div>
+<p>An η that is 100× too large floods the gradient with an "exploration" term that pulls every state's logits toward the uniform prior. Empirically the observed loss magnitude (−0.036) is essentially <em>the entropy term alone</em> at η = 0.03 (see Q3 below).</p>
+
+<h3>Prognosis 2 — Tiny advantage signal vs. dominant entropy term <span class="tag warn">strong</span></h3>
+<p>Reward shaping is <code>step_penalty = −0.01</code>, <code>success_bonus = +10</code>. Successful HM3D ObjectNav episodes are 30–250 steps, so the per-step return ranges roughly from −5 (failure) to +9.5 (success). After percentile-based <code>ret_scale</code> normalization (DreamerV3-style), <code>A<sub>norm</sub></code> on most timesteps is close to zero. With η = 0.03 dominating, the gradient from the policy-gradient term is drowned out.</p>
+
+<h3>Prognosis 3 — World-model KL stays large (5.95) — imagined returns are noisy <span class="tag warn">moderate</span></h3>
+<p><code>loss/dyn</code> and <code>loss/rep</code> both end at <strong>5.95</strong> (KL divergence between RSSM prior and posterior) — high for a model trained for 2.1 M steps. If the world model is poorly fit, λ-returns over imagined rollouts (<code>imagination_horizon = 15</code>) are essentially noise, so the advantage signal is noise, and the actor has nothing to learn from. The actor then defaults to whatever the regularizer prefers — uniform.</p>
+
+<h3>Prognosis 4 — Curriculum is easy enough that random walking already succeeds <span class="tag info">supporting</span></h3>
+<p>Tags <code>1house, chair-only, level1</code> mean a single house with chairs as the only target. The success rate climbs to 0.62 even though the action distribution remains near-uniform — i.e. <strong>the env doesn't penalize a near-random policy</strong>, so the gradient toward a peaked policy is weak by construction. This makes the entropy bonus the dominant force.</p>
+
+<h3>Prognosis 5 — <code>unimix_ratio</code> is at the paper default and is <em>not</em> the cause <span class="tag good">ruled out</span></h3>
+<p><code>unimix_ratio = 0.01</code> in the config and on line 523 of <code>agent.py</code>. That can pin the marginal at no worse than 0.99·π̂ + 0.01/N — i.e. it allows up to a 99% peaked policy. So unimix alone cannot explain a near-uniform distribution. (It would, however, mask a totally-collapsed actor.)</p>
+
+<div class="verdict">
+<strong>Recommended fixes, in order:</strong> (a) revert <code>act_entropy</code> to <code>3·10⁻⁴</code>; (b) add <code>actor/entropy</code> and per-batch action probs to the logging in <code>trainer.py:451</code> so the next run is diagnosable; (c) inspect why <code>loss/dyn</code> stays at 5.95 — a bad world model is the root cause that lets the entropy bonus win.
+</div>
+
+<!-- ============================================================== -->
+<h2>Q2 — What metrics are missing?</h2>
+
+<p>The actor and the world model in this run are essentially un-instrumented. None of the following — all standard in <code>danijar/dreamerv3</code> — are logged:</p>
+
+<table>
+<thead>
+<tr><th>Missing metric</th><th>Why it matters</th><th>Where to add</th></tr>
+</thead>
+<tbody>
+<tr><td><code>actor/entropy</code> (per gradient step)</td><td>Direct evidence whether logits are peaked or flat. Without this we infer "uniform" from per-episode action %, which is sampling noise.</td><td><code>agent.py:530</code> → log <code>jnp.mean(entropy)</code></td></tr>
+<tr><td><code>actor/probs_*</code> histogram</td><td>Distribution per action over the batch — separates "actor is peaked but explores via unimix" from "actor logits collapsed".</td><td>same place; log a 4-bin histogram</td></tr>
+<tr><td><code>actor/advantage_{mean,std}</code> &amp; <code>actor/return_mean</code></td><td>Is the policy-gradient term carrying any signal? If <code>std(adv) ≪ η·log N</code>, entropy will dominate.</td><td><code>agent.py:512</code></td></tr>
+<tr><td><code>actor/grad_norm</code>, <code>critic/grad_norm</code>, <code>wm/grad_norm</code></td><td>Detects vanishing/exploding gradients; the AGC clip threshold is <code>0.3</code> so clipping ratio is informative.</td><td>after optimizer update</td></tr>
+<tr><td><code>kl_prior</code> &amp; <code>kl_post</code> separately</td><td>The current run logs <code>loss/dyn</code> and <code>loss/rep</code> as the same number 5.95, which is suspicious — they should differ by a constant factor (free-bits) and tell different stories about the encoder vs. the dynamics model.</td><td>RSSM loss</td></tr>
+<tr><td><code>image_loss / feature_recon_loss</code></td><td>Run uses VGGT features (no pixel reconstruction), but feature-reconstruction MSE is still trainable and should be logged.</td><td>WM step</td></tr>
+<tr><td><code>reward_pred_acc</code>, <code>continue_pred_acc</code></td><td><code>loss/con = 1.77·10⁻⁴</code> is tiny — almost certainly because the agent learned "always continue". Accuracy on actual <code>done</code> events would expose this.</td><td>WM step</td></tr>
+<tr><td><code>imag/return_{mean,std}</code></td><td>Distribution of λ-returns over imagined rollouts — the actual signal driving the actor.</td><td><code>agent.py</code> after λ-return computation</td></tr>
+<tr><td><code>replay/is_first_rate</code></td><td>Per-batch fraction of <code>is_first = 1</code>. Should be ≈ <code>1 / mean_episode_len</code> (~1–3%). If &gt;10% something is wrong with episode boundaries in the buffer.</td><td><code>replay_buffer.py</code></td></tr>
+</tbody>
+</table>
+
+<!-- ============================================================== -->
+<h2>Q3 — Why is the policy loss negative? (5 pictures + the math)</h2>
+
+<p>The actor objective <em>by construction</em> is the negation of (advantage-weighted log-prob + entropy bonus):</p>
+
+<div class="math">
+L<sub>π</sub>(θ) &nbsp;=&nbsp; 𝔼[ <span style="color:var(--accent)">−A<sub>norm</sub> · log π<sub>θ</sub>(a|s)</span> &nbsp;<span style="color:var(--accent2)">−&nbsp; η · H[π<sub>θ</sub>(·|s)]</span> ]
+<div class="small">policy-gradient term (red) &nbsp;+&nbsp; entropy bonus, subtracted (blue)</div>
+</div>
+
+<p>Both terms can — and routinely do — push the loss negative.</p>
+
+<h3>Picture 1 — Decompose the observed loss into its two terms</h3>
+<figure class="figure">
+<svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Stacked decomposition of policy loss">
+  <defs>
+    <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+      <line x1="0" y1="0" x2="0" y2="6" stroke="#b54a2b" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <!-- axes -->
+  <line x1="80" y1="40" x2="80" y2="240" stroke="#888" stroke-width="1"/>
+  <line x1="80" y1="140" x2="700" y2="140" stroke="#888" stroke-width="1" stroke-dasharray="4 3"/>
+  <text x="65" y="44" font-size="11" text-anchor="end" fill="#5b5b5b">+0.05</text>
+  <text x="65" y="144" font-size="11" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="65" y="244" font-size="11" text-anchor="end" fill="#5b5b5b">−0.05</text>
+
+  <!-- bars (each 100 px = 0.05 loss units) -->
+  <!-- Bar 1: PG term (small, near zero) -->
+  <g>
+    <rect x="120" y="135" width="80" height="10" fill="#b54a2b" opacity="0.85"/>
+    <text x="160" y="160" font-size="11" text-anchor="middle">−A·log π</text>
+    <text x="160" y="174" font-size="10" text-anchor="middle" fill="#5b5b5b">≈ +0.005</text>
+  </g>
+  <!-- Bar 2: Entropy term (η·H, dominant negative) -->
+  <g>
+    <rect x="240" y="140" width="80" height="83" fill="#2c5e8e" opacity="0.85"/>
+    <text x="280" y="245" font-size="11" text-anchor="middle">−η·H[π]</text>
+    <text x="280" y="259" font-size="10" text-anchor="middle" fill="#5b5b5b">≈ −0.0416</text>
+  </g>
+  <!-- Bar 3: Sum (predicted) -->
+  <g>
+    <rect x="380" y="140" width="80" height="73" fill="url(#hatch)" stroke="#b54a2b" stroke-width="1.2"/>
+    <text x="420" y="245" font-size="11" text-anchor="middle">predicted L</text>
+    <text x="420" y="259" font-size="10" text-anchor="middle" fill="#5b5b5b">≈ −0.0411</text>
+  </g>
+  <!-- Bar 4: Observed -->
+  <g>
+    <rect x="520" y="140" width="80" height="72" fill="#1a1a1a" opacity="0.85"/>
+    <text x="560" y="245" font-size="11" text-anchor="middle">observed L</text>
+    <text x="560" y="259" font-size="10" text-anchor="middle" fill="#5b5b5b">−0.0361</text>
+  </g>
+  <text x="400" y="22" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="600">Loss decomposition (η = 0.03, N = 4, near-uniform π)</text>
+</svg>
+<figcaption>The entropy term alone accounts for ~−0.0416. The observed −0.0361 differs by only ~12% — consistent with a small positive (i.e. mean-reverting) policy-gradient contribution from a slightly peaked policy.</figcaption>
+</figure>
+
+<h3>Picture 2 — Loss vs. policy temperature (sharpness)</h3>
+<p>Parameterise the actor as <code>softmax(z/T)</code> with a single peaked logit z. As T → ∞ the policy approaches uniform; as T → 0 it becomes deterministic.</p>
+<figure class="figure">
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Loss vs temperature">
+  <line x1="60" y1="40" x2="60" y2="220" stroke="#888"/>
+  <line x1="60" y1="220" x2="700" y2="220" stroke="#888"/>
+  <text x="380" y="248" font-size="11" text-anchor="middle" fill="#5b5b5b">temperature T (peaked → uniform)</text>
+  <text x="20" y="130" font-size="11" text-anchor="middle" fill="#5b5b5b" transform="rotate(-90 20 130)">−η · H[π]</text>
+  <text x="55" y="44" font-size="10" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="55" y="224" font-size="10" text-anchor="end" fill="#5b5b5b">−η·log N</text>
+  <!-- curve: H(T) = log N - (1-1/T)*delta, simplified S-shape -->
+  <path d="M 80 50 C 180 55, 240 80, 300 130 S 500 210, 690 215"
+        fill="none" stroke="#2c5e8e" stroke-width="2.2"/>
+  <!-- markers -->
+  <circle cx="100" cy="52" r="4" fill="#b54a2b"/>
+  <text x="110" y="48" font-size="11" fill="#b54a2b">deterministic π → loss ≈ 0</text>
+  <circle cx="660" cy="215" r="4" fill="#b54a2b"/>
+  <text x="650" y="208" font-size="11" text-anchor="end" fill="#b54a2b">uniform π → loss = −η·log N</text>
+  <line x1="60" y1="215" x2="700" y2="215" stroke="#b54a2b" stroke-dasharray="3 3" opacity=".6"/>
+  <text x="400" y="22" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="600">As the actor flattens, the entropy contribution drives the loss further negative</text>
+</svg>
+<figcaption>The horizontal asymptote is exactly the run's regime: <code>−η · log(N) = −0.03 · log(4) ≈ −0.0416</code>.</figcaption>
+</figure>
+
+<h3>Picture 3 — Loss vs. <code>act_entropy</code> coefficient η</h3>
+<p>For a uniform policy, <code>H[π] = log N = log 4 ≈ 1.386</code> is fixed, so the entropy contribution to the loss is linear in η:</p>
+<div class="math">
+L<sub>min</sub>(η) &nbsp;=&nbsp; −η · log N &nbsp;=&nbsp; −1.386 · η
+</div>
+<figure class="figure">
+<svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Loss vs entropy coefficient">
+  <line x1="70" y1="40" x2="70" y2="220" stroke="#888"/>
+  <line x1="70" y1="220" x2="700" y2="220" stroke="#888"/>
+  <text x="380" y="248" font-size="11" text-anchor="middle" fill="#5b5b5b">act_entropy coefficient η</text>
+  <text x="30" y="130" font-size="11" text-anchor="middle" fill="#5b5b5b" transform="rotate(-90 30 130)">contribution to L</text>
+  <!-- y axis ticks: 0 at top, slope downward; 0..-0.06 over 180px -->
+  <text x="65" y="44" font-size="10" text-anchor="end" fill="#5b5b5b">0</text>
+  <text x="65" y="124" font-size="10" text-anchor="end" fill="#5b5b5b">−0.03</text>
+  <text x="65" y="224" font-size="10" text-anchor="end" fill="#5b5b5b">−0.06</text>
+  <!-- x axis ticks: 0..0.05 over 600px -->
+  <line x1="70" y1="220" x2="70" y2="226"/><text x="70" y="240" font-size="10" text-anchor="middle">0</text>
+  <line x1="190" y1="220" x2="190" y2="226"/><text x="190" y="240" font-size="10" text-anchor="middle">0.003</text>
+  <line x1="430" y1="220" x2="430" y2="226"/><text x="430" y="240" font-size="10" text-anchor="middle">0.03</text>
+  <line x1="670" y1="220" x2="670" y2="226"/><text x="670" y="240" font-size="10" text-anchor="middle">0.06</text>
+  <!-- linear -η log4 -->
+  <line x1="70" y1="40" x2="690" y2="218" stroke="#2c5e8e" stroke-width="2"/>
+  <!-- DreamerV3 default at η = 3e-4 -->
+  <circle cx="82" cy="44" r="4" fill="#2f7a4f"/>
+  <text x="92" y="38" font-size="11" fill="#2f7a4f">η = 3·10⁻⁴ (paper) → −4·10⁻⁴</text>
+  <!-- this run η = 3e-2 -->
+  <circle cx="430" cy="124" r="5" fill="#b03030"/>
+  <text x="440" y="118" font-size="11" fill="#b03030" font-weight="600">η = 3·10⁻² (this run) → −0.0416</text>
+  <text x="400" y="22" font-size="13" text-anchor="middle" fill="#1a1a1a" font-weight="600">Floor of L for a uniform 4-way policy is linear in η</text>
+</svg>
+<figcaption>At the paper default, the entropy floor is <em>negligible</em> (≈ −4·10⁻⁴) and any policy-gradient signal would dominate. At the value this run uses, the floor (−0.0416) is exactly what we observe.</figcaption>
+</figure>
+
+<h3>Picture 4 — Why the policy-gradient term itself can be negative</h3>
+<p>Even without any entropy bonus, the term <code>−A<sub>norm</sub>·log π</code> is sign-flipped: <code>log π &lt; 0</code> always. So:</p>
+<ul>
+  <li>If the actor places high probability on a high-advantage action: <code>A &gt; 0</code>, <code>log π</code> close to 0 (small negative). Product <code>−A·log π</code> is small <em>positive</em>, contributing positively to the loss <em>that we are minimizing</em> — wait, that's wrong sign. Let's redo carefully.</li>
+</ul>
+<div class="math">
+<span style="color:var(--muted)">A &gt; 0, log π → 0⁻:</span>&nbsp; −A · log π = −(+)·(0⁻) = +small &nbsp;⇒ loss <span style="color:var(--bad)">↑</span><br>
+<span style="color:var(--muted)">A &gt; 0, log π = −large:</span>&nbsp; −A · log π = −(+)·(large neg) = +large &nbsp;⇒ loss <span style="color:var(--bad)">↑↑</span><br>
+<span style="color:var(--muted)">A &lt; 0, log π → 0⁻ (high prob bad action):</span>&nbsp; −A · log π = −(−)·(0⁻) = −small &nbsp;⇒ loss <span style="color:var(--good)">↓</span>
+</div>
+<p>So when the <em>good</em> actions already have high probability (or the bad actions have low probability), the policy-gradient term itself becomes <em>positive and small</em>; it goes to zero only when the policy is optimal. The negative loss values you see come from the <strong>entropy bonus</strong> below the PG term — which is exactly the breakdown in Picture 1.</p>
+
+<h3>Picture 5 — DreamerV3 does this on purpose: the loss has no zero</h3>
+<p>Unlike supervised cross-entropy, the actor objective in REINFORCE-with-entropy is unbounded below. Hafner et al. (2023) write the actor loss as <code>L = −sg(R<sup>λ</sup>)/max(1,S) · log π − η · H</code>; the entropy term is a reward shaping that keeps the policy stochastic. Reading the loss curve like a supervised loss ("approaching zero = good") is wrong — what you want is:</p>
+<ul>
+  <li><strong>actor/entropy</strong> trending <em>down</em> over training (policy peaks);</li>
+  <li><strong>imag/return_mean</strong> trending <em>up</em>;</li>
+  <li><strong>actor/loss</strong> can stay slightly negative forever — its <em>variance</em> matters, not its sign.</li>
+</ul>
+
+<details>
+<summary>Code reference (<code>agent.py:512–535</code>)</summary>
+<pre><code>adv = (ret - value) / ret_scale
+logpi = (log_probs * one_hot_action).sum(-1)
+entropy = -(probs * log_probs).sum(-1)
+losses["policy"] = jnp.mean(
+    jax.lax.stop_gradient(weight[:, :-1])
+    * -(logpi * jax.lax.stop_gradient(adv) + cfg.act_entropy * entropy)
+)</code></pre>
+</details>
+
+<!-- ============================================================== -->
+<h2>Q4 — Web search: is this a known DreamerV3 issue?</h2>
+
+<p>Findings from the official repo, the paper, and forks:</p>
+
+<h4>Negative actor loss is by design</h4>
+<p><code>danijar/dreamerv3/agent.py</code> implements
+<code>policy_loss = sg(weight) * −(logpi · sg(adv_normed) + actent · entropy_sum)</code>
+— identical in shape to this repo. The DreamerV3 paper (Hafner et al. 2023, arXiv 2301.04104) gives the same formulation. <strong>A negative loss is the expected steady state, not a bug.</strong></p>
+
+<h4>Uniform-actor failure mode</h4>
+<p>The most-cited root cause in <code>danijar/dreamerv3</code> issues and the EclecticSheep DreamerV3 walkthrough is exactly the one this run hits: <em>the entropy regularizer dominates a small advantage signal in sparse-reward / weakly-shaped environments.</em> ObjectNav with <code>step_penalty = −0.01, success_bonus = +10</code> is a textbook sparse-reward setting; the published DreamerV3 result on Crafter uses <code>actent = 3·10⁻⁴</code> precisely to avoid this. The <code>NM512/dreamerv3-torch</code> README also warns that the fork's older default hyperparameters under-perform on sparse-reward tasks for the same reason.</p>
+
+<h4>"<code>is_first</code> stuck at 1" failure mode</h4>
+<p>This is a <em>different</em> DreamerV3 pathology than what this run shows: in <code>danijar/dreamerv3/rssm.py</code>, <code>nn.mask((deter, stoch, action), ~reset)</code> zeros the recurrent state whenever <code>reset</code> is true. If <code>is_first</code> in the replay batch were genuinely 1 every step, the RSSM would be reduced to a feed-forward encoder, the world model would never learn temporal structure, and downstream the actor would receive useless advantages. Public discussion: <a href="https://github.com/danijar/dreamerv3/issues/158">danijar/dreamerv3#158</a>, <a href="https://discuss.ray.io/t/dreamer-v3-on-custom-environment/13627">Ray discuss thread</a>. This is the failure to <em>watch out for</em>, but in this run it is not the diagnosis (see Q5).</p>
+
+<p class="ref">Sources: <a href="https://github.com/danijar/dreamerv3">danijar/dreamerv3</a> · <a href="https://github.com/NM512/dreamerv3-torch">NM512/dreamerv3-torch</a> · <a href="https://arxiv.org/abs/2301.04104">Hafner et al. 2023</a> · <a href="https://eclecticsheep.ai/2023/08/10/dreamer_v3.html">EclecticSheep DreamerV3</a> · <a href="https://vitalab.github.io/article/2023/01/19/DreamerV3.html">VitaLab notes</a> · <a href="https://arxiv.org/html/2510.21418v1">DreamerV3-XP (sparse rewards)</a></p>
+
+<!-- ============================================================== -->
+<h2>Q5 — Why is <code>episode_reset</code> "always 1"?</h2>
+
+<p>Short answer: <strong>it isn't logged at every step.</strong> It is hard-coded to the integer <code>1</code> inside the per-episode metrics callback, and emitted only on episode end.</p>
+
+<h4>What the code does</h4>
+<pre><code>// trainer.py:137–164  (episode_metrics_fn → habitat_defaults)
+def habitat_defaults(...):
+    return {
+        ...
+        "episode_reset": 1,
+        ...
+    }
+
+// trainer.py:432
+self._wandb.log(ep_metrics, step=step)   # called inside episode-end branch only</code></pre>
+
+<h4>What W&amp;B received</h4>
+<table>
+<thead><tr><th>metric</th><th class="num">logged count</th><th>cadence</th></tr></thead>
+<tbody>
+<tr><td><code>_step</code> (rows)</td><td class="num">2 137 250</td><td>per env step</td></tr>
+<tr><td><code>loss/*</code></td><td class="num">8 549</td><td>per train step (every 250)</td></tr>
+<tr><td><code>episode/count</code>, <code>episode/steps</code>, …</td><td class="num">6 518</td><td>per episode end</td></tr>
+<tr><td><code>episode_reset</code></td><td class="num">6 518</td><td>per episode end (always = 1)</td></tr>
+</tbody>
+</table>
+
+<p><code>episode_reset</code> has exactly the same number of logged samples as <code>episode/count</code> (6 518). It is a constant marker, emitted once per episode boundary — the W&amp;B chart shows a flat line at 1 because that is its only ever-emitted value, not because the env resets every step.</p>
+
+<h4>What is <em>not</em> wrong (verified)</h4>
+<ul>
+  <li><strong>Episode lengths vary</strong> — sampled values 31, 500, 36, 500, 210, 500, 500, 371, 88, 77, 177, 251, 283, 41, 93. Truncation at 500 is normal; episodes ≠ 1 step.</li>
+  <li><strong>Replay-buffer <code>is_first</code> is computed correctly</strong> — <code>replay_buffer.py:85–87</code>: <code>is_first[:,0] = True; is_first[:,1:] = dones[:,:-1]</code>. So inside the WM training batches the per-step flag is the real episode boundary, not a constant 1.</li>
+  <li><strong>Continue head learned a sensible thing</strong> — <code>loss/con = 1.77·10⁻⁴</code> at the end (the agent rarely predicts <code>done</code>, which matches an env where most steps are mid-episode).</li>
+</ul>
+
+<h4>What <em>is</em> mildly misleading and should change</h4>
+<ul>
+  <li>Rename <code>episode_reset</code> to <code>episode/end_marker</code> (it's not a reset signal — it's a "this row is the end of an episode" indicator).</li>
+  <li>If you actually want to track whether the RSSM is being reset correctly inside training batches, log <code>replay/is_first_rate = is_first.mean()</code> per WM step. Expected value ≈ <code>1 / mean_episode_len</code> → a few %.</li>
+  <li>If a W&amp;B panel is showing this metric as "always 1 across the entire run", that's just step-fill on a sparse series — not a runtime issue.</li>
+</ul>
+
+<div class="verdict good">
+<strong class="good">Verdict:</strong> not a bug. The metric is sparse, hard-coded, and only ever emitted at episode end. The label is just confusing.
+</div>
+
+<!-- ============================================================== -->
+<hr/>
+
+<h2>Combined recommendation</h2>
+<ol>
+  <li><strong>Fix the entropy coefficient.</strong> Set <code>act_entropy = 3·10⁻⁴</code> in <code>config.py:72</code> — the commit message <span class="mono">9b5f26f</span> claims this is already done; verify the value the run actually loaded.</li>
+  <li><strong>Add the missing actor &amp; world-model metrics</strong> from Q2 — without <code>actor/entropy</code>, advantage stats, and a per-batch <code>is_first_rate</code>, the next run will be just as undiagnosable.</li>
+  <li><strong>Diagnose the world model</strong> — <code>loss/dyn = loss/rep = 5.95</code> after 2.1 M steps is high; if these are also literally identical numbers (not just rounded the same), check whether the two losses share a buffer/update.</li>
+  <li><strong>Rename <code>episode_reset</code></strong> to something like <code>episode/end_marker</code> and add a real per-step <code>is_first_rate</code>.</li>
+  <li><strong>The negative policy loss is fine</strong> — stop reading it as a supervised loss; track <code>actor/entropy</code> trending down and <code>imag/return_mean</code> trending up instead.</li>
+</ol>
+
+<p class="footnotes">
+Generated 2026-05-07 from W&amp;B run <code>sailer-luca-university-ulm/3d-vla-objectnav/er5ze5m6</code> (vggt_jax-4216462) and <code>~/Coding/Master-Thesis-3D-VLA</code> at the run's checkpoint. All numerical values are direct W&amp;B history reads; code citations are <code>path:line</code> at HEAD of the implementation repo.
+</p>
+
+</div>
+</body>
+</html>

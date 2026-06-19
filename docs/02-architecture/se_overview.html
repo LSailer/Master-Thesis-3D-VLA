@@ -1,0 +1,982 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Software Engineering for ML Research — A Practical Overview</title>
+
+<!-- Prism for syntax highlighting (light theme) -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" />
+<style>
+  :root {
+    --bg: #fbfbfb;
+    --panel: #ffffff;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #0e7490;
+    --accent-soft: #ecfeff;
+    --good: #047857;
+    --good-soft: #ecfdf5;
+    --bad: #b91c1c;
+    --bad-soft: #fef2f2;
+    --warn: #b45309;
+    --warn-soft: #fffbeb;
+    --code-bg: #f6f8fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    max-width: 1200px;
+    margin: 0 auto;
+    gap: 32px;
+    padding: 32px 24px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { position: static !important; max-height: none !important; }
+  }
+  nav.toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+    font-size: 14px;
+    line-height: 1.45;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--panel);
+  }
+  nav.toc h3 {
+    margin: 0 0 8px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  nav.toc ol {
+    list-style: none;
+    padding: 0; margin: 0;
+    counter-reset: section;
+  }
+  nav.toc ol li {
+    counter-increment: section;
+    margin: 4px 0;
+  }
+  nav.toc ol li::before {
+    content: counter(section) ". ";
+    color: var(--muted);
+    margin-right: 4px;
+  }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+  }
+  nav.toc a:hover { color: var(--accent); }
+
+  main { min-width: 0; }
+  main > article {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 36px 40px;
+  }
+  header.title {
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+  }
+  header.title h1 {
+    font-size: 28px;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.01em;
+  }
+  header.title p {
+    color: var(--muted);
+    margin: 0;
+    font-size: 15px;
+  }
+
+  h2 {
+    font-size: 22px;
+    margin: 40px 0 12px 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+    padding-top: 24px;
+    letter-spacing: -0.01em;
+  }
+  h2:first-of-type { border-top: none; padding-top: 0; }
+  h3 { font-size: 17px; margin: 24px 0 8px 0; }
+  h4 { font-size: 15px; margin: 18px 0 4px 0; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  p { margin: 0 0 12px 0; }
+  ul, ol { margin: 0 0 12px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+
+  code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  :not(pre) > code {
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+  }
+  pre[class*="language-"] {
+    border-radius: 8px;
+    background: var(--code-bg) !important;
+    border: 1px solid var(--line);
+    font-size: 13.5px;
+    padding: 14px 16px !important;
+    overflow-x: auto;
+  }
+
+  /* Concept callout cards */
+  .concept {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 14px 0;
+    background: #fcfcfd;
+  }
+  .concept .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .concept h4 { margin: 0 0 6px 0; color: var(--ink); text-transform: none; letter-spacing: normal; font-size: 16px; }
+
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 14px 0;
+  }
+  @media (max-width: 720px) { .pair { grid-template-columns: 1fr; } }
+  .pair .col { border-radius: 8px; padding: 12px; border: 1px solid var(--line); }
+  .pair .col.bad { background: var(--bad-soft); border-color: #fecaca; }
+  .pair .col.good { background: var(--good-soft); border-color: #a7f3d0; }
+  .pair .col h4 { margin: 0 0 8px 0; font-size: 13px; }
+  .pair .col.bad h4 { color: var(--bad); }
+  .pair .col.good h4 { color: var(--good); }
+  .pair .col pre[class*="language-"] { margin: 0; }
+
+  .callout {
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    margin: 14px 0;
+    font-size: 14.5px;
+  }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .callout.warn .tag { color: var(--warn); }
+  .callout .tag {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-right: 6px;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 14px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 8px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  thead th {
+    background: #f3f4f6;
+    font-weight: 600;
+  }
+
+  /* Layered architecture diagram */
+  .layers {
+    display: grid;
+    gap: 6px;
+    margin: 14px 0;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+  }
+  .layers .layer {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 14px;
+    background: #fff;
+  }
+  .layers .layer .name { font-weight: 600; color: var(--accent); }
+  .layers .layer .role { color: var(--muted); margin-left: 8px; }
+
+  .tree {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
+
+  footer { color: var(--muted); font-size: 13px; padding: 18px 4px 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+
+<nav class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#intro">Why this matters</a></li>
+    <li><a href="#concepts">Module, component, interface</a></li>
+    <li><a href="#principles">Cross-cutting principles</a></li>
+    <li><a href="#python">Python: structuring the code</a></li>
+    <li><a href="#interfaces-py">Interfaces: Protocol vs ABC</a></li>
+    <li><a href="#config">Configuration management</a></li>
+    <li><a href="#ml-layout">ML project layout</a></li>
+    <li><a href="#ml-layers">The four ML layers</a></li>
+    <li><a href="#registry">Registry &amp; factory pattern</a></li>
+    <li><a href="#lightning">When Lightning helps (and hurts)</a></li>
+    <li><a href="#repro">Reproducibility</a></li>
+    <li><a href="#rl">RL &amp; world models</a></li>
+    <li><a href="#antipatterns">ML anti-patterns</a></li>
+    <li><a href="#tldr">Cheat sheet</a></li>
+  </ol>
+</nav>
+
+<main>
+<article>
+
+<header class="title">
+  <h1>Software Engineering for ML Research</h1>
+  <p>A practical overview of modules, components, interfaces — and patterns to structure a Python/ML codebase so it stays readable as it grows. Tuned to your DreamerV3 + 3D-vision (VGGT/UNITE) thesis context.</p>
+</header>
+
+<!-- ============================================================ -->
+<h2 id="intro">1. Why this matters</h2>
+<p>
+Research code earns a bad reputation for a simple reason: every experiment is "the last one". So globals creep in, training scripts copy-paste, hyperparameters live as magic numbers, and three months later nobody — including you — can rerun the result that went into the thesis.
+</p>
+<p>
+Software engineering is the small, boring set of habits that prevents this. The vocabulary you need is short:
+<strong>module</strong>, <strong>component</strong>, <strong>interface</strong>, plus a handful of principles
+(separation of concerns, dependency injection, explicit configuration). Apply them consistently and the code roughly maintains itself. This guide gives you both the vocabulary and the Python/ML-specific recipes.
+</p>
+
+<!-- ============================================================ -->
+<h2 id="concepts">2. Module, component, interface — the core trio</h2>
+
+<div class="concept">
+  <div class="label">Concept</div>
+  <h4>Module</h4>
+  <p>The smallest unit of code organization. In Python a <em>module</em> is a single <code>.py</code> file; a <em>package</em> is a directory of modules with an <code>__init__.py</code>. A module groups related functions, classes, and constants behind one importable name.</p>
+  <p><strong>Mental model:</strong> a module is a chapter in a book — it has a topic, you can read it independently, and you find it in the table of contents (the directory tree).</p>
+</div>
+
+<div class="concept">
+  <div class="label">Concept</div>
+  <h4>Component</h4>
+  <p>A self-contained unit of <em>functionality</em> with one well-defined responsibility. Bigger than a module: it can span multiple modules. Components communicate with the rest of the system only through their interface, not by reaching into each other's internals.</p>
+  <p><strong>Mental model:</strong> a component is a kitchen appliance. The toaster has buttons (interface) and a job (toast bread). You don't open it up to use it. Replacing it with a fancier toaster doesn't require rewiring the kitchen.</p>
+  <p><strong>In your project:</strong> "the data loader", "the VGGT encoder", "the replay buffer", "the W&amp;B logger" are all components.</p>
+</div>
+
+<div class="concept">
+  <div class="label">Concept</div>
+  <h4>Interface</h4>
+  <p>The contract a component exposes — what callers can rely on, with everything else hidden. Two halves: the <em>signature</em> (function names, argument types, return types) and the <em>behavior</em> (what those functions promise to do).</p>
+  <p><strong>Why interfaces matter:</strong> they're the seam where you can swap one implementation for another. If <code>train()</code> takes a <code>FeatureEncoder</code> interface, you can plug in VGGT today, UNITE tomorrow, and a learned baseline next week — without rewriting <code>train()</code>.</p>
+</div>
+
+<h3>Supporting vocabulary you should also know</h3>
+<table>
+  <thead><tr><th>Term</th><th>One-line meaning</th><th>Smell when violated</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Cohesion</strong></td><td>Things in one module belong together (do one job).</td><td>A <code>utils.py</code> with 47 unrelated helpers.</td></tr>
+    <tr><td><strong>Coupling</strong></td><td>How much one module depends on another's internals.</td><td>Editing the encoder forces edits in the trainer.</td></tr>
+    <tr><td><strong>Abstraction</strong></td><td>Expose what, hide how.</td><td>Callers passing internal state objects around.</td></tr>
+    <tr><td><strong>Encapsulation</strong></td><td>State + the operations on it live together.</td><td>Free-floating mutations of attributes from outside the class.</td></tr>
+    <tr><td><strong>Separation of concerns</strong></td><td>Each piece of code addresses one concern.</td><td>Loss computation living inside <code>nn.Module.forward</code>.</td></tr>
+    <tr><td><strong>Single source of truth</strong></td><td>Each fact (config, hyperparameter, schema) lives in exactly one place.</td><td>Same learning rate appears in three configs.</td></tr>
+  </tbody>
+</table>
+
+<p><em>Goal:</em> high cohesion <strong>within</strong> a module, low coupling <strong>between</strong> modules. Everything else is a corollary.</p>
+
+<!-- ============================================================ -->
+<h2 id="principles">3. Cross-cutting principles (the SOLID-lite version)</h2>
+<p>You don't need the full enterprise-Java treatment. Three principles carry 90% of the value for ML code:</p>
+
+<div class="concept">
+  <div class="label">Principle</div>
+  <h4>Single responsibility</h4>
+  <p>Each module/class does one thing. If you have to use the word "and" to describe what a class does, split it. <code>VGGTEncoderAndLossComputer</code> is two classes wearing a trench coat.</p>
+</div>
+
+<div class="concept">
+  <div class="label">Principle</div>
+  <h4>Depend on interfaces, not implementations</h4>
+  <p>Code at the top of the call stack should accept <em>any</em> encoder, not specifically <code>VGGTEncoder</code>. That's what makes ablations cheap.</p>
+</div>
+
+<div class="concept">
+  <div class="label">Principle</div>
+  <h4>Dependency injection</h4>
+  <p>A component receives its collaborators as arguments instead of constructing them itself or pulling from a global. In Python this just means "pass things to functions and constructors". No DI framework needed.</p>
+</div>
+
+<h4>Bad vs good — DI in practice</h4>
+<div class="pair">
+  <div class="col bad">
+    <h4>✗ Hidden dependencies</h4>
+<pre><code class="language-python">import wandb
+from mypkg.models import VGGT
+
+class Trainer:
+    def __init__(self):
+        self.encoder = VGGT()        # hard-wired
+        wandb.init(project="thesis") # global side effect
+        self.lr = 3e-4               # magic number</code></pre>
+  </div>
+  <div class="col good">
+    <h4>✓ Constructor injection</h4>
+<pre><code class="language-python">class Trainer:
+    def __init__(self, encoder, logger, lr):
+        self.encoder = encoder
+        self.logger  = logger
+        self.lr      = lr
+
+# wiring at the program edge
+def build_trainer(cfg):
+    enc = make_encoder(cfg.encoder)
+    log = make_logger(cfg.logger)
+    return Trainer(enc, log, cfg.lr)</code></pre>
+  </div>
+</div>
+<p>The pattern: <strong>wiring lives at the edge</strong> (<code>main</code> or a <code>build_*</code> factory); <strong>business logic in the middle takes injected dependencies</strong>. Tests pass fakes. Experiments swap implementations via config.</p>
+
+<!-- ============================================================ -->
+<h2 id="python">4. Python — structuring the code</h2>
+
+<h3>4.1 Modules and packages, concretely</h3>
+<div class="tree">mypkg.py                 # file module — import mypkg
+
+mypkg/                   # directory (regular) package
+    __init__.py          # marks it as a package; can be empty
+    train.py             # import mypkg.train
+    models/
+        __init__.py
+        encoder.py       # import mypkg.models.encoder</div>
+<p>The <code>__init__.py</code> runs the first time anything in the package is imported. Three sensible things to put there: the version string, curated re-exports for the public API, or nothing at all.</p>
+
+<h3>4.2 <code>src/</code> layout vs flat layout — pick <code>src/</code></h3>
+<div class="pair">
+  <div class="col">
+    <h4>Flat layout (avoid)</h4>
+<div class="tree">myproj/
+  pyproject.toml
+  mypkg/
+    __init__.py
+    train.py
+  tests/</div>
+  </div>
+  <div class="col">
+    <h4>src/ layout (preferred)</h4>
+<div class="tree">myproj/
+  pyproject.toml
+  src/
+    mypkg/
+      __init__.py
+      train.py
+  tests/</div>
+  </div>
+</div>
+<p>
+With a flat layout, Python automatically picks up <code>mypkg/</code> from the current directory — so <code>import mypkg</code> may use the <em>uninstalled</em> source, silently masking packaging bugs. With <code>src/</code>, <code>import mypkg</code> only works if the package is actually installed (typically <code>uv pip install -e .</code> or <code>pip install -e .</code>). What you test is what users get.
+</p>
+
+<h3>4.3 Public vs private API</h3>
+<p>Python has no <code>private</code> keyword. Convention does the work:</p>
+<ul>
+  <li>Leading underscore = "internal, do not import from outside" (e.g. <code>_init_weights</code>).</li>
+  <li>The package's <em>public API</em> is what <code>__init__.py</code> re-exports.</li>
+  <li><code>__all__</code> declares the public surface and controls <code>from pkg import *</code>.</li>
+</ul>
+
+<pre><code class="language-python"># src/mypkg/models/encoder.py
+def build_encoder(dim: int) -> "Encoder":
+    return Encoder(dim, _init_weights())
+
+def _init_weights():        # underscore = internal
+    ...
+
+class Encoder:
+    ...
+
+# src/mypkg/models/__init__.py — curate the public surface
+from .encoder import Encoder, build_encoder
+from .decoder import Decoder
+
+__all__ = ["Encoder", "Decoder", "build_encoder"]</code></pre>
+<p>Now downstream users write <code>from mypkg.models import Encoder</code> and don't depend on file layout. You're free to rename or split <code>encoder.py</code> later — as long as the public name still resolves, nothing breaks.</p>
+
+<h3>4.4 Type hints and data containers</h3>
+<p>Type hints are documentation the computer can verify. They make signatures self-explanatory and let mypy/pyright catch shape and <code>None</code> bugs before training runs. For "bag of fields" objects, pick the right container:</p>
+<table>
+  <thead><tr><th>Tool</th><th>When to use</th></tr></thead>
+  <tbody>
+    <tr><td><code>@dataclass</code></td><td>Internal config / state. Pure stdlib, zero deps.</td></tr>
+    <tr><td><code>pydantic.BaseModel</code></td><td>Anything parsed from disk / CLI / network — needs runtime validation.</td></tr>
+    <tr><td><code>TypedDict</code></td><td>A <code>dict</code> whose keys are known statically (e.g. dataset items).</td></tr>
+    <tr><td><code>NamedTuple</code></td><td>Tiny immutable record where positional unpacking (<code>x, y = point</code>) is convenient.</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-python">from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
+from typing import TypedDict
+
+@dataclass(frozen=True, slots=True)
+class TrainState:                  # internal, immutable, hashable
+    step: int
+    lr: float
+    losses: list[float] = field(default_factory=list)
+
+class TrainConfig(BaseModel):      # parsed from YAML / CLI; validated
+    lr: float = Field(gt=0, le=1)
+    batch_size: int = Field(ge=1)
+    encoder: str
+
+class Episode(TypedDict):          # shape of a dict from a dataset
+    rgb: "torch.Tensor"
+    action: int
+    reward: float</code></pre>
+
+<div class="callout warn">
+  <span class="tag">Pitfall</span>
+  Mutable default values: <code>losses: list = []</code> shares <em>one list across every instance</em>. Always use <code>field(default_factory=list)</code> (dataclass) or <code>Field(default_factory=list)</code> (Pydantic).
+</div>
+
+<h3>4.5 Tooling baseline (2025–2026)</h3>
+<table>
+  <thead><tr><th>Tool</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>uv</code></td><td>Replaces pip + virtualenv + pip-tools; produces <code>uv.lock</code>; 10–100× faster.</td></tr>
+    <tr><td><code>ruff</code></td><td>Single Rust-powered tool replacing flake8 + isort + pyupgrade + black. Lint <em>and</em> format.</td></tr>
+    <tr><td><code>pyright</code> / <code>mypy</code></td><td>Static type checker. Pyright is faster; mypy is the reference.</td></tr>
+    <tr><td><code>pytest</code></td><td>Test runner with fixtures and parametrization.</td></tr>
+    <tr><td><code>pre-commit</code></td><td>Runs ruff/mypy/etc. on every commit so junk never lands.</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-toml"># pyproject.toml — minimal baseline
+[project]
+name = "mypkg"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["torch>=2.3", "hydra-core>=1.3", "pydantic>=2.6"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pyright", "pre-commit"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="interfaces-py">5. Interfaces in Python: <code>Protocol</code> vs <code>ABC</code></h2>
+<p>Python gives you two ways to express an interface. Knowing when to use which is one of the highest-leverage skills for keeping research code modular.</p>
+
+<table>
+  <thead><tr><th></th><th><code>typing.Protocol</code></th><th><code>abc.ABC</code></th></tr></thead>
+  <tbody>
+    <tr><td>Style</td><td>Structural ("if it quacks…")</td><td>Nominal ("must inherit")</td></tr>
+    <tr><td>Where checked</td><td>Statically by mypy/pyright</td><td>At runtime via <code>isinstance</code></td></tr>
+    <tr><td>Implementer needs to know about it?</td><td>No</td><td>Yes — must subclass</td></tr>
+    <tr><td>Best for</td><td>Plug-in points (encoders, datasets, loggers)</td><td>Sharing implementation through inheritance, or runtime gates</td></tr>
+  </tbody>
+</table>
+
+<div class="pair">
+  <div class="col good">
+    <h4>✓ Protocol — flexible, no inheritance</h4>
+<pre><code class="language-python">from typing import Protocol, runtime_checkable
+import torch
+
+@runtime_checkable
+class FeatureEncoder(Protocol):
+    out_dim: int
+    def encode(self, rgb: torch.Tensor) -> torch.Tensor: ...
+
+class VGGT:                     # no inheritance!
+    out_dim = 1024
+    def encode(self, rgb): ...
+
+class UNITE:
+    out_dim = 768
+    def encode(self, rgb): ...
+
+def train(encoder: FeatureEncoder, loader): ...   # accepts both</code></pre>
+  </div>
+  <div class="col">
+    <h4>ABC — when you want shared base behavior</h4>
+<pre><code class="language-python">from abc import ABC, abstractmethod
+
+class FeatureEncoder(ABC):
+    @abstractmethod
+    def encode(self, rgb): ...
+
+    def freeze(self):           # shared helper
+        for p in self.parameters():
+            p.requires_grad_(False)
+
+class VGGT(FeatureEncoder):     # must inherit
+    def encode(self, rgb): ...</code></pre>
+  </div>
+</div>
+
+<p><strong>Rule of thumb for ML code:</strong> reach for <code>Protocol</code> first. Use <code>ABC</code> only when you genuinely need to share method implementations through inheritance, or when callers rely on <code>isinstance</code> checks at runtime.</p>
+
+<!-- ============================================================ -->
+<h2 id="config">6. Configuration management</h2>
+<p>The single biggest readability lever in research code is killing argparse soup and globals in favor of explicit, composable configs.</p>
+
+<table>
+  <thead><tr><th>Tool</th><th>Sweet spot</th></tr></thead>
+  <tbody>
+    <tr><td><code>argparse</code></td><td>One-file scripts, &lt;10 flags. Stdlib.</td></tr>
+    <tr><td><code>pydantic-settings</code></td><td>Apps that load from env vars + <code>.env</code>; want type validation.</td></tr>
+    <tr><td><code>OmegaConf</code></td><td>YAML with variable interpolation; no composition needed.</td></tr>
+    <tr><td><strong>Hydra</strong></td><td><strong>Research with many experiment variants, sweeps, multirun.</strong> Built on OmegaConf.</td></tr>
+  </tbody>
+</table>
+
+<h4>Hydra in 30 seconds</h4>
+<pre><code class="language-yaml"># conf/config.yaml
+defaults:
+  - encoder: vggt        # picks conf/encoder/vggt.yaml
+  - _self_
+lr: 3e-4
+steps: 100_000</code></pre>
+
+<pre><code class="language-python"># train.py
+import hydra
+from omegaconf import DictConfig
+
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    trainer = build_trainer(cfg)
+    trainer.fit()</code></pre>
+
+<pre><code class="language-bash"># swap encoder
+python train.py encoder=unite lr=1e-3
+
+# multirun sweep — no bash loops
+python train.py --multirun lr=1e-3,3e-4,1e-4 encoder=vggt,unite</code></pre>
+
+<div class="callout warn">
+  <span class="tag">Pitfall</span>
+  Letting an untyped <code>DictConfig</code> flow deep into your code. Convert it to a Pydantic model or dataclass at the boundary (Hydra's "structured configs" or <code>OmegaConf.to_object</code>) so the rest of your code sees real Python types and your IDE can autocomplete.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="ml-layout">7. ML project layout — what goes where</h2>
+<p>The community-standard skeleton for a PyTorch research project, adapted to your thesis:</p>
+
+<div class="tree">master-thesis-3d-vla/
+├── pyproject.toml          # deps, tool config, package metadata
+├── uv.lock                 # pinned versions, committed
+├── README.md
+├── .pre-commit-config.yaml
+│
+├── conf/                   # Hydra configs
+│   ├── config.yaml
+│   ├── encoder/
+│   │   ├── vggt.yaml
+│   │   └── unite.yaml
+│   ├── trainer/
+│   │   └── gpu.yaml
+│   ├── logger/
+│   │   └── wandb.yaml
+│   └── env/                # machine-specific paths
+│       ├── local.yaml
+│       └── bwunicluster.yaml
+│
+├── src/mypkg/
+│   ├── __init__.py         # version + curated re-exports
+│   ├── data/               # Datasets, DataLoaders, transforms
+│   ├── models/             # encoders, world model, policies
+│   │   ├── encoders/       # vggt.py, unite.py
+│   │   ├── world_model.py
+│   │   └── registry.py
+│   ├── envs/               # Habitat → gym wrappers
+│   ├── replay/             # episodic replay buffer for Dreamer
+│   ├── training/           # Trainer, optim, schedules
+│   ├── eval/               # metrics, rollouts, video saving
+│   ├── utils/              # logging, seeding, io
+│   └── cli/
+│       ├── train.py        # python -m mypkg.cli.train
+│       └── eval.py
+│
+├── tests/                  # mirrors src/mypkg/ structure
+│   ├── data/
+│   └── models/
+│
+├── scripts/                # one-off shell/python helpers
+│   ├── slurm_train.sh
+│   └── prepare_hm3d.py
+│
+├── notebooks/              # exploration only — never imported
+└── outputs/                # gitignored: checkpoints, logs, hydra runs</div>
+
+<p><strong>Conventions baked in:</strong></p>
+<ul>
+  <li>Code lives under <code>src/</code>, imported as <code>mypkg.data.hm3d</code> — never as <code>data.hm3d</code>.</li>
+  <li><code>conf/</code>, <code>tests/</code>, <code>scripts/</code>, <code>notebooks/</code>, <code>outputs/</code> are siblings of <code>src/</code>, not inside it.</li>
+  <li>Sub-packages mirror <em>concerns</em>, not file types. No <code>classes/</code> or <code>functions/</code> directories.</li>
+  <li><code>tests/</code> mirrors <code>src/mypkg/</code> so the test for <code>models/encoders/vggt.py</code> sits at <code>tests/models/encoders/test_vggt.py</code>.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="ml-layers">8. The four layers of an ML codebase</h2>
+<p>Every well-organized PyTorch project — even small ones — has these four layers, even if not labeled. The point of separating them is that you can swap one without touching the others.</p>
+
+<div class="layers">
+  <div class="layer"><span class="name">Data</span><span class="role">→ load bytes, decode, transform, batch  (Dataset, DataLoader, transforms)</span></div>
+  <div class="layer"><span class="name">Model</span><span class="role">→ define f(x; θ)  (nn.Module subclasses, encoder/decoder/head)</span></div>
+  <div class="layer"><span class="name">Training</span><span class="role">→ compute loss, take gradient steps, schedule LR  (optimizer, scheduler, loss)</span></div>
+  <div class="layer"><span class="name">Eval / Inference</span><span class="role">→ score, log, visualize  (torchmetrics, checkpointing, plots)</span></div>
+</div>
+
+<h4>Smell — everything mixed together</h4>
+<div class="pair">
+  <div class="col bad">
+    <h4>✗ One file does it all</h4>
+<pre><code class="language-python">class Trainer:
+    def __init__(self):
+        self.imgs = sorted(glob.glob("/home/luca/data/hm3d/*.png"))
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 64, 3), nn.ReLU(),
+            nn.Conv2d(64, 128, 3),
+        ).cuda()
+        self.opt = torch.optim.Adam(self.encoder.parameters(), lr=3e-4)
+
+    def run(self):
+        for epoch in range(100):
+            for path in self.imgs:
+                x = cv2.imread(path)
+                x = torch.from_numpy(x).cuda()
+                z = self.encoder(x)
+                loss = z.pow(2).mean()
+                loss.backward(); self.opt.step()
+                if epoch % 10 == 0:
+                    print("metric", z.std())</code></pre>
+  </div>
+  <div class="col good">
+    <h4>✓ Refactored — each layer in its place</h4>
+<pre><code class="language-python"># src/data/objectnav.py
+class ObjectNavFrames(Dataset):
+    def __init__(self, root, transform=None): ...
+
+# src/models/encoders/vggt.py
+class VGGTEncoder(nn.Module):
+    def __init__(self, ckpt, freeze=True): ...
+    def forward(self, rgb): ...
+
+# src/training/lit_world_model.py
+class LitWorldModel(LightningModule):
+    def __init__(self, model, lr):
+        super().__init__()
+        self.save_hyperparameters(ignore=["model"])
+        self.model = model
+    def training_step(self, batch, _): ...
+    def configure_optimizers(self): ...
+
+# src/eval/metrics.py
+def reconstruction_psnr(pred, target) -> float: ...</code></pre>
+  </div>
+</div>
+<p>Each file is now testable in isolation: you can unit-test <code>ObjectNavFrames</code> without a GPU and benchmark <code>VGGTEncoder</code> without touching the trainer.</p>
+
+<!-- ============================================================ -->
+<h2 id="registry">9. Registry &amp; factory pattern</h2>
+<p>When you have <em>N</em> encoders, <em>M</em> world-model variants, <em>K</em> policies, and want to combine them via config strings, registries beat <code>if/elif</code> chains.</p>
+
+<pre><code class="language-python"># src/models/registry.py
+from typing import Callable, Dict
+import torch.nn as nn
+
+_MODEL_REGISTRY: Dict[str, Callable[..., nn.Module]] = {}
+
+def register_model(name: str | None = None):
+    def decorator(fn):
+        key = name or fn.__name__
+        if key in _MODEL_REGISTRY:
+            raise KeyError(f"Model '{key}' already registered")
+        _MODEL_REGISTRY[key] = fn
+        return fn
+    return decorator
+
+def create_model(name: str, **kwargs) -> nn.Module:
+    if name not in _MODEL_REGISTRY:
+        raise KeyError(f"Unknown model '{name}'. Available: {list(_MODEL_REGISTRY)}")
+    return _MODEL_REGISTRY[name](**kwargs)</code></pre>
+
+<pre><code class="language-python"># src/models/encoders/vggt.py
+from src.models.registry import register_model
+
+@register_model("vggt_base")
+def vggt_base(ckpt_path: str, freeze: bool = True):
+    return VGGTEncoder(ckpt_path=ckpt_path, freeze=freeze)
+
+@register_model("vggt_large")
+def vggt_large(ckpt_path: str, freeze: bool = True):
+    return VGGTEncoder(ckpt_path=ckpt_path, freeze=freeze, variant="large")</code></pre>
+
+<pre><code class="language-python">from src.models.registry import create_model
+encoder = create_model("vggt_base", ckpt_path="/ckpts/vggt.pt")</code></pre>
+
+<div class="callout">
+  <span class="tag">Tip</span>
+  If you're already using Hydra's <code>_target_: src.models.encoders.vggt.VGGTEncoder</code> for instantiation, you don't strictly need a registry — Hydra does the same job. Pick one approach and stick to it; mixing both is a smell.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="lightning">10. PyTorch Lightning — when it helps and when it hurts</h2>
+<p><code>LightningModule</code> organizes (not abstracts) PyTorch into six methods: <code>__init__</code>, <code>training_step</code>, <code>validation_step</code>, <code>test_step</code>, <code>predict_step</code>, <code>configure_optimizers</code>. Everything else (devices, DDP, mixed precision, checkpointing) is handled by the <code>Trainer</code>.</p>
+
+<pre><code class="language-python">import lightning as L
+import torch.nn.functional as F
+
+class LitVGGTPretrain(L.LightningModule):
+    def __init__(self, encoder, lr: float = 3e-4):
+        super().__init__()
+        self.save_hyperparameters(ignore=["encoder"])
+        self.encoder = encoder
+
+    def training_step(self, batch, _):
+        x, y = batch
+        loss = F.mse_loss(self.encoder(x), y)
+        self.log("train/loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        return torch.optim.AdamW(self.parameters(), lr=self.hparams.lr)
+
+trainer = L.Trainer(max_epochs=50, accelerator="gpu", precision="bf16-mixed")
+trainer.fit(model, datamodule)</code></pre>
+
+<div class="pair">
+  <div class="col good">
+    <h4>✓ Use Lightning for…</h4>
+    <ul>
+      <li>Standard supervised training (your VGGT/UNITE perception pretraining or fine-tuning).</li>
+      <li>Free DDP / FSDP / mixed precision / multi-GPU SLURM with no code changes.</li>
+      <li>Free callbacks (early stopping, LR monitor, model summary, W&amp;B integration).</li>
+    </ul>
+  </div>
+  <div class="col bad">
+    <h4>✗ Don't use Lightning for…</h4>
+    <ul>
+      <li><strong>DreamerV3-style world model + actor-critic.</strong> Training step isn't "one batch in, one loss out" — it's collect → buffer → sample → train WM → imagine → train actor → train critic. Lightning's contract fights you.</li>
+      <li>Custom CUDA kernels with tight inner loops where hooks add overhead.</li>
+      <li>Anything where you want full ownership of <code>for batch in loader: loss.backward()</code>.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="tag">Recommendation</span>
+  For your thesis, use Lightning for the <em>supervised perception</em> parts (VGGT adapter, UNITE fine-tuning, segmentation heads). Write the <em>DreamerV3 RL loop</em> as plain PyTorch in a <code>Trainer</code> class you own. Don't be religious about the framework.
+</div>
+
+<!-- ============================================================ -->
+<h2 id="repro">11. Reproducibility — the floor</h2>
+
+<h4>Seed everything</h4>
+<pre><code class="language-python">import os, random, numpy as np, torch
+
+def seed_everything(seed: int, deterministic: bool = False):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    if deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"</code></pre>
+<p>Lightning ships <code>lightning.pytorch.seed_everything(seed, workers=True)</code>. Use <code>workers=True</code> — without it, <code>num_workers &gt; 0</code> reintroduces non-determinism. <code>deterministic=True</code> slows training 10–30%; reserve it for final experiments.</p>
+
+<h4>Lock the environment</h4>
+<ul>
+  <li><code>uv.lock</code> committed to the repo, restored with <code>uv sync</code>.</li>
+  <li>Pin <strong>CUDA + PyTorch + driver</strong> combinations explicitly in the README — silent reproducibility killers.</li>
+</ul>
+
+<h4>Snapshot the config next to the checkpoint</h4>
+<p>Hydra does this for free in <code>outputs/&lt;date&gt;/&lt;time&gt;/.hydra/config.yaml</code>. Lightning checkpoints embed hyperparameters via <code>self.save_hyperparameters()</code>. Use both:</p>
+<div class="tree">logs/runs/2026-05-10_14-32-11/
+├── .hydra/
+│   ├── config.yaml      # full resolved config
+│   ├── overrides.yaml   # CLI overrides
+│   └── hydra.yaml
+├── checkpoints/
+│   └── epoch=42-val_loss=0.17.ckpt
+└── wandb/
+    └── run-20260510_143211-abc123/</div>
+
+<h4>Always log the git SHA</h4>
+<pre><code class="language-python">import subprocess, wandb
+git_sha = subprocess.check_output(
+    ["git", "rev-parse", "--short", "HEAD"]
+).decode().strip()
+wandb.config["git_sha"] = git_sha</code></pre>
+<p>Combined with the policy in your repo's <code>CLAUDE.md</code> (record the <code>code/</code> commit SHA in the writing repo), this closes the reproducibility loop between thesis text and code.</p>
+
+<!-- ============================================================ -->
+<h2 id="rl">12. RL &amp; world-model specifics</h2>
+<p>This is the section most ML templates ignore — and it's exactly where your DreamerV3 work lives.</p>
+
+<div class="tree">src/
+├── agent/
+│   ├── world_model.py      # RSSM: encoder → posterior → prior → decoder/reward
+│   ├── actor_critic.py     # policy head + value head
+│   ├── dreamer.py          # ties WM + AC + imagination rollout
+│   └── losses.py           # KL balancing, free bits, λ-returns
+├── envs/
+│   ├── hm3d.py             # Habitat-sim wrapper → gym-style interface
+│   ├── wrappers.py         # frame stack, reward shaping, action repeat
+│   └── vec_env.py          # parallel environments
+├── replay/
+│   ├── buffer.py           # episodic; sample sequences not transitions
+│   └── prioritized.py      # optional
+├── training/
+│   ├── loop.py             # collect → train → imagine → update
+│   └── distributed.py      # actor/learner split if needed
+└── eval/
+    ├── rollout.py          # deterministic eval episodes
+    └── video.py            # save trajectory videos for the thesis</div>
+
+<h4>Replay buffers — the sneaky complexity</h4>
+<p>Dreamer-style world models sample <em>contiguous sequences</em> of length L (typically 16–64), not i.i.d. transitions. The standard <code>DataLoader</code> model breaks:</p>
+<pre><code class="language-python">class SequenceReplay:
+    def __init__(self, capacity: int, seq_len: int):
+        self.episodes: list[Episode] = []
+        self.seq_len = seq_len
+
+    def add(self, episode: Episode): ...
+
+    def sample(self, batch_size: int) -> dict[str, torch.Tensor]:
+        # pick batch_size episodes; random start index in each;
+        # return tensors of shape (batch_size, seq_len, ...)
+        ...</code></pre>
+<p>Wrap it in a thin iterable, not a <code>Dataset</code> — the buffer keeps growing as the agent collects.</p>
+
+<h4>The agent–environment loop</h4>
+<pre><code class="language-python">def train(cfg):
+    env    = make_env(cfg.env)
+    agent  = Dreamer(cfg.agent).to(cfg.device)
+    replay = SequenceReplay(cfg.replay.capacity, cfg.replay.seq_len)
+
+    obs, _ = env.reset(seed=cfg.seed)
+    for step in range(cfg.total_steps):
+        # 1. act
+        with torch.no_grad():
+            action = agent.act(obs)
+        next_obs, reward, term, trunc, _ = env.step(action)
+        replay.add_step(obs, action, reward, term)
+        obs = env.reset()[0] if (term or trunc) else next_obs
+
+        # 2. learn
+        if step >= cfg.warmup and step % cfg.train_every == 0:
+            batch = replay.sample(cfg.batch_size)
+            wm_metrics = agent.train_world_model(batch)
+            ac_metrics = agent.train_actor_critic(batch)
+            wandb.log({**wm_metrics, **ac_metrics}, step=step)</code></pre>
+<p>~200 lines of explicit loop code that a thesis reader can follow beats forcing this into <code>LightningModule.training_step</code> with <code>automatic_optimization=False</code>.</p>
+
+<!-- ============================================================ -->
+<h2 id="antipatterns">13. ML-specific anti-patterns to avoid</h2>
+<table>
+  <thead><tr><th>Anti-pattern</th><th>Why it hurts</th><th>Fix</th></tr></thead>
+  <tbody>
+    <tr><td>Giant <code>train.py</code> with everything inline</td><td>Untestable; every experiment forks the file</td><td>Split into data / model / train / eval modules</td></tr>
+    <tr><td>Hyperparameters as globals or argparse soup</td><td>Doesn't scale past ~20 flags; no composition; no snapshot</td><td>Hydra config groups</td></tr>
+    <tr><td>Notebooks as source of truth</td><td>Hidden state; awful diffs; can't run on cluster</td><td>Notebooks for exploration only; promote to <code>src/</code> once stable</td></tr>
+    <tr><td>Copy-pasted training loops per experiment (<code>train_vggt.py</code>, <code>train_unite.py</code>…)</td><td>Bug fixes have to be applied N times; behavior drifts</td><td>One <code>train.py</code>; configs differ</td></tr>
+    <tr><td>Hardcoded paths (<code>/home/luca/data/hm3d</code>)</td><td>Breaks on the cluster</td><td><code>conf/env/</code> group, <code>${oc.env:DATA_ROOT}</code> interpolation, gitignored <code>local.yaml</code></td></tr>
+    <tr><td>Loss inside <code>nn.Module.forward</code>; optimizer inside <code>__init__</code></td><td>Can't reuse model for inference; can't swap optimizer</td><td><code>nn.Module</code> is pure forward; loss/optimizer in the training layer</td></tr>
+    <tr><td>Logging via <code>print()</code></td><td>Lost on cluster; no levels; no structure</td><td><code>logging</code> module + W&amp;B for metrics</td></tr>
+    <tr><td>No lockfile</td><td>"Worked on my machine 3 months ago"</td><td>Commit <code>uv.lock</code></td></tr>
+    <tr><td>Checkpoints without config</td><td>Can't reload — you don't know the architecture</td><td>Hydra <code>.hydra/</code> next to every checkpoint, or <code>save_hyperparameters()</code></td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2 id="tldr">14. Cheat sheet — for the thesis refactor</h2>
+<ol>
+  <li><strong>src/ layout, regular packages, one <code>__init__.py</code> per directory.</strong> Boring and correct.</li>
+  <li><strong>Public API = what <code>__init__.py</code> re-exports.</strong> Everything else is internal (leading underscore is enough).</li>
+  <li><strong><code>Protocol</code> for "anything that quacks";</strong> <code>ABC</code> only when you truly need shared base behavior.</li>
+  <li><strong><code>@dataclass(slots=True, frozen=True)</code> for internal state, <code>pydantic.BaseModel</code> at the I/O boundary.</strong></li>
+  <li><strong>Pass dependencies as arguments. Wire them up once at the program edge.</strong> No globals.</li>
+  <li><strong>Hydra for experiment configs.</strong> One <code>train.py</code>; never copy-paste a training script.</li>
+  <li><strong>Registries (or Hydra <code>_target_</code>, not both)</strong> for swapping encoders via a single config string.</li>
+  <li><strong>Lightning for supervised perception; plain PyTorch for the DreamerV3 loop.</strong> Right call, not a smell.</li>
+  <li><strong>W&amp;B + git SHA + Hydra config snapshot + <code>uv.lock</code></strong> = reproducibility floor.</li>
+  <li><strong><code>uv</code> + <code>ruff</code> + <code>pyright</code> + <code>pytest</code> + <code>pre-commit</code></strong> — the 2025 baseline, all configured in one <code>pyproject.toml</code>.</li>
+</ol>
+
+<hr />
+<footer>
+  Sources: Python Packaging User Guide (src vs flat layout), PEP 420 (namespace packages), PEP 544 (Protocols), Hydra docs (hydra.cc), PyTorch Lightning docs (lightning.ai), pydantic-settings docs, ruff docs (astral.sh/ruff), uv docs (astral.sh/uv), <code>ashleve/lightning-hydra-template</code>, Cookiecutter Data Science, timm registry pattern, DreamerV3 reference repo (<code>danijar/dreamerv3</code>).
+</footer>
+
+</article>
+</main>
+</div>
+
+<!-- Prism core + language components -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-toml.min.js"></script>
+
+</body>
+</html>

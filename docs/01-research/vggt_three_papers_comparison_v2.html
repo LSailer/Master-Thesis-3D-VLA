@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VGGT Three-Papers Comparison — v2 — DreamerV3 + 3D Thesis</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters: [{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]})"></script>
+<style>
+:root{
+  --bg:#fdfdfa;
+  --fg:#1a1a1a;
+  --muted:#6b6b6b;
+  --accent:#1f5f8b;
+  --accent2:#7a3b2e;
+  --accent-soft:#e8f0f7;
+  --border:#e0ddd5;
+  --card:#ffffff;
+  --code-bg:#f4f1e8;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:'Charter','Iowan Old Style','Source Serif Pro',Georgia,serif;
+  font-size:16px;
+  line-height:1.65;
+}
+.container{max-width:1020px;margin:0 auto;padding:48px 32px 96px}
+h1,h2,h3,h4{font-family:'Helvetica Neue','Inter',system-ui,-apple-system,sans-serif;letter-spacing:-0.01em;line-height:1.25}
+h1{font-size:2.15em;margin-bottom:0.2em}
+h2{font-size:1.5em;margin-top:2.6em;padding-bottom:0.3em;border-bottom:2px solid var(--accent);color:var(--accent)}
+h3{font-size:1.18em;margin-top:1.8em;color:#222}
+h4{font-size:1em;margin-top:1.3em;color:var(--accent)}
+.subtitle{color:var(--muted);font-style:italic;margin-bottom:1.2em}
+.tldr{background:var(--accent-soft);border-left:4px solid var(--accent);padding:16px 22px;margin:24px 0;border-radius:4px}
+.tldr h3{margin-top:0;color:var(--accent)}
+.qa{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:18px 24px;margin:20px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+.qa .question{font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-weight:600;color:var(--accent);font-size:1.05em;margin:0 0 8px}
+.qa .verdict{display:inline-block;font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-size:0.78em;padding:3px 9px;border-radius:11px;font-weight:600;letter-spacing:0.03em;margin-bottom:8px}
+.verdict.no{background:#fbe7e3;color:#8a2e22}
+.verdict.yes{background:#dceedd;color:#3d6b3d}
+.verdict.partly{background:#fff0d6;color:#8c6e10}
+.verdict.fix{background:#fbe7e3;color:#8a2e22}
+.paper-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:22px 28px;margin:24px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+.paper-card .meta{font-family:'SF Mono',Menlo,monospace;font-size:0.85em;color:var(--muted);margin-bottom:14px}
+.arxiv{display:inline-block;background:#b31b1b;color:white;padding:2px 9px;border-radius:3px;font-weight:600;font-family:'SF Mono',Menlo,monospace;font-size:0.85em;margin-right:8px;text-decoration:none}
+.arxiv:hover{background:#8a1414}
+table{border-collapse:collapse;width:100%;margin:16px 0 24px;font-size:0.93em}
+th,td{border:1px solid var(--border);padding:10px 13px;text-align:left;vertical-align:top}
+th{background:var(--accent-soft);color:var(--accent);font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-weight:600;font-size:0.86em;letter-spacing:0.03em;text-transform:uppercase}
+tr:nth-child(even) td{background:#fafaf6}
+code{background:var(--code-bg);padding:2px 6px;border-radius:3px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.88em}
+pre{background:var(--code-bg);padding:14px 18px;border-radius:4px;overflow-x:auto;font-size:0.84em;line-height:1.55}
+.warn{background:#fff8e6;border-left:4px solid #d4a017;padding:12px 18px;margin:16px 0;border-radius:3px}
+.diff{background:#fef0ee;border-left:4px solid #b34a3b;padding:12px 18px;margin:16px 0;border-radius:3px}
+.fit{background:#ecf6ee;border-left:4px solid #4a7a4a;padding:12px 18px;margin:16px 0;border-radius:3px}
+.fit h4,.warn h4,.diff h4{margin-top:0}
+.context{background:#eef0f3;border-left:4px solid #4d5a6c;padding:12px 18px;margin:16px 0;border-radius:3px}
+ul,ol{padding-left:1.6em}
+li{margin-bottom:0.35em}
+.toc{background:#f7f5ee;padding:14px 24px;border-radius:6px;margin:24px 0;font-size:0.94em}
+.toc ol{margin:6px 0 0;padding-left:1.6em}
+.toc a{color:var(--accent);text-decoration:none}
+.toc a:hover{text-decoration:underline}
+a{color:var(--accent)}
+hr{border:0;border-top:1px solid var(--border);margin:36px 0}
+.tag{display:inline-block;font-size:0.76em;padding:2px 8px;border-radius:10px;background:var(--accent-soft);color:var(--accent);margin-right:4px;font-family:'Helvetica Neue','Inter',system-ui,sans-serif}
+.tag.warn-tag{background:#fff0d6;color:#8c6e10}
+.tag.good-tag{background:#dceedd;color:#3d6b3d}
+.tag.v2{background:#7a3b2e;color:#fff}
+footer{color:var(--muted);font-size:0.85em;margin-top:64px;text-align:center;border-top:1px solid var(--border);padding-top:24px}
+.callout-key{font-family:'Helvetica Neue','Inter',system-ui,sans-serif;font-size:0.95em;color:var(--accent2);font-weight:600;margin-top:1em}
+.draft-latex{background:#1f1f1f;color:#e6e6e6;padding:18px 22px;border-radius:6px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:0.83em;line-height:1.6;overflow-x:auto;margin:14px 0}
+.draft-latex .cmd{color:#7fb3ff}
+.draft-latex .arg{color:#ffe08a}
+.draft-latex .comment{color:#8a8a8a;font-style:italic}
+blockquote{margin:0;padding:8px 18px;border-left:3px solid var(--border);color:#444;font-size:0.95em;font-style:italic}
+.path{font-family:'SF Mono',Menlo,monospace;font-size:0.86em;color:var(--accent2);background:#fbf6e9;padding:1px 6px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>📚 VGGT Three-Papers Comparison <span class="tag v2">v2</span></h1>
+<p class="subtitle">VGGT-World &middot; MG-Nav &middot; VGGT-DP — corrections, code-level diffs, and drop-in LaTeX paragraphs for <code>Related work.tex</code></p>
+<p class="meta" style="font-family:'SF Mono',Menlo,monospace;font-size:0.85em;color:#888">v2 written 2026-05-09 &middot; verified against arXiv 2603.12655, 2511.22609, 2509.18778 and your local repo</p>
+
+<div class="context">
+<strong>📝 Thesis context (carried forward):</strong>
+DreamerV3 + 3D features (StreamVGGT in code, InfiniteVGGT in writing) on <strong>HM3D ObjectNav v2</strong>. <strong>Simulation only — no real robot.</strong> The agent currently receives only egocentric RGB plus an <code>is_first</code> flag; the goal category is in episode metadata but never piped to the agent. Reward is dense geodesic delta + sparse success bonus.
+</div>
+
+<div class="tldr">
+<h3>🎯 v2 quick takeaways</h3>
+<ul>
+<li><strong>"1024 + 5" is a VGGT-World pattern, not an MG-Nav pattern.</strong> MG-Nav spatially average-pools VGGT feature maps and discards the camera + register tokens entirely.</li>
+<li><strong>VGGT-World does <em>not</em> condition on camera positions.</strong> It conditions only on previously-rolled-out latent chunks (Eq. 2). Camera trajectory is a <em>side-effect</em> of predicting the camera-token slot, not an input.</li>
+<li><strong>VGGT-DP pools across all views <em>jointly</em>.</strong> The output is a <em>single</em> $d{=}64$ vector per timestep — not per-view. Camera token is averaged together with patch tokens.</li>
+<li><strong>VGGT-DP's FiLM is unspecified in the paper</strong> beyond a citation to Perez et al. 2018 — they inherit the standard Diffusion Policy U-Net design.</li>
+<li><strong>Switching ObjectNav → InstanceImageNav</strong> in your repo touches 4 files; no goal-encoder branch exists yet.</li>
+<li><strong>Drop-in LaTeX paragraphs + BibTeX entries</strong> for the three papers are in <a href="#integration">§5</a>, matched to your <code>splncs04</code> + <code>{author}_{key}_{year}</code> conventions.</li>
+</ul>
+</div>
+
+<div class="toc">
+<strong>Contents</strong>
+<ol>
+<li><a href="#answers">Direct answers to your seven questions</a></li>
+<li><a href="#camera-1024">Where the "1024" lives — and whether the camera is in it</a></li>
+<li><a href="#objectnav-vs-image">ObjectNav → InstanceImageNav: code-level diff in your repo</a></li>
+<li><a href="#compare">Updated side-by-side table (with corrections)</a></li>
+<li><a href="#integration">Integration into your writing repo (drop-in LaTeX + BibTeX)</a></li>
+<li><a href="#sources">Sources</a></li>
+</ol>
+</div>
+
+<h2 id="answers">1. 🔍 Direct answers to your seven questions</h2>
+
+<!-- Q1 -->
+<div class="qa">
+<p class="question">Q1. How does VGGT-World use camera positions?</p>
+<span class="verdict no">It doesn't take them as input.</span>
+<p>VGGT-World is <strong>action-free and pose-free</strong>. The flow transformer $F_\theta$ is conditioned only on previously-rolled-out latent chunks (Eq. 2 of the paper):</p>
+<p>$$\mathbf{c}_i = (\mathbf{Z}_{i-k},\ldots,\mathbf{Z}_{i-1})$$</p>
+<p>No extrinsics, no ego-motion deltas, no viewpoint embeddings are concatenated. What <em>does</em> happen with the camera:</p>
+<ul>
+<li>The <strong>camera token</strong> (one of the 5 special tokens at $d=1024$, layer 4 of the aggregator) rides along with patch + register tokens — the flow transformer treats it indistinguishably and predicts its future values jointly with everything else.</li>
+<li>At decode time the predicted camera-token slot is passed through VGGT's <strong>frozen camera head</strong>, which yields predicted future camera parameters.</li>
+<li>This is how their ATE/RTE/RRE numbers are produced (Sec. 4.3): <em>"we predict camera parameters from the generated VGGT features and compare them against ground truth trajectories."</em> So camera trajectory is a <strong>prediction target evaluated as a side-effect</strong>, not a control input.</li>
+<li>The authors flag this in Appendix 0.D as a known limitation: <em>"this minimal conditioning limits the degree of precise control over the generation process."</em></li>
+</ul>
+<p class="callout-key">Implication for your DreamerV3 use: VGGT-World can't be plugged in as a controllable world model. Your RSSM already does action conditioning — that's exactly the gap they leave open.</p>
+</div>
+
+<!-- Q2 -->
+<div class="qa">
+<p class="question">Q2. "I understand that MG-Nav uses the 1024 + 5 dimensions from VGGT" — is this correct?</p>
+<span class="verdict fix">No — that's VGGT-World, not MG-Nav.</span>
+<p>You're conflating the two papers. Here's the disentangling:</p>
+<table>
+<thead><tr><th>Pattern</th><th>What it means</th><th>Which paper actually does this</th></tr></thead>
+<tbody>
+<tr><td><strong>$N_p + 5$ tokens at $d=1024$</strong> per frame</td><td>The full bundle: patch tokens + 1 camera token + 4 register tokens, kept as a sequence</td><td><strong>VGGT-World only.</strong> They tap layer 4 of the aggregator and keep all $N_p+5$ tokens.</td></tr>
+<tr><td><strong>Spatial-average-pooled feature map</strong></td><td>VGGT's patch grid pooled to a smaller grid, flattened to a short token sequence</td><td><strong>MG-Nav.</strong> Camera and register tokens are <em>not</em> included.</td></tr>
+<tr><td><strong>Single $d{=}64$ vector after pooling + MLP</strong></td><td>One scalar-equivalent condition per frame, joint over views and tokens</td><td><strong>VGGT-DP.</strong> Includes the camera token in the average but pools it away.</td></tr>
+</tbody>
+</table>
+<p>MG-Nav §3.4.1 verbatim: <em>"we use VGGT to extract geometry-aware feature maps from both the current observation $\mathbf{I}_\mathrm{obs}$ and the visual goal $\mathbf{I}_\mathrm{goal}$. After applying spatial average pooling, the resulting feature maps are flattened into token sequences $\mathbf{F}^G_\mathrm{obs}$ and $\mathbf{F}^G_\mathrm{goal}$."</em></p>
+<p>The exact post-pool grid size is <strong>not stated in the v1 paper</strong> — the appendix is referenced but missing from the arXiv release. So we know the operation, not the dimensions.</p>
+</div>
+
+<!-- Q3 -->
+<div class="qa">
+<p class="question">Q3. Does MG-Nav use mean pool for VGGT?</p>
+<span class="verdict yes">Yes — explicitly "spatial average pooling".</span>
+<p>The paper uses the verbatim phrase <em>"spatial average pooling"</em> in §3.4.1. No formula is given. The natural interpretation given the wording <em>"feature maps … flattened into token sequences"</em> is:</p>
+<ol>
+<li>Take the $N_p$ patch tokens of dim 1024.</li>
+<li>Reshape them to the 2D patch grid (e.g., $H_p \times W_p \times 1024$).</li>
+<li>Apply spatial average pooling to a smaller grid (e.g., $7\times7\times1024$).</li>
+<li>Flatten that smaller grid back to a token sequence (e.g., $49 \times 1024$).</li>
+</ol>
+<p>So pooling reduces <em>spatial</em> resolution but probably preserves the channel dim. <strong>Camera and register tokens have no spatial layout</strong>, so they cannot be "spatially pooled" — they're effectively dropped. This is consistent with the paper never mentioning them.</p>
+</div>
+
+<!-- Q4 -->
+<div class="qa">
+<p class="question">Q4. How does VGGT-DP use FiLM conditioning?</p>
+<span class="verdict partly">Inherited from standard DP — paper does not detail it.</span>
+<p>VGGT-DP says only:</p>
+<blockquote>"The U-Net backbone uses a downsampling structure with channel dimensions and applies FiLM (Perez et al. 2018) conditioning for integrating observation features."</blockquote>
+<p>So they cite Perez et al. (2018) for the formulation and Chi et al. (2023, the Diffusion Policy paper) for the U-Net-1D, but <strong>do not specify</strong>:</p>
+<ul>
+<li>which ResBlocks or depths get FiLM,</li>
+<li>which sub-network produces the affine parameters $\gamma$ and $\beta$,</li>
+<li>whether the timestep embedding is fused with the VGGT condition or kept separate.</li>
+</ul>
+<p>The standard Diffusion Policy reference design (which they almost certainly inherit) is:</p>
+<p>$$\mathrm{FiLM}(x \mid \gamma,\beta) = \gamma \odot x + \beta,\qquad \gamma,\beta = \mathrm{MLP}\bigl(\mathrm{concat}(\mathcal{C},\, \mathrm{TimestepEmb}(t))\bigr)$$</p>
+<p>applied at every ResBlock of the 1D U-Net. The condition vector $\mathcal{C} \in \mathbb{R}^{d_c}$ has <strong>$d_c = 64$</strong> per their Implementation Details (<em>"the encoder outputs a feature vector of dimension 64"</em>). That 64-dim vector is the entire VGGT-derived signal injected into the policy — surprisingly compressed.</p>
+</div>
+
+<!-- Q5 -->
+<div class="qa">
+<p class="question">Q5. How does VGGT-DP get a pooled vector per view?</p>
+<span class="verdict fix">It doesn't — it's pooled across <em>all</em> views jointly.</span>
+<p>This is the part of v1 that needed the most correction. The paper's exact pipeline (§ "VGGT as the Feature Projector"):</p>
+<ol>
+<li><strong>VGGT aggregator output:</strong> $\mathcal{T}_\mathrm{vggt} = \mathrm{VGGT}_\mathrm{agg}(\mathcal{I}) \in \mathbb{R}^{B\cdot T\,\times\,V\,\times\,(N_p+1)\,\times\,D}$. The $+1$ is the camera token.</li>
+<li><strong>Reshape</strong> the $V \cdot (N_p+1)$ tokens into a single sequence axis.</li>
+<li><strong>Transformer encoder</strong> (cross-view, intra-frame, <em>not</em> temporal) over that sequence: $\mathcal{T}_\mathrm{proj} = \mathrm{TransformerEnc}(\mathcal{T}_\mathrm{vggt})$.</li>
+<li><strong>Average pool</strong> over the joint $V \cdot (N_p+1)$ axis:</li>
+</ol>
+<p>$$\bar{\mathcal{T}} = \frac{1}{V\cdot(N_p+1)} \sum_{i=1}^{V\cdot(N_p+1)} \mathcal{T}_\mathrm{proj}[:,i,:] \in \mathbb{R}^{B\cdot T\,\times\,D}$$</p>
+<p>The pool sums over <em>both</em> views and tokens — there's no per-view bottleneck. Then $\mathcal{C} = \mathrm{MLP}(\bar{\mathcal{T}}) \in \mathbb{R}^{B\cdot T\,\times\,d_c}$ with $d_c = 64$.</p>
+<p>So the diffusion policy sees <strong>one 64-dim vector per timestep</strong>, condensing all VGGT tokens from all cameras at that frame. The paper does not state the number of views $V$ used.</p>
+</div>
+
+<!-- Q6 -->
+<div class="qa">
+<p class="question">Q6. Does the 1024 include the camera?</p>
+<span class="verdict yes">Each token (patch, camera, register) is itself a 1024-dim vector. The camera <em>token</em> is <em>one of</em> those 1024-dim vectors.</span>
+<p>A short table to keep this straight:</p>
+<table>
+<thead><tr><th>Concept</th><th>Shape</th><th>What it represents</th></tr></thead>
+<tbody>
+<tr><td>One patch token</td><td>$\mathbb{R}^{1024}$</td><td>One image patch's features after the aggregator</td></tr>
+<tr><td>Camera token</td><td>$\mathbb{R}^{1024}$</td><td>A single special token decoded by the camera head into pose</td></tr>
+<tr><td>Register tokens (×4)</td><td>$\mathbb{R}^{1024}$ each</td><td>Auxiliary tokens (1 used for register attention sinks, 3 reserved)</td></tr>
+<tr><td>Per-frame token bundle</td><td>$\mathbb{R}^{(N_p+5)\times 1024}$</td><td>Patches + camera + 4 registers, all in $d=1024$</td></tr>
+</tbody>
+</table>
+<p>So "1024" is the <em>token width</em>. Whether the <em>camera token</em> is included in the downstream representation depends on the paper:</p>
+<ul>
+<li><strong>VGGT-World</strong>: yes, kept as part of the $N_p+5$ token bundle, treated indistinguishably from patch tokens by the flow transformer.</li>
+<li><strong>VGGT-DP</strong>: yes — the $+1$ in $(N_p+1)$ is the camera token, and it gets averaged into the final 64-dim condition.</li>
+<li><strong>MG-Nav</strong>: no — only spatial patch tokens are pooled; camera and registers are dropped.</li>
+<li><strong>Your pipeline</strong>: not directly. You feed the <em>decoded</em> <code>camera_pose</code> (9-dim from the camera head) instead of the raw camera token.</li>
+</ul>
+</div>
+
+<!-- Q7 -->
+<div class="qa">
+<p class="question">Q7. What does switching to InstanceImageNav change in your code? (You said the agent currently has no goal.)</p>
+<span class="verdict partly">Confirmed: the agent has no goal. Switching is a 4-file change with no existing scaffolding.</span>
+<p>I verified your claim against the repo. <strong>It is exactly true</strong>: the agent receives <em>no</em> goal information.</p>
+<ul>
+<li>Habitat config: <span class="path">modules/envs/habitat.py:99</span> uses <code>habitat.get_config("benchmark/nav/objectnav/objectnav_hm3d.yaml")</code>.</li>
+<li>Habitat <em>does</em> have <code>current_episode.object_category</code> in episode metadata (<span class="path">habitat.py:143</span>) but it is never read into the observation dict.</li>
+<li>The agent's observation keys are only <code>{"image", "is_first", "reward", "done", "success", "spl"}</code> (<span class="path">habitat.py:235–242</span>).</li>
+<li>So today's task is effectively <strong>category-implicit ObjectNav</strong>: the reward shapes the geodesic distance to the goal, but the agent has to <em>infer</em> from rollout statistics what category to look for. This is closer to a coverage/exploration task than canonical ObjectNav.</li>
+</ul>
+
+<p>Switching to <strong>InstanceImageNav</strong> (a category-image-conditioned task closer to MG-Nav's setup) requires changes in four places:</p>
+<table>
+<thead><tr><th>#</th><th>File</th><th>Change</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><span class="path">modules/r2dreamer/launch/habitat_setup.py:11–30</span></td><td>Swap config path to <code>benchmark/nav/instanceimagenav/instanceimagenav_hm3d.yaml</code> (or the equivalent v2 yaml) and update the dataset path in <span class="path">modules/envs/habitat.py:18</span>.</td></tr>
+<tr><td>2</td><td><span class="path">modules/envs/habitat.py</span> (<code>_obs_to_image</code> + step return)</td><td>Habitat will now provide <code>obs["instance_imagegoal"]</code> (uint8 RGB). Add this to the observation dict alongside <code>obs["image"]</code>.</td></tr>
+<tr><td>3</td><td><span class="path">modules/r2dreamer/adapters/vggt_adapter.py</span> (and the JAX twin)</td><td>Run VGGT on <em>both</em> the obs RGB and the goal RGB. Either: (a) call VGGT once per image and concat the two feature vectors (mirrors MG-Nav's <code>[F^G_obs | F^G_goal]</code> idea), or (b) feed both as a 2-frame multi-view batch and let the global attention layers cross-attend (mirrors VGGT-DP's $V$-axis design).</td></tr>
+<tr><td>4</td><td><span class="path">modules/r2dreamer/networks.py</span> (RSSM obs head)</td><td>Increase the obs-encoder input dim to handle the doubled feature, or add a small fusion head before the linear projection at <span class="path">networks.py:480–491</span>.</td></tr>
+</tbody>
+</table>
+
+<p class="callout-key">Practical note: there is currently no image-goal branch anywhere in the repo. <code>VGGTFiLMEncoderV1</code> at <span class="path">encoders.py:42</span> hints at FiLM-style fusion but operates only on stacked frames, not on a separate goal image. So you'd be writing the goal-fusion module from scratch.</p>
+
+<div class="warn">
+<h4>⚠️ Strategic question worth deciding before refactoring</h4>
+<p>If you stay on ObjectNav, the cleanest fix is to pipe <code>object_category</code> as a one-hot or learned-embedding, then concat it to the RSSM obs encoder input (a 2-line change). Switching all the way to InstanceImageNav is a larger commitment that puts you in direct comparison with MG-Nav, GaussNav, FGPrompt, and similar — i.e. a different SotA table. Make sure your contribution narrative matches the chosen task.</p>
+</div>
+</div>
+
+<hr>
+
+<h2 id="camera-1024">2. 🎥 Where the "1024" lives — and whether the camera is in it</h2>
+
+<p>One picture in words. After VGGT's aggregator, every frame is encoded as:</p>
+<pre>per-frame output  =  [ patch_1, patch_2, ..., patch_{N_p}, camera_tok, reg_1, reg_2, reg_3, reg_4 ]
+                       └─────────────────────────────────────────────────────────────────────┘
+                                       (N_p + 5) tokens, each ∈ R^1024</pre>
+
+<p>From this same starting point, the four works diverge sharply:</p>
+
+<pre>VGGT-World     →  keep all (N_p + 5) tokens at layer 4   →  flow transformer over them
+MG-Nav         →  spatial-pool patch tokens only         →  short token sequence (camera/reg dropped)
+VGGT-DP        →  Transformer + avg-pool over V·(N_p+1)  →  single 64-dim FiLM condition
+Your pipeline  →  ignore tokens, take DPT-decoded outputs →  4116-dim flat (world_points + cam_pose)</pre>
+
+<p class="callout-key">All three published works keep the encoder side; you keep the decoded side. That makes your method <em>structurally distinct</em> from the entire concurrent literature — a feature, if you frame it right.</p>
+
+<hr>
+
+<h2 id="objectnav-vs-image">3. 🎯 ObjectNav vs InstanceImageNav, in code</h2>
+
+<table>
+<thead>
+<tr><th>Property</th><th>ObjectNav (your current task)</th><th>InstanceImageNav (MG-Nav's task)</th></tr>
+</thead>
+<tbody>
+<tr><td>Goal type</td><td>Category string ("chair", "bed", "tv")</td><td>RGB image of the specific instance to find</td></tr>
+<tr><td>Goal shape in <code>obs</code></td><td><code>obs["objectgoal"] : int64</code></td><td><code>obs["instance_imagegoal"] : uint8 (H, W, 3)</code></td></tr>
+<tr><td>Goal handling cost</td><td>Cheap: 1 embedding lookup, then concat to encoder input</td><td>Expensive: another visual encoder pass per step (or batched once at episode start)</td></tr>
+<tr><td>Habitat YAML</td><td><code>benchmark/nav/objectnav/objectnav_hm3d.yaml</code></td><td><code>benchmark/nav/instance_imagenav/instance_imagenav_hm3d.yaml</code></td></tr>
+<tr><td>HM3D dataset split</td><td>HM3D-Semantics v0.2 (objectnav)</td><td>HM3D Instance-ImageNav split (separate JSONs)</td></tr>
+<tr><td>Success criterion</td><td>Geodesic distance to <em>any</em> instance of the category &lt; 1.0 m + agent looking at it</td><td>Geodesic distance to the <em>specific</em> instance &lt; 1.0 m + agent looking at it</td></tr>
+<tr><td>Comparable SotA</td><td>SemExp, ZSON, OVRL-V2, VLFM, PEANUT</td><td>OVRL, FGPrompt, GaussNav, MG-Nav</td></tr>
+<tr><td>Fits VGGT story?</td><td>Indirect — geometry helps but goal is symbolic</td><td>Direct — both obs and goal are images, both go through VGGT</td></tr>
+</tbody>
+</table>
+
+<div class="fit">
+<h4>🟢 If VGGT is your selling point, InstanceImageNav is a more natural task</h4>
+<p>InstanceImageNav lets you feed obs <em>and</em> goal through the same 3D encoder, exploiting cross-image attention naturally. ObjectNav forces a hybrid (image + category embedding), which weakens the "VGGT is the right encoder" argument because part of the conditioning never touches VGGT.</p>
+<p>That said: if your contribution is <strong>world-model-based ObjectNav</strong> (à la DreamerNav / WMNav comparison), staying on ObjectNav and adding a category embedding is the smaller commitment.</p>
+</div>
+
+<hr>
+
+<h2 id="compare">4. 📊 Updated side-by-side comparison (with v1 corrections)</h2>
+
+<table>
+<thead>
+<tr>
+<th>Axis</th>
+<th>VGGT-World</th>
+<th>MG-Nav</th>
+<th>VGGT-DP</th>
+<th>Your pipeline</th>
+</tr>
+</thead>
+<tbody>
+<tr><td>arXiv</td><td>2603.12655</td><td>2511.22609</td><td>2509.18778</td><td>—</td></tr>
+<tr><td>Domain</td><td>Geometry forecasting</td><td>HM3D / MP3D ImageNav</td><td>MetaWorld manipulation</td><td>HM3D ObjectNav (sim only)</td></tr>
+<tr><td><strong>VGGT entry</strong></td><td>Layer-4 aggregator: $(N_p+5)\times 1024$ <em>full bundle</em></td><td>Spatial-avg-pooled patch grid → flattened tokens</td><td>Aggregator $(N_p+1)\times 1024$ → Transformer → joint avg-pool over $V\cdot(N_p+1)$ → MLP → $\mathbb{R}^{64}$</td><td>DPT-decoded <code>world_points</code> (37×37×3) + <code>camera_pose</code> (9) → 4116-dim flat</td></tr>
+<tr><td>Camera token included?</td><td>✅ Yes (rides along, decoded as side-effect)</td><td>❌ No (only spatial patches)</td><td>✅ Yes ($+1$ in $(N_p+1)$, averaged with patches)</td><td>Indirect — decoded pose only</td></tr>
+<tr><td>Register tokens included?</td><td>✅ Yes (4 of them, in the bundle)</td><td>❌ No</td><td>❌ No (only $+1$, the camera token)</td><td>❌ No</td></tr>
+<tr><td>Pooling op</td><td>None (full sequence)</td><td>Spatial average pooling</td><td>Average over $V\cdot(N_p+1)$ axis</td><td>Adaptive average pooling on point map</td></tr>
+<tr><td>Output dim per frame fed downstream</td><td>$(N_p+5)\times 1024$</td><td>(small grid)$\times 1024$ (exact size unstated)</td><td>$\mathbb{R}^{64}$</td><td>$\mathbb{R}^{4116}$</td></tr>
+<tr><td>Action conditioning</td><td>None (Eq. 2: prior latents only)</td><td>Symbolic A* planner over SMG</td><td>Diffusion policy on $\Delta$EE-pose</td><td>DreamerV3 actor on RSSM latent</td></tr>
+<tr><td>Camera as input?</td><td>No</td><td>No</td><td>No</td><td>Yes (decoded <code>camera_pose</code> in input vector)</td></tr>
+<tr><td>VGGT trainable?</td><td>Frozen</td><td>Frozen</td><td>Frozen (implicit)</td><td>Frozen</td></tr>
+<tr><td>FiLM?</td><td>—</td><td>—</td><td>Yes — std DP design (Perez 2018), $d_c=64$</td><td>FiLMEncoder hint exists but unused for goals</td></tr>
+<tr><td>Real robot?</td><td>—</td><td>No (sim only)</td><td>No (sim only)</td><td><strong>No (sim only)</strong></td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="integration">5. 🎓 Integration into your writing repo</h2>
+
+<p>Your repo: <span class="path">/Users/lucamac/Coding/Writing/master-thesis/</span>. LaTeX with <code>splncs04</code>. Citation key style: <code>{author_lastname}_{method_acronym_or_noun}_{year}</code>. <code>references.bib</code> already has the VGGT family (<code>wang_vggt_nodate</code>, <code>zheng_wzzhengstreamvggt_2026</code>, <code>yuan_infinitevggt_2026</code>, <code>shen_fastvggt_2025</code>, <code>gelencser-horvath_scenevggt_2026</code>, <code>koch_unified_2025</code>).</p>
+
+<h3>5.1 BibTeX entries (add to <code>references.bib</code>)</h3>
+
+<pre>@misc{sun_vggt-world_2026,
+  title = {{VGGT-World}: {Transforming} {VGGT} into an {Autoregressive} {Geometry} {World} {Model}},
+  shorttitle = {{VGGT-World}},
+  url = {http://arxiv.org/abs/2603.12655},
+  doi = {10.48550/arXiv.2603.12655},
+  author = {Sun, Xiangyu and Wang, Shijie and Zhang, Fengyi and Liu, Lin
+            and Jia, Caiyan and Song, Ziying and Huang, Zi and Luo, Yadan},
+  year = {2026},
+  note = {arXiv:2603.12655 [cs.CV]}
+}
+
+@misc{wang_mg-nav_2025,
+  title = {{MG-Nav}: {Dual-Scale} {Visual} {Navigation} via {Sparse} {Spatial} {Memory}},
+  shorttitle = {{MG-Nav}},
+  url = {http://arxiv.org/abs/2511.22609},
+  doi = {10.48550/arXiv.2511.22609},
+  author = {Wang, Bo and Lin, Jiehong and Liu, Chenzhi and Hu, Xinting
+            and Yu, Yifei and Liu, Tianjia and Wang, Zhongrui and Qi, Xiaojuan},
+  year = {2025},
+  note = {arXiv:2511.22609 [cs.CV]}
+}
+
+@misc{ge_vggt-dp_2025,
+  title = {{VGGT-DP}: {Generalizable} {Robot} {Control} via {Vision} {Foundation} {Models}},
+  shorttitle = {{VGGT-DP}},
+  url = {http://arxiv.org/abs/2509.18778},
+  doi = {10.48550/arXiv.2509.18778},
+  author = {Ge, Shijia and Zhang, Yinxin and Xie, Shuzhao
+            and Zhang, Weixiang and Zhou, Mingcai and Wang, Zhi},
+  year = {2025},
+  note = {arXiv:2509.18778 [cs.RO]}
+}</pre>
+
+<h3>5.2 VGGT-World — drop into <code>Related work.tex</code></h3>
+<p>📍 <strong>Placement</strong>: section <em>"World Models for Object Navigation"</em>, after the DreamerNav / WMNav discussion at <span class="path">Related work.tex:259</span>. Tone matches your existing third-person, contrastive style.</p>
+
+<pre>\paragraph{Geometry-aware autoregressive world models.}
+A concurrent line of work explores world modeling directly on top of
+3D foundation models. \cite{sun_vggt-world_2026} introduce VGGT-World,
+which taps the fourth layer of VGGT's aggregator and treats the resulting
+$(N_p+5)\times 1024$ token bundle---spatial patch tokens together with
+the camera and register tokens---as a geometry latent state. A
+flow-matching transformer is trained autoregressively to forecast future
+token chunks, and the remaining frozen aggregator blocks together with
+the original DPT heads decode the predicted latents back into depth and
+point clouds. In contrast to our method, VGGT-World is action-free: its
+flow transformer conditions only on previously rolled-out latent chunks,
+and camera trajectories emerge as a side-effect of predicting the
+camera-token slot rather than as a controllable input. While they
+report that future-prediction training improves present-frame
+reconstruction, the absence of action conditioning leaves embodied
+control as future work, which our DreamerV3-based formulation directly
+addresses.</pre>
+
+<h3>5.3 MG-Nav — drop into <code>Related work.tex</code></h3>
+<p>📍 <strong>Placement</strong>: section <em>"State of the Art"</em>, around <span class="path">Related work.tex:232</span>, in the supervised vs. zero-shot contrast.</p>
+
+<pre>\paragraph{Geometry-augmented topological navigation.}
+\cite{wang_mg-nav_2025} propose MG-Nav, a dual-scale visual navigator
+that combines a hand-built Sparse Memory Graph (SMG) of region-centric
+nodes with a frozen Navigation Diffusion Policy. They use VGGT only
+as a feature extractor: per-image feature maps are spatially average
+pooled and flattened, and a small MLP projects the concatenation
+$[\mathbf{F}^G_{\mathrm{obs}} \mid \mathbf{F}^G_{\mathrm{goal}}]$ into
+the policy's embedding space. Camera and register tokens, depth maps,
+and point maps are all discarded. On HM3D InstanceImageNav, the
+VGGT adapter contributes $+4.5$\,SR atop the SMG-augmented baseline,
+while the SMG itself contributes $+49$\,SR over the bare policy.
+The dominant source of improvement is therefore the topological
+prior, not the geometric encoder. Our method differs in two
+respects: we operate online without precomputed graphs, and we feed
+VGGT's decoded geometry into a learned latent world model rather
+than pooling encoder activations through a small adapter.</pre>
+
+<h3>5.4 VGGT-DP — drop into <code>Related work.tex</code></h3>
+<p>📍 <strong>Placement</strong>: <strong>new subsection</strong> at <span class="path">Related work.tex:34</span>, before <em>"World Models"</em>. The current draft has no diffusion-policy coverage, so this also closes a gap.</p>
+
+<pre>\subsection{Vision-Conditioned Policies}
+\label{sec:vision-conditioned-policies}
+
+A complementary line of work bypasses world-model learning entirely
+and instead conditions a behavior-cloning policy on a frozen vision
+encoder. Diffusion policies~\cite{chi_dp_2023, ze_dp3_2024} use a
+1D U-Net denoiser to predict short action chunks from the recent
+observation window, with image features injected via FiLM
+conditioning~\cite{perez_film_2018}. \cite{ge_vggt-dp_2025} replace
+the standard ResNet encoder with VGGT: per-frame aggregator tokens
+including the camera token are passed through a small Transformer,
+average pooled jointly across views and tokens to a single
+$d{=}64$ vector, and FiLM conditioned into the U-Net. They evaluate
+on MetaWorld with ten demonstrations per task and report wins
+on five of ten tasks against Diffusion Policy and DP3, but observe
+a sharp viewpoint-OOD failure: success drops from $39\%$ at the
+training viewpoint to $0\%$ under a $10^\circ$ camera perturbation.
+This brittleness, despite VGGT's geometric pretraining, motivates
+our choice to retain the spatial token structure inside a
+recurrent latent world model rather than collapse it to a single
+condition vector, and to evaluate viewpoint robustness explicitly
+in our experiments.</pre>
+
+<h3>5.5 Optional: experiments-section sentence on simulation scope</h3>
+<p>📍 Useful in <code>Experiments.tex</code> early in the chapter:</p>
+<pre>All experiments in this thesis are conducted in simulation only,
+in the Habitat~\cite{savva_habitat_2019} environment on HM3D
+scenes~\cite{ramakrishnan_habitat-matterport_2021}; no real-robot
+deployment is performed. This is consistent with concurrent
+VGGT-derivative work in navigation~\cite{wang_mg-nav_2025} and
+manipulation~\cite{ge_vggt-dp_2025}, which also report
+simulation-only results.</pre>
+
+<h3>5.6 Bibtex you may also need (if not already in file)</h3>
+<pre>@inproceedings{chi_dp_2023,
+  title = {Diffusion {Policy}: {Visuomotor} {Policy} {Learning} via
+           {Action} {Diffusion}},
+  author = {Chi, Cheng and Feng, Siyuan and Du, Yilun and Xu, Zhenjia
+            and Cousineau, Eric and Burchfiel, Benjamin and Song, Shuran},
+  booktitle = {Robotics: {Science} and {Systems}},
+  year = {2023}
+}
+
+@inproceedings{ze_dp3_2024,
+  title = {{3D} {Diffusion} {Policy}: {Generalizable} {Visuomotor}
+           {Policy} {Learning} via {Simple} {3D} {Representations}},
+  author = {Ze, Yanjie and Zhang, Gu and Zhang, Kangning and Hu, Chenyuan
+            and Wang, Muhan and Xu, Huazhe},
+  booktitle = {Robotics: {Science} and {Systems}},
+  year = {2024}
+}
+
+@inproceedings{perez_film_2018,
+  title = {{FiLM}: {Visual} {Reasoning} with a {General} {Conditioning}
+           {Layer}},
+  author = {Perez, Ethan and Strub, Florian and de Vries, Harm
+            and Dumoulin, Vincent and Courville, Aaron},
+  booktitle = {AAAI},
+  year = {2018}
+}</pre>
+
+<div class="warn">
+<h4>⚠️ Heads-up: a small inconsistency between code and writing</h4>
+<p>Your <code>Method.tex</code> says you adopt <strong>InfiniteVGGT</strong> as the 3D encoder, but your code (<span class="path">modules/vggt/feature_extractor.py:34</span>) actually loads <strong>StreamVGGT</strong> from <code>lch01/StreamVGGT</code>. Either reconcile the two or note the planned switch explicitly. Worth fixing before submission — referees notice.</p>
+</div>
+
+<hr>
+
+<h2 id="sources">6. 📑 Sources</h2>
+<ul>
+<li>VGGT-World — <a href="https://arxiv.org/abs/2603.12655" target="_blank">arXiv:2603.12655</a> &middot; <a href="https://arxiv.org/html/2603.12655v1" target="_blank">HTML</a></li>
+<li>MG-Nav — <a href="https://arxiv.org/abs/2511.22609" target="_blank">arXiv:2511.22609</a> &middot; <a href="https://arxiv.org/html/2511.22609v1" target="_blank">HTML</a></li>
+<li>VGGT-DP — <a href="https://arxiv.org/abs/2509.18778" target="_blank">arXiv:2509.18778</a> &middot; <a href="https://arxiv.org/html/2509.18778v1" target="_blank">HTML</a></li>
+<li>Original VGGT — Wang et al., <em>Visual Geometry Grounded Transformer</em>, CVPR 2025.</li>
+<li>FiLM — Perez et al., <em>FiLM: Visual Reasoning with a General Conditioning Layer</em>, AAAI 2018.</li>
+<li>Diffusion Policy — Chi et al., <em>Visuomotor Policy Learning via Action Diffusion</em>, RSS 2023.</li>
+</ul>
+
+<footer>
+v2 generated 2026-05-09 from arXiv re-reads + a fresh local code/writing survey.
+Replaces the v1 file <code>vggt_three_papers_comparison.html</code> in the same directory.
+</footer>
+
+</div>
+</body>
+</html>

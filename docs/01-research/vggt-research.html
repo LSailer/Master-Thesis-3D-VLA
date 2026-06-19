@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Using VGGT — Integration Guide for DreamerV3 + HM3D ObjectNav</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" integrity="sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg" crossorigin="anonymous"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" integrity="sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk" crossorigin="anonymous" onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}]});"></script>
+<style>
+  :root {
+    --bg: #fafaf7;
+    --bg-card: #ffffff;
+    --bg-soft: #f4f3ee;
+    --border: #e3e1da;
+    --border-strong: #c8c5bb;
+    --text: #1f1d1a;
+    --text-muted: #6b6a64;
+    --accent: #2563eb;
+    --accent-soft: #eaf1ff;
+    --accent-strong: #1d4ed8;
+    --highlight: #f4a261;
+    --highlight-soft: #fff3e6;
+    --green: #16a34a;
+    --green-soft: #e8f7ee;
+    --red: #dc2626;
+    --red-soft: #fdebec;
+    --tag-bg: #eef0f2;
+    --tag-text: #4b5563;
+    --code-bg: #f3f1ec;
+    --code-block-bg: #1e1e1e;
+    --code-block-text: #e6e6e6;
+    --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03);
+    --shadow-hover: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 36px 28px 80px;
+  }
+  header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 28px;
+    margin-bottom: 36px;
+  }
+  h1 {
+    font-size: 2.1rem;
+    margin: 0 0 10px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 1.05rem;
+    margin: 0;
+  }
+  .thesis-context {
+    margin-top: 18px;
+    padding: 14px 18px;
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-size: 0.95rem;
+  }
+  .thesis-context strong { color: var(--accent-strong); }
+
+  nav.toc {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 36px;
+    box-shadow: var(--shadow);
+  }
+  nav.toc h3 {
+    margin: 0 0 12px;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 22px;
+    columns: 2;
+    column-gap: 28px;
+  }
+  nav.toc li { margin-bottom: 4px; }
+  nav.toc a {
+    color: var(--text);
+    text-decoration: none;
+    font-size: 0.95rem;
+  }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section {
+    margin-bottom: 56px;
+  }
+  h2 {
+    font-size: 1.55rem;
+    margin: 0 0 8px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border-strong);
+    letter-spacing: -0.01em;
+  }
+  h2 .section-num {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 1.2rem;
+    margin-right: 10px;
+  }
+  .section-intro {
+    color: var(--text-muted);
+    font-size: 0.98rem;
+    margin: 8px 0 22px;
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin: 28px 0 12px;
+    font-weight: 600;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.15s, transform 0.15s;
+    display: flex;
+    flex-direction: column;
+  }
+  .card:hover { box-shadow: var(--shadow-hover); }
+  .card.thesis-relevant {
+    border-left: 3px solid var(--highlight);
+    background: linear-gradient(to right, var(--highlight-soft) 0%, var(--bg-card) 8%);
+  }
+  .card.precedent {
+    border-left: 3px solid var(--green);
+    background: linear-gradient(to right, var(--green-soft) 0%, var(--bg-card) 8%);
+  }
+  .card-title {
+    font-weight: 600;
+    font-size: 1rem;
+    margin: 0 0 4px;
+    line-height: 1.35;
+  }
+  .card-meta {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    margin: 0 0 8px;
+  }
+  .card-desc {
+    font-size: 0.92rem;
+    margin: 0 0 10px;
+    color: var(--text);
+    flex-grow: 1;
+  }
+  .card-why {
+    font-size: 0.86rem;
+    color: var(--text-muted);
+    margin: 6px 0 10px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+  }
+  .card-why strong { color: var(--text); font-weight: 600; }
+  .card-links {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: auto;
+  }
+  .tag {
+    display: inline-block;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    font-size: 0.72rem;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 5px;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .tag.year { background: #e0eaff; color: #1e40af; }
+  .tag.must-read { background: #fde8d0; color: #9a4f1a; }
+  .tag.thesis { background: #ffe2c4; color: #92400e; font-weight: 600; }
+  .tag.precedent { background: #d1f0db; color: #0f6932; font-weight: 600; }
+  .tag.frozen { background: #e8f0ff; color: #1e3a8a; }
+  .tag.finetune { background: #fff0d6; color: #92400e; }
+  .tag.distill { background: #f0e8ff; color: #5b21b6; }
+  a.link {
+    display: inline-block;
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.85rem;
+    padding: 3px 10px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-soft);
+    transition: background 0.15s;
+  }
+  a.link:hover { background: var(--accent-soft); border-color: var(--accent); }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre {
+    background: var(--code-block-bg);
+    color: var(--code-block-text);
+    padding: 16px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin: 12px 0;
+  }
+  pre code { background: transparent; color: inherit; padding: 0; font-size: inherit; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    background: var(--bg-card);
+    border-radius: 8px;
+    overflow: hidden;
+    font-size: 0.88rem;
+    box-shadow: var(--shadow);
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--bg-soft);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: var(--bg-soft); }
+  .table-wrap { overflow-x: auto; }
+
+  .callout {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 6px;
+    padding: 16px 20px;
+    margin: 16px 0;
+    font-size: 0.95rem;
+  }
+  .callout.gap {
+    border-left-color: var(--highlight);
+    background: var(--highlight-soft);
+  }
+  .callout.warn {
+    border-left-color: var(--red);
+    background: var(--red-soft);
+  }
+  .callout.success {
+    border-left-color: var(--green);
+    background: var(--green-soft);
+  }
+  .callout strong { color: var(--text); }
+
+  .recommendation-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 14px;
+    box-shadow: var(--shadow);
+  }
+  .recommendation-card .rec-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .rec-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: white;
+    font-weight: 700;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+  }
+  .rec-badge.recommended { background: var(--green); }
+  .rec-badge.alt { background: var(--text-muted); }
+  .rec-title { font-size: 1.1rem; font-weight: 600; margin: 0; }
+  .rec-pros, .rec-cons { font-size: 0.9rem; }
+  .rec-pros { color: var(--green); }
+  .rec-cons { color: var(--red); }
+
+  .reading-order {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 22px 26px;
+    box-shadow: var(--shadow);
+  }
+  .reading-order ol {
+    margin: 8px 0 0;
+    padding-left: 24px;
+  }
+  .reading-order li {
+    margin-bottom: 8px;
+    font-size: 0.96rem;
+  }
+
+  footer {
+    margin-top: 60px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-align: center;
+  }
+
+  @media (max-width: 700px) {
+    nav.toc ol { columns: 1; }
+    h1 { font-size: 1.6rem; }
+    .container { padding: 20px 16px 60px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Using VGGT — Integration Guide</h1>
+  <p class="subtitle">How to actually plug VGGT into a project — APIs, integration patterns from 20+ follow-up papers, and project-specific recommendations.</p>
+  <div class="thesis-context">
+    <strong>Tailored for your thesis:</strong> DreamerV3 + 3D features (VGGT / UNITE) on Habitat HM3D ObjectNav. The integration patterns and recommendations below assume you want VGGT as a feature source for a recurrent world model + actor-critic agent. Items directly relevant to your stack are highlighted.
+  </div>
+</header>
+
+<nav class="toc">
+  <h3>Contents</h3>
+  <ol>
+    <li><a href="#tldr">TL;DR — what to do this week</a></li>
+    <li><a href="#architecture">VGGT in 5 minutes (architecture &amp; IO)</a></li>
+    <li><a href="#install">Install &amp; checkpoints</a></li>
+    <li><a href="#usage">Code: minimal end-to-end usage</a></li>
+    <li><a href="#features">Internal features for downstream use</a></li>
+    <li><a href="#compute">Compute &amp; latency</a></li>
+    <li><a href="#tips">Practical tips &amp; gotchas</a></li>
+    <li><a href="#downstream">Papers using VGGT (≈20)</a></li>
+    <li><a href="#patterns">Integration patterns at a glance</a></li>
+    <li><a href="#recommendations">Recommendations for <em>your</em> project</a></li>
+    <li><a href="#resources">Learning resources</a></li>
+    <li><a href="#background">Background reading</a></li>
+    <li><a href="#order">Suggested reading order</a></li>
+  </ol>
+</nav>
+
+<!-- ========== TL;DR ========== -->
+<section id="tldr">
+  <h2><span class="section-num">0</span>TL;DR — what to do this week</h2>
+  <div class="grid">
+    <div class="card thesis-relevant">
+      <p class="card-title">📦 Install &amp; sanity check</p>
+      <p class="card-desc">Clone <code>facebookresearch/vggt</code>, install <code>requirements.txt</code>, run <code>demo_gradio.py</code> on 4–8 HM3D frames. Confirm bf16 + FlashAttention works on your GPU.</p>
+      <div class="card-links"><a class="link" href="https://github.com/facebookresearch/vggt">repo</a><a class="link" href="https://huggingface.co/spaces/facebook/vggt">live demo</a></div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">📄 Read these 3 papers in order</p>
+      <p class="card-desc"><strong>VGGT-DP</strong> (frozen-token policy template) → <strong>MG-Nav</strong> (only existing HM3D-with-VGGT paper) → <strong>VGGT-World</strong> (frozen tokens as world-model state, the closest precedent).</p>
+      <div class="card-links">
+        <a class="link" href="https://arxiv.org/abs/2509.18778">VGGT-DP</a>
+        <a class="link" href="https://arxiv.org/abs/2511.22609">MG-Nav</a>
+        <a class="link" href="https://arxiv.org/abs/2603.12655">VGGT-World</a>
+      </div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">🧱 Default integration pattern</p>
+      <p class="card-desc"><strong>Freeze</strong> VGGT, take <code>aggregator</code> tokens (not depth/camera heads), apply a small projection, feed into DreamerV3's RSSM. This is what VGGT-DP, MG-Nav, VGGT-World, and Gen3R all do.</p>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">⚡ If latency hurts: StreamVGGT or eVGGT</p>
+      <p class="card-desc"><strong>StreamVGGT</strong> (causal+KV-cache, distilled from VGGT) for real-time per-step encoding, or <strong>eVGGT</strong> (~9× smaller, distilled) if even Stream is too heavy.</p>
+      <div class="card-links">
+        <a class="link" href="https://arxiv.org/abs/2507.11539">StreamVGGT</a>
+        <a class="link" href="https://arxiv.org/abs/2509.15880">eVGGT</a>
+      </div>
+    </div>
+  </div>
+  <div class="callout gap">
+    <strong>The thesis gap (good news):</strong> No published work combines VGGT + RSSM-style world model + RL + ObjectNav. VGGT-DP does manipulation, MG-Nav does Image-Goal (not ObjectNav, no RL world model), VGGT-World predicts geometry passively, WorldRFT does driving. <strong>This is your defensible contribution.</strong>
+  </div>
+</section>
+
+<!-- ========== ARCHITECTURE ========== -->
+<section id="architecture">
+  <h2><span class="section-num">1</span>VGGT in 5 minutes</h2>
+  <p class="section-intro">A single feed-forward transformer that, given <span>$N$</span> RGB images <span>$\{I_i\}_{i=1}^{N}$</span> (any number, no intrinsics), regresses everything classical SfM/MVS computes — in <strong>under one second</strong>.</p>
+
+  <h3>Architecture sketch</h3>
+  <div class="callout">
+    <p><strong>Encoder (frozen-init):</strong> DINOv2 ViT-L/14 with registers. Each image becomes <span>$P = (H/14) \times (W/14)$</span> patch tokens. At 518×518, <span>$P = 37 \times 37 = 1369$</span> patch tokens per frame, plus 1 camera token + 4 register tokens.</p>
+    <p><strong>Aggregator:</strong> 24 blocks of <em>alternating attention</em> — each block does (a) frame-wise attention (within one image's tokens) followed by (b) global attention (across all <span>$N \cdot P$</span> tokens from all images). Embed dim 1024; the output of each block is concatenated frame+global → <span>$2 \cdot 1024 = 2048$</span> features.</p>
+    <p><strong>Heads (4):</strong> camera head (pose encoding $T_3 + q_4 + \text{FoV}_2$), DPT depth head, DPT pointmap head, tracking head. All take the full list of 24 aggregator outputs.</p>
+  </div>
+
+  <h3>Outputs (exact tensor shapes)</h3>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Key</th><th>Shape</th><th>Notes</th></tr>
+    <tr><td><code>pose_enc</code></td><td><code>[B, S, 9]</code></td><td>$T_3$ + quat$_4$ + FoV$_2$ — convert via <code>pose_encoding_to_extri_intri</code></td></tr>
+    <tr><td><code>depth</code></td><td><code>[B, S, H, W, 1]</code></td><td>Not metric in general — needs an external scale anchor</td></tr>
+    <tr><td><code>depth_conf</code></td><td><code>[B, S, H, W]</code></td><td>Confidence; threshold &gt; 1.5 in demo scripts</td></tr>
+    <tr><td><code>world_points</code></td><td><code>[B, S, H, W, 3]</code></td><td>Per-pixel 3D in world frame (1st frame = reference)</td></tr>
+    <tr><td><code>world_points_conf</code></td><td><code>[B, S, H, W]</code></td><td>Confidence</td></tr>
+    <tr><td><code>track</code></td><td><code>[B, S, N, 2]</code></td><td>2D tracks for optional <code>query_points</code></td></tr>
+    <tr><td><code>vis</code>, <code>conf</code></td><td><code>[B, S, N]</code></td><td>Track visibility + confidence</td></tr>
+  </table>
+  </div>
+  <p class="section-intro">Coordinate frame: <strong>OpenCV camera-from-world</strong> (x-right, y-down, z-forward). The <strong>first frame is the world reference</strong> — set this deliberately per ObjectNav episode.</p>
+
+  <div class="callout warn">
+    <strong>⚠ Critical:</strong> Depth is <em>not metric</em>. For HM3D you can rescale by anchoring the predicted camera height to the known agent height (typically 0.88&nbsp;m for default Habitat agents) and applying a single scalar to all outputs.
+  </div>
+</section>
+
+<!-- ========== INSTALL ========== -->
+<section id="install">
+  <h2><span class="section-num">2</span>Install &amp; checkpoints</h2>
+
+  <h3>Repo install</h3>
+<pre><code>git clone git@github.com:facebookresearch/vggt.git
+cd vggt
+pip install -r requirements.txt
+# core deps: torch==2.3.1, torchvision==0.18.1, einops, safetensors, huggingface_hub</code></pre>
+  <p>Demo extras (Gradio UI, Viser viewer, COLMAP export): <code>pip install -r requirements_demo.txt</code>.</p>
+
+  <h3>Checkpoints on Hugging Face</h3>
+  <div class="grid">
+    <div class="card thesis-relevant">
+      <p class="card-title"><code>facebook/VGGT-1B</code> <span class="tag">CC-BY-NC-4.0</span></p>
+      <p class="card-meta">~1B params · the only released checkpoint as of May 2026</p>
+      <p class="card-desc">Use this for thesis work — academic license is fine.</p>
+      <div class="card-links"><a class="link" href="https://huggingface.co/facebook/VGGT-1B">model card</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title"><code>facebook/VGGT-1B-Commercial</code> <span class="tag">Meta VGGT-AUP · gated</span></p>
+      <p class="card-meta">Released 2025-07-29</p>
+      <p class="card-desc">Commercial use allowed except military. Slightly better numbers (AUC@30 = 90.37 vs 89.98 on Co3D). Irrelevant for thesis.</p>
+      <div class="card-links"><a class="link" href="https://huggingface.co/facebook/VGGT-1B-Commercial">model card</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">VGGT-500M / VGGT-200M</p>
+      <p class="card-meta">listed in README · <strong>not yet released</strong></p>
+      <p class="card-desc">If you need a smaller model now, look at <strong>eVGGT</strong> distillation instead.</p>
+    </div>
+  </div>
+
+  <h3>Training data (relevant for transfer)</h3>
+  <p class="section-intro">Co3Dv2, BlendedMVS, DL3DV, MegaDepth, Kubric, WildRGB, ScanNet, HyperSim, Mapillary, <strong>Habitat</strong>, Replica, MVS-Synth, PointOdyssey, Virtual KITTI, Aria Synthetic Environments, Aria Digital Twin, plus an Objaverse-like asset set.</p>
+  <div class="callout success">
+    <strong>Good news for HM3D transfer:</strong> Habitat is in the training mix. VGGT has seen Habitat-rendered scenes — but not HM3D specifically. A small LoRA finetune on HM3D-Sem could still help if zero-shot quality isn't enough.
+  </div>
+</section>
+
+<!-- ========== USAGE ========== -->
+<section id="usage">
+  <h2><span class="section-num">3</span>Code: minimal end-to-end usage</h2>
+  <p class="section-intro">All snippets below were verified against <code>main</code> branch of <code>facebookresearch/vggt</code>.</p>
+
+  <h3>Loading and preprocessing</h3>
+<pre><code>from vggt.utils.load_fn import load_and_preprocess_images
+
+# mode="crop": width=518, height resized + cropped to multiple of 14
+# mode="pad":  longest side=518, shorter side white-padded to 518
+images = load_and_preprocess_images(paths, mode="crop")  # [N, 3, H≤518, 518] in [0,1]
+# DO NOT normalize — ImageNet mean/std is applied INSIDE the model.</code></pre>
+
+  <h3>Full forward pass</h3>
+<pre><code>import torch
+from vggt.models.vggt import VGGT
+from vggt.utils.pose_enc import pose_encoding_to_extri_intri
+from vggt.utils.geometry import unproject_depth_map_to_point_map
+
+device = "cuda"
+dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] &gt;= 8 else torch.float16
+
+model = VGGT.from_pretrained("facebook/VGGT-1B").to(device).eval()
+images = load_and_preprocess_images(paths, mode="crop").to(device)[None]  # [1, S, 3, H, W]
+
+with torch.no_grad(), torch.cuda.amp.autocast(dtype=dtype):
+    tokens, ps_idx = model.aggregator(images)              # list of [1, S, P, 2048]
+    pose_enc        = model.camera_head(tokens)[-1]        # [1, S, 9]
+    depth, dconf    = model.depth_head(tokens, images=images, patch_start_idx=ps_idx)
+
+extr, intr = pose_encoding_to_extri_intri(pose_enc, images.shape[-2:])
+pts = unproject_depth_map_to_point_map(
+    depth.squeeze(0), extr.squeeze(0), intr.squeeze(0)
+)  # README recommends unproject(depth) over the dedicated point_head — more accurate.</code></pre>
+
+  <h3>Skip what you don't need</h3>
+<pre><code># For a policy / world model, you usually only need the aggregator output.
+# Disable unused heads at construction time:
+model = VGGT(
+    enable_camera = True,   # cheap; useful for ego-motion supervision
+    enable_depth  = True,   # cheap; useful as auxiliary observation
+    enable_point  = False,  # README recommends depth-unproject instead
+    enable_track  = False,  # expensive, rarely needed for an agent
+)</code></pre>
+</section>
+
+<!-- ========== FEATURES ========== -->
+<section id="features">
+  <h2><span class="section-num">4</span>Internal features for downstream use</h2>
+  <p class="section-intro">This is the part that matters most for plugging VGGT into Dreamer.</p>
+
+  <div class="callout">
+    <p><strong>Token layout per frame</strong> (after <code>aggregator</code>, embed_dim = 1024):</p>
+    <p style="font-family:monospace; margin: 8px 0;">
+      [ 1 camera token | 4 register tokens | P patch tokens ]
+    </p>
+    <p>So <code>patch_start_idx = 5</code>, and <code>P = 37 × 37 = 1369</code> at 518².</p>
+    <p><code>aggregated_tokens_list</code> has length 24 (one per block). Each entry has shape <code>[B, S, 1+4+P, 2048]</code> — concat of frame-attention output and global-attention output at that block.</p>
+  </div>
+
+  <h3>Three things you can extract</h3>
+  <div class="grid">
+    <div class="card thesis-relevant">
+      <p class="card-title">🧊 Per-frame summary token</p>
+      <p class="card-meta"><code>tokens[-1][..., 0:1, :]</code></p>
+      <p class="card-desc">The camera token after 24 blocks of alternating attention — a single 2048-D vector per view encoding both per-frame and global context.</p>
+      <p class="card-why"><strong>Use for:</strong> compact per-frame state for an RNN. Cheapest to project (2048 → 256).</p>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">🗺 Spatial patch grid</p>
+      <p class="card-meta"><code>tokens[-1][..., 5:, :].reshape(B, S, 37, 37, 2048)</code></p>
+      <p class="card-desc">Geometry-aware dense feature map. Same resolution as DINOv2 patch grid but enriched with cross-view geometric reasoning.</p>
+      <p class="card-why"><strong>Use for:</strong> drop-in replacement for Dreamer's CNN encoder when you want spatial structure preserved (e.g., for spatial action heads or per-pixel auxiliary losses).</p>
+    </div>
+    <div class="card">
+      <p class="card-title">🔬 Mid-layer features</p>
+      <p class="card-meta"><code>tokens[k]</code> for <code>k &lt; 23</code></p>
+      <p class="card-desc">Intermediate aggregator outputs. No official hooks, but you can index the list directly or attach a <code>register_forward_hook</code> on <code>aggregator.frame_blocks[k]</code>.</p>
+      <p class="card-why"><strong>Use for:</strong> distillation experiments (eVGGT pattern), or when shallower features perform better for your task.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== COMPUTE ========== -->
+<section id="compute">
+  <h2><span class="section-num">5</span>Compute &amp; latency</h2>
+  <p class="section-intro">Official numbers from the README (single H100, FlashAttention 3, aggregator only).</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Frames S</th><th>1</th><th>2</th><th>4</th><th>8</th><th>10</th><th>20</th><th>50</th><th>100</th><th>200</th></tr>
+    <tr><td>Time (s)</td><td>0.04</td><td>0.05</td><td>0.07</td><td>0.11</td><td>0.14</td><td>0.31</td><td>1.04</td><td>3.12</td><td>8.75</td></tr>
+    <tr><td>VRAM (GB)</td><td>1.88</td><td>2.07</td><td>2.45</td><td>3.23</td><td>3.63</td><td>5.58</td><td>11.41</td><td>21.15</td><td>40.63</td></tr>
+  </table>
+  </div>
+  <p>Scaling: <strong>roughly linear in $S$ for compute</strong>, <strong>~quadratic in memory beyond ~50 frames</strong> due to global attention over $S \cdot P$ tokens. A100 is roughly 1.5–2× slower than H100; expect more on RTX 4090.</p>
+
+  <div class="callout">
+    <strong>For an RL inner loop:</strong> cap <code>S</code> at <strong>4–8</strong> (a short rolling window of recent egocentric views). At <code>S=8</code> you get ~0.11&nbsp;s per forward and ~3&nbsp;GB VRAM on H100 — workable inside an RL step but still costly. Consider pre-encoding replay observations and only running the live encoder online.
+  </div>
+</section>
+
+<!-- ========== TIPS ========== -->
+<section id="tips">
+  <h2><span class="section-num">6</span>Practical tips &amp; gotchas</h2>
+  <ul>
+    <li><strong>Resolution = 518</strong> on the long side. Patch embed expects multiples of 14; deviating triggers an unbenchmarked positional-embedding interpolation path.</li>
+    <li><strong>Pre-normalization is automatic.</strong> Pass images in <code>[0, 1]</code>. Don't double-normalize.</li>
+    <li><strong>First frame = world reference.</strong> The camera token uses a "first frame" parameter (<code>slice_expand_and_flatten</code>). For ObjectNav, anchor on the agent's first observation each episode.</li>
+    <li><strong>Dynamic objects corrupt geometry.</strong> The "set unwanted pixels to 0/1" trick in the README is <em>not</em> a true mask — the model still sees a black blob. Other agents in HM3D-Sem can mislead VGGT if rendered.</li>
+    <li><strong>Failure modes:</strong> textureless walls, repetitive tiles, mirrors/glass, water/sky. HM3D has many textureless walls — rely on <code>depth_conf</code> (threshold &gt; 1.5 is standard).</li>
+    <li><strong>Reference-frame asymmetry</strong> is a known weakness — π³ exists precisely to remove it. If your downstream system reasons over time across reference choices, this matters.</li>
+    <li><strong>Single-view works surprisingly well.</strong> Useful as a fallback when only the current frame is available — no penalty in falling back to <code>S=1</code> in some steps.</li>
+    <li><strong>Aggregator-only mode</strong> (skip heads): construct VGGT with <code>enable_*=False</code> and call <code>model.aggregator(images)</code> directly. Saves ~15–25% compute.</li>
+    <li><strong>Distillation idea</strong> (best long-term move for an RL loop): freeze VGGT as teacher, distill a single-frame student CNN/ViT to predict <code>aggregated_tokens_list[-1]</code>, run the student inside RL, reserve full VGGT for offline relabeling.</li>
+  </ul>
+</section>
+
+<!-- ========== DOWNSTREAM ========== -->
+<section id="downstream">
+  <h2><span class="section-num">7</span>Papers using VGGT (≈20)</h2>
+  <p class="section-intro">A taxonomy of how the field has actually plugged VGGT into downstream pipelines, in the 14 months since its release.</p>
+
+  <h3>Direct extensions / efficiency</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">π³ (Pi-Cubed) <span class="tag year">ICLR 2026</span></p>
+      <p class="card-meta">Yang et al. · arXiv:2507.13347 · trained from scratch</p>
+      <p class="card-desc">Removes VGGT's reference-frame bias by stripping positional embeddings and camera tokens.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> shows VGGT's reference-frame asymmetry is a recognized weakness — relevant when reasoning over temporal embodied streams.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.13347">arXiv</a></div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">StreamVGGT <span class="tag year">ICLR 2026</span> <span class="tag distill">distilled</span></p>
+      <p class="card-meta">Zhuo et al. · arXiv:2507.11539 · distilled from frozen VGGT</p>
+      <p class="card-desc">Causal-attention version of VGGT with KV cache. Linear instead of quadratic scaling. Outputs the standard VGGT heads.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> the most direct "VGGT for online streaming" formulation — exactly the property a Dreamer agent needs when stepping through HM3D one frame at a time.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.11539">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">FastVGGT <span class="tag frozen">training-free</span></p>
+      <p class="card-meta">arXiv:2509.02560</p>
+      <p class="card-desc">Token-merging gives 4× speedup at 1000 images. Frozen, no retraining.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2509.02560">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">SwiftVGGT &amp; Co-Me</p>
+      <p class="card-meta">arXiv:2511.18290, 2511.14751</p>
+      <p class="card-desc">Further training-free acceleration variants.</p>
+    </div>
+  </div>
+
+  <h3>SLAM / mapping (frozen-VGGT frontend)</h3>
+  <div class="grid">
+    <div class="card precedent">
+      <p class="card-title">VGGT-SLAM <span class="tag precedent">Precedent</span> <span class="tag frozen">frozen</span></p>
+      <p class="card-meta">Maggio, Lim, Carlone (MIT-SPARK) · arXiv:2505.12549</p>
+      <p class="card-desc">Frozen VGGT generates submaps from short windows; system globally aligns them on SL(4) with loop closure. Consumes pointmaps + cameras.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> blueprint for "VGGT as a sliding-window submap producer" — directly applicable to building memory in HM3D ObjectNav.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2505.12549">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">VGGT-Long <span class="tag frozen">frozen</span></p>
+      <p class="card-meta">Deng et al. · arXiv:2507.16443</p>
+      <p class="card-desc">Frozen VGGT + chunked overlap + loop closure on KITTI / Waymo / Virtual-KITTI.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.16443">arXiv</a></div>
+    </div>
+    <div class="card precedent">
+      <p class="card-title">Semantic SLAM with VGGT <span class="tag precedent">Precedent</span></p>
+      <p class="card-meta">arXiv:2511.16282 · assistive nav</p>
+      <p class="card-desc">Frozen VGGT with sliding window. Consumes depth + camera + tracking head outputs (used to lift 2D semantic masks into 3D).</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> closest existing thesis-adjacent embodied use of VGGT.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2511.16282">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>Tracking and 4D</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">PAGE-4D <span class="tag finetune">finetune</span></p>
+      <p class="card-meta">arXiv:2510.17568</p>
+      <p class="card-desc">Adds a dynamics-aware aggregator to VGGT to separate static and dynamic content.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2510.17568">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">VGGT4D <span class="tag frozen">training-free</span></p>
+      <p class="card-meta">arXiv:2511.19971</p>
+      <p class="card-desc">Finds that VGGT's global-attention layers already encode dynamic cues; reads them out for dynamic segmentation.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2511.19971">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>Novel view synthesis / 3D Gaussian splatting</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">VGGT-X <span class="tag frozen">frozen</span></p>
+      <p class="card-meta">Liu et al. · arXiv:2509.25191</p>
+      <p class="card-desc">Memory-efficient inference (1000+ images) → adaptive global alignment → robust 3DGS training. Consumes camera poses + pointmap as 3DGS init.</p>
+      <p class="card-why"><strong>Pattern:</strong> use VGGT to <em>bootstrap</em> a learned representation downstream.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2509.25191">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Gen3R <span class="tag frozen">token adapter</span></p>
+      <p class="card-meta">arXiv:2601.04090</p>
+      <p class="card-desc">Trains an adapter on VGGT tokens to align with a video diffusion model's appearance latents.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2601.04090">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>Semantic / instance 3D understanding</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">IGGT (Instance-Grounded GT) <span class="tag year">ICLR 2026</span> <span class="tag finetune">VGGT init + finetune</span></p>
+      <p class="card-meta">Li et al. · arXiv:2510.22706 · 1B params</p>
+      <p class="card-desc">Initialized from VGGT weights, finetuned with 3D-Consistent Contrastive Learning + an added Instance Head. Outputs depth + pointmap + camera + instance embeddings.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> cleanest example of "take VGGT, add a head, finetune" — a template you could copy for action / value heads.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2510.22706">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">UNITE</p>
+      <p class="card-meta">Koch et al. · arXiv:2512.14364 <strong>· not VGGT-based</strong></p>
+      <p class="card-desc">Peer feed-forward semantic model trained from scratch with 2D distillation. Position as a parallel/competitor architecture, not a downstream user of VGGT.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2512.14364">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>Robotics / manipulation policies <span style="color:var(--highlight); font-size:1rem;">← directly relevant</span></h3>
+  <div class="grid">
+    <div class="card precedent">
+      <p class="card-title">VGGT-DP <span class="tag precedent">Key precedent</span> <span class="tag frozen">frozen tokens only</span></p>
+      <p class="card-meta">Ge et al. · arXiv:2509.18778 · AAAI 2026</p>
+      <p class="card-desc">Frozen VGGT; uses ONLY the internal aggregator tokens (ignores depth/pointmap/camera heads). Tokens → transformer encoder → average-pool → MLP → diffusion-policy condition. +8% over DP3 on 10 MetaWorld tasks.</p>
+      <p class="card-why"><strong>Closest precedent for your encoder.</strong> Confirms: freeze VGGT, take aggregator tokens, project, condition policy.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2509.18778">arXiv</a></div>
+    </div>
+    <div class="card precedent">
+      <p class="card-title">GP3 (RoboVGGT) <span class="tag finetune">LoRA finetune</span></p>
+      <p class="card-meta">Qian et al. · arXiv:2509.15733</p>
+      <p class="card-desc">VGGT finetuned with LoRA on 150K sim + 20K real frames with depth + camera supervision losses. Features → G-FiLM language modulator → action head.</p>
+      <p class="card-why"><strong>Use case:</strong> if frozen aggregator features underperform, this LoRA + auxiliary geometry-loss recipe is the proven middle ground.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2509.15733">arXiv</a></div>
+    </div>
+    <div class="card precedent">
+      <p class="card-title">eVGGT <span class="tag distill">distilled</span></p>
+      <p class="card-meta">Vuong, Vu, Reid · arXiv:2509.15880</p>
+      <p class="card-desc">Distills VGGT into a ~9× smaller encoder; plugs into ACT and Diffusion Policy; up to +6.5%.</p>
+      <p class="card-why"><strong>Use case:</strong> if VGGT is too big for your RL training loop, this is the precedent for distillation.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2509.15880">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>Visual navigation</h3>
+  <div class="grid">
+    <div class="card precedent">
+      <p class="card-title">MG-Nav <span class="tag precedent">Only HM3D+VGGT paper</span> <span class="tag frozen">VGGT-adapter</span></p>
+      <p class="card-meta">Wang et al. · arXiv:2511.22609 · Nov 2025</p>
+      <p class="card-desc">Lightweight geometric module built on pre-trained VGGT, aligning observation and goal features in a shared 3D-aware space. Evaluated on <strong>HM3D Instance-Image-Goal</strong> and <strong>MP3D Image-Goal</strong>, zero-shot SOTA.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> the only published paper using VGGT on Habitat HM3D. Image-Goal, not ObjectNav, no RL/Dreamer — so your framing is genuinely novel. <strong>Read their adapter design carefully — that's likely the right shape for your encoder.</strong></p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2511.22609">arXiv</a></div>
+    </div>
+  </div>
+
+  <h3>World models &amp; video / driving</h3>
+  <div class="grid">
+    <div class="card precedent">
+      <p class="card-title">VGGT-World <span class="tag precedent">Most important reference</span> <span class="tag frozen">frozen tokens as state</span></p>
+      <p class="card-meta">Sun et al. · arXiv:2603.12655 · Mar 2026</p>
+      <p class="card-desc">Frozen VGGT latent tokens (d=1024) used as world state; a lightweight temporal flow transformer autoregressively predicts their future trajectory. Forecasts depth/geometry, not pixels. 0.43B trainable params.</p>
+      <p class="card-why"><strong>Why it matters for you:</strong> same spirit as Dreamer's recurrent world model, but supervised geometry-flow rather than RL-style imagination. <strong>Cite this prominently and contrast: VGGT-World is passive; your work closes the loop with action and reward.</strong></p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2603.12655">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Geometry Forcing <span class="tag frozen">feature-alignment loss</span></p>
+      <p class="card-meta">Wu et al. · arXiv:2507.07982</p>
+      <p class="card-desc">Aligns video-diffusion intermediate features with frozen VGGT transformer features via angular + scale alignment losses.</p>
+      <p class="card-why"><strong>Pattern:</strong> VGGT as a <em>teacher</em> providing feature-alignment loss, rather than as the encoder itself. Could be an auxiliary loss in your Dreamer encoder training.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.07982">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">WorldRFT <span class="tag year">close to your idea</span></p>
+      <p class="card-meta">arXiv:2512.19133</p>
+      <p class="card-desc">Uses VGGT as a visual-geometric foundation inside a latent world model with RL fine-tuning — for autonomous driving. Conceptually closest paper to your thesis (RL + world model + VGGT), but in driving rather than embodied indoor navigation.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/html/2512.19133">arXiv</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">DriveVGGT, CineScene, Voyager</p>
+      <p class="card-meta">arXiv:2511.22264, 2602.06959, 2506.04225</p>
+      <p class="card-desc">Multi-camera AD calibration, video generation conditioned on VGGT features, camera-controlled scene synthesis.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== PATTERNS ========== -->
+<section id="patterns">
+  <h2><span class="section-num">8</span>Integration patterns at a glance</h2>
+  <p class="section-intro">What 20 follow-up papers actually do, summarized in one table. Use this to pick a pattern.</p>
+  <div class="table-wrap">
+  <table>
+    <tr><th>Paper</th><th>arXiv</th><th>Use mode</th><th>Outputs consumed</th><th>Domain</th></tr>
+    <tr><td>VGGT-SLAM</td><td>2505.12549</td><td><span class="tag frozen">frozen</span></td><td>pointmap + camera</td><td>SLAM</td></tr>
+    <tr><td>VGGT-Long</td><td>2507.16443</td><td><span class="tag frozen">frozen</span></td><td>depth + camera + pointmap</td><td>SLAM (driving)</td></tr>
+    <tr><td>Semantic-SLAM-VGGT</td><td>2511.16282</td><td><span class="tag frozen">frozen</span></td><td>depth + camera + tracks</td><td>SLAM (assistive nav)</td></tr>
+    <tr><td>StreamVGGT</td><td>2507.11539</td><td><span class="tag distill">distilled (VGGT teacher)</span></td><td>all 4 heads</td><td>streaming 4D</td></tr>
+    <tr><td>FastVGGT</td><td>2509.02560</td><td><span class="tag frozen">training-free</span></td><td>all heads</td><td>inference accel</td></tr>
+    <tr><td>π³</td><td>2507.13347</td><td>from scratch</td><td>depth + pointmap + camera</td><td>3D recon</td></tr>
+    <tr><td>IGGT</td><td>2510.22706</td><td><span class="tag finetune">VGGT init + finetune</span></td><td>+ instance</td><td>semantic 3D</td></tr>
+    <tr><td>PAGE-4D</td><td>2510.17568</td><td><span class="tag finetune">finetune</span></td><td>depth + camera + pointmap</td><td>dynamic 4D</td></tr>
+    <tr><td>VGGT4D</td><td>2511.19971</td><td><span class="tag frozen">training-free</span></td><td>internal attention maps</td><td>dynamic 4D</td></tr>
+    <tr><td>VGGT-X</td><td>2509.25191</td><td><span class="tag frozen">frozen</span></td><td>camera + pointmap</td><td>dense NVS / 3DGS</td></tr>
+    <tr><td>Gen3R</td><td>2601.04090</td><td><span class="tag frozen">frozen + adapter</span></td><td>internal tokens</td><td>3D scene gen</td></tr>
+    <tr><td>Geometry Forcing</td><td>2507.07982</td><td><span class="tag frozen">feature-align loss</span></td><td>internal transformer features</td><td>video diffusion</td></tr>
+    <tr style="background:#fff3e6;"><td><strong>VGGT-DP</strong></td><td>2509.18778</td><td><span class="tag frozen">frozen, aggregator tokens only</span></td><td>internal tokens</td><td>manipulation</td></tr>
+    <tr style="background:#fff3e6;"><td><strong>GP3 (RoboVGGT)</strong></td><td>2509.15733</td><td><span class="tag finetune">LoRA + depth/cam loss</span></td><td>features + depth + camera</td><td>manipulation</td></tr>
+    <tr style="background:#fff3e6;"><td><strong>eVGGT</strong></td><td>2509.15880</td><td><span class="tag distill">distilled smaller encoder</span></td><td>features</td><td>manipulation</td></tr>
+    <tr style="background:#fff3e6;"><td><strong>MG-Nav</strong></td><td>2511.22609</td><td><span class="tag frozen">frozen + VGGT-adapter</span></td><td>3D-aware features</td><td><strong>HM3D Image-Goal nav</strong></td></tr>
+    <tr style="background:#fff3e6;"><td><strong>VGGT-World</strong></td><td>2603.12655</td><td><span class="tag frozen">frozen tokens as world state</span></td><td>internal tokens (d=1024)</td><td><strong>autoregressive world model</strong></td></tr>
+    <tr><td>WorldRFT</td><td>2512.19133</td><td><span class="tag frozen">frozen visual-geom</span></td><td>features</td><td>driving world model + RL</td></tr>
+    <tr><td>DriveVGGT</td><td>2511.22264</td><td><span class="tag finetune">arch adaptation</span></td><td>depth + pose</td><td>autonomous driving</td></tr>
+  </table>
+  </div>
+  <div class="callout success">
+    <strong>Dominant pattern (75% of papers in robotics / nav / world-model context):</strong> freeze VGGT, take <em>internal aggregator tokens</em>, attach a small adapter or projection, supervise downstream task end-to-end. This is the lowest-risk default and is what you should start with.
+  </div>
+</section>
+
+<!-- ========== RECOMMENDATIONS ========== -->
+<section id="recommendations">
+  <h2><span class="section-num">9</span>Recommendations for <em>your</em> project</h2>
+  <p class="section-intro">DreamerV3 + VGGT (and/or UNITE) on Habitat HM3D ObjectNav. Five candidate integrations, ordered from "do this first" to "do this only if you have GPU budget for an extra month."</p>
+
+  <div class="recommendation-card">
+    <div class="rec-header">
+      <span class="rec-badge recommended">A</span>
+      <p class="rec-title">Frozen VGGT aggregator tokens → projection → RSSM input <span class="tag precedent">recommended</span></p>
+    </div>
+    <p>Run frozen VGGT-1B on a small rolling window of the agent's recent egocentric views (S=1 to S=4), take <code>aggregated_tokens_list[-1]</code>, project the camera-token slice to ~256-D, concatenate with the rest of Dreamer's embedding, feed into the RSSM. <strong>Pre-encode replay observations offline</strong>; only encode live during rollouts.</p>
+    <p class="rec-pros"><strong>Pros:</strong> minimal engineering. Directly precedented by VGGT-DP (manipulation), MG-Nav (HM3D Image-Goal), VGGT-World (world model). Frozen → no risk of catastrophic forgetting of geometry.</p>
+    <p class="rec-cons"><strong>Cons:</strong> 1B-param forward at every env step is expensive. Mitigate by replaying pre-encoded features and using <code>S=1</code> live (single-frame VGGT still works well).</p>
+  </div>
+
+  <div class="recommendation-card">
+    <div class="rec-header">
+      <span class="rec-badge recommended">B</span>
+      <p class="rec-title">Add VGGT depth + camera as <em>auxiliary supervised observations</em></p>
+    </div>
+    <p>In addition to A, have Dreamer's decoder predict depth, camera pose, and (optionally) pointmap as auxiliary targets supervised by VGGT. This is the <em>Geometry Forcing</em> pattern adapted for an RL world model.</p>
+    <p class="rec-pros"><strong>Pros:</strong> shapes the latent state to be geometry-aware, which is the core thesis claim. Cheap to add — just more decoder heads + L1/L2 losses against VGGT outputs. Helps interpretability ("does the agent's world model contain depth?").</p>
+    <p class="rec-cons"><strong>Cons:</strong> requires precomputing VGGT depth + camera for the replay buffer. Auxiliary loss weighting needs tuning.</p>
+  </div>
+
+  <div class="recommendation-card">
+    <div class="rec-header">
+      <span class="rec-badge">C</span>
+      <p class="rec-title">Swap VGGT → StreamVGGT for live encoding <span class="tag distill">if A is too slow</span></p>
+    </div>
+    <p>StreamVGGT is causal, KV-cached, and distilled from VGGT — same outputs, linear scaling in sequence length, designed for streaming. Drop-in replacement once your VGGT pipeline works.</p>
+    <p class="rec-pros"><strong>Pros:</strong> per-step latency suitable for online RL. Keeps the same downstream interface as A.</p>
+    <p class="rec-cons"><strong>Cons:</strong> slightly weaker than VGGT on offline reconstruction (it's a student); released weights / repo maturity may lag VGGT itself.</p>
+  </div>
+
+  <div class="recommendation-card">
+    <div class="rec-header">
+      <span class="rec-badge">D</span>
+      <p class="rec-title">LoRA-finetune VGGT on HM3D-Sem with auxiliary geometry losses <span class="tag finetune">if A underperforms</span></p>
+    </div>
+    <p>Follow the GP3 / RoboVGGT recipe: keep VGGT frozen except for LoRA adapters, add depth + camera supervision losses on Habitat-rendered episodes, optimize jointly with Dreamer. ~few hundred MB of trainable params.</p>
+    <p class="rec-pros"><strong>Pros:</strong> closes the domain gap (HM3D ≠ training distribution) without full finetuning. Proven on a downstream policy.</p>
+    <p class="rec-cons"><strong>Cons:</strong> more engineering. LoRA hyperparams to tune. Risk of overfitting if HM3D-Sem coverage is narrow.</p>
+  </div>
+
+  <div class="recommendation-card">
+    <div class="rec-header">
+      <span class="rec-badge alt">E</span>
+      <p class="rec-title">Distill VGGT into eVGGT-style student for the RL inner loop <span class="tag distill">long-term</span></p>
+    </div>
+    <p>If you find that even StreamVGGT is too heavy for your training budget, distill a single-frame student CNN/ViT to predict <code>aggregated_tokens_list[-1]</code> from one HM3D image. Run the student inside RL, reserve full VGGT for offline trajectory relabeling and auxiliary supervision.</p>
+    <p class="rec-pros"><strong>Pros:</strong> ~10× cheaper at inference. Decouples encoder size from policy training time.</p>
+    <p class="rec-cons"><strong>Cons:</strong> a whole side-project. Probably out of scope for a master's thesis unless A/C are demonstrably bottlenecked.</p>
+  </div>
+
+  <h3>Practical sequencing</h3>
+  <ol>
+    <li><strong>Week 1:</strong> install VGGT, run demo on HM3D frames, sanity-check geometry.</li>
+    <li><strong>Week 2:</strong> implement A — frozen tokens → projection → Dreamer encoder. Train DreamerV3 baseline on a single ObjectNav episode for sanity.</li>
+    <li><strong>Week 3–4:</strong> add B (auxiliary depth/camera losses). Compare against an RGB-only DreamerV3 baseline on a small HM3D subset.</li>
+    <li><strong>Week 5+:</strong> ablate. Only move to C / D / E if A+B isn't enough or is too slow.</li>
+  </ol>
+
+  <h3>UNITE complements VGGT — when to add it</h3>
+  <p>VGGT is purely geometric. ObjectNav is partly semantic ("find a sofa"). UNITE (peer architecture, not VGGT-based) adds open-vocabulary semantic features on top of a feed-forward 3D pipeline. Two sensible options:</p>
+  <ul>
+    <li><strong>Use UNITE alongside VGGT.</strong> VGGT for geometry (depth, camera, pointmap), UNITE for semantic descriptors over the same scene. Concatenate their features for the encoder. Expensive but highest signal.</li>
+    <li><strong>Use UNITE instead of VGGT.</strong> If UNITE's geometry quality is sufficient on HM3D, you get semantics + geometry from a single forward. Risk: less mature, fewer downstream precedents.</li>
+  </ul>
+  <p>For thesis defensibility, the "VGGT (geometry) + UNITE (semantics)" framing is currently <em>unprecedented</em> in the literature — that's a clean ablation axis you control.</p>
+</section>
+
+<!-- ========== RESOURCES ========== -->
+<section id="resources">
+  <h2><span class="section-num">10</span>Learning resources</h2>
+  <p class="section-intro">All URLs verified. Where the URL couldn't be confirmed, a search query is given instead.</p>
+
+  <h3>YouTube videos (verified)</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">VGGT — paper overview (CVPR 2025)</p>
+      <p class="card-meta">~paper-explainer length</p>
+      <div class="card-links"><a class="link" href="https://www.youtube.com/watch?v=CJfv0ZOAYik">watch</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">VGGT — paper explainer (Mar 2025)</p>
+      <p class="card-meta">recorded the week of release</p>
+      <div class="card-links"><a class="link" href="https://www.youtube.com/watch?v=9izRF1Cu3ac">watch</a></div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">VGGT — Install &amp; Run Locally</p>
+      <p class="card-meta">~10 min · Mar 2025</p>
+      <p class="card-desc">Hands-on local install walkthrough. Run this before integrating into Dreamer.</p>
+      <div class="card-links"><a class="link" href="https://www.youtube.com/watch?v=BhcmqplCwNk">watch</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">facebookresearch/vggt — repo walkthrough</p>
+      <p class="card-meta">~repo overview</p>
+      <div class="card-links"><a class="link" href="https://www.youtube.com/watch?v=1OpMMWDiloI">watch</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">CVPR 2025 oral — author talk (gated)</p>
+      <p class="card-meta">Wang et al. · ~10 min</p>
+      <p class="card-desc">Behind the CVPR virtual portal. If you have CVPR registration, this is the canonical author talk.</p>
+      <div class="card-links"><a class="link" href="https://cvpr.thecvf.com/virtual/2025/oral/35294">CVPR portal</a></div>
+    </div>
+  </div>
+  <div class="callout">
+    <strong>Honest gap:</strong> No verified VGGT explainer from Yannic Kilcher, AI Coffee Break, or Two Minute Papers. Search those channels directly. The DUSt3R-vs-MASt3R-vs-VGGT comparison only exists in written form so far (see <a href="https://arxiv.org/abs/2507.14798">arXiv:2507.14798</a>).
+  </div>
+
+  <h3>Blog posts &amp; write-ups</h3>
+  <div class="grid">
+    <div class="card thesis-relevant">
+      <p class="card-title">Project page (Oxford VGG + Meta AI)</p>
+      <p class="card-desc">Includes paper, code, demo, and full author slide deck on Google Drive.</p>
+      <div class="card-links"><a class="link" href="https://vgg-t.github.io/">vgg-t.github.io</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">LearnOpenCV — VGGT for Dense 3D Reconstruction</p>
+      <p class="card-meta">Satya Mallick</p>
+      <div class="card-links"><a class="link" href="https://learnopencv.com/vggt-visual-geometry-grounded-transformer-3d-reconstruction/">post</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Voxel51 — VGGT is a Pure Neural Approach to 3D Vision</p>
+      <p class="card-meta">Harpreet Sahota · pairs with FiftyOne integration</p>
+      <div class="card-links">
+        <a class="link" href="https://voxel51.com/blog/vggt-is-a-pure-neural-approach-to-3d-vision">blog</a>
+        <a class="link" href="https://docs.voxel51.com/model_zoo/models/facebook_VGGT_1B.html">FiftyOne docs</a>
+      </div>
+    </div>
+    <div class="card">
+      <p class="card-title">deMISTify (Medium)</p>
+      <p class="card-meta">Samuel Chen</p>
+      <p class="card-desc">"VGGT: How Feed-Forward 3D Perception is Redefining Scene Reconstruction"</p>
+      <div class="card-links"><a class="link" href="https://medium.com/demistify/vggt-how-feed-forward-3d-perception-is-redefining-scene-reconstruction-and-multi-view-geometry-2f5c92e81cb3">post</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Oxford CS news</p>
+      <p class="card-desc">Best Paper announcement at CVPR 2025.</p>
+      <div class="card-links"><a class="link" href="https://www.cs.ox.ac.uk/news/2456-full.html">news</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Hacker News discussion</p>
+      <p class="card-desc">Useful for community failure-mode reports.</p>
+      <div class="card-links"><a class="link" href="https://news.ycombinator.com/item?id=43470651">HN thread</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Author X (Twitter)</p>
+      <p class="card-meta">Jianyuan Wang</p>
+      <p class="card-desc">Launch thread (16 Mar 2025) and Aug 2025 VGGT-with-DINOv3 follow-up.</p>
+      <div class="card-links"><a class="link" href="https://x.com/jianyuan_wang">@jianyuan_wang</a></div>
+    </div>
+  </div>
+
+  <h3>Tutorials, demos, integration code</h3>
+  <div class="grid">
+    <div class="card thesis-relevant">
+      <p class="card-title">Hugging Face Space (Gradio demo)</p>
+      <p class="card-desc">Upload images/video → downloadable GLB point cloud + camera poses. ~470 likes.</p>
+      <div class="card-links"><a class="link" href="https://huggingface.co/spaces/facebook/vggt">spaces/facebook/vggt</a></div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">Repo demo scripts</p>
+      <p class="card-desc"><code>demo_gradio.py</code> (web UI), <code>demo_viser.py</code> (3D viewer), <code>demo_colmap.py</code> (COLMAP export + optional BA).</p>
+      <div class="card-links"><a class="link" href="https://github.com/facebookresearch/vggt">repo</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">FiftyOne Model Zoo wrapper</p>
+      <p class="card-desc">Cleanest minimal API for pulling token-level features out — handy as a reference for your own DreamerV3 wrapper.</p>
+      <div class="card-links"><a class="link" href="https://docs.voxel51.com/model_zoo/models/facebook_VGGT_1B.html">docs</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">DeepWiki install reference</p>
+      <div class="card-links"><a class="link" href="https://deepwiki.com/facebookresearch/vggt/1.1-installation">install guide</a></div>
+    </div>
+  </div>
+
+  <h3>Workshops &amp; tutorials</h3>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">3D Foundation Models Workshop</p>
+      <p class="card-meta">CVPR 2024 first edition · check page for 2025/2026</p>
+      <div class="card-links"><a class="link" href="https://3dfm.github.io/">3dfm.github.io</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">CVPR 2025 Awards announcement</p>
+      <p class="card-desc">Best Paper page mentioning VGGT.</p>
+      <div class="card-links"><a class="link" href="https://cvpr.thecvf.com/Conferences/2025/News/Awards_Press">awards</a></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== BACKGROUND ========== -->
+<section id="background">
+  <h2><span class="section-num">11</span>Background reading (the lineage VGGT replaces)</h2>
+  <div class="grid">
+    <div class="card">
+      <p class="card-title">DUSt3R <span class="tag must-read">must read</span></p>
+      <p class="card-meta">Wang et al. · CVPR 2024</p>
+      <p class="card-desc">Direct ancestor; introduced feed-forward pointmaps from image pairs.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2312.14132">arXiv:2312.14132</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">MASt3R</p>
+      <p class="card-meta">Leroy et al. · ECCV 2024</p>
+      <p class="card-desc">Adds dense matching head on top of DUSt3R.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2406.09756">arXiv:2406.09756</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">DINOv2</p>
+      <p class="card-desc">VGGT uses DINOv2 to patchify input frames into tokens.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2304.07193">arXiv:2304.07193</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">CroCo / CroCo v2</p>
+      <p class="card-desc">Cross-view completion pretraining used by the DUSt3R lineage.</p>
+      <div class="card-links">
+        <a class="link" href="https://arxiv.org/abs/2210.10716">v1</a>
+        <a class="link" href="https://arxiv.org/abs/2211.10408">v2</a>
+      </div>
+    </div>
+    <div class="card thesis-relevant">
+      <p class="card-title">Survey: From DUSt3R to VGGT</p>
+      <p class="card-meta">Zhang et al. · Jul 2025</p>
+      <p class="card-desc">Canonical taxonomy of the DUSt3R → MASt3R → MUSt3R → Fast3R → VGGT lineage. Cite this in your related-work chapter.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.08448">arXiv:2507.08448</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Companion survey: Feed-Forward 3D &amp; View Synthesis</p>
+      <p class="card-meta">Jul 2025</p>
+      <p class="card-desc">Broader; includes view-synthesis lineage.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.14501">arXiv:2507.14501</a></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Empirical: DUSt3R/MASt3R/VGGT on aerial photogrammetry</p>
+      <p class="card-meta">Jul 2025</p>
+      <p class="card-desc">The closest thing to a head-to-head video.</p>
+      <div class="card-links"><a class="link" href="https://arxiv.org/abs/2507.14798">arXiv:2507.14798</a></div>
+    </div>
+  </div>
+
+  <h3>Books for the geometric foundations</h3>
+  <div class="callout">
+    Honest answer: <strong>no "VGGT book" exists yet</strong> — the field is too new. For the foundations VGGT subsumes, read selectively:
+    <ul style="margin: 8px 0 0;">
+      <li><strong>Hartley &amp; Zisserman</strong> Ch. 6 (camera models), Ch. 9 (epipolar geometry), Ch. 18 (N-view methods), Appendix 6 (sparse bundle adjustment) — what VGGT replaces with one forward pass. <a class="link" href="https://www.robots.ox.ac.uk/~vgg/hzbook/">site</a></li>
+      <li><strong>Szeliski</strong> Ch. 11 (Structure from Motion) and Ch. 12 (depth / MVS). Free PDF: <a class="link" href="https://szeliski.org/Book/">szeliski.org/Book</a></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ========== READING ORDER ========== -->
+<section id="order">
+  <h2><span class="section-num">12</span>Suggested reading / doing order</h2>
+  <div class="reading-order">
+    <ol>
+      <li><strong>Skim</strong> the VGGT paper (<code>arXiv:2503.11651</code>) and the project page slides — 1 hour.</li>
+      <li><strong>Run</strong> the Hugging Face Space demo on 4–8 HM3D frames you've rendered — 30 min.</li>
+      <li><strong>Install</strong> the repo locally; run <code>demo_gradio.py</code>; inspect outputs (depth, cameras, pointmap) — 1 day.</li>
+      <li><strong>Read</strong> DUSt3R + MASt3R papers (~half day each), then the From-DUSt3R-to-VGGT survey — 2 days.</li>
+      <li><strong>Read</strong> VGGT-DP, MG-Nav, VGGT-World <em>in that order</em> — these are your three precedent papers — 1 day.</li>
+      <li><strong>Read</strong> StreamVGGT and eVGGT to understand your fallback options — half day.</li>
+      <li><strong>Implement</strong> Recommendation A (frozen-tokens → Dreamer) on an HM3D micro-benchmark. Compare against RGB-only baseline.</li>
+      <li><strong>Add</strong> Recommendation B (auxiliary depth/camera losses).</li>
+      <li><strong>Decide</strong> whether to add UNITE for semantics, based on whether ObjectNav success rate is bottlenecked by recognition vs navigation.</li>
+      <li><strong>Skim</strong> Hartley &amp; Zisserman / Szeliski only when you need to explain a specific geometric concept in your thesis (e.g., "what VGGT is replacing").</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  Compiled from three parallel research subagent runs · all arXiv IDs, GitHub paths, and URLs verified at compile time.<br>
+  Update freely as new VGGT-based papers appear.
+</footer>
+
+</div>
+</body>
+</html>

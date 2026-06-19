@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barlow Twins in R2-Dreamer</title>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [["\\(", "\\)"]], displayMath: [["\\[", "\\]"]] },
+    svg: { fontCache: "global" }
+  };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<style>
+  :root {
+    --ink: #17140f;
+    --muted: #6d655b;
+    --paper: #f7f2e8;
+    --panel: #fffaf0;
+    --line: #d8cbb7;
+    --green: #197a5e;
+    --blue: #1b5f8f;
+    --red: #c3493d;
+    --amber: #c2811a;
+    --black: #11100d;
+    --shadow: 0 18px 55px rgba(41, 31, 18, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    color: var(--ink);
+    background:
+      linear-gradient(90deg, rgba(23,20,15,0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+      linear-gradient(rgba(23,20,15,0.035) 1px, transparent 1px) 0 0 / 32px 32px,
+      radial-gradient(circle at 8% 12%, rgba(25,122,94,0.16), transparent 28rem),
+      radial-gradient(circle at 92% 10%, rgba(195,73,61,0.12), transparent 26rem),
+      var(--paper);
+    font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+    line-height: 1.55;
+  }
+
+  a { color: var(--blue); }
+
+  .wrap {
+    width: min(1180px, calc(100vw - 32px));
+    margin: 0 auto;
+  }
+
+  header {
+    min-height: 92vh;
+    display: grid;
+    align-items: center;
+    padding: 56px 0 24px;
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1fr minmax(330px, 520px);
+    gap: 48px;
+    align-items: center;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: rgba(255,250,240,0.7);
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0;
+  }
+
+  h1 {
+    margin: 22px 0 18px;
+    max-width: 790px;
+    font-size: clamp(48px, 8vw, 112px);
+    line-height: 0.9;
+    letter-spacing: 0;
+    font-weight: 760;
+  }
+
+  h2 {
+    margin: 0 0 22px;
+    font-size: clamp(30px, 4vw, 58px);
+    line-height: 0.98;
+    letter-spacing: 0;
+  }
+
+  h3 {
+    margin: 0 0 10px;
+    font-size: 23px;
+    line-height: 1.1;
+  }
+
+  p { margin: 0 0 16px; }
+
+  .lead {
+    max-width: 720px;
+    font-size: clamp(18px, 2.2vw, 25px);
+    color: #342d24;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .pill {
+    border: 1px solid var(--line);
+    background: rgba(255,250,240,0.78);
+    border-radius: 999px;
+    padding: 8px 12px;
+    color: #463d32;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+
+  .machine {
+    position: relative;
+    border: 1px solid #2a241c;
+    background: #17140f;
+    color: #f8ecd5;
+    min-height: 520px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .machine:before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px) 0 0 / 100% 18px,
+      radial-gradient(circle at 70% 18%, rgba(238,189,84,0.2), transparent 220px);
+    pointer-events: none;
+  }
+
+  .matrix-title {
+    position: absolute;
+    top: 18px;
+    left: 20px;
+    right: 20px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: #d9c6a7;
+  }
+
+  #heroMatrix {
+    position: absolute;
+    left: 50%;
+    top: 52%;
+    transform: translate(-50%, -50%);
+    width: min(86%, 440px);
+    aspect-ratio: 1;
+  }
+
+  .equation-strip {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    bottom: 20px;
+    display: grid;
+    gap: 8px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    color: #f0dec1;
+  }
+
+  .main-nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    border-block: 1px solid var(--line);
+    background: rgba(247,242,232,0.86);
+    backdrop-filter: blur(14px);
+  }
+
+  .main-nav .wrap {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+
+  .nav-btn, button, select {
+    font: 600 14px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border: 1px solid var(--ink);
+    background: var(--panel);
+    color: var(--ink);
+    padding: 10px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    box-shadow: 3px 3px 0 rgba(23,20,15,0.16);
+  }
+
+  .nav-btn.active, button.active {
+    background: var(--black);
+    color: #fff4df;
+  }
+
+  section {
+    padding: 84px 0;
+    border-bottom: 1px solid rgba(216,203,183,0.75);
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
+    gap: 34px;
+    align-items: start;
+  }
+
+  .panel {
+    border: 1px solid var(--line);
+    background: rgba(255,250,240,0.82);
+    padding: 22px;
+    box-shadow: var(--shadow);
+  }
+
+  .dense {
+    display: grid;
+    gap: 12px;
+  }
+
+  .step-row {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    gap: 14px;
+    align-items: start;
+    padding: 16px 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .num {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--ink);
+    background: #f2d88f;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 800;
+  }
+
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(120px, 1fr));
+    gap: 12px;
+    align-items: center;
+  }
+
+  .node {
+    min-height: 104px;
+    border: 1px solid var(--ink);
+    background: #fffaf0;
+    padding: 14px;
+    position: relative;
+  }
+
+  .node:after {
+    content: attr(data-shape);
+    display: block;
+    margin-top: 8px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+
+  .arrow {
+    height: 2px;
+    background: var(--ink);
+    position: relative;
+    min-width: 34px;
+  }
+
+  .arrow:after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    top: -5px;
+    border-left: 10px solid var(--ink);
+    border-block: 6px solid transparent;
+  }
+
+  .formula {
+    font-size: clamp(19px, 2.4vw, 31px);
+    line-height: 1.35;
+    border-left: 6px solid var(--green);
+    padding: 18px 20px;
+    background: #fff7e5;
+    overflow-x: auto;
+  }
+
+  .mono, code, pre {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  pre {
+    margin: 0;
+    overflow: auto;
+    background: #17140f;
+    color: #f6e8cf;
+    border: 1px solid #17140f;
+    padding: 18px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .code-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .hl { color: #f0c35b; }
+  .kw { color: #7cc7b2; }
+  .cm { color: #b5a58f; }
+  .fn { color: #e58b7d; }
+
+  .tooltip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    border-bottom: 1px dotted currentColor;
+    cursor: help;
+  }
+
+  .tooltip span {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
+    width: min(280px, 72vw);
+    padding: 10px 12px;
+    border: 1px solid var(--ink);
+    background: #17140f;
+    color: #fff4df;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    z-index: 20;
+  }
+
+  .tooltip:hover span,
+  .tooltip:focus span {
+    opacity: 1;
+    transform: translate(-50%, -4px);
+  }
+
+  .controls {
+    display: grid;
+    gap: 16px;
+  }
+
+  label {
+    display: grid;
+    gap: 8px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--green);
+  }
+
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+
+  .stat {
+    border: 1px solid var(--line);
+    background: #fff7e5;
+    padding: 12px;
+  }
+
+  .stat strong {
+    display: block;
+    font-size: 22px;
+    color: var(--black);
+  }
+
+  canvas {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: #fffaf0;
+  }
+
+  #lossCanvas { height: 320px; }
+  #simCanvas { height: 320px; }
+
+  .split-plots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    color: var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    margin-top: 10px;
+  }
+
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .swatch {
+    width: 18px;
+    height: 3px;
+    background: currentColor;
+  }
+
+  .callout {
+    border-left: 6px solid var(--red);
+    background: #fff1df;
+    padding: 18px 20px;
+  }
+
+  .small { color: var(--muted); font-size: 14px; }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .code-view { display: none; }
+  .code-view.active { display: block; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  footer {
+    padding: 40px 0 70px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 960px) {
+    .hero, .two-col, .split-plots { grid-template-columns: 1fr; }
+    .flow { grid-template-columns: 1fr; }
+    .arrow { height: 34px; width: 2px; margin-left: 18px; }
+    .arrow:after {
+      right: auto;
+      left: -5px;
+      top: auto;
+      bottom: -1px;
+      border-top: 10px solid var(--ink);
+      border-inline: 6px solid transparent;
+      border-left-color: transparent;
+    }
+    header { min-height: auto; }
+    .machine { min-height: 430px; }
+  }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <div class="hero">
+    <div>
+      <div class="eyebrow">src/r2dreamer/representation/barlow.py</div>
+      <h1>Barlow Twins Loss in R2-Dreamer</h1>
+      <p class="lead">
+        Diese Seite erklärt die konkrete Implementierung in deinem Projekt:
+        nicht als Bild-Rekonstruktion, sondern als Redundanzreduktion zwischen
+        RSSM-Feature <code>feat</code> und Encoder-Embedding <code>embed</code>.
+      </p>
+      <div class="meta">
+        <span class="pill">barlow_lambda = 5e-4</span>
+        <span class="pill">scale_barlow = 0.05</span>
+        <span class="pill">Normierung ueber B*T</span>
+        <span class="pill">torch.std-Paritaet: ddof=1</span>
+      </div>
+    </div>
+    <div class="machine" aria-label="Animierte Cross-Correlation Matrix">
+      <div class="matrix-title">
+        <span>cross-correlation C</span>
+        <span>diag -> 1, offdiag -> 0</span>
+      </div>
+      <canvas id="heroMatrix" width="520" height="520"></canvas>
+      <div class="equation-strip">
+        <div>C = norm(projector(feat))^T norm(embed) / (B*T)</div>
+        <div>L = sum_i (C_ii - 1)^2 + lambda * sum_{i!=j} C_ij^2</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="main-nav">
+  <div class="wrap">
+    <button class="nav-btn active" data-scroll="math">Mathematik</button>
+    <button class="nav-btn" data-scroll="pipeline">Projekt-Pipeline</button>
+    <button class="nav-btn" data-scroll="code">Code</button>
+    <button class="nav-btn" data-scroll="playground">Interaktiv</button>
+    <button class="nav-btn" data-scroll="plots">Training</button>
+  </div>
+</nav>
+
+<main>
+  <section id="math">
+    <div class="wrap two-col">
+      <div>
+        <h2>Was die Loss erzwingt</h2>
+        <p>
+          Barlow Twins baut eine
+          <span class="tooltip" tabindex="0">Kreuzkorrelationsmatrix
+            <span>Jede Zelle misst, wie stark eine Dimension der projizierten RSSM-Features mit einer Dimension des Encoder-Embeddings zusammenhaengt.</span>
+          </span>
+          zwischen zwei Darstellungen derselben Zeitschritte. In deinem Code sind die Zwillinge nicht zwei augmentierte Bilder,
+          sondern <code>projector(feat)</code> und <code>embed</code>.
+        </p>
+        <div class="formula">
+          \[
+            C_{ij} =
+            \frac{1}{B T}
+            \sum_{b=1}^{B}\sum_{t=1}^{T}
+            z^{(1)}_{bt,i}\,z^{(2)}_{bt,j}
+          \]
+          \[
+            \mathcal{L}_{BT} =
+            \sum_i (C_{ii} - 1)^2
+            + \lambda \sum_{i \ne j} C_{ij}^2
+          \]
+        </div>
+        <p class="small">
+          Diagonale Werte stehen fuer Invarianz: passende Dimensionen sollen sich gleichen. Off-Diagonal-Werte stehen fuer Redundanz: verschiedene Dimensionen sollen nicht dieselbe Information tragen.
+        </p>
+      </div>
+      <div class="panel dense">
+        <div class="step-row">
+          <div class="num">1</div>
+          <div><h3>Gleiche Zeitschritte aus Replay</h3><p><code>feat</code> und <code>embed</code> kommen aus demselben Batch mit Form <code>(B, T, *)</code>.</p></div>
+        </div>
+        <div class="step-row">
+          <div class="num">2</div>
+          <div><h3>Projektion auf Encoder-Dimension</h3><p>Der lineare <code>Projector</code> mappt RSSM-Features von <code>feat_size</code> auf <code>embed_size</code>.</p></div>
+        </div>
+        <div class="step-row">
+          <div class="num">3</div>
+          <div><h3>Batch-Zeit-Normalisierung</h3><p><code>B*T</code> wird als Stichprobe verwendet. <code>ddof=1</code> reproduziert PyTorchs Standardabweichung.</p></div>
+        </div>
+        <div class="step-row">
+          <div class="num">4</div>
+          <div><h3>Identitaet als Zielmatrix</h3><p>Die Loss macht <code>C</code> moeglichst nah an die Einheitsmatrix.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pipeline">
+    <div class="wrap">
+      <h2>Wo sie in deinem Agenten sitzt</h2>
+      <p style="color:var(--muted);margin-top:-8px;">Die kanonische, aktuelle VGGT/R2Dreamer Architektur- und Data-Flow-Uebersicht liegt in <a href="../02-architecture/architecture-data-flow.html">architecture-data-flow.html</a>. Diese Folie zeigt nur den Barlow-spezifischen Gradientenpfad.</p>
+      <div class="flow" aria-label="R2-Dreamer Datenfluss">
+        <div class="node" data-shape="obs: (B,T,C,H,W)"><strong>Replay Batch</strong><br>Habitat/Crafter Beobachtungen und Aktionen</div>
+        <div class="arrow"></div>
+        <div class="node" data-shape="embed: (B,T,E)"><strong>Encoder</strong><br>CNN, VGGT oder VGGT Aggregator MLP</div>
+        <div class="arrow"></div>
+        <div class="node" data-shape="feat: (B,T,F)"><strong>RSSM Observe</strong><br>posterior states plus deterministic memory</div>
+      </div>
+      <div style="height:18px"></div>
+      <div class="two-col">
+        <div class="panel">
+          <h3>R2-Dreamer Anpassung</h3>
+          <p>
+            Die Originalidee von Barlow Twins lernt aus zwei verzerrten Ansichten desselben Bildes. Hier ersetzt die Loss den Decoder:
+            Der Weltmodell-Zustand muss eine lineare Projektion erzeugen, die mit dem Encoder-Embedding korreliert, ohne redundante Dimensionen aufzubauen.
+          </p>
+          <p>
+            Deshalb passt die Loss gut zum decoderfreien R2-Dreamer-Ziel: keine Pixel rekonstruieren, sondern eine kompakte, trainingsnuetzliche Repräsentation stabilisieren.
+          </p>
+        </div>
+        <div class="panel">
+          <h3>Gradientenpfad</h3>
+          <p>
+            <code>barlow_stop_grad=True</code> stoppt den Gradienten auf der Encoder-Seite. Dann aktualisiert Barlow Twins vor allem Projektor und RSSM.
+          </p>
+          <p>
+            Mit dem CLI-Schalter <code>--barlow_grad_to_encoder</code> wird <code>barlow_stop_grad=False</code>. Das ist in deinem Code als Protocol-D-Diagnose dokumentiert, um zu testen, ob Encoder, Aggregator MLP oder VGGT zu wenig Signal erhalten.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="code">
+    <div class="wrap two-col">
+      <div>
+        <h2>Implementierung, fokussiert</h2>
+        <p>
+          Die Loss lebt in <code>src/r2dreamer/representation/barlow.py</code> und wird in <code>representation_loss</code> zusammen mit <code>repval</code> zusammengesetzt.
+        </p>
+        <div class="callout">
+          <strong>Wichtig fuer Paritaet:</strong> Der Kommentar im Code nennt <code>ddof=1</code>, weil <code>torch.std()</code> standardmaessig Bessel-Korrektur nutzt. Das ist eine kleine Zeile, aber fuer Cross-Framework-Vergleiche sichtbar.
+        </div>
+      </div>
+      <div class="panel">
+        <div class="code-toolbar">
+          <button class="active" data-code="loss">Loss</button>
+          <button data-code="config">Config</button>
+          <button data-code="total">Gesamtloss</button>
+        </div>
+        <pre class="code-view active" id="code-loss"><code><span class="cm"># src/r2dreamer/representation/barlow.py</span>
+feat_flat = feat.reshape(B * T, -1)
+embed_flat = embed.reshape(B * T, -1)
+
+x1 = modules[<span class="hl">"projector"</span>].apply(params[<span class="hl">"projector"</span>], feat_flat)
+x2 = jax.lax.stop_gradient(embed_flat) <span class="kw">if</span> cfg.barlow_stop_grad <span class="kw">else</span> embed_flat
+
+x1_norm = (x1 - jnp.mean(x1, axis=0)) / (jnp.std(x1, axis=0, ddof=1) + 1e-8)
+x2_norm = (x2 - jnp.mean(x2, axis=0)) / (jnp.std(x2, axis=0, ddof=1) + 1e-8)
+
+c = (x1_norm.T @ x2_norm) / (B * T)
+invariance = jnp.sum((jnp.diag(c) - 1.0) ** 2)
+redundancy = jnp.sum((c * (1.0 - jnp.eye(c.shape[0]))) ** 2)
+loss = invariance + cfg.barlow_lambda * redundancy</code></pre>
+        <pre class="code-view" id="code-config"><code><span class="cm"># src/r2dreamer/config.py</span>
+barlow_lambda: float = <span class="hl">5e-4</span>
+barlow_stop_grad: bool = <span class="hl">True</span>
+
+scale_barlow: float = <span class="hl">0.05</span>
+
+batch_size: int = 16
+seq_len: int = 64
+
+@property
+def feat_size(self) -&gt; int:
+    return self.stoch_size + self.deter_size</code></pre>
+        <pre class="code-view" id="code-total"><code><span class="cm"># src/r2dreamer/agent.py</span>
+total_loss = (
+    cfg.scale_dyn * losses[<span class="hl">"dyn"</span>]
+    + cfg.scale_rep * losses[<span class="hl">"rep"</span>]
+    + cfg.scale_barlow * losses[<span class="hl">"barlow"</span>]
+    + cfg.scale_rew * losses[<span class="hl">"rew"</span>]
+    + cfg.scale_con * losses[<span class="hl">"con"</span>]
+    + cfg.scale_policy * losses[<span class="hl">"policy"</span>]
+    + cfg.scale_value * losses[<span class="hl">"value"</span>]
+    + cfg.scale_repval * losses[<span class="hl">"repval"</span>]
+)</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="playground">
+    <div class="wrap two-col">
+      <div>
+        <h2>Interaktive Mini-Loss</h2>
+        <p>
+          Verändere die Off-Diagonal-Korrelation und <code>lambda</code>. Die Heatmap zeigt, warum Barlow Twins nicht nur passende Dimensionen angleicht, sondern redundante Dimensionen aktiv bestraft.
+        </p>
+        <div class="controls panel">
+          <label>Off-Diagonal-Staerke <span id="corrVal">0.35</span>
+            <input id="corrRange" type="range" min="0" max="0.9" step="0.01" value="0.35">
+          </label>
+          <label>Diagonalfehler <span id="diagVal">0.20</span>
+            <input id="diagRange" type="range" min="0" max="0.8" step="0.01" value="0.20">
+          </label>
+          <label>barlow_lambda <span id="lambdaVal">0.0005</span>
+            <input id="lambdaRange" type="range" min="0" max="0.01" step="0.0001" value="0.0005">
+          </label>
+          <div class="readout">
+            <div class="stat"><span class="small">Invarianz</span><strong id="invOut">0</strong></div>
+            <div class="stat"><span class="small">Redundanz</span><strong id="redOut">0</strong></div>
+            <div class="stat"><span class="small">Loss</span><strong id="lossOut">0</strong></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <canvas id="simCanvas" width="760" height="520"></canvas>
+        <div class="legend">
+          <span class="key" style="color:var(--green)"><span class="swatch"></span>Diagonale soll 1 werden</span>
+          <span class="key" style="color:var(--red)"><span class="swatch"></span>Off-Diagonale soll 0 werden</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="plots">
+    <div class="wrap">
+      <h2>Beispielplots aus lokalen Runs</h2>
+      <div class="split-plots">
+        <div class="panel">
+          <h3>loss/barlow ueber Training</h3>
+          <canvas id="lossCanvas" width="760" height="420"></canvas>
+          <div class="legend">
+            <span class="key" style="color:var(--blue)"><span class="swatch"></span>JAX R2-Dreamer Vergleichsrun</span>
+            <span class="key" style="color:var(--red)"><span class="swatch"></span>L3 VGGT FiLM Run</span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Lesart</h3>
+          <p>
+            Beide Kurven fallen stark zu Beginn. Das ist erwartbar: Projektor und RSSM lernen schnell, die groben Encoder-Dimensionen zu treffen. Spaeter bleibt ein Plateau, weil die Loss weiterhin mit KL-, Reward-, Continue-, Actor-, Critic- und Repval-Terms konkurriert.
+          </p>
+          <p>
+            Der VGGT-FiLM-Run startet hoeher, weil das Encoder-Ziel eine andere, hochdimensionale 3D-Repräsentation liefert. Die absolute Zahl ist daher nicht direkt mit einer Rekonstruktionsloss oder anderen Encoder-Setups vergleichbar.
+          </p>
+          <div class="callout">
+            <strong>Projekt-spezifische Konsequenz:</strong> Fuer Analysen ist <code>loss/barlow</code> ein Diagnosesignal fuer Alignment und Redundanz, aber nicht allein ein Erfolgsmetriksurrogat. In ObjectNav muessen SPL, Success Rate, Rewards und Latent-Diagnostik daneben gelesen werden.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  Quellen im Projekt: <code>src/r2dreamer/representation/barlow.py</code>, <code>src/r2dreamer/config.py</code>, <code>src/r2dreamer/agent.py</code>,
+  lokale Metriken aus <code>output/methods/comparisons/comparison/r2dreamer_jax_metrics.csv</code> und <code>output/r2dreamer-curriculum-l3-vggt-film/run-4464617/metrics.csv</code>.
+</footer>
+
+<script>
+const colors = {
+  ink: "#17140f",
+  muted: "#6d655b",
+  paper: "#fffaf0",
+  line: "#d8cbb7",
+  green: "#197a5e",
+  blue: "#1b5f8f",
+  red: "#c3493d",
+  amber: "#c2811a"
+};
+
+function drawMatrix(canvas, matrix, opts = {}) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  const n = matrix.length;
+  const pad = opts.pad ?? 46;
+  const size = Math.min(w, h) - pad * 2;
+  const x0 = (w - size) / 2;
+  const y0 = (h - size) / 2;
+  const cell = size / n;
+
+  ctx.fillStyle = opts.dark ? "#17140f" : colors.paper;
+  ctx.fillRect(0, 0, w, h);
+
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      const v = Math.max(-1, Math.min(1, matrix[r][c]));
+      const isDiag = r === c;
+      const alpha = Math.abs(v);
+      ctx.fillStyle = isDiag
+        ? `rgba(25, 122, 94, ${0.18 + alpha * 0.76})`
+        : `rgba(195, 73, 61, ${0.08 + alpha * 0.72})`;
+      ctx.fillRect(x0 + c * cell, y0 + r * cell, cell - 2, cell - 2);
+      if (cell > 30) {
+        ctx.fillStyle = opts.dark ? "#fff4df" : colors.ink;
+        ctx.font = `${Math.max(10, cell * 0.22)}px ui-monospace, monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(v.toFixed(2), x0 + c * cell + cell / 2, y0 + r * cell + cell / 2);
+      }
+    }
+  }
+
+  ctx.strokeStyle = opts.dark ? "#f0dec1" : colors.ink;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x0, y0, size, size);
+  ctx.font = "12px ui-monospace, monospace";
+  ctx.fillStyle = opts.dark ? "#d9c6a7" : colors.muted;
+  ctx.textAlign = "center";
+  ctx.fillText("z2 / embed dimensions", w / 2, y0 + size + 28);
+  ctx.save();
+  ctx.translate(x0 - 26, y0 + size / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("z1 / projected feat dimensions", 0, 0);
+  ctx.restore();
+}
+
+function simulatedMatrix(corr, diagError, t = 0) {
+  const n = 6;
+  const m = [];
+  for (let r = 0; r < n; r++) {
+    const row = [];
+    for (let c = 0; c < n; c++) {
+      if (r === c) {
+        row.push(1 - diagError * (0.65 + 0.35 * Math.sin(t + r)));
+      } else {
+        const wave = Math.sin(t * 0.7 + r * 1.7 + c * 0.9);
+        row.push(corr * wave);
+      }
+    }
+    m.push(row);
+  }
+  return m;
+}
+
+function computeLoss(matrix, lambda) {
+  let inv = 0;
+  let red = 0;
+  for (let r = 0; r < matrix.length; r++) {
+    for (let c = 0; c < matrix.length; c++) {
+      if (r === c) inv += (matrix[r][c] - 1) ** 2;
+      else red += matrix[r][c] ** 2;
+    }
+  }
+  return { inv, red, loss: inv + lambda * red };
+}
+
+let heroT = 0;
+function animateHero() {
+  const canvas = document.getElementById("heroMatrix");
+  const matrix = simulatedMatrix(0.22 + 0.14 * Math.sin(heroT * 0.6), 0.13 + 0.05 * Math.cos(heroT), heroT);
+  drawMatrix(canvas, matrix, { dark: true, pad: 46 });
+  heroT += 0.035;
+  requestAnimationFrame(animateHero);
+}
+
+function updatePlayground() {
+  const corr = Number(document.getElementById("corrRange").value);
+  const diag = Number(document.getElementById("diagRange").value);
+  const lambda = Number(document.getElementById("lambdaRange").value);
+  document.getElementById("corrVal").textContent = corr.toFixed(2);
+  document.getElementById("diagVal").textContent = diag.toFixed(2);
+  document.getElementById("lambdaVal").textContent = lambda.toFixed(4);
+  const matrix = simulatedMatrix(corr, diag, 1.8);
+  const parts = computeLoss(matrix, lambda);
+  document.getElementById("invOut").textContent = parts.inv.toFixed(3);
+  document.getElementById("redOut").textContent = parts.red.toFixed(3);
+  document.getElementById("lossOut").textContent = parts.loss.toFixed(3);
+  drawMatrix(document.getElementById("simCanvas"), matrix, { pad: 58 });
+}
+
+function drawLinePlot(canvas, series) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width;
+  const h = canvas.height;
+  const pad = { l: 64, r: 24, t: 28, b: 48 };
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = colors.paper;
+  ctx.fillRect(0, 0, w, h);
+
+  const all = series.flatMap(s => s.data);
+  const minX = Math.min(...all.map(d => d[0]));
+  const maxX = Math.max(...all.map(d => d[0]));
+  const minY = 0;
+  const maxY = Math.max(...all.map(d => d[1])) * 1.08;
+  const sx = x => pad.l + (x - minX) / (maxX - minX) * (w - pad.l - pad.r);
+  const sy = y => h - pad.b - (y - minY) / (maxY - minY) * (h - pad.t - pad.b);
+
+  ctx.strokeStyle = colors.line;
+  ctx.lineWidth = 1;
+  ctx.font = "12px ui-monospace, monospace";
+  ctx.fillStyle = colors.muted;
+  for (let i = 0; i <= 5; i++) {
+    const y = minY + (maxY - minY) * i / 5;
+    const py = sy(y);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, py);
+    ctx.lineTo(w - pad.r, py);
+    ctx.stroke();
+    ctx.fillText(Math.round(y).toString(), 12, py + 4);
+  }
+  for (let i = 0; i <= 4; i++) {
+    const x = minX + (maxX - minX) * i / 4;
+    ctx.fillText(`${Math.round(x / 1000)}k`, sx(x) - 12, h - 18);
+  }
+
+  ctx.strokeStyle = colors.ink;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(pad.l, pad.t, w - pad.l - pad.r, h - pad.t - pad.b);
+  ctx.save();
+  ctx.translate(18, h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("loss/barlow", 0, 0);
+  ctx.restore();
+  ctx.fillText("training step", w / 2 - 42, h - 18);
+
+  series.forEach(s => {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    s.data.forEach((d, i) => {
+      const x = sx(d[0]);
+      const y = sy(d[1]);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+}
+
+const jaxRun = [
+  [250,228.7],[500,146.7],[1000,103.5],[2000,89.4],[4000,66.5],
+  [8000,53.2],[12000,50.1],[20000,44.8],[40000,38.9],[60000,36.8],
+  [80000,35.7],[99750,34.5]
+];
+const vggtRun = [
+  [250,902.4],[500,367.3],[1000,214.7],[2000,142.1],[4000,121.3],
+  [8000,111.6],[12000,104.3],[20000,91.2],[40000,76.4],[60000,67.8],
+  [80000,61.9],[99750,60.7]
+];
+
+document.querySelectorAll(".nav-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.scroll).scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+});
+
+document.querySelectorAll("[data-code]").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-code]").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".code-view").forEach(v => v.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`code-${btn.dataset.code}`).classList.add("active");
+  });
+});
+
+["corrRange", "diagRange", "lambdaRange"].forEach(id => {
+  document.getElementById(id).addEventListener("input", updatePlayground);
+});
+
+animateHero();
+updatePlayground();
+drawLinePlot(document.getElementById("lossCanvas"), [
+  { color: colors.blue, data: jaxRun },
+  { color: colors.red, data: vggtRun }
+]);
+</script>
+</body>
+</html>

@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Diagnosis v3 — reward shaping, weight masks, and the open issue</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1a1a1a; --muted: #5b5b5b;
+    --accent: #b54a2b; --accent2: #2c5e8e; --accent3: #5d4b8a;
+    --good: #2f7a4f; --warn: #c98b1f; --bad: #b03030;
+    --rule: #d8d4cb; --code-bg: #f3efe6; --card-bg: #ffffff;
+    --hafner: #2c5e8e; --nm512: #5d4b8a; --r2: #b54a2b;
+  }
+  html { -webkit-text-size-adjust: 100%; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Source Serif Pro",
+                      Charter, Georgia, "Times New Roman", serif;
+         background: var(--bg); color: var(--fg); line-height: 1.55; margin: 0; padding: 0 0 4rem 0; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 2.2rem 1.4rem; }
+  h1 { font-size: 1.85rem; margin: 0 0 .25rem 0; line-height: 1.2; }
+  h1 + .sub { color: var(--muted); font-size: .95rem; margin: 0 0 1rem 0;
+              font-family: -apple-system, "Inter", "Helvetica Neue", sans-serif; }
+  h2 { font-size: 1.25rem; margin: 2.4rem 0 .6rem 0; border-bottom: 1px solid var(--rule); padding-bottom: .25rem; }
+  h3 { font-size: 1.04rem; margin: 1.4rem 0 .35rem 0; }
+  h4 { font-size: .95rem; margin: 1.0rem 0 .3rem 0; color: var(--accent2); }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .8rem 1.2rem; padding: 0; }
+  li { margin: .2rem 0; }
+  code, pre, .mono { font-family: "JetBrains Mono", "Fira Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: .85em; }
+  code { background: var(--code-bg); padding: .07em .35em; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: .8rem 1rem; border-radius: 6px;
+        overflow-x: auto; border: 1px solid var(--rule); font-size: .8rem; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  blockquote { margin: .8rem 0; padding: .55rem .9rem; border-left: 3px solid var(--accent3);
+               background: #f5f1fb; color: #322a44; font-size: .95rem; border-radius: 3px; }
+  blockquote .src { display: block; font-size: .8rem; color: var(--muted); margin-top: .35rem;
+                    font-family: -apple-system, sans-serif; }
+  .tldr { background: var(--card-bg); border: 1px solid var(--rule);
+          border-left: 4px solid var(--accent); border-radius: 6px;
+          padding: .9rem 1.1rem; margin: 1rem 0 1.6rem 0; }
+  .tldr h2 { margin-top: 0; border: none; padding: 0; font-size: 1.05rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem; margin: .8rem 0; }
+  .card { background: var(--card-bg); border: 1px solid var(--rule); border-radius: 6px; padding: .7rem .85rem; }
+  .card .k { font-size: .78rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  .card .v { font-size: 1.1rem; font-weight: 600; margin-top: .15rem; }
+  .card .v.good { color: var(--good); } .card .v.warn { color: var(--warn); } .card .v.bad { color: var(--bad); }
+  .tag { display: inline-block; font-size: .72rem; background: var(--code-bg); color: var(--muted);
+         padding: .07em .5em; border-radius: 10px; margin-right: .3em; border: 1px solid var(--rule);
+         font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .tag.warn { color: var(--warn); border-color: #e7c789; background: #fff7e3; }
+  .tag.bad  { color: var(--bad);  border-color: #e8b3b3; background: #fdeeee; }
+  .tag.good { color: var(--good); border-color: #b3d8c1; background: #e9f5ee; }
+  .tag.info { color: var(--accent2); border-color: #b8cee0; background: #ecf3fa; }
+  .figure { margin: 1.2rem 0; padding: 1rem 1rem .6rem 1rem; background: var(--card-bg);
+            border: 1px solid var(--rule); border-radius: 6px; }
+  .figure figcaption { font-size: .82rem; color: var(--muted); margin-top: .5rem;
+                       font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  .figure svg { display: block; max-width: 100%; height: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0 1rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums;
+                   font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .82rem; }
+  .math { background: var(--code-bg); padding: .8rem 1rem; border-radius: 6px;
+          border: 1px solid var(--rule);
+          font-family: "Latin Modern Math", "Cambria Math", "STIX Two Math", "Charter", Georgia, serif;
+          text-align: center; font-size: 1.02rem; margin: .8rem 0; }
+  .math .small { font-size: .85em; color: var(--muted); }
+  .verdict { margin: .6rem 0; padding: .55rem .85rem; border-left: 3px solid var(--good);
+             background: #f0f7f3; font-size: .9rem; }
+  .verdict.warn { border-color: var(--warn); background: #fdf7e7; }
+  .verdict.bad  { border-color: var(--bad);  background: #fceeee; }
+  .ref { font-size: .82rem; color: var(--muted); }
+  .ref a { color: var(--accent2); text-decoration: none; border-bottom: 1px dotted var(--accent2); }
+  .ref a:hover { border-bottom-style: solid; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
+  .footnotes { font-size: .82rem; color: var(--muted); }
+  details { margin: .5rem 0; }
+  details summary { cursor: pointer; color: var(--accent2); font-size: .9rem; }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
+  .threecol { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .7rem; }
+  @media (max-width: 760px) { .twocol, .threecol { grid-template-columns: 1fr; } }
+  .panel { background: var(--card-bg); border: 1px solid var(--rule); border-radius: 6px; padding: .8rem 1rem; }
+  .panel h4 { margin-top: 0; }
+  .panel.hafner { border-left: 4px solid var(--hafner); }
+  .panel.nm512  { border-left: 4px solid var(--nm512); }
+  .panel.r2     { border-left: 4px solid var(--r2); }
+  .crosslink { display: inline-block; padding: .35rem .7rem; background: var(--code-bg);
+               border: 1px solid var(--rule); border-radius: 4px; font-family: -apple-system, sans-serif;
+               font-size: .85rem; color: var(--accent2); text-decoration: none; margin-right: .35rem; margin-bottom: .35rem; }
+  .crosslink:hover { background: var(--card-bg); }
+  .issuebox { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 6px;
+              padding: 1rem; margin: 1rem 0; }
+  .issuebox h4 { margin-top: 0; color: #1f2328; font-family: -apple-system, sans-serif; }
+  .issuebox .meta { font-size: .82rem; color: #57606a;
+                    font-family: -apple-system, sans-serif; margin-bottom: .6rem; }
+  .issuebox pre { background: #ffffff; border-color: #d0d7de; }
+  .pill { display: inline-block; padding: .05em .55em; border-radius: 999px; font-size: .75rem;
+          font-family: "JetBrains Mono", ui-monospace, monospace; background: var(--code-bg); color: var(--muted); }
+  mark { background: #ffe89e; padding: 0 .1em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<a class="crosslink" href="./er5ze5m6_diagnosis.html">← v1 (single-run)</a>
+<a class="crosslink" href="./er5ze5m6_diagnosis_v2.html">← v2 (three runs, A_norm)</a>
+
+<h1>Diagnosis v3 — reward shaping reality, the cumulative-discount weight, and the open issue</h1>
+<p class="sub">
+  Confirmed actions from this turn:
+  <span class="tag info">LaTeX → Appendix.tex (cross-ref'd)</span>
+  <span class="tag info">Issue body shown below before opening</span>
+</p>
+
+<div class="tldr">
+<h2>TL;DR — three new findings</h2>
+<ol>
+  <li><strong>v2's "99% of steps are −0.01" framing was wrong.</strong> The env runs in <code>geodesic_delta</code> mode by default (<code>habitat.py:256–265</code>): per-step reward is <code>Δ(distance_to_goal) + step_penalty</code>, plus <code>+10</code> on goal arrival. <strong>The reward is dense, signed by direction of motion, and penalises moving away from the goal.</strong> So the η=3·10⁻⁴ collapse cannot be blamed on "no learning signal" — it is a feedback-loop failure during early training.</li>
+  <li><strong>The cumulative-discount weight in this fork is correct.</strong> <code>danijar/dreamerv3</code>, <code>NM512/dreamerv3-torch</code>, and r2dreamer all use a per-step <code>cumprod(γ·cont)</code>; only nit is dividing by <code>disc</code> for exact magnitude parity with Hafner. Not a bug; matches both reference implementations.</li>
+  <li><strong>You should not change <code>step_penalty</code> / <code>success_bonus</code> right now.</strong> The dense shaping already fires; the encoder works at η=3·10⁻². The single highest-leverage change is observability — confirmed below as a GitHub issue draft.</li>
+</ol>
+</div>
+
+<!-- ============================================================== -->
+<h2>1 — What does the agent's reward function actually look like?</h2>
+
+<p>From <code>modules/envs/habitat.py:256–265</code> and <code>modules/shared/configs.py:12–14</code>:</p>
+
+<pre><code>def _compute_reward(self, dist: float) -> float:
+    if self._cfg.reward_type == "sparse":
+        bonus = self._cfg.success_bonus if dist &lt; GOAL_RADIUS else 0.0
+        return bonus + self._cfg.step_penalty
+
+    reward = self._prev_dist - dist          # geodesic delta (DEFAULT)
+    self._prev_dist = dist
+    if dist &lt; GOAL_RADIUS:
+        reward += self._cfg.success_bonus    # +10 when first reaching goal
+    return reward + self._cfg.step_penalty   # constant -0.01</code></pre>
+
+<table>
+<thead><tr><th>Your question</th><th>Answer</th><th>Where</th></tr></thead>
+<tbody>
+<tr>
+  <td>Does the agent get rewarded for getting closer to the goal, or only at the end?</td>
+  <td><strong>Both, in default mode.</strong> Each movement step gives <code>Δd = prev_dist − curr_dist</code>. Plus <code>+10</code> on first time entering the 0.2 m goal radius.</td>
+  <td><code>habitat.py:260–264</code></td>
+</tr>
+<tr>
+  <td>Does moving away from the goal incur a penalty?</td>
+  <td><strong>Yes.</strong> If <code>curr_dist &gt; prev_dist</code> then <code>Δd &lt; 0</code>, contributing a negative reward. Combined with the constant <code>−0.01</code> step penalty.</td>
+  <td><code>habitat.py:260</code></td>
+</tr>
+<tr>
+  <td>Is the success bonus given on STOP or only mid-action?</td>
+  <td><strong>Only on movement actions.</strong> STOP only incurs <code>step_penalty</code>; it does not check the goal radius. The agent must walk into the goal radius using <code>FORWARD/LEFT/RIGHT</code>.</td>
+  <td><code>habitat.py:201–212</code> (STOP) vs <code>habitat.py:256–265</code></td>
+</tr>
+<tr>
+  <td>Any other reward components (collision, look-up/down, time-of-day)?</td>
+  <td><strong>None.</strong> Three components only: geodesic delta, step penalty, success bonus.</td>
+  <td>—</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Theoretical reward range under <code>geodesic_delta</code></h3>
+<div class="math" style="text-align:left">
+R<sub>episode</sub> &nbsp;=&nbsp; (initial_dist − final_dist) − 0.01·T &nbsp;+&nbsp; 10·𝟙[success]
+<div class="small">For a 10 m start, 100-step success: R ≈ 10 + 9.8 − 1 = 18.8. For a 500-step timeout from 10 m with no progress: R ≈ 0 − 5 = −5.</div>
+</div>
+
+<figure class="figure">
+<svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg" aria-label="Per-step reward magnitude in geodesic_delta">
+  <line x1="60" y1="20" x2="60" y2="180" stroke="#888"/>
+  <line x1="60" y1="180" x2="700" y2="180" stroke="#888"/>
+  <text x="370" y="200" font-size="11" text-anchor="middle" fill="#5b5b5b">single-step reward r<sub>t</sub></text>
+  <text x="55" y="24" font-size="10" text-anchor="end" fill="#5b5b5b">freq</text>
+  <!-- x range: -0.5 to +10.5, mapped 80..680 -->
+  <text x="80" y="195" font-size="9" text-anchor="middle">−0.4</text>
+  <text x="195" y="195" font-size="9" text-anchor="middle">−0.1</text>
+  <text x="345" y="195" font-size="9" text-anchor="middle">0</text>
+  <text x="495" y="195" font-size="9" text-anchor="middle">+0.4</text>
+  <text x="660" y="195" font-size="9" text-anchor="middle">+10</text>
+  <line x1="345" y1="20" x2="345" y2="180" stroke="#bbb" stroke-dasharray="3 3"/>
+  <!-- bell curve around -0.01 with width ~0.2 -->
+  <path d="M 80 178 C 200 165, 280 60, 340 45 C 400 60, 480 165, 600 178 L 600 180 L 80 180 Z"
+        fill="#2c5e8e" opacity="0.5"/>
+  <!-- success-bonus spike at +10 -->
+  <rect x="654" y="120" width="14" height="60" fill="#b54a2b"/>
+  <text x="661" y="113" font-size="10" text-anchor="middle" fill="#b54a2b">success +10</text>
+  <text x="345" y="80" font-size="11" text-anchor="middle" fill="#2c5e8e" font-weight="600">Δd + step_penalty</text>
+  <text x="345" y="95" font-size="10" text-anchor="middle" fill="#5b5b5b">most steps in [−0.3, +0.3]</text>
+</svg>
+<figcaption>Empirical per-step reward distribution in <code>geodesic_delta</code> mode. The bulk is a smooth bell around 0 (forward step ≈ +0.25 m of progress, turning ≈ 0). The +10 success spike is rare. Compare to v2's incorrect framing of a near-degenerate −0.01 mass.</figcaption>
+</figure>
+
+<h3>Should you change <code>step_penalty</code> or <code>success_bonus</code>?</h3>
+<table>
+<thead><tr><th>Knob</th><th>Current</th><th>Recommendation</th><th>Reason</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>step_penalty</code></td><td>−0.01</td>
+  <td><strong>Leave as-is.</strong></td>
+  <td>Small relative to typical Δd ≈ ±0.25 m → acts as a tiebreaker preferring shorter paths, doesn't dominate. Both runs that learned (er5ze5m6, lhgoxh0y) used this value.</td>
+</tr>
+<tr>
+  <td><code>success_bonus</code></td><td>+10</td>
+  <td><strong>Leave as-is for now</strong>; consider lowering to +1–+3 if you see critic instability (oscillating <code>loss/value</code>).</td>
+  <td>+10 is ~30× a typical positive movement step. The first few successes can spike <code>R<sup>λ</sup></code> and momentarily explode advantage. The percentile normalizer is <em>supposed</em> to absorb this; if it is broken (see §4 hypothesis), reducing the bonus would help symptomatically — but the right fix is to log <code>ret_scale</code> and verify.</td>
+</tr>
+<tr>
+  <td><code>reward_type</code></td><td><code>geodesic_delta</code></td>
+  <td><strong>Keep dense.</strong></td>
+  <td>Switching to <code>sparse</code> would remove the only signal that early-training advantages can latch onto. The fact that VGGT-runs already learn to SR 0.62 confirms dense shaping is doing the work.</td>
+</tr>
+<tr>
+  <td>STOP-success interaction</td><td>STOP earns no bonus</td>
+  <td><strong>Worth a separate ablation later.</strong></td>
+  <td>The Habitat ObjectNav benchmark <em>requires</em> the agent to call STOP within the goal radius. The current env walks-into-the-radius semantics are easier for learning but diverge from the official metric. Expected impact on SPL: small if the agent already approaches goals reliably.</td>
+</tr>
+</tbody>
+</table>
+
+<div class="verdict">
+<strong>Bottom line:</strong> the reward function is well-shaped and not the bottleneck. The thing to fix is observability (§4), not reward magnitudes.
+</div>
+
+<!-- ============================================================== -->
+<h2>2 — Continuous discount mask vs. paper's scalar S — benefits and challenges</h2>
+
+<p>Two distinct mechanisms in the actor loss are easy to conflate. The paper's Eq. 7 percentile rule and the per-step cumulative-discount weight are <em>different</em> things:</p>
+
+<table>
+<thead><tr><th></th><th>Eq. 7 (percentile <code>S</code>)</th><th>Cumulative weight <code>cumprod(γ·cont)</code></th></tr></thead>
+<tbody>
+<tr><td>Job</td><td>Normalize <strong>advantage magnitude</strong> across domains</td><td>Down-weight <strong>deep-imagination steps</strong> and zero out post-terminal steps</td></tr>
+<tr><td>Shape</td><td>Scalar (one number per batch, EMA-smoothed)</td><td>Tensor (one number per (batch, time) cell)</td></tr>
+<tr><td>Driver</td><td>5th–95th percentile of <code>R<sup>λ</sup></code> across the batch</td><td>discount γ × predicted continue probability</td></tr>
+<tr><td>Where in code</td><td><code>networks.py:444–466</code> (<code>ReturnEMA</code>)</td><td><code>agent.py:500–502</code></td></tr>
+</tbody>
+</table>
+
+<h3>Benefits of the cumulative weight</h3>
+<ul>
+  <li><strong>Handles in-window terminations correctly</strong>: when an imagined trajectory ends inside the 15-step horizon, <code>cont→0</code> zeros all subsequent weights, preventing the actor from being trained on imagined post-terminal "ghost" steps.</li>
+  <li><strong>Discounts unreliable far-future predictions</strong>: the WM is most accurate near the start of an imagined rollout; <code>γ<sup>t</sup></code>-style fade-out down-weights uncertain late-horizon gradients.</li>
+  <li><strong>Matches both reference implementations</strong>: <code>danijar/dreamerv3</code> and <code>NM512/dreamerv3-torch</code> both use it (see §3). Switching to a scalar would <em>diverge</em> from the references, not move closer to them.</li>
+</ul>
+
+<h3>Challenges</h3>
+<ul>
+  <li><strong>Coupling to the continue-head</strong>: if <code>cont</code> is mis-calibrated, the actor's gradient is silently re-weighted. Specifically, if <code>cont</code> collapses early (your <code>llspyx9j</code> run had <code>loss/con = 1.7·10⁻⁴</code> — suspiciously low), the cumulative weight either saturates near 1 (no fade-out, fine) or near 0 (no gradient at all, bad). Worth logging <code>weight.mean()</code>.</li>
+  <li><strong>Hard to debug visually</strong>: the weight is a (batch × T) tensor, so a single scalar log doesn't capture mis-fitting; you'd want a heatmap.</li>
+  <li><strong>Inconsistent magnitude with paper formula</strong>: r2dreamer's first-step weight is <code>disc·cont</code>; Hafner's is <code>1</code> (he divides the cumprod by <code>disc</code>). Same gradient direction, different magnitude — meaning published learning rates aren't directly transferable.</li>
+</ul>
+
+<!-- ============================================================== -->
+<h2>3 — Side-by-side: <code>danijar/dreamerv3</code>, <code>NM512/dreamerv3-torch</code>, and r2dreamer</h2>
+
+<p>The user wrote "NM512/r2dreamer" — the actual repo name is <code>NM512/dreamerv3-torch</code>. The local "r2dreamer" is your fork. All three actor-loss blocks, verbatim:</p>
+
+<div class="threecol">
+<div class="panel hafner">
+<h4>danijar/dreamerv3 (JAX, reference)</h4>
+<pre><code>disc = 1 if contdisc else 1 - 1/horizon
+weight = jnp.cumprod(disc * con, 1) / disc
+last = jnp.zeros_like(con)
+term = 1 - con
+ret = lambda_return(last, term, rew,
+                    tarval, tarval, disc, lam)
+
+roffset, rscale = retnorm(ret, update)
+adv = (ret - tarval[:, :-1]) / rscale
+aoffset, ascale = advnorm(adv, update)
+adv_normed = (adv - aoffset) / ascale
+logpi = sum([v.logp(sg(act[k]))[:, :-1]
+             for k, v in policy.items()])
+ents = {k: v.entropy()[:, :-1]
+        for k, v in policy.items()}
+policy_loss = sg(weight[:, :-1]) * -(
+    logpi * sg(adv_normed)
+    + actent * sum(ents.values()))</code></pre>
+<p style="font-size:.82rem;color:var(--muted)">
+<a href="https://github.com/danijar/dreamerv3/blob/main/dreamerv3/agent.py">agent.py</a> · uses <em>both</em> <code>retnorm</code> and (optional) <code>advnorm</code>.
+</p>
+</div>
+
+<div class="panel nm512">
+<h4>NM512/dreamerv3-torch (PyTorch port)</h4>
+<pre><code># weights (in _compute_target):
+weights = torch.cumprod(
+    torch.cat([torch.ones_like(discount[:1]),
+               discount[:-1]], 0), 0
+).detach()
+
+# actor loss:
+if reward_EMA:
+    offset, scale = self.reward_ema(target, ema)
+    normed_target = (target - offset) / scale
+    normed_base = (base - offset) / scale
+    adv = normed_target - normed_base
+elif imag_gradient == "reinforce":
+    actor_target = (
+      policy.log_prob(imag_action)[:-1][:,:,None]
+      * (target - self.value(...).mode()).detach()
+    )
+actor_loss = -weights[:-1] * actor_target
+actor_loss -= entropy * actor_ent[:-1, ..., None]
+actor_loss = torch.mean(actor_loss)</code></pre>
+<p style="font-size:.82rem;color:var(--muted)">
+<a href="https://github.com/NM512/dreamerv3-torch/blob/main/models.py">models.py</a> · <em>entropy added outside</em> the weight·(...) bracket.
+</p>
+</div>
+
+<div class="panel r2">
+<h4>r2dreamer (this thesis)</h4>
+<pre><code>disc = 1.0 - 1.0 / cfg.horizon
+weight = jnp.cumprod(imag_cont * disc, axis=1)
+
+ret_offset, ret_scale = (
+    self.return_ema.get_stats(ema_state))
+adv = (ret - imag_value[:, :-1]) / ret_scale
+
+logpi = jnp.sum(
+    log_probs[:, :-1] * imag_actions[:, :-1],
+    axis=-1, keepdims=True)
+entropy = -jnp.sum(
+    probs[:, :-1] * log_probs[:, :-1],
+    axis=-1, keepdims=True)
+
+losses["policy"] = jnp.mean(
+    jax.lax.stop_gradient(weight[:, :-1])
+    * -(logpi * jax.lax.stop_gradient(adv)
+        + cfg.act_entropy * entropy))</code></pre>
+<p style="font-size:.82rem;color:var(--muted)">
+<code>agent.py:500–535</code> · entropy <em>inside</em> weight·(...) like Hafner; ret_offset computed but unused.
+</p>
+</div>
+</div>
+
+<table>
+<thead><tr><th>Axis</th><th class="num">danijar (ref)</th><th class="num">NM512</th><th class="num">r2dreamer</th></tr></thead>
+<tbody>
+<tr><td>Weight on −adv·log π</td><td>per-step <code>cumprod(disc·con)/disc</code></td><td>per-step <code>cumprod([1, disc[:-1]])</code></td><td>per-step <code>cumprod(cont·disc)</code></td></tr>
+<tr><td>Entropy placement</td><td>inside <code>weight·(…)</code></td><td>outside, separate scalar mean</td><td>inside <code>weight·(…)</code></td></tr>
+<tr><td>Advantage offset (Per5) subtracted?</td><td>only if <code>advnorm</code> enabled</td><td>EMA path subtracts (cancels)</td><td>computed but <strong>not used</strong></td></tr>
+<tr><td>Sum or mean over horizon?</td><td>mean</td><td>mean</td><td>mean</td></tr>
+<tr><td>First-step weight magnitude</td><td><code>1</code> (divided by <code>disc</code>)</td><td><code>1</code> (concat ones)</td><td><code>disc·cont₀ ≈ 0.997</code></td></tr>
+</tbody>
+</table>
+
+<div class="verdict">
+<strong>Verdict:</strong> r2dreamer's actor loss is paper-faithful in every meaningful way. The only change worth making for transferability is dividing <code>weight</code> by <code>disc</code> so the first-step weight is exactly 1 — which makes published learning-rate values from <code>danijar/dreamerv3</code> directly comparable. This is <em>not</em> a fix-this-to-make-llspyx9j-work change; it is hygiene.
+</div>
+
+<!-- ============================================================== -->
+<h2>4 — The hypothesis to test (becomes a GitHub issue)</h2>
+
+<p>From v2: <em>"the percentile normalizer's <code>L = 1</code> floor applies to the width, not the absolute scale"</em>. With dense shaping confirmed, the failure mode for η=3·10⁻⁴ is sharper than I framed it in v2. Here is the precise mechanism:</p>
+
+<figure class="figure">
+<svg viewBox="0 0 720 270" xmlns="http://www.w3.org/2000/svg" aria-label="Early-training feedback loop">
+  <!-- 5-step flow chart -->
+  <g font-family="-apple-system, sans-serif" font-size="11">
+    <!-- step 1 -->
+    <rect x="20" y="40" width="120" height="60" rx="6" fill="#fff7e3" stroke="#c98b1f"/>
+    <text x="80" y="62" text-anchor="middle" font-weight="600">1. Early R<sup>λ</sup> range &lt; 1</text>
+    <text x="80" y="78" text-anchor="middle">→ S = max(1, ε) = 1</text>
+    <text x="80" y="92" text-anchor="middle">→ no compression</text>
+    <!-- arrow -->
+    <line x1="142" y1="70" x2="170" y2="70" stroke="#888"/><polygon points="170,66 178,70 170,74" fill="#888"/>
+    <!-- step 2 -->
+    <rect x="180" y="40" width="120" height="60" rx="6" fill="#fceeee" stroke="#b03030"/>
+    <text x="240" y="62" text-anchor="middle" font-weight="600">2. Critic v(s) ≈ 0</text>
+    <text x="240" y="78" text-anchor="middle">→ A = R − v</text>
+    <text x="240" y="92" text-anchor="middle">at full magnitude</text>
+    <line x1="302" y1="70" x2="330" y2="70" stroke="#888"/><polygon points="330,66 338,70 330,74" fill="#888"/>
+    <!-- step 3 -->
+    <rect x="340" y="40" width="120" height="60" rx="6" fill="#fceeee" stroke="#b03030"/>
+    <text x="400" y="62" text-anchor="middle" font-weight="600">3. One A spike</text>
+    <text x="400" y="78" text-anchor="middle">peaks logits on</text>
+    <text x="400" y="92" text-anchor="middle">a single action</text>
+    <line x1="462" y1="70" x2="490" y2="70" stroke="#888"/><polygon points="490,66 498,70 490,74" fill="#888"/>
+    <!-- step 4 -->
+    <rect x="500" y="40" width="120" height="60" rx="6" fill="#fceeee" stroke="#b03030"/>
+    <text x="560" y="62" text-anchor="middle" font-weight="600">4. η=3·10⁻⁴ entropy</text>
+    <text x="560" y="78" text-anchor="middle">term too weak</text>
+    <text x="560" y="92" text-anchor="middle">to push back</text>
+    <!-- step 5 (down arrow + collapse) -->
+    <line x1="560" y1="102" x2="560" y2="130" stroke="#888"/><polygon points="556,130 560,138 564,130" fill="#888"/>
+    <rect x="500" y="140" width="200" height="100" rx="6" fill="#fdeeee" stroke="#b03030" stroke-width="2"/>
+    <text x="600" y="162" text-anchor="middle" font-weight="600">5. Replay sees only</text>
+    <text x="600" y="178" text-anchor="middle">one action's trajectories</text>
+    <text x="600" y="195" text-anchor="middle" fill="#b03030">→ posterior entropy ↓ (0.06)</text>
+    <text x="600" y="210" text-anchor="middle" fill="#b03030">→ val/loss/dyn ↑ (55)</text>
+    <text x="600" y="225" text-anchor="middle" fill="#b03030">→ SR ≈ 0.07</text>
+
+    <!-- annotation: this is what v2 should have said -->
+    <text x="380" y="260" text-anchor="middle" fill="#5b5b5b" font-style="italic">Failure is at step 1 (S not firing), not because of "no signal".</text>
+  </g>
+</svg>
+<figcaption>Why <code>llspyx9j</code> collapsed even though dense shaping was on. The percentile normalizer is the supposed protection; this run is evidence that it doesn't fire at the start of training, when the entropy floor is most needed.</figcaption>
+</figure>
+
+<h3>The GitHub issue (proposed body — not yet posted)</h3>
+
+<div class="issuebox">
+<h4>actor: log return/value/ret_scale stats; verify percentile normalizer fires under dense ObjectNav rewards</h4>
+<div class="meta">
+  Repo: <code>LSailer/Master-Thesis-3D-VLA</code> · Type: <code>bug</code> + <code>observability</code>
+</div>
+<pre><code>## Context
+
+The DreamerV3 actor loss in `modules/r2dreamer/agent.py:512-535` is paper-faithful, but
+three runs show inconsistent behavior across `act_entropy`:
+
+| run        | encoder | act_entropy | SR    | posterior_entropy | val/loss/dyn |
+|------------|---------|-------------|-------|-------------------|--------------|
+| er5ze5m6   | VGGT    | 3e-2        | 0.62  | 1.38              | -            |
+| lhgoxh0y   | CNN     | 3e-2        | 0.72  | 0.66              | 35.2         |
+| llspyx9j   | CNN     | 3e-4        | 0.07  | 0.06 (collapsed)  | 55.0         |
+
+The Hafner paper claims `act_entropy = 3e-4` is sufficient across all domains,
+*if* the percentile-based return normalizer (`S = Per95 − Per5`, clipped to ≥ 1) fires.
+The collapse of `llspyx9j` suggests the normalizer is *not* firing on this env early in
+training, but we have no metric to confirm.
+
+## Hypothesis
+
+The `max(1, S)` floor in `networks.py:444-466` clips the **width** of the return
+distribution, not the absolute scale. Under dense `geodesic_delta` rewards on HM3D
+ObjectNav with 4 actions:
+
+1. Early in training, episode returns have small range → S = 1 (no compression).
+2. Critic v(s) is near zero → A = (R − v)/1 has full magnitude.
+3. A single positive A spike pulls all logit mass to one action.
+4. With η = 3e-4, the entropy term cannot counter this.
+5. Replay collects single-action trajectories → posterior collapse → WM useless.
+
+## Acceptance criteria — add the following metrics to W&amp;B logging in
+`agent.py` around line 512 and `networks.py` around line 466:
+
+- [ ] `actor/return_mean` — mean of `R^λ` per gradient step
+- [ ] `actor/return_std` — std of `R^λ`
+- [ ] `actor/value_mean` — mean of `v_ψ(s)`
+- [ ] `actor/advantage_mean`, `actor/advantage_std` — pre-clip
+- [ ] `actor/ret_scale` — current value of `S` (the EMA percentile width)
+- [ ] `actor/ret_offset` — current value of `Per5`
+- [ ] `actor/entropy_mean` — `mean(entropy)` per gradient step (already computed,
+      just not emitted)
+- [ ] `actor/weight_mean` — `mean(weight[:, :-1])` to detect cont-head collapse
+
+## How to verify the hypothesis once metrics exist
+
+Run an `act_entropy = 3e-4` repro for ~200k steps and check:
+
+- If `actor/ret_scale` stays ≈ 1 for the first 50k steps → hypothesis confirmed.
+- If `actor/advantage_std` &gt; 0.5 in the first 10k steps → consistent with single-A-spike collapse.
+- If both are true, the fix is to either (a) initialize `ReturnEMA` with `Per5 = -5,
+  Per95 = +10` so `S` starts &gt; 1, or (b) keep `act_entropy = 3e-2` permanently as the
+  exploration floor (current solution).
+
+## Files
+
+- `modules/r2dreamer/agent.py:500-535` — actor loss
+- `modules/r2dreamer/networks.py:444-466` — `ReturnEMA`
+- `modules/r2dreamer/trainer.py:451` — W&amp;B log call site
+
+## Related W&amp;B runs
+
+- https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/llspyx9j (collapsed)
+- https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/lhgoxh0y (CNN baseline)
+- https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/er5ze5m6 (VGGT)
+</code></pre>
+</div>
+
+<!-- ============================================================== -->
+<h2>5 — LaTeX appendix entry (also being written)</h2>
+
+<p>You confirmed: appendix entry only, with a cross-reference from <code>Experiments.tex</code>. The appendix entry summarises the failed η=3·10⁻⁴ ablation as a self-contained negative result, table-formatted to match the existing booktabs style. The cross-reference goes near the end of the Baseline summary so a reader can drill in if they want.</p>
+
+<details><summary>Preview of the appendix block</summary>
+<pre><code>\section{Failed entropy-coefficient ablation ($\eta = 3 \times 10^{-4}$)}
+\label{app:entropy-ablation}
+
+The DreamerV3 paper~\cite{hafner_mastering_2024} fixes the actor entropy coefficient
+at $\eta = 3 \times 10^{-4}$ across all domains, relying on percentile-based return
+normalization (Eq.~7 of the paper) to keep the policy-gradient and entropy terms
+in balance. We applied this default on our HM3D \mbox{ObjectNav}{} curriculum (4-action
+discrete, dense \emph{geodesic\_delta} shaping with $r_{\text{step}}=-0.01$,
+$r_{\text{succ}}=+10$). The result is catastrophic collapse, summarised in
+Table~\ref{tab:entropy-ablation}.
+
+\begin{table}[ht]
+  \centering
+  \caption{Effect of actor entropy coefficient on training stability.}
+  \label{tab:entropy-ablation}
+  \begin{tabular}{lcccccc}
+    \toprule
+    Run ID    & Encoder & $\eta$              & SR  & SPL  & $H[q(z)]$ & $\mathcal{L}^{\text{val}}_{\text{dyn}}$ \\
+    \midrule
+    \texttt{lhgoxh0y} & CNN  & $3 \cdot 10^{-2}$ & 0.72 & 0.52 & 0.66 & 35.2 \\
+    \texttt{er5ze5m6} & VGGT & $3 \cdot 10^{-2}$ & 0.62 & 0.43 & 1.38 & --   \\
+    \texttt{llspyx9j} & CNN  & $3 \cdot 10^{-4}$ & 0.07 & 0.05 & \textbf{0.06} & \textbf{55.0} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% (1-paragraph discussion)
+</code></pre>
+</details>
+
+<!-- ============================================================== -->
+<h2>6 — Updated recommendations</h2>
+
+<table>
+<thead><tr><th>Priority</th><th>Action</th><th>Where</th></tr></thead>
+<tbody>
+<tr><td>P0</td><td>Open the GitHub issue above so the metrics get logged on the next training run.</td><td>repo issue tracker</td></tr>
+<tr><td>P0</td><td>Keep <code>act_entropy = 3·10⁻²</code> until <code>actor/ret_scale</code> is logged. The "paper default" is empirically wrong on this env.</td><td><code>config.py:72</code></td></tr>
+<tr><td>P1</td><td>Divide <code>weight</code> by <code>disc</code> for magnitude parity with <code>danijar/dreamerv3</code> — makes published LRs transferable. Tiny diff, no behaviour change.</td><td><code>agent.py:500</code></td></tr>
+<tr><td>P1</td><td>Add <code>label{app:entropy-ablation}</code> appendix block + a 1-line <code>\footnote</code> cross-ref in the Baseline summary.</td><td><code>writing/content/Appendix.tex</code>, <code>Experiments.tex</code></td></tr>
+<tr><td>P2</td><td>Don't change <code>step_penalty</code> / <code>success_bonus</code> yet. Reward shape is fine; the bottleneck is observability.</td><td>—</td></tr>
+<tr><td>P2</td><td>Initialize <code>ReturnEMA</code> with non-zero <code>Per5/Per95</code> values so <code>S &gt; 1</code> from step 0 — would let <code>η = 3·10⁻⁴</code> work as the paper intends, if you want to revisit later.</td><td><code>networks.py:454</code></td></tr>
+</tbody>
+</table>
+
+<hr/>
+<p class="footnotes">
+Generated 2026-05-07. Updates v2 with (a) corrected reward-function description (geodesic_delta is on, not sparse), (b) verbatim three-way actor-loss comparison against <code>danijar/dreamerv3</code> and <code>NM512/dreamerv3-torch</code>, (c) GitHub issue body for the percentile-normalizer hypothesis, (d) LaTeX appendix block. Code citations are <code>path:line</code> at HEAD of <code>~/Coding/Master-Thesis-3D-VLA</code>.
+</p>
+
+</div>
+</body>
+</html>
