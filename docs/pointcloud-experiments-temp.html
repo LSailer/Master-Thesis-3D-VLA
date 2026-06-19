@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temp: Level 1 Point Cloud Experiments</title>
+<style>
+  :root {
+    --bg: #f6f7fb;
+    --surface: #ffffff;
+    --surface-2: #f0f2f8;
+    --ink: #172033;
+    --muted: #5f6b7c;
+    --faint: #8b95a7;
+    --line: #e2e7f0;
+    --blue: #4f46e5;
+    --green: #059669;
+    --orange: #d97706;
+    --purple: #7c3aed;
+    --red: #dc2626;
+    --amber: #b45309;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.55;
+  }
+
+  header {
+    background: #172033;
+    color: #ffffff;
+    padding: 56px 0 42px;
+  }
+
+  .wrap {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    color: #aab8d0;
+    font-size: 12px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(32px, 4vw, 50px);
+    line-height: 1.05;
+    letter-spacing: -.03em;
+  }
+
+  .lede {
+    max-width: 820px;
+    margin: 18px 0 0;
+    color: #d3dbea;
+    font-size: 18px;
+  }
+
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(255,255,255,.9);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  nav .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  nav a:hover { background: var(--surface-2); color: var(--ink); }
+  section { padding: 36px 0; border-bottom: 1px solid var(--line); scroll-margin-top: 58px; }
+  h2 { margin: 0 0 10px; font-size: 26px; letter-spacing: -.01em; }
+  h3 { margin: 22px 0 8px; font-size: 18px; }
+  p { margin: 10px 0; color: var(--muted); }
+  strong { color: var(--ink); }
+  code {
+    font-family: var(--mono);
+    font-size: .9em;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    border-radius: 5px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 18px;
+  }
+
+  .visual-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evggt-visual {
+    display: grid;
+    grid-template-columns: 1fr 190px 1fr;
+    gap: 18px;
+    align-items: stretch;
+    margin-top: 18px;
+  }
+
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+  }
+
+  .model-card h3 {
+    margin-top: 0;
+  }
+
+  .block-row {
+    display: grid;
+    gap: 4px;
+    margin: 12px 0;
+  }
+
+  .block-row.vggt {
+    grid-template-columns: repeat(12, 1fr);
+  }
+
+  .block-row.evggt {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .tiny-block {
+    min-height: 20px;
+    border-radius: 5px;
+    border: 1px solid #c7d2fe;
+    background: linear-gradient(90deg, #dbeafe 0 48%, #eef2ff 52% 100%);
+  }
+
+  .tiny-block.student {
+    border-color: #86efac;
+    background: linear-gradient(90deg, #bbf7d0 0 48%, #ecfdf5 52% 100%);
+  }
+
+  .attention-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .attention-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .attention-chip::before {
+    content: "";
+    width: 18px;
+    height: 10px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1;
+    background: #dbeafe;
+  }
+
+  .attention-chip.frame::before {
+    background: #eef2ff;
+  }
+
+  .model-card.student-model .attention-chip::before {
+    border-color: #86efac;
+    background: #bbf7d0;
+  }
+
+  .model-card.student-model .attention-chip.frame::before {
+    background: #ecfdf5;
+  }
+
+  .distill-arrow {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .distill-arrow .arrow {
+    font-size: 32px;
+    color: var(--purple);
+    line-height: 1;
+  }
+
+  .pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .width-meter {
+    margin: 12px 0 4px;
+  }
+
+  .width-meter .label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+
+  .width-track {
+    height: 12px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+
+  .width-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #818cf8;
+  }
+
+  .width-fill.student {
+    width: 38%;
+    background: #34d399;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .evggt-flow {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  .flow-step {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--purple);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .flow-step strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .memory-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+    gap: 16px;
+    align-items: stretch;
+    margin-top: 18px;
+  }
+
+  .memory-bars {
+    display: grid;
+    gap: 12px;
+  }
+
+  .memory-row {
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr) 120px;
+    gap: 10px;
+    align-items: center;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .memory-row strong {
+    font-size: 13px;
+  }
+
+  .memory-track {
+    height: 16px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+  }
+
+  .memory-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #60a5fa, #4f46e5);
+  }
+
+  .memory-fill.dense {
+    background: linear-gradient(90deg, #f59e0b, #dc2626);
+  }
+
+  .memory-fill.token {
+    background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  }
+
+  .memory-value {
+    font-family: var(--mono);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .memory-table td,
+  .memory-table th {
+    font-size: 13px;
+  }
+
+  .formula-box {
+    margin: 12px 0 14px;
+    padding: 12px;
+    border-radius: 9px;
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .formula-box strong {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .formula-box .formula {
+    display: block;
+    margin: 5px 0;
+    font-family: var(--mono);
+    color: var(--ink);
+  }
+
+  .formula-box .example {
+    margin-top: 8px;
+    font-size: 12px;
+  }
+
+  .storage-note {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px;
+    box-shadow: 0 1px 3px rgba(20,30,60,.04);
+  }
+
+  .card .k {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+
+  .card .v {
+    margin-top: 7px;
+    font-size: 24px;
+    font-weight: 750;
+  }
+
+  .callout {
+    background: #fff7ed;
+    border-left: 4px solid var(--amber);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 16px;
+  }
+
+  figure {
+    margin: 22px 0 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+  }
+
+  figcaption {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+
+  th {
+    font-size: 12px;
+    color: var(--faint);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    background: #fafbfe;
+  }
+
+  tr:last-child td { border-bottom: 0; }
+  td.num { font-family: var(--mono); white-space: nowrap; }
+  a { color: var(--blue); font-weight: 650; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--surface-2);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .feedback {
+    border: 1px dashed #94a3b8;
+    background: #f8fafc;
+  }
+
+  .feedback h3 {
+    margin-top: 0;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: #334155;
+  }
+
+  .feedback ul {
+    margin: 10px 0 0 18px;
+    padding: 0;
+    color: var(--muted);
+  }
+
+  .feedback li { margin: 6px 0; }
+
+  .diagram-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+    margin-top: 18px;
+  }
+
+  .flow-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .diagram-note {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+  }
+
+  .diagram-note .mini {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 12px;
+    background: #fafbfe;
+  }
+
+  .diagram-note .mini strong {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
+    .visual-grid { grid-template-columns: 1fr; }
+    .evggt-visual { grid-template-columns: 1fr; }
+    .distill-arrow { min-height: 80px; }
+    .evggt-flow { grid-template-columns: 1fr; }
+    .memory-layout { grid-template-columns: 1fr; }
+    .memory-row { grid-template-columns: 1fr; gap: 5px; }
+    .diagram-note { grid-template-columns: 1fr; }
+    th, td { font-size: 13px; padding: 9px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Temporary feedback draft</div>
+    <h1>Level 1 Point Cloud Experiments</h1>
+    <p class="lede">Draft section for adding the VGGT Point Cloud experiment overview and success-rate plot to the docs landing page.</p>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap">
+    <a href="#tldr">TL;DR</a>
+    <a href="#aggregation">Aggregation</a>
+    <a href="#replay-memory">Replay memory</a>
+    <a href="#evggt">eVGGT</a>
+    <a href="#plot">Success-rate plot</a>
+    <a href="#runs">Runs</a>
+    <a href="#interpretation">Interpretation</a>
+    <a href="#feedback">Feedback checklist</a>
+    <a href="presentation/">Presentation</a>
+  </div>
+</nav>
+
+<main>
+  <section id="tldr">
+    <div class="wrap">
+      <h2>TL;DR</h2>
+      <p>
+        The most useful Level 1 result so far is the simple VGGT Point Cloud path:
+        VGGT predicts a dense <code>518x518x3</code> Point Cloud, the wrapper pools it to the native
+        <code>37x37</code> patch grid, and the agent receives the flattened Point Cloud plus
+        <code>9D</code> camera pose.
+      </p>
+      <div class="grid">
+        <div class="card">
+          <div class="k">Best pure Point Cloud run</div>
+          <div class="v" style="color:var(--green)">strongest curve</div>
+          <p>WP+CP <code>37x37</code> with a 3-layer MLP readout. The run is partial, so its last logged SR is not a final comparable score.</p>
+        </div>
+        <div class="card">
+          <div class="k">Simplest viable path</div>
+          <div class="v" style="color:var(--blue)">62% SR</div>
+          <p>WP+CP <code>37x37</code> with the older linear readout, near-full timeout.</p>
+        </div>
+        <div class="card">
+          <div class="k">Current caution</div>
+          <div class="v" style="color:var(--amber)">single seed</div>
+          <p>These are single-run ablations. Crashed/partial runs show learning progress, but their last logged SR/SPL is not directly comparable to completed runs.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <strong>Suggested meeting wording:</strong> bisher beobachtet: the 37x37 WP+CP representation is sufficient for L1 learning, and the MLP readout is the strongest pure Point Cloud variant. Higher-resolution variants have not yet produced a clean comparable run.
+      </div>
+    </div>
+  </section>
+
+  <section id="aggregation">
+    <div class="wrap">
+      <h2>How the Point Cloud becomes the readout input</h2>
+      <p>
+        The aggregation happens before the agent readout. The VGGT Point Head produces a dense
+        <code>518x518x3</code> Point Cloud. The wrapper then averages each native
+        <code>14x14</code> patch cell, giving <code>37x37x3</code>. Only after that do we flatten and
+        append the <code>9D</code> camera pose. The readout choice is the last step: linear readout or
+        3-layer MLP over the same <code>4116</code>-dimensional WP+CP vector.
+      </p>
+
+      <div class="diagram-card">
+        <svg class="flow-svg" viewBox="0 0 1080 420" role="img" aria-labelledby="agg-title agg-desc">
+          <title id="agg-title">Point Cloud aggregation and readout diagram</title>
+          <desc id="agg-desc">VGGT dense 518 by 518 by 3 Point Cloud is averaged over 14 by 14 patch cells into 37 by 37 by 3 world points, flattened, concatenated with 9D camera pose, then passed through either a linear or 3-layer MLP readout.</desc>
+
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+            </marker>
+            <pattern id="dense-grid" width="6" height="6" patternUnits="userSpaceOnUse">
+              <path d="M6 0H0V6" fill="none" stroke="#bfdbfe" stroke-width="1"/>
+            </pattern>
+            <pattern id="patch-grid" width="18" height="18" patternUnits="userSpaceOnUse">
+              <path d="M18 0H0V18" fill="none" stroke="#bbf7d0" stroke-width="1.3"/>
+            </pattern>
+          </defs>
+
+          <rect x="0" y="0" width="1080" height="420" rx="14" fill="#ffffff"/>
+
+          <g transform="translate(34 52)">
+            <rect x="0" y="42" width="180" height="180" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+            <rect x="12" y="54" width="156" height="156" fill="url(#dense-grid)" stroke="#60a5fa"/>
+            <text x="90" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">VGGT Point Head</text>
+            <text x="90" y="250" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">518x518x3</text>
+            <text x="90" y="272" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#64748b">dense Point Cloud</text>
+          </g>
+
+          <line x1="232" y1="184" x2="320" y2="184" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrow)"/>
+          <text x="276" y="164" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">average pool</text>
+          <text x="276" y="204" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">14x14 cells</text>
+
+          <g transform="translate(338 52)">
+            <rect x="0" y="42" width="180" height="180" rx="12" fill="#ecfdf5" stroke="#86efac" stroke-width="2"/>
+            <rect x="12" y="54" width="156" height="156" fill="url(#patch-grid)" stroke="#22c55e"/>
+            <circle cx="36" cy="78" r="3.5" fill="#059669"/>
+            <circle cx="72" cy="114" r="3.5" fill="#059669"/>
+            <circle cx="108" cy="150" r="3.5" fill="#059669"/>
+            <circle cx="144" cy="186" r="3.5" fill="#059669"/>
+            <text x="90" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">World Points</text>
+            <text x="90" y="250" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">37x37x3</text>
+            <text x="90" y="272" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#64748b">native patch grid</text>
+          </g>
+
+          <line x1="536" y1="184" x2="616" y2="184" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrow)"/>
+          <text x="576" y="164" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">flatten</text>
+
+          <g transform="translate(632 68)">
+            <rect x="0" y="78" width="206" height="74" rx="11" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+            <rect x="18" y="103" width="118" height="24" rx="5" fill="#dcfce7" stroke="#22c55e"/>
+            <rect x="144" y="103" width="44" height="24" rx="5" fill="#ffedd5" stroke="#f97316"/>
+            <text x="77" y="120" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#166534">4107 WP</text>
+            <text x="166" y="120" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#9a3412">9 CP</text>
+            <text x="103" y="45" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">WP+CP vector</text>
+            <text x="103" y="182" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">37*37*3 + 9 = 4116</text>
+          </g>
+
+          <line x1="852" y1="184" x2="924" y2="142" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrow)"/>
+          <line x1="852" y1="184" x2="924" y2="226" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrow)"/>
+
+          <g transform="translate(934 74)">
+            <rect x="0" y="0" width="112" height="70" rx="10" fill="#eef2ff" stroke="#818cf8" stroke-width="2"/>
+            <text x="56" y="30" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700" fill="#312e81">Linear</text>
+            <text x="56" y="51" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#4338ca">4116 -> 1024</text>
+          </g>
+
+          <g transform="translate(934 194)">
+            <rect x="0" y="0" width="112" height="82" rx="10" fill="#f0fdf4" stroke="#34d399" stroke-width="2"/>
+            <text x="56" y="28" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700" fill="#064e3b">3-layer MLP</text>
+            <text x="56" y="50" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#047857">same input</text>
+            <text x="56" y="68" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#047857">stronger readout</text>
+          </g>
+        </svg>
+
+        <div class="diagram-note">
+          <div class="mini">
+            <strong>Aggregation</strong>
+            <p>Each output cell is the mean of the dense Point Cloud values inside one <code>14x14</code> VGGT patch cell.</p>
+          </div>
+          <div class="mini">
+            <strong>Representation</strong>
+            <p>The agent does not receive the dense map in the main WP+CP path; it receives <code>37x37x3 + 9</code>.</p>
+          </div>
+          <div class="mini">
+            <strong>Readout</strong>
+            <p>Linear and MLP variants use the same aggregated input. The difference is only how the <code>4116</code>-D vector is projected.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid visual-grid">
+        <figure>
+          <img src="images/3d48/fig_grid_overlay.png" alt="518 by 518 RGB observation with the 37 by 37 VGGT patch grid overlaid">
+          <figcaption>
+            Image-space view of the aggregation: the <code>518x518</code> observation is divided into the native VGGT
+            <code>37x37</code> patch grid. Each <code>14x14</code> cell contributes one pooled 3D point.
+          </figcaption>
+        </figure>
+        <figure>
+          <img src="images/3d48/fig_colored_cloud.png" alt="Dense full-resolution Point Cloud compared with pooled 37 by 37 Point Cloud">
+          <figcaption>
+            Point Cloud view of the same choice: the dense full-resolution Point Cloud has one point per pixel, while the pooled
+            variant keeps one averaged point per VGGT patch cell (<code>37x37 = 1369</code> points).
+          </figcaption>
+        </figure>
+      </div>
+
+      <div class="card feedback">
+        <h3>FB-0: Aggregation diagram feedback</h3>
+        <ul>
+          <li>Should this diagram stay before the plot, or move into the TL;DR?</li>
+          <li>Should the readout branch show exact layer widths for the 3-layer MLP?</li>
+          <li>Should the dense <code>518x518x3</code> path mention the separate dense-CNN experiment?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="replay-memory">
+    <div class="wrap">
+      <h2>Replay-buffer memory: why dense Point Clouds become a systems problem</h2>
+      <p>
+        The model-side question and the replay-side question are coupled. A pooled
+        <code>37x37</code> WP+CP observation is small enough for the usual large Dreamer replay capacity.
+        Keeping the dense <code>518x518x3</code> Point Cloud, or full VGGT token sequences, changes the
+        storage scale by roughly two orders of magnitude per transition.
+      </p>
+
+      <div class="memory-layout">
+        <div class="card">
+          <h3>Observation storage per replay transition</h3>
+          <div class="memory-bars" aria-label="Approximate observation storage per replay transition">
+            <div class="memory-row">
+              <strong>37x37 WP+CP</strong>
+              <div class="memory-track"><div class="memory-fill" style="width:1%"></div></div>
+              <span class="memory-value">~16 KiB fp32</span>
+            </div>
+            <div class="memory-row">
+              <strong>64x64 WP+CP</strong>
+              <div class="memory-track"><div class="memory-fill" style="width:3%"></div></div>
+              <span class="memory-value">~48 KiB fp32</span>
+            </div>
+            <div class="memory-row">
+              <strong>Dense WP map</strong>
+              <div class="memory-track"><div class="memory-fill dense" style="width:58%"></div></div>
+              <span class="memory-value">~1.5 MiB fp16</span>
+            </div>
+            <div class="memory-row">
+              <strong>Full agg tokens</strong>
+              <div class="memory-track"><div class="memory-fill token" style="width:100%"></div></div>
+              <span class="memory-value">~2.7 MiB fp16</span>
+            </div>
+          </div>
+          <p>
+            Numbers are observation payload only, before actions, rewards, dones, Python/Numpy overhead,
+            sampled batches, and model activations. For dense maps, fp32 would double the dense WP number
+            to about <code>3.1 MiB</code> per transition.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Capacity implication</h3>
+          <div class="formula-box">
+            <strong>How the table is computed</strong>
+            <span class="formula">bytes/transition = element_count * bytes_per_element</span>
+            <span class="formula">GiB at 1M = bytes/transition * 1,000,000 / 1024^3</span>
+            <div class="example">
+              <code>37x37 WP+CP</code>: <code>(37*37*3 + 9) * 4 B = 16.1 KiB</code> -> <code>~15 GiB</code> at 1M.<br>
+              <code>Dense WP fp16</code>: <code>518*518*3 * 2 B = 1.54 MiB</code> -> <code>~1.5 TiB</code> at 1M.
+            </div>
+            <div class="storage-note">
+              <strong>Where this memory lives</strong>
+              The current training replay is an in-process Numpy ring buffer:
+              observations, actions, rewards, and done flags are preallocated in host RAM.
+              Checkpoints save the agent state, not the replay contents. Disk-backed
+              replay would need a different implementation, for example a memmap/offline
+              feature cache.
+            </div>
+          </div>
+          <table class="memory-table">
+            <thead>
+              <tr>
+                <th>Representation</th>
+                <th>At 1M transitions</th>
+                <th>Practical config</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>37x37 WP+CP flat</td>
+                <td class="num">~15 GiB</td>
+                <td>1M feasible</td>
+              </tr>
+              <tr>
+                <td>64x64 WP+CP flat</td>
+                <td class="num">~46 GiB</td>
+                <td>1M borderline but possible</td>
+              </tr>
+              <tr>
+                <td>Dense 518x518 WP</td>
+                <td class="num">~1.5 TiB fp16</td>
+                <td>5k cap in current configs</td>
+              </tr>
+              <tr>
+                <td>Full aggregator tokens</td>
+                <td class="num">~2.6 TiB fp16</td>
+                <td>5k cap / smaller batches</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <div class="k">Why it matters</div>
+          <h3>Capacity is part of the ablation</h3>
+          <p>
+            Dense/full-token variants cannot simply keep the same replay capacity as the
+            <code>37x37</code> run. Reducing the buffer changes the training distribution and makes
+            the result less directly comparable.
+          </p>
+        </div>
+        <div class="card">
+          <div class="k">What changes</div>
+          <h3>Need a representation-aware replay</h3>
+          <p>
+            For large 3D observations the replay has to store fields with explicit dtypes
+            such as <code>float16</code>, use smaller capacity, or keep only compact inputs and
+            reconstruct/cache expensive VGGT features outside the standard flat observation buffer.
+          </p>
+        </div>
+        <div class="card">
+          <div class="k">Meeting phrasing</div>
+          <h3>Engineering caveat</h3>
+          <p>
+            The early dense Point Cloud runs are not only model-readout tests; they also stress
+            replay memory. The cleaner current claim is that pooled <code>37x37</code> keeps the 3D
+            signal while staying compatible with a large replay buffer.
+          </p>
+        </div>
+      </div>
+
+      <div class="card feedback">
+        <h3>FB-memory: replay-buffer feedback</h3>
+        <ul>
+          <li>Should this be its own slide, or a short caveat on the dense Point Cloud slide?</li>
+          <li>Should the table show both fp16 and fp32 for dense WP, or keep the message simpler?</li>
+          <li>Should we phrase the solution as "modal replay", "field-aware replay", or "feature-cache replay"?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="evggt">
+    <div class="wrap">
+      <h2>eVGGT: how it differs from normal VGGT</h2>
+      <p>
+        eVGGT is not just "VGGT with fewer layers switched off". The paper
+        <a href="https://arxiv.org/abs/2509.15880">Improving Robotic Manipulation with Efficient Geometry-Aware Vision Encoder</a>
+        proposes a distilled student model: VGGT remains the geometry teacher, while eVGGT is trained to preserve geometry-aware features with a much smaller backbone.
+      </p>
+
+      <div class="evggt-visual">
+        <div class="model-card">
+          <h3>Normal VGGT teacher</h3>
+          <p>Large geometry foundation model used to predict camera pose, depth, and dense Point Cloud outputs.</p>
+          <div class="block-row vggt" aria-label="24 VGGT transformer blocks">
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+            <span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span><span class="tiny-block"></span>
+          </div>
+          <div class="attention-legend">
+            <span class="attention-chip">global attention</span>
+            <span class="attention-chip frame">frame-wise attention</span>
+          </div>
+          <div class="width-meter">
+            <div class="label"><span>embedding width</span><span>1024</span></div>
+            <div class="width-track"><div class="width-fill" style="width:100%"></div></div>
+          </div>
+          <div class="pill-list">
+            <span class="pill">24 transformer blocks</span>
+            <span class="pill">embed dim 1024</span>
+            <span class="pill">DINOv2-ViT-L</span>
+            <span class="pill">teacher outputs: CP / depth / Point Cloud</span>
+          </div>
+        </div>
+
+        <div class="distill-arrow">
+          <div class="arrow">&rarr;</div>
+          <strong>knowledge distillation</strong>
+          <p>Student is trained against VGGT outputs, not by simply truncating the checkpoint.</p>
+        </div>
+
+        <div class="model-card student-model">
+          <h3>eVGGT student</h3>
+          <p>Smaller geometry-aware encoder intended for robotics where online inference cost matters.</p>
+          <div class="block-row evggt" aria-label="4 eVGGT transformer blocks">
+            <span class="tiny-block student"></span>
+            <span class="tiny-block student"></span>
+            <span class="tiny-block student"></span>
+            <span class="tiny-block student"></span>
+          </div>
+          <div class="attention-legend">
+            <span class="attention-chip">global attention</span>
+            <span class="attention-chip frame">frame-wise attention</span>
+          </div>
+          <div class="width-meter">
+            <div class="label"><span>embedding width</span><span>384</span></div>
+            <div class="width-track"><div class="width-fill student"></div></div>
+          </div>
+          <div class="pill-list">
+            <span class="pill">4 transformer blocks</span>
+            <span class="pill">embed dim 384</span>
+            <span class="pill">DINOv2-ViT-S</span>
+            <span class="pill">reported: ~9x faster / ~5x smaller</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="evggt-flow">
+        <div class="flow-step">
+          <strong>Paper motivation</strong>
+          <p>VGGT gives useful 3D reasoning, but the original model is too expensive for many real-time robotics settings.</p>
+        </div>
+        <div class="flow-step">
+          <strong>Architecture change</strong>
+          <p>The key visual differences are depth and width: <code>24 -> 4</code> VGGT transformer blocks, each with global and frame-wise attention, plus <code>1024 -> 384</code> embedding width.</p>
+        </div>
+        <div class="flow-step">
+          <strong>Important distinction</strong>
+          <p>The "4" here means transformer blocks. It is not the same as the normal VGGT Camera Head's 4 pose-refinement iterations.</p>
+        </div>
+        <div class="flow-step">
+          <strong>Our L1 run</strong>
+          <p>The current eVGGT WP+CP run still feeds Dreamer the same <code>37x37x3 + 9 = 4116</code> vector; only the upstream geometry encoder changes.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>Zotero check:</strong> I did not find a direct local Zotero hit for <code>eVGGT</code> or the exact "Improving Robotics" title. Related local entries include VGGT and VGGT-DP in the Master-Thesis library. The eVGGT details above are taken from the arXiv paper and the local 3D-75 feasibility note.
+      </div>
+
+      <div class="card feedback">
+        <h3>FB-eVGGT: comparison feedback</h3>
+        <ul>
+          <li>Should this stay as its own section, or should it be a slide directly before the eVGGT run in the plot?</li>
+          <li>Should the visual focus stay on <code>24 -> 4</code> blocks, or also show the DINOv2-L -> DINOv2-S backbone change?</li>
+          <li>Should we explicitly say that the current eVGGT L1 result is weaker, but useful as an efficiency/feasibility check?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="plot">
+    <div class="wrap">
+      <h2>Success-rate plot</h2>
+      <p>
+        This plot should be the main visual: it compares the strong Point Cloud variants against the RGB CNN reference.
+        Early failed high-resolution variants are kept out of the main curve to avoid overloading the message.
+      </p>
+      <figure>
+        <img src="images/l1-pointcloud-success-rate-temp.svg" alt="Level 1 ObjectNav success-rate curves for Point Cloud experiments">
+        <figcaption>
+          Rolling-window success rate from local W&B-exported metrics. The plot includes the RGB CNN reference, the 37x37 WP+CP linear readout, the 37x37 WP+CP MLP readout, and the eVGGT WP+CP 3-layer MLP run. Partial curves are useful for trend inspection, not as final SR comparisons.
+        </figcaption>
+      </figure>
+      <div class="card feedback">
+        <h3>FB-1: Plot feedback</h3>
+        <ul>
+          <li>Should the RGB CNN baseline stay in this plot, or should this plot show only Point Cloud variants?</li>
+          <li>Should eVGGT be included here, or moved to a separate "efficiency / smaller backbone" subsection?</li>
+          <li>Should partial/crashed run status be marked directly in the legend?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="runs">
+    <div class="wrap">
+      <h2>Experiment table</h2>
+      <p>
+        This table is meant to sit directly below the plot. It preserves the run status and comparability caveats that are easy to lose in prose.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Variant</th>
+            <th>Run</th>
+            <th>Status</th>
+            <th>Steps</th>
+            <th>Last logged SR / SPL</th>
+            <th>Meeting note</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>WP+CP 37x37, linear</strong><br><span class="tag">4116-D flat input</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/er5ze5m6">er5ze5m6</a><br><code>vggt_jax-4216462</code></td>
+            <td>crashed / near-full timeout</td>
+            <td class="num">2.14M / 2.4M</td>
+            <td class="num">0.62 / 0.426</td>
+            <td>Shows that the simple pooled Point Cloud plus camera pose can learn L1.</td>
+          </tr>
+          <tr>
+            <td><strong>WP+CP 37x37, 3-layer MLP</strong><br><span class="tag">same input, stronger readout</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/70kydwei">70kydwei</a><br><code>wp-cp-mlp-4887404</code></td>
+            <td>crashed / usable partial</td>
+            <td class="num">1.36M / 2.0M</td>
+            <td class="num">0.73 / 0.507</td>
+            <td>Strongest pure Point Cloud learning curve in the current snapshot, but not a final comparable score because the run is partial.</td>
+          </tr>
+          <tr>
+            <td><strong>eVGGT WP+CP 37x37, 3-layer MLP</strong><br><span class="tag">smaller backbone</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/rikye91c">rikye91c</a><br><code>evggt-wp-cp-20260611</code></td>
+            <td>finished</td>
+            <td class="num">2.0M / 2.0M</td>
+            <td class="num">0.26 / 0.150<br>val 0.50 / 0.416</td>
+            <td>Technically viable, but weaker than full VGGT WP+CP on train SR.</td>
+          </tr>
+          <tr>
+            <td><strong>WP+CP 64x64, 3-layer MLP</strong><br><span class="tag">resolution ablation</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/wxbg3bm7">wxbg3bm7</a><br><code>wp-cp-mlp-64-4888735</code></td>
+            <td>crashed early</td>
+            <td class="num">49.8k / 2.0M</td>
+            <td class="num">0.03 / 0.013</td>
+            <td>Not a fair final comparison; useful mainly as evidence that the higher-resolution path was unstable/expensive.</td>
+          </tr>
+          <tr>
+            <td><strong>Dense WP 518x518 CNN</strong><br><span class="tag">full Point Cloud map</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/gx0q54y5">gx0q54y5</a><br><code>wp-dense-cnn-4887406</code></td>
+            <td>crashed early</td>
+            <td class="num">30.7k / 2.0M</td>
+            <td class="num">0.048 / 0.022</td>
+            <td>Full-resolution Point Cloud was much heavier and did not yet produce a comparable run.</td>
+          </tr>
+          <tr>
+            <td><strong>WP64 CNN + CP MLP</strong><br><span class="tag">structured encoder</span></td>
+            <td><a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/lbsh3yal">lbsh3yal</a><br><code>wp64-cnn-cp-mlp-5065838</code></td>
+            <td>failed</td>
+            <td class="num">199.9k / 2.0M</td>
+            <td class="num">0.09 / 0.062<br>val 0.09 / 0.067</td>
+            <td>Current structured Point Cloud CNN path did not improve learning.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="card feedback">
+        <h3>FB-2: Table feedback</h3>
+        <ul>
+          <li>Should the table include only pure Point Cloud variants, or also hybrid RGB+Point Cloud runs?</li>
+          <li>Should val metrics be split into separate columns instead of folded into SR / SPL?</li>
+          <li>Should failed early experiments be moved to an appendix-style section?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="interpretation">
+    <div class="wrap">
+      <h2>Interpretation for the landing page</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="k">Observation 1</div>
+          <h3>37x37 is not arbitrary</h3>
+          <p>It is the native VGGT patch grid: <code>518 / 14 = 37</code>. The dense Point Cloud is pooled to that grid before the Dreamer encoder.</p>
+        </div>
+        <div class="card">
+          <div class="k">Observation 2</div>
+          <h3>Readout depth matters</h3>
+          <p>The same WP+CP input is stronger with a 3-layer MLP than with the older linear readout in the current snapshot.</p>
+        </div>
+        <div class="card">
+          <div class="k">Observation 3</div>
+          <h3>More resolution is not yet better</h3>
+          <p>The 64x64 and dense paths did not produce clean comparable runs. Present them as engineering probes, not as final negative results.</p>
+        </div>
+      </div>
+      <div class="card feedback">
+        <h3>FB-3: Framing feedback</h3>
+        <ul>
+          <li>Is this too result-heavy for the docs landing page?</li>
+          <li>Should the main message be "Point Cloud works" or "simple pooled representation is the best current tradeoff"?</li>
+          <li>Should the 37x37 explanation be in the TL;DR, or only linked via <a href="3d48-vggt-wp-size.html">3d48-vggt-wp-size.html</a>?</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="feedback">
+    <div class="wrap">
+      <h2>Feedback checklist</h2>
+      <p>When you review this page, you can refer to these markers directly:</p>
+      <table>
+        <tbody>
+          <tr><td class="num">FB-1</td><td>Plot scope, included runs, visual encoding of partial/crashed runs.</td></tr>
+          <tr><td class="num">FB-2</td><td>Table scope, columns, whether failed probes stay visible.</td></tr>
+          <tr><td class="num">FB-3</td><td>Supervisor-facing framing and strength of claims.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

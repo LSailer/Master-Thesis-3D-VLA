@@ -416,6 +416,974 @@
     text-align: center; font-size: 12px; color: var(--text-dim);
     margin-top: 6px; font-style: italic;
   }
+
+  .invariance-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 14px;
+    align-items: start;
+    max-width: 1050px;
+    margin: 0 auto;
+  }
+
+  .invariance-thumbs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .invariance-thumbs img,
+  .invariance-plot img {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 4px 20px rgba(15,23,42,0.08);
+    background: #ffffff;
+  }
+
+  .invariance-thumbs img {
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+  }
+
+  .invariance-plot img {
+    max-height: 52vh;
+    object-fit: contain;
+  }
+
+  .invariance-caption {
+    margin-top: 5px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    line-height: 1.35;
+  }
+
+  .invariance-note {
+    margin-top: 8px;
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  .embedding-slide {
+    justify-content: flex-start;
+    padding-top: 32px;
+    padding-bottom: 36px;
+  }
+
+  .embedding-slide h2 {
+    font-size: 2rem;
+    margin-bottom: 12px;
+  }
+
+  .embedding-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .embedding-metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+  }
+
+  .embedding-metric .label {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 3px;
+  }
+
+  .embedding-metric .value {
+    font-size: 1.05rem;
+    color: #0f172a;
+    font-weight: 700;
+  }
+
+  .embedding-rgb-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .embedding-frame,
+  .embedding-heatmap-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(15,23,42,0.07);
+  }
+
+  .embedding-frame {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .embedding-frame img {
+    display: block;
+    width: 100%;
+    height: clamp(160px, 27vh, 245px);
+    flex: 1 1 auto;
+    min-height: 0;
+    object-fit: cover;
+  }
+
+  .embedding-frame-body {
+    padding: 7px 10px 8px;
+    min-height: 56px;
+  }
+
+  .embedding-frame-title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 5px;
+  }
+
+  .embedding-chip {
+    display: inline-block;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.68rem;
+    color: #334155;
+    background: #e2e8f0;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    padding: 2px 6px;
+    margin: 0 3px 3px 0;
+  }
+
+  .embedding-chip.green {
+    color: var(--accent-green);
+    background: rgba(52,211,153,0.12);
+    border-color: rgba(52,211,153,0.3);
+  }
+
+  .embedding-chip.red {
+    color: var(--accent-red);
+    background: rgba(248,113,113,0.12);
+    border-color: rgba(248,113,113,0.3);
+  }
+
+  .embedding-footer {
+    margin-top: 7px;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    text-align: center;
+  }
+
+  .embedding-heatmap-layout {
+    display: block;
+  }
+
+  .embedding-heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .embedding-heatmap-card img {
+    display: block;
+    width: 100%;
+    height: clamp(230px, 35vh, 330px);
+    object-fit: contain;
+    background: #ffffff;
+  }
+
+  .embedding-heatmap-caption {
+    border-top: 1px solid var(--border);
+    padding: 7px 9px;
+    font-size: 0.73rem;
+    color: var(--text-dim);
+    line-height: 1.35;
+  }
+
+  .embedding-findings {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .embedding-finding {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent2);
+    border-radius: 10px;
+    padding: 12px 13px;
+  }
+
+  .embedding-finding h4 {
+    font-size: 0.86rem;
+    color: #0f172a;
+    margin-bottom: 6px;
+  }
+
+  .embedding-finding p,
+  .embedding-finding li {
+    font-size: 0.76rem;
+    line-height: 1.45;
+    color: var(--text-dim);
+  }
+
+  .embedding-finding ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .embedding-finding li {
+    padding: 2px 0;
+  }
+
+  .pc-slide {
+    justify-content: flex-start;
+    padding-top: 34px;
+    padding-bottom: 38px;
+  }
+
+  .pc-slide h2 {
+    font-size: 2rem;
+    margin-bottom: 14px;
+  }
+
+  .pc-arch-grid {
+    display: grid;
+    grid-template-columns: 1.35fr 0.9fr;
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  .pc-pipeline {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+  }
+
+  .pc-row {
+    display: grid;
+    grid-template-columns: 1fr 28px 1fr 28px 1fr;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .pc-row:last-child { margin-bottom: 0; }
+
+  .pc-node {
+    min-height: 82px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 12px;
+  }
+
+  .pc-node strong {
+    display: block;
+    color: #0f172a;
+    font-size: 0.92rem;
+    margin-bottom: 5px;
+  }
+
+  .pc-node span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+
+  .pc-arrow {
+    color: var(--accent2);
+    font-size: 1.4rem;
+    text-align: center;
+  }
+
+  .pc-note-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent-cyan);
+    border-radius: 12px;
+    padding: 14px;
+  }
+
+  .pc-note-card h4 {
+    font-size: 0.95rem;
+    color: #0f172a;
+    margin-bottom: 8px;
+  }
+
+  .pc-note-card li,
+  .pc-note-card p {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    line-height: 1.45;
+  }
+
+  .pc-flow-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .pc-flow-svg {
+    width: 100%;
+    height: clamp(260px, 46vh, 380px);
+    display: block;
+  }
+
+  .pc-flow-notes {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .pc-flow-mini {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+
+  .pc-flow-mini strong {
+    display: block;
+    color: #0f172a;
+    font-size: 0.82rem;
+    margin-bottom: 4px;
+  }
+
+  .pc-flow-mini p {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .pc-visual-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+
+  .pc-visual-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .pc-visual-card img {
+    width: 100%;
+    height: clamp(205px, 31vh, 280px);
+    object-fit: contain;
+    border-radius: 10px;
+    background: #ffffff;
+  }
+
+  .pc-caption {
+    margin-top: 7px;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .pc-results-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pc-plot-card,
+  .pc-table-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .pc-plot-card img {
+    width: 100%;
+    height: clamp(260px, 43vh, 390px);
+    object-fit: contain;
+    display: block;
+  }
+
+  .pc-table-card {
+    display: grid;
+    grid-template-columns: 1.25fr 0.95fr;
+    gap: 10px;
+    align-items: start;
+    padding: 10px 12px;
+  }
+
+  .pc-table-card table {
+    font-size: 0.68rem;
+    margin: 2px 0 0;
+  }
+
+  .pc-table-card th,
+  .pc-table-card td {
+    padding: 4px 7px;
+  }
+
+  .pc-caveat {
+    margin-top: 7px;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
+
+  .pc-memory-slide {
+    justify-content: flex-start;
+    padding-top: 34px;
+    padding-bottom: 34px;
+  }
+
+  .pc-memory-slide h2 {
+    font-size: 1.9rem;
+    margin-bottom: 10px;
+  }
+
+  .pc-memory-intro {
+    color: var(--text-dim);
+    font-size: 0.88rem;
+    line-height: 1.45;
+    margin: -2px 0 12px;
+    max-width: 980px;
+  }
+
+  .pc-memory-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(330px, 0.95fr);
+    gap: 14px;
+    align-items: stretch;
+    min-height: 0;
+  }
+
+  .pc-memory-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    min-height: 0;
+  }
+
+  .pc-memory-card h4 {
+    color: #0f172a;
+    font-size: 0.95rem;
+    margin-bottom: 10px;
+  }
+
+  .pc-memory-bars {
+    display: grid;
+    gap: 9px;
+  }
+
+  .pc-memory-row {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr) 116px;
+    gap: 9px;
+    align-items: center;
+    color: var(--text-dim);
+    font-size: 0.7rem;
+  }
+
+  .pc-memory-row strong {
+    color: #0f172a;
+    font-size: 0.72rem;
+  }
+
+  .pc-memory-track {
+    height: 14px;
+    border-radius: 999px;
+    background: #eef2f7;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .pc-memory-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #60a5fa, #4f46e5);
+  }
+
+  .pc-memory-fill.dense {
+    background: linear-gradient(90deg, #f59e0b, #dc2626);
+  }
+
+  .pc-memory-fill.token {
+    background: linear-gradient(90deg, #a78bfa, #7c3aed);
+  }
+
+  .pc-memory-value {
+    color: #0f172a;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap;
+  }
+
+  .pc-memory-note,
+  .pc-memory-formula {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    line-height: 1.35;
+    margin-top: 10px;
+  }
+
+  .pc-memory-formula {
+    padding: 10px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-top: 0;
+  }
+
+  .pc-memory-formula strong {
+    display: block;
+    color: #0f172a;
+    margin-bottom: 5px;
+  }
+
+  .pc-memory-formula code {
+    font-size: 0.66rem;
+  }
+
+  .pc-memory-table {
+    margin-top: 10px;
+    font-size: 0.68rem;
+  }
+
+  .pc-memory-table th,
+  .pc-memory-table td {
+    padding: 6px 7px;
+  }
+
+  .pc-memory-bottom {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .pc-memory-mini {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent-amber);
+    border-radius: 12px;
+    padding: 10px 12px;
+  }
+
+  .pc-memory-mini strong {
+    display: block;
+    color: #0f172a;
+    font-size: 0.78rem;
+    margin-bottom: 4px;
+  }
+
+  .pc-memory-mini p {
+    color: var(--text-dim);
+    font-size: 0.68rem;
+    line-height: 1.35;
+  }
+
+  .hybrid-slide {
+    justify-content: flex-start;
+    padding-top: 26px;
+    padding-bottom: 28px;
+  }
+
+  .hybrid-slide h2 {
+    font-size: 1.9rem;
+    margin-bottom: 10px;
+  }
+
+  .hybrid-layout {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .hybrid-top-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .hybrid-panel {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px;
+    min-height: 0;
+  }
+
+  .hybrid-flow-svg,
+  .hybrid-plot-svg {
+    width: 100%;
+    display: block;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+  }
+
+  .hybrid-flow-svg {
+    height: clamp(210px, 30vh, 285px);
+  }
+
+  .hybrid-plot-svg {
+    height: clamp(260px, 39vh, 345px);
+  }
+
+  .hybrid-side {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .hybrid-variant-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    height: 100%;
+  }
+
+  .hybrid-variant {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--accent-green);
+    border-radius: 12px;
+    padding: 9px 12px;
+    min-height: 0;
+  }
+
+  .hybrid-variant.norm {
+    border-top-color: var(--accent-amber);
+  }
+
+  .hybrid-variant strong {
+    display: block;
+    color: #0f172a;
+    font-size: 0.86rem;
+    margin-bottom: 5px;
+  }
+
+  .hybrid-variant p {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.34;
+  }
+
+  .hybrid-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin-top: 6px;
+  }
+
+  .hybrid-metric {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+  }
+
+  .hybrid-metric b {
+    display: block;
+    color: #0f172a;
+    font-size: 0.86rem;
+  }
+
+  .hybrid-metric span {
+    color: var(--text-dim);
+    font-size: 0.64rem;
+    line-height: 1.25;
+  }
+
+  .buffer-slide {
+    justify-content: flex-start;
+    padding-top: 34px;
+    padding-bottom: 34px;
+  }
+
+  .buffer-slide h2 {
+    font-size: 2rem;
+    margin-bottom: 12px;
+  }
+
+  .buffer-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.7fr);
+    gap: 14px;
+    align-items: stretch;
+    min-height: 0;
+  }
+
+  .buffer-panel,
+  .buffer-stat-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+  }
+
+  .buffer-panel {
+    padding: 12px 14px 8px;
+  }
+
+  .buffer-curve {
+    width: 100%;
+    height: clamp(350px, 56vh, 500px);
+    display: block;
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+  }
+
+  .buffer-caption {
+    margin-top: 5px;
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    line-height: 1.35;
+  }
+
+  .buffer-stats {
+    display: grid;
+    gap: 10px;
+  }
+
+  .buffer-stat-card {
+    padding: 12px 14px;
+    border-left: 5px solid var(--accent);
+  }
+
+  .buffer-stat-card.good {
+    border-left-color: var(--accent-green);
+  }
+
+  .buffer-stat-card.warn {
+    border-left-color: var(--accent-amber);
+  }
+
+  .buffer-stat-card.poor {
+    border-left-color: var(--accent);
+  }
+
+  .buffer-stat-card strong {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    color: #0f172a;
+    font-size: 0.95rem;
+  }
+
+  .buffer-stat-card b {
+    font-size: 1.35rem;
+  }
+
+  .buffer-stat-card span {
+    display: block;
+    margin-top: 5px;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .evggt-slide-grid {
+    display: grid;
+    grid-template-columns: 1fr 170px 1fr;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .evggt-model-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 15px;
+  }
+
+  .evggt-model-card h4 {
+    font-size: 1rem;
+    color: #0f172a;
+    margin-bottom: 8px;
+  }
+
+  .evggt-model-card p {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    line-height: 1.42;
+  }
+
+  .evggt-block-row {
+    display: grid;
+    gap: 4px;
+    margin: 10px 0 6px;
+  }
+
+  .evggt-block-row.teacher { grid-template-columns: repeat(12, 1fr); }
+  .evggt-block-row.student { grid-template-columns: repeat(4, 1fr); }
+
+  .evggt-block {
+    min-height: 18px;
+    border-radius: 5px;
+    border: 1px solid #c7d2fe;
+    background: linear-gradient(90deg, #dbeafe 0 48%, #eef2ff 52% 100%);
+  }
+
+  .evggt-block.student {
+    border-color: #86efac;
+    background: linear-gradient(90deg, #bbf7d0 0 48%, #ecfdf5 52% 100%);
+  }
+
+  .evggt-attention-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 7px 0 10px;
+    color: var(--text-dim);
+    font-size: 0.68rem;
+  }
+
+  .evggt-attention-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .evggt-attention-legend span::before {
+    content: "";
+    width: 16px;
+    height: 9px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1;
+    background: #dbeafe;
+  }
+
+  .evggt-attention-legend .frame::before {
+    background: #eef2ff;
+  }
+
+  .evggt-model-card.student-model .evggt-attention-legend span::before {
+    border-color: #86efac;
+    background: #bbf7d0;
+  }
+
+  .evggt-model-card.student-model .evggt-attention-legend .frame::before {
+    background: #ecfdf5;
+  }
+
+  .evggt-width-meter {
+    margin: 10px 0;
+  }
+
+  .evggt-width-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+
+  .evggt-width-track {
+    height: 11px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    overflow: hidden;
+  }
+
+  .evggt-width-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: #818cf8;
+  }
+
+  .evggt-width-fill.student {
+    width: 38%;
+    background: #34d399;
+  }
+
+  .evggt-distill {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-dim);
+    text-align: center;
+    font-size: 0.78rem;
+  }
+
+  .evggt-distill .arrow {
+    color: var(--accent2);
+    font-size: 2rem;
+    line-height: 1;
+  }
+
+  .evggt-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 8px;
+  }
+
+  .evggt-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: var(--text-dim);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.65rem;
+  }
+
+  .evggt-takeaways {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .evggt-takeaway {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent2);
+    border-radius: 12px;
+    padding: 11px;
+  }
+
+  .evggt-takeaway strong {
+    display: block;
+    color: #0f172a;
+    font-size: 0.82rem;
+    margin-bottom: 5px;
+  }
+
+  .evggt-takeaway p {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    line-height: 1.35;
+  }
+
+  @media (min-height: 900px) {
+    #slide-pc37-aggregation .pc-visual-card img.pc-wide-image {
+      width: 100%;
+      height: auto;
+      max-height: none;
+    }
+  }
 </style>
 </head>
 <body>
@@ -426,7 +1394,7 @@
 
 <!-- SLIDE 1: Title -->
 <div class="slide active" id="slide-1">
-  <h3>Supervisor Meeting · May 28, 2026</h3>
+  <h3>Supervisor Meeting · June 19, 2026</h3>
   <h1>3D Scene Understanding<br>for Object Navigation</h1>
   <div class="subtitle" style="margin-top: 16px;">
     VGGT exploration results + thesis approach — augmenting VLAs with dense 3D semantic features
@@ -554,27 +1522,321 @@
   </div>
 </div>
 
-<!-- Research Question -->
-<div class="slide" id="slide-question">
-  <h3 style="text-align: center;">Research Question</h3>
-  <h2 style="text-align: center; font-size: 1.6em; margin-top: 12px;">Can 3D scene understanding improve world models for navigation?</h2>
+<!-- SLIDE: VGGT Variant Comparison -->
+<div class="slide" id="slide-vggt-comparison">
+  <h3>Encoder Selection</h3>
+  <h2>VGGT Variant Comparison</h2>
 
-  <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
-    <span style="background: rgba(129,140,248,0.15); border: 1px solid #4338ca; color: #4338ca; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">VGGT</span>
-    <span style="background: rgba(34,211,238,0.15); border: 1px solid #0e7490; color: #0e7490; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">DPT Depth</span>
-    <span style="background: rgba(52,211,153,0.15); border: 1px solid #059669; color: #059669; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">CLIP Semantics</span>
-    <span style="background: rgba(251,191,36,0.15); border: 1px solid #d97706; color: #d97706; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">+ DreamerV3 RSSM</span>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
+    <!-- Left: Table + Summary Bars -->
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--border);">
+            <th style="padding: 6px 8px; text-align: left; color: var(--text-dim);">Variant</th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>100</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>500</sub></th>
+            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Scaling</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">VGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">SceneVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">FastVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">16.1 GB</td>
+            <td style="padding: 5px 8px; text-align: right;">54.7 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 5px 8px;">StreamVGGT</td>
+            <td style="padding: 5px 8px; text-align: right;">25.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+          </tr>
+          <tr>
+            <td style="padding: 5px 8px; font-weight: 600; color: var(--accent-green);">InfiniteVGGT</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">16.6 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">18.0 GB</td>
+            <td style="padding: 5px 8px; text-align: right; font-family: monospace; color: var(--accent-green);">O(1)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div>
+        <img src="../images/vggt_summary_bars.png" alt="VGGT latency and memory bars" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+        <div class="figure-caption">Latency &amp; peak memory at N &isin; {10, 50, 100}</div>
+      </div>
+    </div>
+
+    <!-- Right: Sequential benchmark -->
+    <div>
+      <img src="../images/vggt_seq.png" alt="DreamerV3 integration benchmark" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+      <div class="figure-caption">DreamerV3 integration: 16 parallel envs, 20 RL steps (16 &rarr; 320 frames)</div>
+      <div class="highlight-box" style="margin-top: 14px; padding: 12px 16px;">
+        <strong style="color: var(--accent-green);">Result:</strong>
+        <span style="color: var(--text-dim);"> Only InfiniteVGGT guarantees bounded memory at arbitrary episode lengths while maintaining stable throughput (~15 fps).</span>
+      </div>
+    </div>
   </div>
-
-  <div class="card" style="border-left: 4px solid var(--accent-amber); margin-top: 24px; max-width: 780px; margin-left: auto; margin-right: auto;">
-    <h4 style="color: var(--accent-amber);">Hypothesis</h4>
-    <p style="color: var(--text); line-height: 1.6;">Replacing DreamerV3's CNN encoder with frozen VGGT + DPT features gives the world model an explicit geometric and semantic prior — leading to better <strong>sample efficiency</strong> and <strong>navigation success</strong> on HM3D ObjectNav.</p>
-  </div>
-
-  <p style="text-align: center; color: var(--text-dim); font-size: 0.88em; margin-top: 18px; max-width: 680px; margin-left: auto; margin-right: auto;">
-    Standard DreamerV3 learns all 3D structure implicitly from 2D pixels. We provide it directly via a frozen VGGT backbone.
-  </p>
 </div>
+
+<!-- SLIDE: Output Quality Comparison -->
+<div class="slide" id="slide-vggt-depth">
+  <h3>Encoder Selection</h3>
+  <h2>Output Quality — All Variants Equivalent</h2>
+
+  <div style="text-align: center;">
+    <img src="../images/vggt_depth_comparision.png" alt="Depth maps across all VGGT variants" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border);">
+    <div class="figure-caption" style="margin-top: 12px;">Depth maps from all five variants on identical input frames — outputs are visually indistinguishable.</div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 16px;">
+    <strong style="color: var(--accent-green);">Selection:</strong>
+    <span style="color: var(--text-dim);"> InfiniteVGGT selected as 3D encoder — bounded memory, stable throughput, no quality loss.</span>
+  </div>
+</div>
+
+<!-- SLIDE 7: ObjectNav Task Definition -->
+<div class="slide" id="slide-8">
+  <h3>Benchmark</h3>
+  <h2>ObjectNav Task</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Task Definition</h4>
+        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
+          Agent spawns at random pose in an <strong>unseen environment</strong>. Given a target object category (e.g., "chair"), navigate to <strong>any instance</strong> and call <code style="color: var(--accent-green); background: rgba(52,211,153,0.1); padding: 2px 6px; border-radius: 4px;">STOP</code> within 0.1m.
+        </p>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>Observations (Egocentric)</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
+          <div style="background: rgba(99,102,241,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <strong style="color: var(--accent2); font-size: 0.85rem;">RGB</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(34,211,238,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <strong style="color: var(--accent-cyan); font-size: 0.85rem;">Depth</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
+          </div>
+          <div style="background: rgba(251,191,36,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <strong style="color: var(--accent-amber); font-size: 0.85rem;">GPS+Compass</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Relative to start pose</div>
+          </div>
+          <div style="background: rgba(52,211,153,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <strong style="color: var(--accent-green); font-size: 0.85rem;">Goal</strong>
+            <div style="font-size: 0.8rem; color: var(--text-dim);">Category ID (1 of 6)</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>Action Space</h4>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">MOVE_FORWARD 0.25m</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_LEFT 30°</span>
+          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_RIGHT 30°</span>
+          <span class="tag" style="background: rgba(52,211,153,0.15); color: var(--accent-green);">STOP</span>
+        </div>
+        <p style="margin-top: 8px; font-size: 0.85rem; color: var(--text-dim);">Episode budget: <strong style="color: var(--text);">500 steps</strong> max. Success = STOP called within 0.1m of any target instance.</p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="text-align: center;">
+        <img src="https://aihabitat.org/static/challenge/objectnav_spec_2023.gif" alt="Habitat ObjectNav Demo" class="figure-img" style="max-width: 100%; border-radius: 12px;">
+        <div class="figure-caption">Habitat ObjectNav — agent navigates to target object in photorealistic 3D scan</div>
+      </div>
+      <div class="card">
+        <h4>Key Metrics</h4>
+        <table style="width: 100%; margin-top: 8px;">
+          <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Measures</th></tr>
+          <tr><td style="color: var(--accent-green); font-weight: 600;">Success Rate</td><td style="color: var(--text-dim);">Did agent find the target?</td></tr>
+          <tr><td style="color: var(--accent); font-weight: 600;">SPL</td><td style="color: var(--text-dim);">Success weighted by path efficiency</td></tr>
+          <tr><td style="color: var(--accent-cyan); font-weight: 600;">SoftSPL</td><td style="color: var(--text-dim);">Progress toward goal (partial credit)</td></tr>
+          <tr><td style="color: var(--accent-amber); font-weight: 600;">DTG</td><td style="color: var(--text-dim);">Distance to goal at episode end</td></tr>
+        </table>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #0f172a;">No map, no oracle:</strong>
+        <span style="color: var(--text-dim);"> Agent has zero prior knowledge of the environment. Must build spatial understanding from egocentric observations alone.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 7b: HM3D Environment + Geodesic Distances -->
+<div class="slide" id="slide-8b">
+  <h3>Benchmark</h3>
+  <h2>HM3D Environment &amp; Episode Distribution</h2>
+
+  <div class="two-col">
+    <div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>HM3D Dataset</h4>
+        <ul>
+          <li><strong>1,000</strong> real-world 3D scans of residential spaces</li>
+          <li>Photorealistic rendering via Habitat simulator</li>
+          <li><strong>216</strong> object categories with semantic annotations</li>
+          <li>Multi-room layouts: kitchens, bedrooms, bathrooms, living rooms, hallways</li>
+          <li>Standard benchmark since 2023 Habitat Challenge</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-bottom: 14px;">
+        <h4>6 Target Object Categories</h4>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px;">
+          <div style="text-align: center; background: rgba(99,102,241,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
+            <div style="font-size: 1.4rem;">🪑</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Chair</div>
+          </div>
+          <div style="text-align: center; background: rgba(52,211,153,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
+            <div style="font-size: 1.4rem;">🛏️</div>
+            <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">Bed</div>
+          </div>
+          <div style="text-align: center; background: rgba(251,191,36,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
+            <div style="font-size: 1.4rem;">🪴</div>
+            <div style="font-size: 0.8rem; color: var(--accent-amber); font-weight: 600;">Plant</div>
+          </div>
+          <div style="text-align: center; background: rgba(34,211,238,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
+            <div style="font-size: 1.4rem;">🚽</div>
+            <div style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">Toilet</div>
+          </div>
+          <div style="text-align: center; background: rgba(248,113,113,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(248,113,113,0.2);">
+            <div style="font-size: 1.4rem;">📺</div>
+            <div style="font-size: 0.8rem; color: var(--accent-red); font-weight: 600;">TV Monitor</div>
+          </div>
+          <div style="text-align: center; background: rgba(129,140,248,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(129,140,248,0.2);">
+            <div style="font-size: 1.4rem;">🛋️</div>
+            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Sofa</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h4>What's in the Environment</h4>
+        <p style="font-size: 0.85rem; line-height: 1.7; color: var(--text);">
+          Realistic clutter: furniture, appliances, decorations, doors, stairs. Scenes contain <strong>50–300+ objects</strong> per scan. Agent must distinguish target from distractors in cluttered, multi-room layouts with varying lighting and occlusion.
+        </p>
+      </div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div class="card" style="padding: 20px;">
+        <h4 style="margin-bottom: 12px;">Geodesic Distance Distribution</h4>
+        <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px;">Shortest navigable path from spawn to nearest target instance (HM3D ObjectNav v2 val split)</p>
+        <svg viewBox="0 0 420 200" style="width: 100%; font-family: 'Inter', sans-serif;">
+          <!-- Axes -->
+          <line x1="50" y1="170" x2="400" y2="170" stroke="#cbd5e1" stroke-width="1"/>
+          <line x1="50" y1="10" x2="50" y2="170" stroke="#cbd5e1" stroke-width="1"/>
+          <!-- Y-axis labels -->
+          <text x="45" y="170" fill="#475569" font-size="9" text-anchor="end">0</text>
+          <text x="45" y="130" fill="#475569" font-size="9" text-anchor="end">10%</text>
+          <text x="45" y="90" fill="#475569" font-size="9" text-anchor="end">20%</text>
+          <text x="45" y="50" fill="#475569" font-size="9" text-anchor="end">30%</text>
+          <!-- Grid lines -->
+          <line x1="50" y1="130" x2="400" y2="130" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="90" x2="400" y2="90" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <line x1="50" y1="50" x2="400" y2="50" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
+          <!-- Bars: geodesic distance bins (approximate distribution) -->
+          <!-- 0-1m: ~5% -->
+          <rect x="55" y="150" width="28" height="20" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 1-2m: ~12% -->
+          <rect x="90" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 2-3m: ~18% -->
+          <rect x="125" y="98" width="28" height="72" rx="3" fill="#4338ca" opacity="0.8"/>
+          <!-- 3-5m: ~25% (peak) -->
+          <rect x="160" y="70" width="28" height="100" rx="3" fill="#4338ca" opacity="0.9"/>
+          <!-- 5-7m: ~17% -->
+          <rect x="195" y="102" width="28" height="68" rx="3" fill="#6366f1" opacity="0.8"/>
+          <!-- 7-10m: ~12% -->
+          <rect x="230" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.7"/>
+          <!-- 10-15m: ~7% -->
+          <rect x="265" y="142" width="28" height="28" rx="3" fill="#6366f1" opacity="0.6"/>
+          <!-- 15-20m: ~3% -->
+          <rect x="300" y="158" width="28" height="12" rx="3" fill="#6366f1" opacity="0.5"/>
+          <!-- 20m+: ~1% -->
+          <rect x="335" y="166" width="28" height="4" rx="3" fill="#6366f1" opacity="0.4"/>
+          <!-- X-axis labels -->
+          <text x="69" y="184" fill="#475569" font-size="8" text-anchor="middle">0-1</text>
+          <text x="104" y="184" fill="#475569" font-size="8" text-anchor="middle">1-2</text>
+          <text x="139" y="184" fill="#475569" font-size="8" text-anchor="middle">2-3</text>
+          <text x="174" y="184" fill="#475569" font-size="8" text-anchor="middle">3-5</text>
+          <text x="209" y="184" fill="#475569" font-size="8" text-anchor="middle">5-7</text>
+          <text x="244" y="184" fill="#475569" font-size="8" text-anchor="middle">7-10</text>
+          <text x="279" y="184" fill="#475569" font-size="8" text-anchor="middle">10-15</text>
+          <text x="314" y="184" fill="#475569" font-size="8" text-anchor="middle">15-20</text>
+          <text x="349" y="184" fill="#475569" font-size="8" text-anchor="middle">20+</text>
+          <!-- Axis label -->
+          <text x="225" y="198" fill="#475569" font-size="9" text-anchor="middle">Geodesic Distance (meters)</text>
+          <!-- Annotation -->
+          <line x1="174" y1="65" x2="174" y2="40" stroke="#059669" stroke-width="1" stroke-dasharray="3"/>
+          <text x="174" y="35" fill="#059669" font-size="8" text-anchor="middle">peak: 3-5m</text>
+          <text x="174" y="25" fill="#059669" font-size="7" text-anchor="middle">(multi-room nav)</text>
+        </svg>
+      </div>
+      <div class="highlight-box">
+        <strong style="color: #0f172a;">Why geodesic distance matters:</strong>
+        <span style="color: var(--text-dim);"> Most episodes require navigating 3–7m through multiple rooms. This is where 3D spatial understanding becomes critical — the agent must reason about room connectivity and navigate around obstacles, not just recognize objects.</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: DreamerV3 Baseline -->
+<div class="slide" id="slide-7">
+  <h3>Baseline</h3>
+  <h2>DreamerV3 — Pixel-Only World Model</h2>
+
+  <div class="two-col" style="grid-template-columns: 56% 42%; gap: 20px; align-items: start;">
+    <div>
+      <div class="arrow-flow">
+        <div class="flow-box">RGB (224×224)</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">CNN Encoder</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box" style="border-color: var(--accent-amber); background: rgba(251,191,36,0.1);">RSSM World Model</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">Actor-Critic</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">Nav Action</div>
+      </div>
+
+      <div class="card" style="margin-top: 16px;">
+        <h4>DreamerV3 — Pixel-Only</h4>
+        <span class="tag tag-amber" style="margin-bottom: 10px;">Baseline · JAX · 2M steps</span>
+        <ul>
+          <li>Standard CNN encoder on 2D RGB only</li>
+          <li>Learns geometry implicitly from pixels — no depth, no 3D, no semantics</li>
+          <li>State-of-the-art general RL agent (150+ tasks, Nature 2025)</li>
+          <li>First application to HM3D ObjectNav (no prior work)</li>
+          <li>Same RSSM architecture as our approach — only encoder differs</li>
+        </ul>
+      </div>
+    </div>
+
+    <div>
+      <div style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 20px rgba(15,23,42,0.08);">
+        <video src="../images/cnn_baseline_episode.mp4" style="width: 100%; height: auto; display: block;" autoplay loop muted playsinline controls></video>
+        <div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: rgba(15,23,42,0.04);">
+          <strong style="color: var(--text);">CNN baseline episode</strong> — <code>cnn-2M-512</code> agent on L1 chair-only
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 14px;">
+    <strong style="color: #0f172a;">Our approach:</strong> keeps DreamerV3's RSSM unchanged but replaces the CNN encoder with frozen VGGT features — providing explicit 3D geometry the pixel-only baseline lacks.
+  </div>
+</div>
+
 
 <!-- DreamerV3 RSSM Background -->
 <div class="slide" id="slide-dreamer">
@@ -788,6 +2050,29 @@
       </div>
     </div>
   </div>
+</div>
+
+
+<!-- Research Question -->
+<div class="slide" id="slide-question">
+  <h3 style="text-align: center;">Research Question</h3>
+  <h2 style="text-align: center; font-size: 1.6em; margin-top: 12px;">Can 3D scene understanding improve world models for navigation?</h2>
+
+  <div style="display: flex; justify-content: center; gap: 10px; margin-top: 20px; flex-wrap: wrap;">
+    <span style="background: rgba(129,140,248,0.15); border: 1px solid #4338ca; color: #4338ca; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">VGGT</span>
+    <span style="background: rgba(34,211,238,0.15); border: 1px solid #0e7490; color: #0e7490; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">DPT Depth</span>
+    <span style="background: rgba(52,211,153,0.15); border: 1px solid #059669; color: #059669; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">CLIP Semantics</span>
+    <span style="background: rgba(251,191,36,0.15); border: 1px solid #d97706; color: #d97706; padding: 4px 14px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">+ DreamerV3 RSSM</span>
+  </div>
+
+  <div class="card" style="border-left: 4px solid var(--accent-amber); margin-top: 24px; max-width: 780px; margin-left: auto; margin-right: auto;">
+    <h4 style="color: var(--accent-amber);">Hypothesis</h4>
+    <p style="color: var(--text); line-height: 1.6;">Replacing DreamerV3's CNN encoder with frozen VGGT + DPT features gives the world model an explicit geometric and semantic prior — leading to better <strong>sample efficiency</strong> and <strong>navigation success</strong> on HM3D ObjectNav.</p>
+  </div>
+
+  <p style="text-align: center; color: var(--text-dim); font-size: 0.88em; margin-top: 18px; max-width: 680px; margin-left: auto; margin-right: auto;">
+    Standard DreamerV3 learns all 3D structure implicitly from 2D pixels. We provide it directly via a frozen VGGT backbone.
+  </p>
 </div>
 
 <!-- New Architecture Approach -->
@@ -1163,464 +2448,664 @@
   </div>
 </div>
 
-<!-- SLIDE: Current Baseline Result (run er5ze5m6) -->
-<div class="slide" id="slide-vggt-results">
-  <h3>Current Baseline Result</h3>
-  <h2>VGGT WP+CP Flatten &mdash; <code style="font-size: 0.7em; color: var(--accent2);">er5ze5m6</code></h2>
+<!-- SLIDE: Point Cloud 37x37 Architecture Fit -->
+<div class="slide pc-slide" id="slide-pc37-architecture">
+  <h3>Point Cloud 37&times;37 Ablation</h3>
+  <h2>Where the 37&times;37 WP+CP input fits into the architecture</h2>
 
-  <div class="two-col">
-    <div>
-      <div class="card" style="margin-bottom: 12px; border-top: 3px solid var(--accent-cyan);">
-        <h4>Run summary</h4>
-        <ul style="font-size: 0.85rem;">
-          <li>Display name: <code>vggt_jax-4216462</code></li>
-          <li>Curriculum: <strong>L1 &middot; 1 house &middot; chair-only</strong></li>
-          <li>Encoder: <code>vggt</code> &middot; <code>obs_shape = [4116]</code></li>
-          <li>State: <span style="color: var(--accent-red); font-weight: 600;">crashed</span> at <strong>2.14M / 2.4M</strong> steps (89%)</li>
-          <li>6 518 episodes &middot; ~48 h wall-clock</li>
-        </ul>
-      </div>
-      <div class="card">
-        <h4>Final-window metrics</h4>
-        <table>
-          <tr><th>Metric</th><th>Value</th><th>vs 2D baseline</th></tr>
-          <tr><td>SR (chair)</td><td><strong style="color: var(--accent-amber);">0.62</strong></td><td style="color: var(--accent-red);">&minus;13 pp (vs 0.75)</td></tr>
-          <tr><td>SPL</td><td><strong style="color: var(--accent-amber);">0.426</strong></td><td style="color: var(--accent-red);">&minus;0.12 (vs 0.55)</td></tr>
-          <tr><td>Mean ep reward</td><td>5.25</td><td>&mdash;</td></tr>
-          <tr><td>Path ratio</td><td>1.39</td><td>longer than optimal</td></tr>
-        </table>
-      </div>
-    </div>
-    <div>
-      <div class="card" style="margin-bottom: 12px;">
-        <h4>Loss decomposition (terminal)</h4>
-        <table style="font-size: 0.78rem;">
-          <tr><th>Term</th><th>Value</th><th>Note</th></tr>
-          <tr><td>repr / dyn (KL)</td><td>5.95</td><td>post H = 1.38 &middot; prior H = 1.57</td></tr>
-          <tr><td>value</td><td>1.63</td><td>twohot, 255 bins</td></tr>
-          <tr><td>repval</td><td>1.94</td><td>scale 0.3</td></tr>
-          <tr><td>policy</td><td>&minus;0.036</td><td>act_entropy 0.03</td></tr>
-          <tr><td>reward</td><td>0.24</td><td>step_penalty &minus;0.01</td></tr>
-          <tr><td>barlow</td><td><strong style="color: var(--accent-red);">29.85</strong></td><td>&times;0.05 &rarr; 1.49 contrib.</td></tr>
-        </table>
-      </div>
-      <div class="highlight-box red" style="padding: 12px 18px;">
-        <strong style="color: var(--accent-red);">Takeaway:</strong>
-        <span style="color: var(--text-dim); font-size: 0.88rem;"> Lossy 3D-coordinate observations &mdash; even with explicit geometry &mdash; under-perform the 2D CNN on L1. Motivates richer aggregator embeddings.</span>
-      </div>
-      <p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 8px;">
-        <a href="https://wandb.ai/sailer-luca-university-ulm/3d-vla-objectnav/runs/er5ze5m6" style="color: var(--accent2);">W&amp;B run &rarr;</a>
-      </p>
-    </div>
-  </div>
-</div>
+  <div class="pc-flow-card">
+    <svg class="pc-flow-svg" viewBox="0 0 1080 420" role="img" aria-labelledby="pc-flow-title pc-flow-desc">
+      <title id="pc-flow-title">Point Cloud aggregation and readout diagram</title>
+      <desc id="pc-flow-desc">VGGT dense 518 by 518 by 3 Point Cloud is averaged over 14 by 14 patch cells into 37 by 37 by 3 world points, flattened, concatenated with 9D camera pose, then passed through either a linear or 3-layer MLP readout.</desc>
 
-<!-- SLIDE: Aggregator vs Heads (planned ablation) -->
-<div class="slide" id="slide-aggregator-vs-heads">
-  <h3>Planned Ablation</h3>
-  <h2>Aggregator Embeddings vs Head Outputs</h2>
+      <defs>
+        <marker id="pc-flow-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+        </marker>
+        <pattern id="pc-dense-grid" width="6" height="6" patternUnits="userSpaceOnUse">
+          <path d="M6 0H0V6" fill="none" stroke="#bfdbfe" stroke-width="1"/>
+        </pattern>
+        <pattern id="pc-patch-grid" width="18" height="18" patternUnits="userSpaceOnUse">
+          <path d="M18 0H0V18" fill="none" stroke="#bbf7d0" stroke-width="1.3"/>
+        </pattern>
+      </defs>
 
-  <div class="two-col">
-    <div>
-      <div class="card" style="border-left: 4px solid var(--accent-cyan); margin-bottom: 12px;">
-        <h4 style="color: var(--accent-cyan);">Current &mdash; WP + CP Flatten</h4>
-        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;"><strong style="color: var(--text);">4116-D</strong> = 1369&times;3 world points &oplus; 9D camera pose</p>
-        <ul style="font-size: 0.83rem;">
-          <li>Discards 37&times;37 spatial token structure (flat)</li>
-          <li>Discards camera + register tokens (pose / instance summary)</li>
-          <li>Lossy: 1024-D feature collapsed to 3-D coordinate per patch</li>
-          <li>No mid-layer semantics &mdash; only the head's geometric readout</li>
-        </ul>
+      <rect x="0" y="0" width="1080" height="420" rx="14" fill="#ffffff"/>
+
+      <g transform="translate(34 52)">
+        <rect x="0" y="42" width="180" height="180" rx="12" fill="#eff6ff" stroke="#93c5fd" stroke-width="2"/>
+        <rect x="12" y="54" width="156" height="156" fill="url(#pc-dense-grid)" stroke="#60a5fa"/>
+        <text x="90" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">VGGT Point Head</text>
+        <text x="90" y="250" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">518x518x3</text>
+        <text x="90" y="272" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#64748b">dense Point Cloud</text>
+      </g>
+
+      <line x1="232" y1="184" x2="320" y2="184" stroke="#64748b" stroke-width="2.2" marker-end="url(#pc-flow-arrow)"/>
+      <text x="276" y="164" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">average pool</text>
+      <text x="276" y="204" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">14x14 cells</text>
+
+      <g transform="translate(338 52)">
+        <rect x="0" y="42" width="180" height="180" rx="12" fill="#ecfdf5" stroke="#86efac" stroke-width="2"/>
+        <rect x="12" y="54" width="156" height="156" fill="url(#pc-patch-grid)" stroke="#22c55e"/>
+        <circle cx="36" cy="78" r="3.5" fill="#059669"/>
+        <circle cx="72" cy="114" r="3.5" fill="#059669"/>
+        <circle cx="108" cy="150" r="3.5" fill="#059669"/>
+        <circle cx="144" cy="186" r="3.5" fill="#059669"/>
+        <text x="90" y="20" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">World Points</text>
+        <text x="90" y="250" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">37x37x3</text>
+        <text x="90" y="272" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="13" fill="#64748b">native patch grid</text>
+      </g>
+
+      <line x1="536" y1="184" x2="616" y2="184" stroke="#64748b" stroke-width="2.2" marker-end="url(#pc-flow-arrow)"/>
+      <text x="576" y="164" text-anchor="middle" font-family="ui-monospace, monospace" font-size="13" fill="#475569">flatten</text>
+
+      <g transform="translate(632 68)">
+        <rect x="0" y="78" width="206" height="74" rx="11" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+        <rect x="18" y="103" width="118" height="24" rx="5" fill="#dcfce7" stroke="#22c55e"/>
+        <rect x="144" y="103" width="44" height="24" rx="5" fill="#ffedd5" stroke="#f97316"/>
+        <text x="77" y="120" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#166534">4107 WP</text>
+        <text x="166" y="120" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#9a3412">9 CP</text>
+        <text x="103" y="45" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700" fill="#172033">WP+CP vector</text>
+        <text x="103" y="182" text-anchor="middle" font-family="ui-monospace, monospace" font-size="14" fill="#334155">37*37*3 + 9 = 4116</text>
+      </g>
+
+      <line x1="852" y1="184" x2="924" y2="142" stroke="#64748b" stroke-width="2.2" marker-end="url(#pc-flow-arrow)"/>
+      <line x1="852" y1="184" x2="924" y2="226" stroke="#64748b" stroke-width="2.2" marker-end="url(#pc-flow-arrow)"/>
+
+      <g transform="translate(934 74)">
+        <rect x="0" y="0" width="112" height="70" rx="10" fill="#eef2ff" stroke="#818cf8" stroke-width="2"/>
+        <text x="56" y="30" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700" fill="#312e81">Linear</text>
+        <text x="56" y="51" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#4338ca">4116 -> 1024</text>
+      </g>
+
+      <g transform="translate(934 194)">
+        <rect x="0" y="0" width="112" height="82" rx="10" fill="#f0fdf4" stroke="#34d399" stroke-width="2"/>
+        <text x="56" y="28" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="15" font-weight="700" fill="#064e3b">3-layer MLP</text>
+        <text x="56" y="50" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#047857">same input</text>
+        <text x="56" y="68" text-anchor="middle" font-family="ui-monospace, monospace" font-size="12" fill="#047857">stronger readout</text>
+      </g>
+    </svg>
+
+    <div class="pc-flow-notes">
+      <div class="pc-flow-mini">
+        <strong>Architecture fit</strong>
+        <p>This is an encoder/readout ablation; DreamerV3 RSSM and actor-critic stay unchanged.</p>
       </div>
-      <div class="card" style="border-left: 4px solid var(--accent-green);">
-        <h4 style="color: var(--accent-green);">Proposed &mdash; Aggregator Tokens</h4>
-        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;"><strong style="color: var(--text);">1374 &times; 1024</strong> tokens from last aggregator layer (global stream)</p>
-        <ul style="font-size: 0.83rem;">
-          <li>Keep cam token separately &mdash; pose / instance summary</li>
-          <li>Pool patches via mean &amp; max &rarr; compact 3072-D obs</li>
-          <li>Geometry implicit in features (not coords) &mdash; no compression bottleneck</li>
-          <li>Compatible with later semantic-DPT add-on</li>
-        </ul>
+      <div class="pc-flow-mini">
+        <strong>Representation</strong>
+        <p>The agent receives pooled WP plus CP: <code>37x37x3 + 9 = 4116</code>.</p>
       </div>
-    </div>
-    <div>
-      <div class="card" style="margin-bottom: 12px;">
-        <h4>Papers consuming the aggregator (not the heads)</h4>
-        <table style="font-size: 0.78rem;">
-          <tr><th>Paper</th><th>What it uses</th></tr>
-          <tr><td><strong>VGGT-DP</strong> <span style="color: var(--text-dim);">(Ge et&nbsp;al. 2025)</span></td><td>aggregator tokens &rarr; diffusion policy</td></tr>
-          <tr><td><strong>VGGT-World</strong> <span style="color: var(--text-dim);">(Sun et&nbsp;al. 2026)</span></td><td>autoregressive on aggregator features</td></tr>
-          <tr><td><strong>eVGGT</strong> <span style="color: var(--text-dim);">(Vuong et&nbsp;al. 2025)</span></td><td>distilled aggregator for ACT / DP</td></tr>
-          <tr><td><strong>MG-Nav</strong> <span style="color: var(--text-dim);">(Wang et&nbsp;al. 2025)</span></td><td>aggregator-side memory for navigation</td></tr>
-        </table>
-        <p style="font-size: 0.75rem; margin-top: 8px; color: var(--text-dim);">All four downstream-policy / world-model works skip the WP+CP readout and feed raw aggregator tokens forward.</p>
-      </div>
-      <div class="highlight-box" style="padding: 14px 18px;">
-        <strong style="color: var(--accent2);">Research question:</strong>
-        <span style="color: var(--text-dim);"> Recent VGGT-based policies all consume aggregator embeddings rather than head outputs. I want to understand <em>what changes</em> in DreamerV3 when the encoder switches from the WP+CP readout to the raw aggregator tokens &mdash; sample efficiency, representation collapse, downstream SR/SPL.</span>
+      <div class="pc-flow-mini">
+        <strong>Readout</strong>
+        <p>Linear and 3-layer MLP variants consume the same vector; only the projection changes.</p>
       </div>
     </div>
   </div>
 </div>
 
-<!-- SLIDE: Offline Learning Methodology -->
-<div class="slide" id="slide-offline-learning">
-  <h3>Methodology</h3>
-  <h2>Offline Learning &mdash; Fair Encoder Comparison</h2>
-  <p style="margin: -12px 0 14px; color: var(--text-dim); font-size: 0.92rem;">
-    For the shared replay, encoder, RSSM, and loss topology, use
-    <a href="../architecture-data-flow.html#topology" style="color: var(--accent2); font-weight: 600;">architecture-data-flow.html</a>.
+<!-- SLIDE: Point Cloud 37x37 Aggregation Visual -->
+<div class="slide pc-slide" id="slide-pc37-aggregation">
+  <h3>Point Cloud 37&times;37 Ablation</h3>
+  <h2>Dense Point Cloud &rarr; native 37&times;37 VGGT patch grid</h2>
+
+  <div class="pc-visual-grid">
+    <div class="pc-visual-card">
+      <img src="../images/3d48/fig_grid_overlay.png" alt="518 by 518 RGB observation with 37 by 37 VGGT patch grid overlay">
+      <div class="pc-caption">
+        Image-space view: the <code>518&times;518</code> observation is divided into the native VGGT
+        <code>37&times;37</code> patch grid. Each <code>14&times;14</code> cell contributes one pooled 3D point.
+      </div>
+    </div>
+    <div class="pc-visual-card">
+      <img class="pc-wide-image" src="../images/3d48/fig_colored_cloud.png" alt="Dense full-resolution Point Cloud compared with pooled 37 by 37 Point Cloud">
+      <div class="pc-caption">
+        Point Cloud view: dense WP keeps one point per pixel; pooled WP keeps one averaged point per VGGT patch cell
+        (<code>37&times;37 = 1369</code> points). This is the representation used by the main WP+CP runs.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: eVGGT Architecture Difference -->
+<div class="slide pc-slide" id="slide-evggt-difference">
+  <h3>eVGGT Ablation</h3>
+  <h2>eVGGT compresses both depth and feature width</h2>
+
+  <p style="margin: -4px 0 12px; color: var(--text-dim); font-size: 0.9rem;">
+    <a href="https://arxiv.org/abs/2509.15880" style="color: var(--accent2); font-weight: 600;">Improving Robotic Manipulation with Efficient Geometry-Aware Vision Encoder</a>
+    proposes eVGGT as a distilled VGGT student. For our L1 run, Dreamer still receives the same <code>37&times;37&times;3 + 9 = 4116</code> WP+CP vector; only the upstream geometry encoder changes.
   </p>
 
-  <div class="two-col" style="grid-template-columns: 50% 48%; gap: 18px;">
-    <div>
-      <img src="../images/r2dreamer_loop.png" alt="R2Dreamer training loop: HM3D house &rarr; VGGT 3D encoder &rarr; replay buffer &rarr; world model &rarr; actor-critic" class="figure-img" style="width: 100%;">
-      <div class="figure-caption">Training loop &mdash; rollouts in HM3D are encoded by the frozen VGGT and stored as <code>z3D</code> in the replay buffer. The world model trains on cached embeddings; the actor-critic learns from imagined rollouts and steps back into the house.</div>
+  <div class="evggt-slide-grid">
+    <div class="evggt-model-card">
+      <h4>Normal VGGT teacher</h4>
+      <p>Large geometry model predicting camera pose, depth, and dense Point Cloud outputs.</p>
+      <div class="evggt-block-row teacher" aria-label="24 VGGT transformer blocks">
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+        <span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span><span class="evggt-block"></span>
+      </div>
+      <div class="evggt-attention-legend">
+        <span>global attention</span>
+        <span class="frame">frame-wise attention</span>
+      </div>
+      <div class="evggt-width-meter">
+        <div class="evggt-width-label"><span>embedding width</span><span>1024</span></div>
+        <div class="evggt-width-track"><div class="evggt-width-fill" style="width:100%"></div></div>
+      </div>
+      <div class="evggt-chip-row">
+        <span class="evggt-chip">24 blocks</span>
+        <span class="evggt-chip">embed dim 1024</span>
+        <span class="evggt-chip">DINOv2-ViT-L</span>
+      </div>
     </div>
-    <div>
-      <div class="card" style="margin-bottom: 10px;">
-        <h4>Pipeline steps</h4>
-        <ul style="font-size: 0.82rem;">
-          <li><strong>Collect</strong> &mdash; <code>collect_offline_buffer.py</code> rolls episodes once, caches <code>z_wp_cp.npz</code> &amp; <code>z_aggregator.npz</code></li>
-          <li><strong>Train</strong> &mdash; <code>train_offline_ablation.py</code> samples (B&times;T) batches, runs <code>agent.train_step</code>; encoder is frozen</li>
-          <li><strong>Eval</strong> &mdash; held-out episodes, <code>agent.eval_loss</code> every 10k steps</li>
-        </ul>
+
+    <div class="evggt-distill">
+      <div class="arrow">&rarr;</div>
+      <strong style="color:#0f172a;">knowledge distillation</strong>
+      <span>student learns from VGGT outputs; this is not checkpoint truncation</span>
+    </div>
+
+    <div class="evggt-model-card student-model">
+      <h4>eVGGT student</h4>
+      <p>Smaller geometry-aware encoder for robotics where online inference cost matters.</p>
+      <div class="evggt-block-row student" aria-label="4 eVGGT transformer blocks">
+        <span class="evggt-block student"></span>
+        <span class="evggt-block student"></span>
+        <span class="evggt-block student"></span>
+        <span class="evggt-block student"></span>
       </div>
-      <div class="card" style="border-left: 4px solid var(--accent-amber); margin-bottom: 10px;">
-        <h4>Fairness contract</h4>
-        <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 8px;">Only <strong style="color: var(--text);">encoder_type</strong> and <strong style="color: var(--text);">train_seed</strong> vary.</p>
-        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
-          <span class="tag tag-accent">B = 16</span>
-          <span class="tag tag-accent">seq_len = 64</span>
-          <span class="tag tag-accent">train_ratio = 512</span>
-          <span class="tag tag-accent">imag. horizon = 15</span>
-          <span class="tag tag-accent">same held-out split</span>
-        </div>
+      <div class="evggt-attention-legend">
+        <span>global attention</span>
+        <span class="frame">frame-wise attention</span>
       </div>
-      <div class="highlight-box amber" style="padding: 10px 14px;">
-        <strong style="color: var(--accent-amber);">Why offline?</strong>
-        <span style="color: var(--text-dim); font-size: 0.84rem;"> Removes VGGT extraction throughput as a confounder. Each variant trains on identical observation sequences &mdash; only the representation changes.</span>
+      <div class="evggt-width-meter">
+        <div class="evggt-width-label"><span>embedding width</span><span>384</span></div>
+        <div class="evggt-width-track"><div class="evggt-width-fill student"></div></div>
       </div>
-      <p style="margin-top: 8px; font-size: 0.76rem; color: var(--text-dim); font-style: italic;">Status: implementation in progress (3D-26)</p>
+      <div class="evggt-chip-row">
+        <span class="evggt-chip">4 blocks</span>
+        <span class="evggt-chip">embed dim 384</span>
+        <span class="evggt-chip">DINOv2-ViT-S</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="evggt-takeaways">
+    <div class="evggt-takeaway">
+      <strong>Depth</strong>
+      <p><code>24 -> 4</code> VGGT transformer blocks, each still visualized as global + frame-wise attention.</p>
+    </div>
+    <div class="evggt-takeaway">
+      <strong>Width</strong>
+      <p><code>1024 -> 384</code> embedding width in the local eVGGT note.</p>
+    </div>
+    <div class="evggt-takeaway">
+      <strong>Distinction</strong>
+      <p>The four blocks are not the Camera Head's four pose-refinement iterations.</p>
+    </div>
+    <div class="evggt-takeaway">
+      <strong>L1 result</strong>
+      <p>Technically viable, but weaker than full VGGT WP+CP in the current snapshot.</p>
     </div>
   </div>
 </div>
 
-<!-- SLIDE: VGGT Variant Comparison -->
-<div class="slide" id="slide-vggt-comparison">
-  <h3>Encoder Selection</h3>
-  <h2>VGGT Variant Comparison</h2>
+<!-- SLIDE: Point Cloud 37x37 L1 Results -->
+<div class="slide pc-slide" id="slide-pc37-results">
+  <h3>Point Cloud 37&times;37 Ablation</h3>
+  <h2>Level 1 ObjectNav: WP+CP readout variants</h2>
 
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start;">
-    <!-- Left: Table + Summary Bars -->
-    <div style="display: flex; flex-direction: column; gap: 16px;">
-      <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
-        <thead>
-          <tr style="border-bottom: 2px solid var(--border);">
-            <th style="padding: 6px 8px; text-align: left; color: var(--text-dim);">Variant</th>
-            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>100</sub></th>
-            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Mem<sub>500</sub></th>
-            <th style="padding: 6px 8px; text-align: right; color: var(--text-dim);">Scaling</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 5px 8px;">VGGT</td>
-            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
-            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
-            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 5px 8px;">SceneVGGT</td>
-            <td style="padding: 5px 8px; text-align: right;">39.4 GB</td>
-            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
-            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N&sup2;)</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 5px 8px;">FastVGGT</td>
-            <td style="padding: 5px 8px; text-align: right;">16.1 GB</td>
-            <td style="padding: 5px 8px; text-align: right;">54.7 GB</td>
-            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
-          </tr>
-          <tr style="border-bottom: 1px solid var(--border);">
-            <td style="padding: 5px 8px;">StreamVGGT</td>
-            <td style="padding: 5px 8px; text-align: right;">25.0 GB</td>
-            <td style="padding: 5px 8px; text-align: right; color: var(--accent-red);">OOM</td>
-            <td style="padding: 5px 8px; text-align: right; font-family: monospace;">O(N)</td>
+  <div class="pc-results-layout">
+    <div class="pc-plot-card">
+      <img src="../images/l1-pointcloud-success-rate-temp.svg" alt="Level 1 ObjectNav success-rate curves for Point Cloud 37 by 37 experiments">
+      <div class="pc-caveat">
+        Rolling-window success rate from local W&amp;B-exported metrics. Partial/crashed curves show training trends; they are not final comparable SR scores.
+      </div>
+    </div>
+
+    <div class="pc-table-card">
+      <div>
+        <h4 style="color: #0f172a; margin-bottom: 4px;">Runs shown</h4>
+        <table>
+          <tr><th>Variant</th><th>Status</th><th>Last SR / SPL</th></tr>
+          <tr>
+            <td>RGB CNN baseline</td>
+            <td>reference</td>
+            <td>~0.75 / ~0.55</td>
           </tr>
           <tr>
-            <td style="padding: 5px 8px; font-weight: 600; color: var(--accent-green);">InfiniteVGGT</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">16.6 GB</td>
-            <td style="padding: 5px 8px; text-align: right; font-weight: 600; color: var(--accent-green);">18.0 GB</td>
-            <td style="padding: 5px 8px; text-align: right; font-family: monospace; color: var(--accent-green);">O(1)</td>
+            <td>WP+CP 37&times;37, linear</td>
+            <td>near-full timeout</td>
+            <td>0.62 / 0.426</td>
           </tr>
-        </tbody>
-      </table>
-
-      <div>
-        <img src="../images/vggt_summary_bars.png" alt="VGGT latency and memory bars" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
-        <div class="figure-caption">Latency &amp; peak memory at N &isin; {10, 50, 100}</div>
-      </div>
-    </div>
-
-    <!-- Right: Sequential benchmark -->
-    <div>
-      <img src="../images/vggt_seq.png" alt="DreamerV3 integration benchmark" style="width: 100%; border-radius: 8px; border: 1px solid var(--border);">
-      <div class="figure-caption">DreamerV3 integration: 16 parallel envs, 20 RL steps (16 &rarr; 320 frames)</div>
-      <div class="highlight-box" style="margin-top: 14px; padding: 12px 16px;">
-        <strong style="color: var(--accent-green);">Result:</strong>
-        <span style="color: var(--text-dim);"> Only InfiniteVGGT guarantees bounded memory at arbitrary episode lengths while maintaining stable throughput (~15 fps).</span>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- SLIDE: Output Quality Comparison -->
-<div class="slide" id="slide-vggt-depth">
-  <h3>Encoder Selection</h3>
-  <h2>Output Quality — All Variants Equivalent</h2>
-
-  <div style="text-align: center;">
-    <img src="../images/vggt_depth_comparision.png" alt="Depth maps across all VGGT variants" style="width: 100%; max-height: 70vh; object-fit: contain; border-radius: 8px; border: 1px solid var(--border);">
-    <div class="figure-caption" style="margin-top: 12px;">Depth maps from all five variants on identical input frames — outputs are visually indistinguishable.</div>
-  </div>
-
-  <div class="highlight-box" style="margin-top: 16px;">
-    <strong style="color: var(--accent-green);">Selection:</strong>
-    <span style="color: var(--text-dim);"> InfiniteVGGT selected as 3D encoder — bounded memory, stable throughput, no quality loss.</span>
-  </div>
-</div>
-
-<!-- SLIDE 7: ObjectNav Task Definition -->
-<div class="slide" id="slide-8">
-  <h3>Benchmark</h3>
-  <h2>ObjectNav Task</h2>
-
-  <div class="two-col">
-    <div>
-      <div class="card" style="margin-bottom: 14px;">
-        <h4>Task Definition</h4>
-        <p style="font-size: 0.95rem; line-height: 1.7; color: var(--text);">
-          Agent spawns at random pose in an <strong>unseen environment</strong>. Given a target object category (e.g., "chair"), navigate to <strong>any instance</strong> and call <code style="color: var(--accent-green); background: rgba(52,211,153,0.1); padding: 2px 6px; border-radius: 4px;">STOP</code> within 0.1m.
-        </p>
-      </div>
-      <div class="card" style="margin-bottom: 14px;">
-        <h4>Observations (Egocentric)</h4>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px;">
-          <div style="background: rgba(99,102,241,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
-            <strong style="color: var(--accent2); font-size: 0.85rem;">RGB</strong>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
-          </div>
-          <div style="background: rgba(34,211,238,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
-            <strong style="color: var(--accent-cyan); font-size: 0.85rem;">Depth</strong>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">224×224 egocentric</div>
-          </div>
-          <div style="background: rgba(251,191,36,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
-            <strong style="color: var(--accent-amber); font-size: 0.85rem;">GPS+Compass</strong>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Relative to start pose</div>
-          </div>
-          <div style="background: rgba(52,211,153,0.1); padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
-            <strong style="color: var(--accent-green); font-size: 0.85rem;">Goal</strong>
-            <div style="font-size: 0.8rem; color: var(--text-dim);">Category ID (1 of 6)</div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <h4>Action Space</h4>
-        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
-          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">MOVE_FORWARD 0.25m</span>
-          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_LEFT 30°</span>
-          <span class="tag" style="background: rgba(99,102,241,0.15); color: var(--accent2);">TURN_RIGHT 30°</span>
-          <span class="tag" style="background: rgba(52,211,153,0.15); color: var(--accent-green);">STOP</span>
-        </div>
-        <p style="margin-top: 8px; font-size: 0.85rem; color: var(--text-dim);">Episode budget: <strong style="color: var(--text);">500 steps</strong> max. Success = STOP called within 0.1m of any target instance.</p>
-      </div>
-    </div>
-    <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div style="text-align: center;">
-        <img src="https://aihabitat.org/static/challenge/objectnav_spec_2023.gif" alt="Habitat ObjectNav Demo" class="figure-img" style="max-width: 100%; border-radius: 12px;">
-        <div class="figure-caption">Habitat ObjectNav — agent navigates to target object in photorealistic 3D scan</div>
-      </div>
-      <div class="card">
-        <h4>Key Metrics</h4>
-        <table style="width: 100%; margin-top: 8px;">
-          <tr><th style="text-align: left;">Metric</th><th style="text-align: left;">Measures</th></tr>
-          <tr><td style="color: var(--accent-green); font-weight: 600;">Success Rate</td><td style="color: var(--text-dim);">Did agent find the target?</td></tr>
-          <tr><td style="color: var(--accent); font-weight: 600;">SPL</td><td style="color: var(--text-dim);">Success weighted by path efficiency</td></tr>
-          <tr><td style="color: var(--accent-cyan); font-weight: 600;">SoftSPL</td><td style="color: var(--text-dim);">Progress toward goal (partial credit)</td></tr>
-          <tr><td style="color: var(--accent-amber); font-weight: 600;">DTG</td><td style="color: var(--text-dim);">Distance to goal at episode end</td></tr>
+          <tr>
+            <td>WP+CP 37&times;37, 3-layer MLP</td>
+            <td>usable partial</td>
+            <td>0.73 / 0.507</td>
+          </tr>
+          <tr>
+            <td>eVGGT WP+CP 37&times;37, 3-layer MLP</td>
+            <td>finished</td>
+            <td>0.26 / 0.150</td>
+          </tr>
         </table>
       </div>
-      <div class="highlight-box">
-        <strong style="color: #0f172a;">No map, no oracle:</strong>
-        <span style="color: var(--text-dim);"> Agent has zero prior knowledge of the environment. Must build spatial understanding from egocentric observations alone.</span>
+      <div class="highlight-box amber" style="padding: 10px 12px; margin-top: 0;">
+        <strong>Takeaway:</strong>
+        <span style="color: var(--text-dim); font-size: 0.74rem;">
+          The clean claim is about trend and representation viability: pooled WP+CP can learn L1, and the MLP readout is the strongest pure Point Cloud curve so far. Final SR comparison remains limited by partial runs.
+        </span>
       </div>
     </div>
   </div>
 </div>
 
-<!-- SLIDE 7b: HM3D Environment + Geodesic Distances -->
-<div class="slide" id="slide-8b">
-  <h3>Benchmark</h3>
-  <h2>HM3D Environment &amp; Episode Distribution</h2>
+<!-- SLIDE: Hybrid RGB + WP/CP Approach -->
+<div class="slide hybrid-slide" id="slide-hybrid-approach">
+  <h3>Hybrid RGB + WP/CP</h3>
+  <h2>Same observation, two branches, gated fusion</h2>
 
-  <div class="two-col">
-    <div>
-      <div class="card" style="margin-bottom: 14px;">
-        <h4>HM3D Dataset</h4>
-        <ul>
-          <li><strong>1,000</strong> real-world 3D scans of residential spaces</li>
-          <li>Photorealistic rendering via Habitat simulator</li>
-          <li><strong>216</strong> object categories with semantic annotations</li>
-          <li>Multi-room layouts: kitchens, bedrooms, bathrooms, living rooms, hallways</li>
-          <li>Standard benchmark since 2023 Habitat Challenge</li>
-        </ul>
-      </div>
-      <div class="card" style="margin-bottom: 14px;">
-        <h4>6 Target Object Categories</h4>
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px;">
-          <div style="text-align: center; background: rgba(99,102,241,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(99,102,241,0.2);">
-            <div style="font-size: 1.4rem;">🪑</div>
-            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Chair</div>
-          </div>
-          <div style="text-align: center; background: rgba(52,211,153,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(52,211,153,0.2);">
-            <div style="font-size: 1.4rem;">🛏️</div>
-            <div style="font-size: 0.8rem; color: var(--accent-green); font-weight: 600;">Bed</div>
-          </div>
-          <div style="text-align: center; background: rgba(251,191,36,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(251,191,36,0.2);">
-            <div style="font-size: 1.4rem;">🪴</div>
-            <div style="font-size: 0.8rem; color: var(--accent-amber); font-weight: 600;">Plant</div>
-          </div>
-          <div style="text-align: center; background: rgba(34,211,238,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(34,211,238,0.2);">
-            <div style="font-size: 1.4rem;">🚽</div>
-            <div style="font-size: 0.8rem; color: var(--accent-cyan); font-weight: 600;">Toilet</div>
-          </div>
-          <div style="text-align: center; background: rgba(248,113,113,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(248,113,113,0.2);">
-            <div style="font-size: 1.4rem;">📺</div>
-            <div style="font-size: 0.8rem; color: var(--accent-red); font-weight: 600;">TV Monitor</div>
-          </div>
-          <div style="text-align: center; background: rgba(129,140,248,0.1); padding: 10px 6px; border-radius: 8px; border: 1px solid rgba(129,140,248,0.2);">
-            <div style="font-size: 1.4rem;">🛋️</div>
-            <div style="font-size: 0.8rem; color: var(--accent2); font-weight: 600;">Sofa</div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <h4>What's in the Environment</h4>
-        <p style="font-size: 0.85rem; line-height: 1.7; color: var(--text);">
-          Realistic clutter: furniture, appliances, decorations, doors, stairs. Scenes contain <strong>50–300+ objects</strong> per scan. Agent must distinguish target from distractors in cluttered, multi-room layouts with varying lighting and occlusion.
-        </p>
-      </div>
-    </div>
-    <div style="display: flex; flex-direction: column; gap: 14px;">
-      <div class="card" style="padding: 20px;">
-        <h4 style="margin-bottom: 12px;">Geodesic Distance Distribution</h4>
-        <p style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 12px;">Shortest navigable path from spawn to nearest target instance (HM3D ObjectNav v2 val split)</p>
-        <svg viewBox="0 0 420 200" style="width: 100%; font-family: 'Inter', sans-serif;">
-          <!-- Axes -->
-          <line x1="50" y1="170" x2="400" y2="170" stroke="#cbd5e1" stroke-width="1"/>
-          <line x1="50" y1="10" x2="50" y2="170" stroke="#cbd5e1" stroke-width="1"/>
-          <!-- Y-axis labels -->
-          <text x="45" y="170" fill="#475569" font-size="9" text-anchor="end">0</text>
-          <text x="45" y="130" fill="#475569" font-size="9" text-anchor="end">10%</text>
-          <text x="45" y="90" fill="#475569" font-size="9" text-anchor="end">20%</text>
-          <text x="45" y="50" fill="#475569" font-size="9" text-anchor="end">30%</text>
-          <!-- Grid lines -->
-          <line x1="50" y1="130" x2="400" y2="130" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
-          <line x1="50" y1="90" x2="400" y2="90" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
-          <line x1="50" y1="50" x2="400" y2="50" stroke="#cbd5e1" stroke-width="0.5" stroke-dasharray="4"/>
-          <!-- Bars: geodesic distance bins (approximate distribution) -->
-          <!-- 0-1m: ~5% -->
-          <rect x="55" y="150" width="28" height="20" rx="3" fill="#6366f1" opacity="0.8"/>
-          <!-- 1-2m: ~12% -->
-          <rect x="90" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.8"/>
-          <!-- 2-3m: ~18% -->
-          <rect x="125" y="98" width="28" height="72" rx="3" fill="#4338ca" opacity="0.8"/>
-          <!-- 3-5m: ~25% (peak) -->
-          <rect x="160" y="70" width="28" height="100" rx="3" fill="#4338ca" opacity="0.9"/>
-          <!-- 5-7m: ~17% -->
-          <rect x="195" y="102" width="28" height="68" rx="3" fill="#6366f1" opacity="0.8"/>
-          <!-- 7-10m: ~12% -->
-          <rect x="230" y="122" width="28" height="48" rx="3" fill="#6366f1" opacity="0.7"/>
-          <!-- 10-15m: ~7% -->
-          <rect x="265" y="142" width="28" height="28" rx="3" fill="#6366f1" opacity="0.6"/>
-          <!-- 15-20m: ~3% -->
-          <rect x="300" y="158" width="28" height="12" rx="3" fill="#6366f1" opacity="0.5"/>
-          <!-- 20m+: ~1% -->
-          <rect x="335" y="166" width="28" height="4" rx="3" fill="#6366f1" opacity="0.4"/>
-          <!-- X-axis labels -->
-          <text x="69" y="184" fill="#475569" font-size="8" text-anchor="middle">0-1</text>
-          <text x="104" y="184" fill="#475569" font-size="8" text-anchor="middle">1-2</text>
-          <text x="139" y="184" fill="#475569" font-size="8" text-anchor="middle">2-3</text>
-          <text x="174" y="184" fill="#475569" font-size="8" text-anchor="middle">3-5</text>
-          <text x="209" y="184" fill="#475569" font-size="8" text-anchor="middle">5-7</text>
-          <text x="244" y="184" fill="#475569" font-size="8" text-anchor="middle">7-10</text>
-          <text x="279" y="184" fill="#475569" font-size="8" text-anchor="middle">10-15</text>
-          <text x="314" y="184" fill="#475569" font-size="8" text-anchor="middle">15-20</text>
-          <text x="349" y="184" fill="#475569" font-size="8" text-anchor="middle">20+</text>
-          <!-- Axis label -->
-          <text x="225" y="198" fill="#475569" font-size="9" text-anchor="middle">Geodesic Distance (meters)</text>
-          <!-- Annotation -->
-          <line x1="174" y1="65" x2="174" y2="40" stroke="#059669" stroke-width="1" stroke-dasharray="3"/>
-          <text x="174" y="35" fill="#059669" font-size="8" text-anchor="middle">peak: 3-5m</text>
-          <text x="174" y="25" fill="#059669" font-size="7" text-anchor="middle">(multi-room nav)</text>
+  <div class="hybrid-layout">
+    <div class="hybrid-top-row">
+      <div class="hybrid-panel">
+        <svg class="hybrid-flow-svg" viewBox="0 0 1080 360" role="img" aria-labelledby="hybrid-flow-title hybrid-flow-desc">
+          <title id="hybrid-flow-title">Hybrid encoder data flow</title>
+          <desc id="hybrid-flow-desc">The RGB frame is resized for a CNN branch and processed through VGGT into a WP/CP vector for an MLP branch. Both branch embeddings are concatenated before the Dreamer RSSM.</desc>
+          <defs>
+            <marker id="hybridArrow" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#64748b"/>
+            </marker>
+          </defs>
+
+          <rect width="1080" height="360" fill="#ffffff"/>
+          <text x="34" y="34" font-size="20" font-weight="700" fill="#111827">Hybrid encoder</text>
+          <text x="34" y="56" font-size="12" fill="#64748b">RGB keeps the visual baseline; VGGT adds explicit geometry as WP/CP.</text>
+
+          <rect x="34" y="142" width="128" height="58" rx="11" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="98" y="166" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">RGB frame</text>
+          <text x="98" y="184" text-anchor="middle" font-size="11" fill="#64748b">518&times;518</text>
+
+          <line x1="162" y1="171" x2="248" y2="107" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+          <line x1="162" y1="171" x2="248" y2="235" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+
+          <rect x="266" y="72" width="170" height="70" rx="12" fill="#eef2ff" stroke="#c7d2fe"/>
+          <text x="351" y="99" text-anchor="middle" font-size="13" font-weight="700" fill="#3730a3">RGB64</text>
+          <text x="351" y="119" text-anchor="middle" font-size="11" fill="#475569">3&times;64&times;64 = 12288</text>
+
+          <rect x="266" y="206" width="170" height="82" rx="12" fill="#ecfdf5" stroke="#bbf7d0"/>
+          <text x="351" y="233" text-anchor="middle" font-size="13" font-weight="700" fill="#047857">VGGT WP/CP</text>
+          <text x="351" y="253" text-anchor="middle" font-size="11" fill="#475569">37&times;37&times;3 + 9</text>
+          <text x="351" y="271" text-anchor="middle" font-size="11" fill="#475569">4116-D vector</text>
+
+          <line x1="436" y1="107" x2="540" y2="107" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+          <line x1="436" y1="247" x2="540" y2="247" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+
+          <rect x="558" y="72" width="154" height="70" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="635" y="99" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">CNN branch</text>
+          <text x="635" y="119" text-anchor="middle" font-size="11" fill="#64748b">visual latent</text>
+
+          <rect x="558" y="206" width="154" height="82" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="635" y="233" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">MLP branch</text>
+          <text x="635" y="253" text-anchor="middle" font-size="11" fill="#64748b">geometry latent</text>
+          <text x="635" y="271" text-anchor="middle" font-size="11" fill="#64748b">scaled by gate</text>
+
+          <line x1="712" y1="107" x2="805" y2="151" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+          <line x1="712" y1="247" x2="805" y2="202" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+
+          <rect x="820" y="140" width="104" height="74" rx="11" fill="#fff7ed" stroke="#fed7aa"/>
+          <text x="872" y="170" text-anchor="middle" font-size="13" font-weight="700" fill="#9a3412">Concat</text>
+          <text x="872" y="190" text-anchor="middle" font-size="10.5" fill="#475569">CNN + 3D</text>
+
+          <line x1="924" y1="177" x2="970" y2="177" stroke="#64748b" stroke-width="2" marker-end="url(#hybridArrow)"/>
+          <rect x="988" y="150" width="74" height="54" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="1025" y="173" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">Dreamer</text>
+          <text x="1025" y="190" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">RSSM</text>
+
+          <rect x="34" y="306" width="604" height="38" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+          <text x="54" y="330" font-size="12" fill="#334155">Hybrid input width: 12288 RGB + 4116 WP/CP = 16404 features.</text>
         </svg>
       </div>
-      <div class="highlight-box">
-        <strong style="color: #0f172a;">Why geodesic distance matters:</strong>
-        <span style="color: var(--text-dim);"> Most episodes require navigating 3–7m through multiple rooms. This is where 3D spatial understanding becomes critical — the agent must reason about room connectivity and navigate around obstacles, not just recognize objects.</span>
-      </div>
-    </div>
-  </div>
-</div>
 
-<!-- SLIDE 9: DreamerV3 Baseline -->
-<div class="slide" id="slide-7">
-  <h3>Baseline</h3>
-  <h2>DreamerV3 — Pixel-Only World Model</h2>
-
-  <div class="two-col" style="grid-template-columns: 56% 42%; gap: 20px; align-items: start;">
-    <div>
-      <div class="arrow-flow">
-        <div class="flow-box">RGB (224×224)</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-box">CNN Encoder</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-box" style="border-color: var(--accent-amber); background: rgba(251,191,36,0.1);">RSSM World Model</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-box">Actor-Critic</div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-box">Nav Action</div>
-      </div>
-
-      <div class="card" style="margin-top: 16px;">
-        <h4>DreamerV3 — Pixel-Only</h4>
-        <span class="tag tag-amber" style="margin-bottom: 10px;">Baseline · JAX · 2M steps</span>
-        <ul>
-          <li>Standard CNN encoder on 2D RGB only</li>
-          <li>Learns geometry implicitly from pixels — no depth, no 3D, no semantics</li>
-          <li>State-of-the-art general RL agent (150+ tasks, Nature 2025)</li>
-          <li>First application to HM3D ObjectNav (no prior work)</li>
-          <li>Same RSSM architecture as our approach — only encoder differs</li>
-        </ul>
-      </div>
-    </div>
-
-    <div>
-      <div style="border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 4px 20px rgba(15,23,42,0.08);">
-        <video src="../images/cnn_baseline_episode.mp4" style="width: 100%; height: auto; display: block;" autoplay loop muted playsinline controls></video>
-        <div style="padding: 10px; font-size: 0.8rem; color: var(--text-dim); text-align: center; border-top: 1px solid var(--border); background: rgba(15,23,42,0.04);">
-          <strong style="color: var(--text);">CNN baseline episode</strong> — <code>cnn-2M-512</code> agent on L1 chair-only
+      <div class="hybrid-variant-grid">
+        <div class="hybrid-variant">
+          <strong>RGB hybrid: cautious 3D gate</strong>
+          <p>Learnable gate starts near zero: training begins close to CNN and adds WP/CP only if useful.</p>
+          <div class="hybrid-metrics">
+            <div class="hybrid-metric"><b>gate ~= 0</b><span>very small in run boi0cntv</span></div>
+            <div class="hybrid-metric"><b>69 / 31</b><span>CNN / VGGT branch share</span></div>
+          </div>
+        </div>
+        <div class="hybrid-variant norm">
+          <strong>Norm-fixed: forced balance</strong>
+          <p>Same RGB64 + WP/CP input, but the 3D branch is open and branch norms stay balanced.</p>
+          <div class="hybrid-metrics">
+            <div class="hybrid-metric"><b>gate = 1</b><span>opened 3D branch</span></div>
+            <div class="hybrid-metric"><b>50 / 50</b><span>CNN / VGGT branch share</span></div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  <div class="highlight-box" style="margin-top: 14px;">
-    <strong style="color: #0f172a;">Our approach:</strong> keeps DreamerV3's RSSM unchanged but replaces the CNN encoder with frozen VGGT features — providing explicit 3D geometry the pixel-only baseline lacks.
+    <div class="hybrid-side">
+      <div class="hybrid-panel">
+        <svg class="hybrid-plot-svg" viewBox="0 0 1000 280" role="img" aria-labelledby="hybrid-plot-title hybrid-plot-desc">
+          <title id="hybrid-plot-title">Level 1 ObjectNav hybrid success-rate curves</title>
+          <desc id="hybrid-plot-desc">Sampled W&B success-rate curves for WP/CP standard, hybrid RGB plus geometry, and hybrid norm fixed.</desc>
+          <rect width="1000" height="280" fill="#ffffff"/>
+          <text x="80" y="24" font-size="18" font-weight="700" fill="#111827">Level 1 ObjectNav: Hybrid Success Rate</text>
+          <text x="80" y="38" font-size="10.5" fill="#64748b">W&amp;B metrics/sr history; partial/crashed curves show trends, not final comparable SR scores.</text>
+
+          <g font-size="11" fill="#1f2937">
+            <line x1="560" y1="50" x2="594" y2="50" stroke="#4f46e5" stroke-width="3.2"/><text x="604" y="54">WP/CP Standard</text>
+            <line x1="705" y1="50" x2="739" y2="50" stroke="#059669" stroke-width="3.2"/><text x="749" y="54">Hybrid RGB + Geometry</text>
+            <line x1="875" y1="50" x2="909" y2="50" stroke="#d97706" stroke-width="3.2"/><text x="919" y="54">Norm Fixed</text>
+          </g>
+
+          <g stroke="#e5e7eb" stroke-width="1">
+            <line x1="80" y1="220" x2="950" y2="220"/><line x1="80" y1="189.2" x2="950" y2="189.2"/>
+            <line x1="80" y1="158.4" x2="950" y2="158.4"/><line x1="80" y1="127.6" x2="950" y2="127.6"/>
+            <line x1="80" y1="96.8" x2="950" y2="96.8"/><line x1="80" y1="66" x2="950" y2="66"/>
+          </g>
+          <g stroke="#f1f5f9" stroke-width="1">
+            <line x1="80" y1="66" x2="80" y2="220"/><line x1="297.5" y1="66" x2="297.5" y2="220"/>
+            <line x1="515" y1="66" x2="515" y2="220"/><line x1="732.5" y1="66" x2="732.5" y2="220"/>
+            <line x1="950" y1="66" x2="950" y2="220"/>
+          </g>
+          <path d="M80 66V220H950" fill="none" stroke="#94a3b8" stroke-width="1.2"/>
+
+          <g fill="#64748b" font-size="10" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+            <text x="66" y="224" text-anchor="end">0</text><text x="66" y="193.2" text-anchor="end">20</text>
+            <text x="66" y="162.4" text-anchor="end">40</text><text x="66" y="131.6" text-anchor="end">60</text>
+            <text x="66" y="100.8" text-anchor="end">80</text><text x="66" y="70" text-anchor="end">100</text>
+            <text x="80" y="239" text-anchor="middle">0.0</text><text x="297.5" y="239" text-anchor="middle">0.35</text>
+            <text x="515" y="239" text-anchor="middle">0.70</text><text x="732.5" y="239" text-anchor="middle">1.05</text>
+            <text x="950" y="239" text-anchor="middle">1.4</text>
+          </g>
+          <text x="515" y="268" text-anchor="middle" font-size="12" fill="#334155">Environment steps (M)</text>
+          <text x="24" y="143" text-anchor="middle" font-size="12" fill="#334155" transform="rotate(-90 24 143)">Success rate (%)</text>
+
+          <polyline points="125.6,210.8 187.5,201.5 255.9,213.8 360.8,180.0 415.1,146.1 457.5,156.9 515.7,147.6 547.5,135.3 583.6,126.1 633.2,139.9 703.0,119.9 729.0,115.3 789.0,109.1 806.4,104.5 817.7,115.3 858.4,129.1 882.1,116.8 902.3,113.7 923.5,103.0 926.2,107.6" fill="none" stroke="#4f46e5" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+          <polyline points="114.0,201.5 122.8,183.0 145.3,175.3 179.0,181.5 193.4,163.0 214.6,141.5 240.8,138.4 309.2,138.4 336.2,119.9 384.2,155.3 407.9,136.8 447.3,129.1 468.8,123.0 499.4,129.1 518.1,126.1 547.7,135.3 607.6,130.7 646.2,143.0 670.6,139.9 704.6,139.9" fill="none" stroke="#059669" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+          <polyline points="113.2,192.3 122.9,190.7 144.9,186.1 177.5,172.3 192.8,169.2 216.6,158.4 318.9,139.9 367.6,123.0 394.2,130.7 417.7,129.1 457.1,130.7 479.6,141.5 497.8,136.8 528.2,129.1 534.0,127.6 577.2,132.2 616.2,133.8 640.6,129.1 666.0,123.0 709.9,164.6" fill="none" stroke="#d97706" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+        </svg>
+      </div>
+    </div>
   </div>
 </div>
 
+<!-- SLIDE: VGGT First-Frame Invariance -->
+<div class="slide" id="slide-vggt-invariance">
+  <h3>Experiment 1</h3>
+  <h2>VGGT first-frame invariance check</h2>
+
+  <div class="invariance-layout">
+    <div>
+      <div class="invariance-thumbs" style="margin-bottom: 12px;">
+        <div>
+          <img src="../images/invariance/navigate-forward.png" alt="Navigate forward observation">
+          <div class="invariance-caption">Navigate · forward</div>
+        </div>
+        <div>
+          <img src="../images/invariance/navigate-backward.png" alt="Navigate backward observation">
+          <div class="invariance-caption">Navigate · backward</div>
+        </div>
+      </div>
+
+      <div class="invariance-plot">
+        <img src="../images/invariance/topdown-zoom.png" alt="Top-down projection of the same scene in different first-frame coordinate systems">
+        <div class="figure-caption">Floor-plane projection: drop z / height and plot only x-y coordinates.</div>
+      </div>
+      <div class="invariance-note">Same physical scene, two different VGGT first-frame coordinate systems.</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE: VGGT Sequence Embedding Probe -->
+<div class="slide embedding-slide" id="slide-sequence-embedding-rgb">
+  <h3>Experiment 2</h3>
+  <h2>VGGT sequence embeddings &mdash; fixed action paths</h2>
+
+  <div class="embedding-metrics">
+    <div class="embedding-metric">
+      <div class="label">Start pose</div>
+      <div class="value">same</div>
+    </div>
+    <div class="embedding-metric">
+      <div class="label">Checked tokens</div>
+      <div class="value">global 1374&times;1024</div>
+    </div>
+    <div class="embedding-metric">
+      <div class="label">Final cosine</div>
+      <div class="value">mean 0.964</div>
+    </div>
+  </div>
+
+  <div class="embedding-rgb-grid">
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/scene_start.png" alt="Episode start RGB frame before fixed action sequences">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">Episode start</div>
+        <span class="embedding-chip">episode 20070</span>
+        <span class="embedding-chip">chair</span>
+      </div>
+    </div>
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/seq001_final_rgb.png" alt="Final RGB frame after reference sequence F,F,L">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">seq001 final</div>
+        <span class="embedding-chip green">reference</span>
+        <span class="embedding-chip">F,F,L</span>
+        <span class="embedding-chip">3 steps</span>
+      </div>
+    </div>
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/seq002_final_rgb.png" alt="Final RGB frame after sequence F,F,R">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">seq002 final</div>
+        <span class="embedding-chip red">largest diff</span>
+        <span class="embedding-chip">F,F,R</span>
+        <span class="embedding-chip">RMSE 1.059</span>
+      </div>
+    </div>
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/seq003_final_rgb.png" alt="Final RGB frame after sequence F,F,L,R,L">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">seq003 final</div>
+        <span class="embedding-chip">F,F,L,R,L</span>
+        <span class="embedding-chip">RMSE 0.329</span>
+      </div>
+    </div>
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/seq004_final_rgb.png" alt="Final RGB frame after sequence F,F,L,R,R,L,L">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">seq004 final</div>
+        <span class="embedding-chip">F,F,L,R,R,L,L</span>
+        <span class="embedding-chip">RMSE 0.530</span>
+      </div>
+    </div>
+    <div class="embedding-frame">
+      <img src="../images/embedding-sequence/seq005_final_rgb.png" alt="Final RGB frame after sequence F,F,L,R,F">
+      <div class="embedding-frame-body">
+        <div class="embedding-frame-title">seq005 final</div>
+        <span class="embedding-chip">F,F,L,R,F</span>
+        <span class="embedding-chip">RMSE 0.758</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="embedding-footer">All final embeddings are compared against seq001 after resetting each rollout to the same episode start.</div>
+</div>
+
+<!-- SLIDE: VGGT Sequence Embedding Heatmaps -->
+<div class="slide embedding-slide" id="slide-sequence-embedding-heatmaps">
+  <h3>Experiment 2</h3>
+  <h2>Patch-token differences reveal local embedding changes</h2>
+
+  <div class="embedding-heatmap-layout">
+    <div class="embedding-heatmap-grid">
+      <div class="embedding-heatmap-card">
+        <img src="../images/embedding-sequence/diff_heatmap_seq002.png" alt="Patch-token difference heatmap for seq002 minus seq001">
+        <div class="embedding-heatmap-caption"><strong>seq002 - seq001</strong> &middot; F,F,R vs F,F,L &middot; RMSE 1.059 &middot; max 37.12</div>
+      </div>
+      <div class="embedding-heatmap-card">
+        <img src="../images/embedding-sequence/diff_heatmap_seq003.png" alt="Patch-token difference heatmap for seq003 minus seq001">
+        <div class="embedding-heatmap-caption"><strong>seq003 - seq001</strong> &middot; closest final view &middot; RMSE 0.329 &middot; max 5.07</div>
+      </div>
+      <div class="embedding-heatmap-card">
+        <img src="../images/embedding-sequence/diff_heatmap_seq004.png" alt="Patch-token difference heatmap for seq004 minus seq001">
+        <div class="embedding-heatmap-caption"><strong>seq004 - seq001</strong> &middot; longer corrective path &middot; RMSE 0.530 &middot; max 5.65</div>
+      </div>
+      <div class="embedding-heatmap-card">
+        <img src="../images/embedding-sequence/diff_heatmap_seq005.png" alt="Patch-token difference heatmap for seq005 minus seq001">
+        <div class="embedding-heatmap-caption"><strong>seq005 - seq001</strong> &middot; local patch shift &middot; RMSE 0.758 &middot; max 23.71</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SLIDE: Point Cloud Replay Memory -->
+<div class="slide pc-memory-slide" id="slide-pc37-replay-memory">
+  <h3>Experiment 3</h3>
+  <h2>Why dense 518&times;518 Point Clouds stress replay memory</h2>
+
+  <p class="pc-memory-intro">
+    Dense Point Clouds are not just a larger readout for the model. In the current trainer,
+    replay is an in-process Numpy ring buffer in host RAM, so every stored transition keeps
+    its observation payload in memory. Checkpoints save the agent state, not the replay contents.
+  </p>
+
+  <div class="pc-memory-layout">
+    <div class="pc-memory-card">
+      <h4>Observation storage per replay transition</h4>
+      <div class="pc-memory-bars" aria-label="Approximate observation storage per replay transition">
+        <div class="pc-memory-row">
+          <strong>37&times;37 WP+CP</strong>
+          <div class="pc-memory-track"><div class="pc-memory-fill" style="width:1%"></div></div>
+          <span class="pc-memory-value">~8 KiB fp16</span>
+        </div>
+        <div class="pc-memory-row">
+          <strong>64&times;64 WP+CP</strong>
+          <div class="pc-memory-track"><div class="pc-memory-fill" style="width:2%"></div></div>
+          <span class="pc-memory-value">~24 KiB fp16</span>
+        </div>
+        <div class="pc-memory-row">
+          <strong>Dense WP map</strong>
+          <div class="pc-memory-track"><div class="pc-memory-fill dense" style="width:58%"></div></div>
+          <span class="pc-memory-value">~1.5 MiB fp16</span>
+        </div>
+        <div class="pc-memory-row">
+          <strong>Full agg tokens</strong>
+          <div class="pc-memory-track"><div class="pc-memory-fill token" style="width:100%"></div></div>
+          <span class="pc-memory-value">~2.7 MiB fp16</span>
+        </div>
+      </div>
+      <p class="pc-memory-note">
+        Numbers are observation payload only, before actions, rewards, done flags,
+        Python/Numpy overhead, sampled batches, and model activations. All rows use
+        <code>fp16</code>; storing the same tensors as <code>fp32</code> would double them.
+      </p>
+    </div>
+
+    <div class="pc-memory-card">
+      <h4>Capacity implication</h4>
+      <div class="pc-memory-formula">
+        <strong>Formula</strong>
+        <code>elements = H * W * C + CP</code><br>
+        <code>fp16 = 16 bits = 2 bytes per value</code><br>
+        <code>bytes/transition = elements * 2 bytes</code><br>
+        <code>GiB at 1M = bytes/transition * 1,000,000 / 1024^3</code><br>
+        <code>37*37*3 + 9 = 4116</code> &rarr; <code>~8 KiB</code>, <code>~7.7 GiB</code> at 1M.<br>
+        <code>1374 full tokens * 1024 * 2 bytes</code> &rarr; <code>~2.7 MiB</code>, <code>~2.6 TiB</code> at 1M.
+      </div>
+      <table class="pc-memory-table">
+        <tr><th>Representation</th><th>At 1M transitions</th><th>Config consequence</th></tr>
+        <tr>
+          <td>37&times;37 WP+CP flat</td>
+          <td class="num">~7.7 GiB fp16</td>
+          <td>1M feasible</td>
+        </tr>
+        <tr>
+          <td>64&times;64 WP+CP flat</td>
+          <td class="num">~22.9 GiB fp16</td>
+          <td>1M borderline</td>
+        </tr>
+        <tr>
+          <td>Dense 518&times;518 WP</td>
+          <td class="num">~1.5 TiB fp16</td>
+          <td>5k cap currently</td>
+        </tr>
+        <tr>
+          <td>Full aggregator tokens</td>
+          <td class="num">~2.6 TiB fp16</td>
+          <td>5k cap / smaller batches</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="pc-memory-bottom">
+    <div class="pc-memory-mini">
+      <strong>Why it matters</strong>
+      <p>Dense variants cannot keep the same replay capacity as the <code>37&times;37</code> run; reducing capacity changes the ablation.</p>
+    </div>
+    <div class="pc-memory-mini">
+      <strong>Replay requirement</strong>
+      <p>Large 3D observations need field-aware dtypes, smaller capacity, or a disk-backed feature cache.</p>
+    </div>
+    <div class="pc-memory-mini">
+      <strong>Meeting phrasing</strong>
+      <p>Pooled <code>37&times;37</code> keeps the 3D signal while staying compatible with a large RAM replay buffer.</p>
+    </div>
+  </div>
+</div>
+
+
+<!-- SLIDE: Replay Buffer Capacity -->
+<div class="slide buffer-slide" id="slide-buffer-capacity">
+  <h3>Experiment 3</h3>
+  <h2>Replay buffer capacity gates L1 performance</h2>
+
+  <div class="buffer-layout">
+    <div class="buffer-panel">
+      <svg class="buffer-curve" id="presentationBufferCurve" viewBox="0 0 920 430" role="img" aria-labelledby="buffer-curve-title buffer-curve-desc">
+        <title id="buffer-curve-title">Success-rate curves for replay buffer capacities</title>
+        <desc id="buffer-curve-desc">Sampled W&amp;B success-rate curves for 10k, 100k, 500k, and 1M replay buffer capacity up to 1.5 million training steps.</desc>
+      </svg>
+      <div class="buffer-caption">
+        W&amp;B <code>metrics/sr</code>, sampled through 1.5M trainer steps. Later post-1.5M drops are omitted to compare the common learning phase.
+      </div>
+    </div>
+
+    <div class="buffer-stats">
+      <div class="buffer-stat-card good">
+        <strong>1M replay <b>67%</b></strong>
+        <span>Strongest finished CNN buffer run near 1.5M; provides the most stable high-capacity baseline.</span>
+      </div>
+      <div class="buffer-stat-card good">
+        <strong>500k replay <b>66%</b></strong>
+        <span>Competitive during the common phase, but less consistent across seeds/status than the 1M setting.</span>
+      </div>
+      <div class="buffer-stat-card warn">
+        <strong>100k replay <b>65%</b></strong>
+        <span>Minimum viable region: can reach strong performance, but leaves less replay diversity margin.</span>
+      </div>
+      <div class="buffer-stat-card poor">
+        <strong>10k replay <b>21%</b></strong>
+        <span>Too small for reliable trainer performance; learning remains well below the larger buffers.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top: 12px;">
+    <strong style="color: #0f172a;">Takeaway:</strong>
+    <span style="color: var(--text-dim);"> The trainer needs at least a 100k replay buffer, and 500k-1M is the safer operating range when memory allows it.</span>
+  </div>
+</div>
 
 <!-- SLIDE: Curriculum Scaling Results -->
 <div class="slide" id="slide-curriculum">
@@ -1854,13 +3339,87 @@
 
 </div><!-- end slide-container -->
 
-<div class="slide-number" id="slideNum">1 / 14</div>
+<div class="slide-number" id="slideNum">1 / 27</div>
 <div class="nav-hint">← → arrow keys to navigate</div>
 
 <script>
   const slides = document.querySelectorAll('.slide');
   let current = 0;
   const total = slides.length;
+
+  function renderPresentationBufferCurve() {
+    const svg = document.getElementById('presentationBufferCurve');
+    if (!svg) return;
+
+    const series = [
+      { label: '1M', color: '#2563eb', values: [[73529,.32],[97885,.41],[122009,.43],[133912,.41],[154161,.36],[181511,.46],[262273,.47],[297850,.64],[350132,.66],[395056,.77],[445703,.59],[509477,.68],[575677,.70],[647020,.69],[686351,.75],[774810,.80],[850321,.71],[919583,.62],[968848,.67],[1037016,.74],[1109006,.69],[1178694,.72],[1214750,.76],[1278675,.64],[1344340,.67],[1365909,.72],[1424584,.63],[1462973,.67]] },
+      { label: '500k', color: '#d97706', values: [[63517,.12],[102504,.27],[128656,.38],[142776,.43],[186164,.43],[265302,.54],[322167,.54],[401137,.67],[458326,.64],[523686,.61],[554717,.73],[589910,.64],[659359,.69],[698950,.74],[746691,.75],[807913,.71],[903070,.70],[984846,.78],[1034109,.67],[1121704,.73],[1160398,.77],[1195279,.64],[1254684,.79],[1369852,.57],[1413574,.71],[1429880,.78],[1488271,.66]] },
+      { label: '100k', color: '#059669', values: [[61020,.21],[100017,.34],[137257,.35],[206461,.46],[247106,.48],[307490,.52],[365572,.50],[404362,.62],[466415,.58],[536068,.53],[615218,.59],[657543,.62],[717470,.44],[809650,.62],[917636,.58],[1006928,.62],[1077364,.62],[1170486,.63],[1238281,.64],[1325434,.48],[1383738,.65],[1500000,.65]] },
+      { label: '10k', color: '#5b50f0', values: [[63024,.17],[105890,.17],[149737,.13],[209054,.18],[280647,.09],[331756,.06],[383100,.15],[448570,.30],[509717,.09],[600394,.23],[636471,.27],[708544,.18],[798877,.19],[903632,.28],[992413,.25],[1085516,.33],[1223386,.36],[1270850,.29],[1313175,.34],[1406812,.21],[1500000,.21]] }
+    ];
+
+    const width = 920;
+    const height = 430;
+    const margin = { left: 62, right: 34, top: 28, bottom: 62 };
+    const plotW = width - margin.left - margin.right;
+    const plotH = height - margin.top - margin.bottom;
+    const maxStep = 1500000;
+    const yMax = 0.85;
+    const x = (step) => margin.left + (step / maxStep) * plotW;
+    const y = (value) => margin.top + plotH - (value / yMax) * plotH;
+    const axisColor = '#94a3b8';
+    const gridColor = '#e2e8f0';
+    const textColor = '#475569';
+
+    const line = (x1, y1, x2, y2, attrs = '') => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ${attrs}/>`;
+    const text = (content, xPos, yPos, attrs = '') => `<text x="${xPos}" y="${yPos}" ${attrs}>${content}</text>`;
+    const pathFor = (values) => values.map(([step, value], index) => `${index ? 'L' : 'M'} ${x(step).toFixed(1)} ${y(value).toFixed(1)}`).join(' ');
+
+    const xTicks = [
+      [0, '0'],
+      [500000, '0.5M'],
+      [1000000, '1M'],
+      [1500000, '1.5M']
+    ];
+    const yTicks = [
+      [0, '0%'],
+      [.2, '20%'],
+      [.4, '40%'],
+      [.6, '60%'],
+      [.8, '80%']
+    ];
+
+    let markup = `<rect x="0" y="0" width="${width}" height="${height}" rx="12" fill="#ffffff"/>`;
+    yTicks.forEach(([value, label]) => {
+      markup += line(margin.left, y(value), width - margin.right, y(value), `stroke="${gridColor}" stroke-width="1"`);
+      markup += text(label, margin.left - 10, y(value) + 5, `text-anchor="end" fill="${textColor}" font-size="14"`);
+    });
+    xTicks.forEach(([value, label]) => {
+      markup += line(x(value), margin.top, x(value), height - margin.bottom, `stroke="${gridColor}" stroke-width="1"`);
+      markup += text(label, x(value), height - margin.bottom + 28, `text-anchor="middle" fill="${textColor}" font-size="14"`);
+    });
+    markup += line(margin.left, margin.top, margin.left, height - margin.bottom, `stroke="${axisColor}" stroke-width="1.5"`);
+    markup += line(margin.left, height - margin.bottom, width - margin.right, height - margin.bottom, `stroke="${axisColor}" stroke-width="1.5"`);
+    markup += text('Trainer steps', margin.left + plotW / 2, height - 12, `text-anchor="middle" fill="${textColor}" font-size="14" font-weight="600"`);
+    markup += `<text x="18" y="${margin.top + plotH / 2}" transform="rotate(-90 18 ${margin.top + plotH / 2})" text-anchor="middle" fill="${textColor}" font-size="14" font-weight="600">Success rate</text>`;
+
+    series.forEach((item) => {
+      markup += `<path d="${pathFor(item.values)}" fill="none" stroke="${item.color}" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      const [lastStep, lastValue] = item.values[item.values.length - 1];
+      markup += `<circle cx="${x(lastStep)}" cy="${y(lastValue)}" r="5" fill="${item.color}"/>`;
+      markup += text(`${item.label} ${Math.round(lastValue * 100)}%`, x(lastStep) - 6, y(lastValue) - 10, `text-anchor="end" fill="${item.color}" font-size="14" font-weight="700"`);
+    });
+
+    const legendY = 22;
+    let legendX = margin.left;
+    series.forEach((item) => {
+      markup += `<line x1="${legendX}" y1="${legendY}" x2="${legendX + 24}" y2="${legendY}" stroke="${item.color}" stroke-width="3" stroke-linecap="round"/>`;
+      markup += text(item.label, legendX + 32, legendY + 5, `fill="#0f172a" font-size="13" font-weight="600"`);
+      legendX += 90;
+    });
+
+    svg.innerHTML = markup;
+  }
 
   function showSlide(n) {
     slides[current].classList.remove('active');
@@ -1884,6 +3443,7 @@
     if (Math.abs(diff) > 50) { diff > 0 ? showSlide(current + 1) : showSlide(current - 1); }
   });
 
+  renderPresentationBufferCurve();
   showSlide(0);
 </script>
 
