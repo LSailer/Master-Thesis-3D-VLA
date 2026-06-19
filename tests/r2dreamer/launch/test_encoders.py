@@ -1,6 +1,9 @@
 """L2 (construction) and L3 (adapter behavior) tests for Encoder classes."""
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=too-few-public-methods,import-outside-toplevel,unused-argument
+# pylint: disable=line-too-long,use-implicit-booleaness-not-comparison
+# pylint: disable=protected-access,consider-using-enumerate
 
-import ast
 import json
 from pathlib import Path
 
@@ -36,7 +39,7 @@ from src.r2dreamer.encoders import (
     VGGTDenseWPEncoder,
     VGGTWPCP64Encoder,
 )
-from src.r2dreamer.encoders.specs import VGGT_VARIANTS
+from src.r2dreamer.encoders import VGGT_VARIANTS
 from src.r2dreamer.world_model import encoders as wm_encoders
 from src.shared.video_utils import resize_chw_uint8
 
@@ -45,24 +48,9 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_encoder_package_init_is_thin_reexport():
-    package_init = _REPO_ROOT / "src/r2dreamer/encoders/__init__.py"
-    tree = ast.parse(package_init.read_text())
-    nodes = [
-        node for node in tree.body
-        if not (
-            isinstance(node, ast.Expr)
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        )
-    ]
-
-    for node in nodes:
-        assert isinstance(node, (ast.ImportFrom, ast.Assign))
-        if isinstance(node, ast.Assign):
-            assert len(node.targets) == 1
-            assert isinstance(node.targets[0], ast.Name)
-            assert node.targets[0].id == "__all__"
+def test_encoder_specs_module_was_folded_into_package_init():
+    assert not (_REPO_ROOT / "src/r2dreamer/encoders/specs.py").exists()
+    assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
 
 
 class TestCNNEncoder:
@@ -109,7 +97,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTEncoder()
@@ -134,7 +122,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTEncoder(resolution=518)
@@ -161,7 +149,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTAggregatorMLPEncoder(resolution=256)
@@ -196,7 +184,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTAggTokenTransformerEncoder(resolution=256)
@@ -230,7 +218,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTDenseWPEncoder(resolution=518)
@@ -301,7 +289,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTWPCP64Encoder(resolution=518)
@@ -418,7 +406,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTWP64CNNCPMLPEncoder(resolution=518)
@@ -524,7 +512,7 @@ class TestHybridEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = HybridEncoder()
@@ -610,7 +598,7 @@ class TestVGGTHouseContextEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseContextEncoder()
@@ -700,7 +688,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseFullTokenNoGateEncoder()
@@ -773,7 +761,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.specs.VGGTFeatureExtractor", FakeExtractor
+            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseGlobalTokenNoGateEncoder()
