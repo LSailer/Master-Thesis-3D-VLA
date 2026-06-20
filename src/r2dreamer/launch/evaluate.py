@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
 from src.r2dreamer.launch._helpers import resolve_curriculum_path
@@ -245,12 +246,12 @@ def _start_eval_episode(env_instance, adapter):
 
 
 def _initial_eval_video_frames(
-    env_instance, obs, trajectory, goal_positions, record_video: bool
+    env_instance, obs: ObservationFrame, trajectory, goal_positions, record_video: bool
 ):
     if not record_video:
         return []
     topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-    return [compose_frame(obs["image"], topdown)]
+    return [compose_frame(obs.image, topdown)]
 
 
 def _make_eval_episode_result(
@@ -260,7 +261,7 @@ def _make_eval_episode_result(
     object_category: str,
     actions_taken: list[int],
     rewards: list[float],
-    obs: dict,
+    obs: ObservationFrame,
     start_pos: list[float],
     goal_positions: list[list[float]],
     trajectory: list[list[float]],
@@ -272,8 +273,8 @@ def _make_eval_episode_result(
         "object_category": object_category,
         "steps": len(actions_taken),
         "reward": sum(rewards),
-        "success": float(obs.get("success", 0.0)),
-        "spl": float(obs.get("spl", 0.0)),
+        "success": float(obs.success),
+        "spl": float(obs.spl),
         "actions": actions_taken,
         "action_counts": {
             name: actions_taken.count(idx) for idx, name in _ACTIONS.items()
@@ -351,16 +352,16 @@ def _run_eval_episode(
         next_obs = env_instance.step(action)
         _, next_agent_obs = adapter.transform(next_obs)
         actions_taken.append(int(action))
-        rewards.append(float(next_obs["reward"]))
+        rewards.append(float(next_obs.reward))
 
         pos = env_instance._env.sim.get_agent_state().position.tolist()
         trajectory.append(pos)
         headings.append(_get_agent_heading(env_instance))
         if record_video:
             topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-            video_frames.append(compose_frame(next_obs["image"], topdown))
+            video_frames.append(compose_frame(next_obs.image, topdown))
 
-        if next_obs["done"]:
+        if next_obs.done:
             obs = next_obs
             break
         obs = next_obs
@@ -392,7 +393,7 @@ def _run_eval_episode(
     print(
         f"Episode {ep_idx}: steps={len(actions_taken):3d}  "
         f"reward={sum(rewards):.2f}  "
-        f"success={obs.get('success', 0):.0f}  "
+        f"success={obs.success:.0f}  "
         f"category={object_category}"
     )
     return ep_result, rng_key

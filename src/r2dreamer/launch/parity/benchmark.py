@@ -69,10 +69,11 @@ def _eval_jax_agent(agent, num_episodes, max_steps, rng_key):
         total = 0.0
         for step in range(max_steps):
             rng_key, ak = jax.random.split(rng_key)
-            action = agent.act(obs, ak, training=False)
+            agent_obs = {"image": obs.image, "is_first": obs.is_first}
+            action = agent.act(agent_obs, ak, training=False)
             next_obs = env.step(action)
-            total += next_obs["reward"]
-            if next_obs["done"]:
+            total += next_obs.reward
+            if next_obs.done:
                 break
             obs = next_obs
         rewards.append(total)
@@ -96,13 +97,13 @@ def _eval_pytorch_agent(agent, num_episodes, max_steps, device):
         total = 0.0
         for step in range(max_steps):
             with torch.no_grad():
-                image_hwc = obs_dict["image"].transpose(1, 2, 0)
+                image_hwc = obs_dict.image.transpose(1, 2, 0)
                 image_t = (
                     torch.tensor(image_hwc[None], dtype=torch.float32, device=device)
                     / 255.0
                 )
                 is_first = torch.tensor(
-                    [obs_dict["is_first"]], dtype=torch.bool, device=device
+                    [obs_dict.is_first], dtype=torch.bool, device=device
                 )
                 embed = agent._frozen_encoder({"image": image_t.unsqueeze(1)}).squeeze(
                     1
@@ -115,8 +116,8 @@ def _eval_pytorch_agent(agent, num_episodes, max_steps, device):
                 prev_action = action
             action_int = int(action[0].argmax().cpu())
             next_obs = env.step(action_int)
-            total += next_obs["reward"]
-            if next_obs["done"]:
+            total += next_obs.reward
+            if next_obs.done:
                 break
             obs_dict = next_obs
         rewards.append(total)

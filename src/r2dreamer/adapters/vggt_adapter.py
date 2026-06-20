@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_preparation.vggt import (
     VGGT_AGGREGATOR_TOKEN_COUNT,
@@ -70,10 +71,10 @@ class VGGTObsAdapter(ObsAdapter):
         )
 
     def transform(
-        self, obs_dict: dict
+        self, env_obs: ObservationFrame
     ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         return self._readout.prepare(
             self._extractor,
-            obs_dict["image"],
-            is_first=obs_dict.get("is_first", False),
+            env_obs.image,
+            is_first=env_obs.is_first,
         )

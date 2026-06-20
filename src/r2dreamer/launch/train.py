@@ -293,10 +293,10 @@ def train(
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS
+    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer, TrainerConfig, habitat_defaults
+    from src.r2dreamer.trainer import Trainer, habitat_defaults
 
     parser = _build_parser_train()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])

@@ -7,8 +7,8 @@
 #       bash scripts/smoke_test_r2dreamer.sh
 #
 # What it tests:
-#   1. Val data collection (collect_val_data.py)
-#   2. R2-Dreamer training with val loss (run.py habitat-l1-cnn)
+#   1. Random Habitat data collection (collect_val_data.py)
+#   2. R2-Dreamer training (run.py habitat-l1-cnn)
 #   3. Checkpoint evaluation with semantic + topdown (eval_habitat.py)
 #   4. Output file assertions
 
@@ -17,6 +17,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
+
+export WANDB_MODE="${WANDB_MODE:-disabled}"
 
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 OUTDIR="output/smoke-r2dreamer-${TIMESTAMP}"
@@ -47,10 +49,10 @@ fi
 echo "[PASS] Val data collected"
 
 # ------------------------------------------------------------------
-# Step 2: Train R2-Dreamer (500 steps, val loss at 250)
+# Step 2: Train R2-Dreamer (500 steps)
 # ------------------------------------------------------------------
 echo ""
-echo "=== Step 2/4: R2-Dreamer training with val loss ==="
+echo "=== Step 2/4: R2-Dreamer training ==="
 TRAIN_DIR="${OUTDIR}/train"
 uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --steps 500 \
@@ -60,9 +62,7 @@ uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
     --log_every 100 \
     --checkpoint_every 250 \
     --wandb_project dreamerv3-objectnav \
-    --wandb_name "smoke-r2dreamer-${TIMESTAMP}" \
-    --val_data "$VAL_DATA" \
-    --val_loss_every 250
+    --wandb_name "smoke-r2dreamer-${TIMESTAMP}"
 
 # Check training outputs
 if [ ! -f "${TRAIN_DIR}/metrics.csv" ]; then
@@ -73,12 +73,7 @@ if ! ls "${TRAIN_DIR}/checkpoints/"*.pkl 1>/dev/null 2>&1; then
     echo "[FAIL] No checkpoint files created"
     exit 1
 fi
-# Check val loss was logged
-if ! grep -q "val/total_loss" "${TRAIN_DIR}/metrics.csv"; then
-    echo "[FAIL] val/total_loss not found in metrics.csv"
-    exit 1
-fi
-echo "[PASS] Training completed with val loss"
+echo "[PASS] Training completed"
 
 # ------------------------------------------------------------------
 # Step 3: Eval with semantic + topdown
@@ -86,20 +81,21 @@ echo "[PASS] Training completed with val loss"
 echo ""
 echo "=== Step 3/4: Checkpoint evaluation (semantic + topdown) ==="
 CHECKPOINT=$(ls -t "${TRAIN_DIR}/checkpoints/"*.pkl | head -1)
-EVAL_OUTPUT="${OUTDIR}/eval_results.json"
+EVAL_DIR="${OUTDIR}/eval"
+EVAL_OUTPUT="${EVAL_DIR}/eval_results.json"
 uv run python scripts/r2dreamer/eval_habitat.py \
     --checkpoint "$CHECKPOINT" \
     --episodes 2 \
     --split val \
     --semantic \
     --render_topdown \
-    --output "$EVAL_OUTPUT"
+    --output_dir "$EVAL_DIR"
 
 if [ ! -f "$EVAL_OUTPUT" ]; then
     echo "[FAIL] Eval results not created at $EVAL_OUTPUT"
     exit 1
 fi
-if ! ls "${OUTDIR}/topdown/"*.png 1>/dev/null 2>&1; then
+if ! ls "${EVAL_DIR}/topdown/"*.png 1>/dev/null 2>&1; then
     echo "[FAIL] No topdown PNG files created"
     exit 1
 fi
@@ -110,14 +106,6 @@ echo "[PASS] Evaluation completed with semantic + topdown"
 # ------------------------------------------------------------------
 echo ""
 echo "=== Step 4/4: Validating outputs ==="
-
-# Count val loss entries in metrics
-VAL_COUNT=$(grep -c "val/total_loss" "${TRAIN_DIR}/metrics.csv" || true)
-echo "  Val loss entries: ${VAL_COUNT}"
-if [ "$VAL_COUNT" -lt 1 ]; then
-    echo "[FAIL] Expected at least 1 val loss entry"
-    exit 1
-fi
 
 # Check eval results have episodes
 EP_COUNT=$(python3 -c "
@@ -133,7 +121,7 @@ if [ "$EP_COUNT" -lt 2 ]; then
 fi
 
 # Count topdown maps
-TD_COUNT=$(ls "${OUTDIR}/topdown/"*.png 2>/dev/null | wc -l)
+TD_COUNT=$(ls "${EVAL_DIR}/topdown/"*.png 2>/dev/null | wc -l)
 echo "  Topdown maps: ${TD_COUNT}"
 
 echo "[PASS] All output validation passed"

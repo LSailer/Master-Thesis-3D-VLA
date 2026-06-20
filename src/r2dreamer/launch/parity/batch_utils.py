@@ -280,16 +280,16 @@ def collect_crafter_data(num_steps, seed=42):
         next_obs = env.step(action)
         transitions.append(
             {
-                "image_chw": obs["image"].copy(),
-                "image_hwc": obs["image"].transpose(1, 2, 0).copy(),
+                "image_chw": obs.image.copy(),
+                "image_hwc": obs.image.transpose(1, 2, 0).copy(),
                 "action": action,
-                "reward": next_obs["reward"],
-                "is_first": obs["is_first"],
-                "is_last": next_obs["done"],
-                "is_terminal": next_obs["done"],
+                "reward": next_obs.reward,
+                "is_first": obs.is_first,
+                "is_last": next_obs.done,
+                "is_terminal": next_obs.done,
             }
         )
-        obs = env.reset() if next_obs["done"] else next_obs
+        obs = env.reset() if next_obs.done else next_obs
     env.close()
     return transitions
 

@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from src.environments.observation import ObservationFrame
+
 
 class CrafterEnv:
     def __init__(self, size=(64, 64), seed=None):
@@ -10,23 +12,22 @@ class CrafterEnv:
         self._env = crafter.Env(size=size, reward=True, seed=seed)
         self.num_actions = self._env.action_space.n  # 17
 
-    def reset(self):
+    def reset(self) -> ObservationFrame:
         obs = self._env.reset()  # (H, W, C) uint8
-        return {
-            "image": np.transpose(obs, (2, 0, 1)),  # CHW
-            "is_first": True,
-            "reward": 0.0,
-            "done": False,
-        }
+        return ObservationFrame(
+            image=np.transpose(obs, (2, 0, 1)),  # CHW
+            is_first=True,
+        )
 
-    def step(self, action):
-        obs, reward, done, info = self._env.step(action)
-        return {
-            "image": np.transpose(obs, (2, 0, 1)),  # CHW
-            "reward": float(reward),
-            "done": done,
-            "is_first": False,
-        }
+    def step(self, action) -> ObservationFrame:
+        obs, reward, done, _info = self._env.step(action)
+        return ObservationFrame(
+            image=np.transpose(obs, (2, 0, 1)),  # CHW
+            reward=float(reward),
+            done=bool(done),
+            is_first=False,
+            is_last=bool(done),
+        )
 
     def close(self):
         pass
