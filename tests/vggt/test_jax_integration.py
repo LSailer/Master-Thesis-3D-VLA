@@ -183,7 +183,7 @@ class TestJAXvsPyTorchExtractor:
 
     @pytest.fixture(scope="class")
     def pt_ext(self):
-        from src.vggt.feature_extractor import VGGTFeatureExtractor
+        from src.vggt.reference.feature_extractor import VGGTFeatureExtractor
 
         ext = VGGTFeatureExtractor(device="cuda")
         # Force full-precision attention in the aggregator so the backends

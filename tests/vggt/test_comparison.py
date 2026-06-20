@@ -27,7 +27,7 @@ def test_benchmark_notebook_exists():
 @gpu
 def test_variants_produce_point_maps():
     """Each variant loads and produces point maps from a single 480x640 RGB input."""
-    from src.vggt import get_available_variants, load_variant, run_inference
+    from src.vggt.reference import get_available_variants, load_variant, run_inference
 
     dummy_rgb = torch.rand(1, 480, 640, 3)  # single RGB frame
 
@@ -47,7 +47,7 @@ def test_variants_produce_point_maps():
 @gpu
 def test_benchmark_measures_latency_and_memory():
     """Inference latency and peak GPU memory are measured per variant for N=10,20,50,100,500."""
-    from src.vggt import get_available_variants, load_variant, benchmark_variant
+    from src.vggt.reference import get_available_variants, load_variant, benchmark_variant
 
     expected_lengths = [10, 20, 50, 100, 500]
     variants = get_available_variants()
@@ -68,7 +68,7 @@ def test_benchmark_measures_latency_and_memory():
 @gpu
 def test_feature_output_shape_consistent():
     """Feature output shape is consistent across variants (same spatial resolution and channel dim)."""
-    from src.vggt import get_available_variants, load_variant, run_inference
+    from src.vggt.reference import get_available_variants, load_variant, run_inference
 
     dummy_rgb = torch.rand(1, 480, 640, 3)
     variants = get_available_variants()
@@ -91,7 +91,7 @@ def test_feature_output_shape_consistent():
 
 def test_comparison_table_structure():
     """A summary comparison table (pandas DataFrame) has required columns."""
-    from src.vggt import build_comparison_table
+    from src.vggt.reference import build_comparison_table
 
     mock_results = {
         "vggt": [

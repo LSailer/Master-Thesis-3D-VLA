@@ -25,7 +25,7 @@ class TestVGGTFeatureExtractor:
 
     @pytest.fixture(scope="class")
     def extractor(self):
-        from src.vggt.feature_extractor import VGGTFeatureExtractor
+        from src.vggt.reference.feature_extractor import VGGTFeatureExtractor
 
         ext = VGGTFeatureExtractor(device="cuda")
         yield ext

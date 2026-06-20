@@ -47,7 +47,7 @@ def bench_pytorch(
     """Benchmark the PyTorch extractor over ``n_frames`` with fresh cache."""
     import torch
 
-    from src.vggt.feature_extractor import VGGTFeatureExtractor
+    from src.vggt.reference.feature_extractor import VGGTFeatureExtractor
 
     ext = VGGTFeatureExtractor(
         device="cuda",

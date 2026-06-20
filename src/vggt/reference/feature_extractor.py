@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 from contextlib import nullcontext
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -104,17 +105,18 @@ class VGGTFeatureExtractor:
                     f"compile_mode={compile_mode!r} not in {_allowed_modes}"
                 )
             mode_kwargs = {} if compile_mode is None else {"mode": compile_mode}
+            compile_fn = cast(Any, torch.compile)
             print(
                 f"Compiling VGGT sub-modules with torch.compile "
                 f"(mode={compile_mode!r})..."
             )
-            self.model.aggregator = torch.compile(
+            self.model.aggregator = compile_fn(
                 self.model.aggregator, dynamic=True, **mode_kwargs
             )
-            self.model.camera_head = torch.compile(
+            self.model.camera_head = compile_fn(
                 self.model.camera_head, dynamic=True, **mode_kwargs
             )
-            self.model.point_head = torch.compile(self.model.point_head, **mode_kwargs)
+            self.model.point_head = compile_fn(self.model.point_head, **mode_kwargs)
 
         # Aggregator depth drives the per-layer KV-cache list length.
         self._agg_depth: int = self.model.aggregator.depth
