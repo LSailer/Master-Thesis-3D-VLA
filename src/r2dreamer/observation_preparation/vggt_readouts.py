@@ -134,8 +134,8 @@ class VGGTHeadReadout:
             for key in (WORLD_POINTS_KEY, CAMERA_POSE_KEY)
         }
         agent_obs = {
-            WORLD_POINTS_KEY: features[WORLD_POINTS_KEY].astype(jnp.float32),
-            CAMERA_POSE_KEY: features[CAMERA_POSE_KEY].astype(jnp.float32),
+            WORLD_POINTS_KEY: features[WORLD_POINTS_KEY].astype(jnp.float16),
+            CAMERA_POSE_KEY: features[CAMERA_POSE_KEY].astype(jnp.float16),
             "is_first": is_first,
         }
         return replay, agent_obs
