@@ -15,7 +15,7 @@ Cache semantics:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import flax.linen as nn
 import jax
@@ -196,6 +196,8 @@ class Attention(nn.Module):
             k = nn.LayerNorm(epsilon=_QK_NORM_EPS, name="k_norm")(k)
 
         if rope_tables is not None:
+            if positions is None:
+                raise ValueError("positions must be given with rope_tables")
             cos_table, sin_table = rope_tables
             q = apply_rope_2d(q, positions, cos_table, sin_table)
             k = apply_rope_2d(k, positions, cos_table, sin_table)
@@ -206,12 +208,19 @@ class Attention(nn.Module):
 
         if use_cache and is_padded_cache:
             return self._padded_cache_forward(
-                q, k, v, past_kv, cache_budget, num_anchor_tokens, B, N
+                q,
+                k,
+                v,
+                cast(tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray], past_kv),
+                cache_budget,
+                num_anchor_tokens,
+                B,
+                N,
             )
 
         # --- Legacy path (no cache, or 2-tuple past_kv) ---
         if past_kv is not None:
-            past_k, past_v = past_kv
+            past_k, past_v = cast(tuple[jnp.ndarray, jnp.ndarray], past_kv)
             k = jnp.concatenate([past_k, k], axis=2)
             v = jnp.concatenate([past_v, v], axis=2)
 
@@ -242,7 +251,7 @@ class Attention(nn.Module):
         q: jnp.ndarray,
         new_k: jnp.ndarray,
         new_v: jnp.ndarray,
-        past_kv: tuple,
+        past_kv: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
         cache_budget: int | None,
         num_anchor_tokens: int,
         B: int,

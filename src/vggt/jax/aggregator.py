@@ -21,6 +21,7 @@ Mirrors ``streamvggt.models.aggregator.Aggregator``:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 
 import flax.linen as nn
 import jax
@@ -284,6 +285,8 @@ def _finalise_last_scores(
 ) -> jnp.ndarray:
     """Merge per-block eviction scores into the state returned to the caller."""
     if cache_state.padded_mode and cache_state.current_budgets is not None:
+        if cache_state.last_scores is None:
+            raise ValueError("padded cache requires last_scores")
         per_block_new = []
         for b, entry in enumerate(new_scores):
             if isinstance(entry, tuple):
@@ -296,6 +299,8 @@ def _finalise_last_scores(
         return jnp.stack(per_block_new).astype(jnp.float32)
     if any_evicted:
         return jnp.stack([jnp.asarray(s, dtype=jnp.float32) for s in new_scores])
+    if cache_state.last_scores is None:
+        raise ValueError("cache_state.last_scores is required")
     return cache_state.last_scores
 
 
@@ -422,15 +427,18 @@ class Aggregator(nn.Module):
 
         for b in range(self.depth):
             tokens_frame = layout.to_frame(tokens)
-            tokens_frame = Block(
-                dim=self.embed_dim,
-                num_heads=self.num_heads,
-                mlp_ratio=self.mlp_ratio,
-                qk_norm=True,
-                init_values=self.init_values,
-                norm_eps=self.norm_eps,
-                name=f"frame_blocks_{b}",
-            )(tokens_frame, rope_tables=rope_tables, positions=positions_bs_p)
+            tokens_frame = cast(
+                jnp.ndarray,
+                Block(
+                    dim=self.embed_dim,
+                    num_heads=self.num_heads,
+                    mlp_ratio=self.mlp_ratio,
+                    qk_norm=True,
+                    init_values=self.init_values,
+                    norm_eps=self.norm_eps,
+                    name=f"frame_blocks_{b}",
+                )(tokens_frame, rope_tables=rope_tables, positions=positions_bs_p),
+            )
             frame_inter = layout.split_layers(tokens_frame)
 
             tokens_global = layout.to_global(tokens_frame)
@@ -444,17 +452,25 @@ class Aggregator(nn.Module):
                 name=f"global_blocks_{b}",
             )
             if cache_state.enabled:
+                if cache_state.past_kvs is None:
+                    raise ValueError("cache enabled requires past_kvs")
                 past_entry = cache_state.past_kvs[b]
-                if cache_state.current_budgets is not None:
-                    tokens_global, new_kv, scores = global_block(
-                        tokens_global,
-                        rope_tables=rope_tables,
-                        positions=positions_b_sp,
-                        attn_mask=None,
-                        past_kv=past_entry,
-                        use_cache=True,
-                        cache_budget=int(cache_state.current_budgets[b]),
-                        num_anchor_tokens=layout.P,
+                current_budgets = cache_state.current_budgets
+                if current_budgets is not None:
+                    if cache_state.last_scores is None:
+                        raise ValueError("budgeted cache requires last_scores")
+                    tokens_global, new_kv, scores = cast(
+                        tuple[jnp.ndarray, tuple, object],
+                        global_block(
+                            tokens_global,
+                            rope_tables=rope_tables,
+                            positions=positions_b_sp,
+                            attn_mask=None,
+                            past_kv=past_entry,
+                            use_cache=True,
+                            cache_budget=int(current_budgets[b]),
+                            num_anchor_tokens=layout.P,
+                        ),
                     )
                     any_evicted = _record_cache_scores(
                         new_scores=new_scores,
@@ -463,21 +479,27 @@ class Aggregator(nn.Module):
                         fallback_score=cache_state.last_scores[b],
                     )
                 else:
-                    tokens_global, new_kv = global_block(
-                        tokens_global,
-                        rope_tables=rope_tables,
-                        positions=positions_b_sp,
-                        attn_mask=None,
-                        past_kv=past_entry,
-                        use_cache=True,
+                    tokens_global, new_kv = cast(
+                        tuple[jnp.ndarray, tuple],
+                        global_block(
+                            tokens_global,
+                            rope_tables=rope_tables,
+                            positions=positions_b_sp,
+                            attn_mask=None,
+                            past_kv=past_entry,
+                            use_cache=True,
+                        ),
                     )
                 new_past_kvs.append(new_kv)
             else:
-                tokens_global = global_block(
-                    tokens_global,
-                    rope_tables=rope_tables,
-                    positions=positions_b_sp,
-                    attn_mask=global_mask,
+                tokens_global = cast(
+                    jnp.ndarray,
+                    global_block(
+                        tokens_global,
+                        rope_tables=rope_tables,
+                        positions=positions_b_sp,
+                        attn_mask=global_mask,
+                    ),
                 )
             global_inter = layout.split_layers(tokens_global)
             tokens = layout.to_frame(global_inter)

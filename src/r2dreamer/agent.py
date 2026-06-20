@@ -17,7 +17,7 @@ gradient signal under one `jax.grad`.
 import functools
 import pickle
 from pathlib import Path
-from typing import Any, Dict, NamedTuple
+from typing import Any, Dict, NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
@@ -234,6 +234,8 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # separate fields, but obs_batch packs them into this flat shape before the
     # Flax encoder and decoder see them.
     expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
+    if not isinstance(cfg.obs_shape, tuple):
+        raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
     if not (
         cfg.obs_shape == expected_shape
         and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
@@ -505,6 +507,7 @@ class R2DreamerAgent:
 
     def __init__(self, config: R2DreamerConfig, rng_key: jnp.ndarray):
         self.cfg = config
+        self.checkpoint_step = -1
         self.twohot = R2TwoHotDist(num_bins=config.twohot_bins)
 
         # ---- Instantiate Flax modules (for .apply) ----
@@ -515,7 +518,7 @@ class R2DreamerAgent:
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
         dummy_obs = _dummy_encoder_obs(config)
         enc_params = self.encoder_mod.init(k1, dummy_obs)
-        embed = self.encoder_mod.apply(enc_params, dummy_obs)
+        embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, dummy_obs))
         self.embed_size = embed.shape[-1]
 
         # RSSM
@@ -700,18 +703,24 @@ class R2DreamerAgent:
 
     def _act_jit(self, params, obs, stoch, deter, prev_action, rng_key, training):
         """JIT-able acting logic. Returns (action_int, new_stoch, new_deter)."""
-        embed = self.encoder_mod.apply(params["encoder"], obs)
+        embed = cast(jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs))
         rng_key, k_sample = jax.random.split(rng_key)
-        new_stoch, new_deter, _ = self.rssm_mod.apply(
-            params["rssm"],
-            stoch,
-            deter,
-            prev_action,
-            embed,
-            rngs={"sample": k_sample},
+        new_stoch, new_deter, _ = cast(
+            tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(
+                params["rssm"],
+                stoch,
+                deter,
+                prev_action,
+                embed,
+                rngs={"sample": k_sample},
+            ),
         )
-        feat = self.rssm_mod.apply(
-            params["rssm"], new_stoch, new_deter, method=self.rssm_mod.get_feat
+        feat = cast(
+            jnp.ndarray,
+            self.rssm_mod.apply(
+                params["rssm"], new_stoch, new_deter, method=self.rssm_mod.get_feat
+            ),
         )
         logits = self.actor_mod.apply(params["actor"], feat)
 
@@ -741,21 +750,30 @@ class R2DreamerAgent:
         params = self.params
         B, T = obs_leading_shape(batch["obs"])
         obs_flat = encoder_obs_from_batch(batch, self.cfg)
-        embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
-        stoch0, deter0 = self.rssm_mod.apply(
-            params["rssm"], B, method=self.rssm_mod.initial_state
+        embed = cast(
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
+        ).reshape(B, T, -1)
+        stoch0, deter0 = cast(
+            tuple[jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(params["rssm"], B, method=self.rssm_mod.initial_state),
         )
-        post_stochs, post_deters, _ = self.rssm_mod.apply(
-            params["rssm"],
-            embed,
-            batch["actions"],
-            (stoch0, deter0),
-            batch["is_first"],
-            method=self.rssm_mod.observe,
-            rngs={"sample": jax.random.PRNGKey(0)},
+        post_stochs, post_deters, _ = cast(
+            tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(
+                params["rssm"],
+                embed,
+                batch["actions"],
+                (stoch0, deter0),
+                batch["is_first"],
+                method=self.rssm_mod.observe,
+                rngs={"sample": jax.random.PRNGKey(0)},
+            ),
         )
-        feat = self.rssm_mod.apply(
-            params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat
+        feat = cast(
+            jnp.ndarray,
+            self.rssm_mod.apply(
+                params["rssm"], post_stochs, post_deters, method=self.rssm_mod.get_feat
+            ),
         )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
         target = decoder_rgb_target(batch, self.cfg)
@@ -853,39 +871,51 @@ class R2DreamerAgent:
         B, T = obs_leading_shape(batch["obs"])
 
         obs_flat = encoder_obs_from_batch(batch, cfg)
-        embed = self.encoder_mod.apply(params["encoder"], obs_flat).reshape(B, T, -1)
+        embed = cast(
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
+        ).reshape(B, T, -1)
 
-        stoch0, deter0 = self.rssm_mod.apply(
-            params["rssm"], B, method=self.rssm_mod.initial_state
+        stoch0, deter0 = cast(
+            tuple[jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(params["rssm"], B, method=self.rssm_mod.initial_state),
         )
 
         rng_key, k_obs = jax.random.split(rng_key)
-        post_stochs, post_deters, post_logits = self.rssm_mod.apply(
-            params["rssm"],
-            embed,
-            batch["actions"],
-            (stoch0, deter0),
-            batch["is_first"],
-            method=self.rssm_mod.observe,
-            rngs={"sample": k_obs},
+        post_stochs, post_deters, post_logits = cast(
+            tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(
+                params["rssm"],
+                embed,
+                batch["actions"],
+                (stoch0, deter0),
+                batch["is_first"],
+                method=self.rssm_mod.observe,
+                rngs={"sample": k_obs},
+            ),
         )
 
         rng_key, k_prior = jax.random.split(rng_key)
-        _, prior_logits_flat = self.rssm_mod.apply(
-            params["rssm"],
-            post_deters.reshape(B * T, -1),
-            method=self.rssm_mod.prior,
-            rngs={"sample": k_prior},
+        _, prior_logits_flat = cast(
+            tuple[jnp.ndarray, jnp.ndarray],
+            self.rssm_mod.apply(
+                params["rssm"],
+                post_deters.reshape(B * T, -1),
+                method=self.rssm_mod.prior,
+                rngs={"sample": k_prior},
+            ),
         )
         prior_logits = prior_logits_flat.reshape(
             B, T, cfg.stoch_classes, cfg.stoch_discrete
         )
 
-        feat = self.rssm_mod.apply(
-            params["rssm"],
-            post_stochs,
-            post_deters,
-            method=self.rssm_mod.get_feat,
+        feat = cast(
+            jnp.ndarray,
+            self.rssm_mod.apply(
+                params["rssm"],
+                post_stochs,
+                post_deters,
+                method=self.rssm_mod.get_feat,
+            ),
         )
 
         return {

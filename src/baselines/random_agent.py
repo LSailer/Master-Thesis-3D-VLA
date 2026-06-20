@@ -82,11 +82,11 @@ def _run_episode(
 ) -> EpisodeResult:
     """Roll one uniform-random episode and return its summary metrics."""
     obs = env.reset()
-    episode = env._env.current_episode
+    episode = env.current_episode
     scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
-    category = episode.object_category
+    category = getattr(episode, "object_category", "unknown")
 
-    action_counts = {a: 0 for a in range(num_actions)}
+    action_counts = {a: 0.0 for a in range(num_actions)}
     total_reward = 0.0
     steps = 0
     for _ in range(max_episode_steps):
@@ -129,7 +129,7 @@ def _aggregate_results(
     rewards = [r.reward for r in all_results]
     steps_list = [r.steps for r in all_results]
     total_actions = sum(r.steps for r in all_results)
-    agg_action_counts = {name: 0 for name in ACTIONS.values()}
+    agg_action_counts = {name: 0.0 for name in ACTIONS.values()}
     for result in all_results:
         for idx, name in ACTIONS.items():
             agg_action_counts[name] += result.action_count(idx)

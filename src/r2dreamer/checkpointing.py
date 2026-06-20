@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import pickle
 from dataclasses import asdict, is_dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import jax
 import jax.numpy as jnp
@@ -32,7 +32,7 @@ class CheckpointAgentLike(Protocol):
 def config_snapshot(config: Any) -> dict[str, Any]:
     """Return a JSON-serializable run config snapshot for manifests/W&B."""
     snapshot = (
-        asdict(config)
+        asdict(cast(Any, config))
         if is_dataclass(config)
         else dict(vars(config))
         if hasattr(config, "__dict__")

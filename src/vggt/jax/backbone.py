@@ -31,6 +31,8 @@ Param tree matches ``src/vggt/jax/weight_transfer.py``:
 
 from __future__ import annotations
 
+from typing import cast
+
 import flax.linen as nn
 import jax.numpy as jnp
 
@@ -154,15 +156,18 @@ class DinoV2Backbone(nn.Module):
 
         # --- 24 ViT-L blocks (DINOv2 has qk_norm=False, LayerScale init=1.0) ---
         for i in range(self.depth):
-            x = Block(
-                dim=self.embed_dim,
-                num_heads=self.num_heads,
-                mlp_ratio=self.mlp_ratio,
-                qk_norm=False,
-                init_values=self.init_values,
-                norm_eps=self.norm_eps,
-                name=f"blocks_{i}",
-            )(x)  # no rope for DINOv2
+            x = cast(
+                jnp.ndarray,
+                Block(
+                    dim=self.embed_dim,
+                    num_heads=self.num_heads,
+                    mlp_ratio=self.mlp_ratio,
+                    qk_norm=False,
+                    init_values=self.init_values,
+                    norm_eps=self.norm_eps,
+                    name=f"blocks_{i}",
+                )(x),
+            )  # no rope for DINOv2
 
         # --- final LayerNorm (eps=1e-6) ---
         x = nn.LayerNorm(epsilon=self.norm_eps, name="norm")(x)

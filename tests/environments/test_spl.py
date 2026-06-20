@@ -38,8 +38,9 @@ def test_spl_with_shortest_path():
         obs = env.reset()
         start_geodesic = env._start_geodesic
         goal_pos, _ = env.find_nearest_viewpoint()
-        category = env._env.current_episode.object_category
-        n_goals = len(env._env.current_episode.goals)
+        assert goal_pos is not None
+        category = getattr(env.current_episode, "object_category", "unknown")
+        n_goals = len(env.current_episode.goals)
 
         print(f"\nEpisode {ep_idx}: target={category} ({n_goals} instances), "
               f"geodesic={start_geodesic:.2f}m")

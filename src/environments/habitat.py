@@ -7,6 +7,7 @@ Episodes terminate on: (1) agent within goal_radius of target, or
 
 import sys
 from pathlib import Path
+from typing import Any, TypedDict, cast
 
 import numpy as np
 
@@ -23,6 +24,12 @@ DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 # 0.2m is the tightest threshold that gives 100% SR for the optimal agent
 # with 0.25m discrete steps (see goal_distance_analysis notebook).
 GOAL_RADIUS = 0.2
+
+
+class EpisodeEndMetrics(TypedDict):
+    softspl: float
+    dtg: float
+    collision_rate: float
 
 
 def _validate_goal_distance(dist: float) -> float:
@@ -95,6 +102,10 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 
 class HabitatObjectNavEnv:
+    _env: Any
+    _last_obs: Any
+    _prev_position: np.ndarray | None
+
     def __init__(
         self,
         config: DreamerConfig,
@@ -108,6 +119,7 @@ class HabitatObjectNavEnv:
         import habitat
         from omegaconf import OmegaConf
 
+        habitat_module = cast(Any, habitat)
         self._cfg = config
         H, W = config.obs_shape[1], config.obs_shape[2]
         split = config.split
@@ -121,8 +133,8 @@ class HabitatObjectNavEnv:
             with open(curriculum_path) as f:
                 curriculum = json.load(f)
 
-        hab_cfg = habitat.get_config("benchmark/nav/objectnav/objectnav_hm3d.yaml")
-        with habitat.config.read_write(hab_cfg):
+        hab_cfg = habitat_module.get_config("benchmark/nav/objectnav/objectnav_hm3d.yaml")
+        with habitat_module.config.read_write(hab_cfg):
             hab_cfg.habitat.dataset.split = split
             if seed is not None:
                 hab_cfg.habitat.seed = int(seed)
@@ -145,7 +157,7 @@ class HabitatObjectNavEnv:
             hab_cfg.habitat.simulator.load_semantic_mesh = semantic
             OmegaConf.set_struct(hab_cfg.habitat.simulator, True)
 
-        self._env = habitat.Env(config=hab_cfg)
+        self._env = habitat_module.Env(config=hab_cfg)
         if seed is not None and hasattr(self._env, "seed"):
             self._env.seed(int(seed))
 
@@ -155,18 +167,19 @@ class HabitatObjectNavEnv:
                 (k[0], k[1], k[2])
                 for k in curriculum[f"{curriculum_mode}_episode_keys"]
             }
-            before = len(self._env._dataset.episodes)
-            self._env._dataset.episodes = [
+            dataset = self._env._dataset
+            before = len(dataset.episodes)
+            dataset.episodes = [
                 ep
-                for ep in self._env._dataset.episodes
+                for ep in dataset.episodes
                 if (
                     ep.episode_id,
-                    ep.object_category,
+                    getattr(ep, "object_category", None),
                     ep.scene_id.split("/")[-1].replace(".basis.glb", ""),
                 )
                 in key_set
             ]
-            after = len(self._env._dataset.episodes)
+            after = len(dataset.episodes)
             assert after > 0, (
                 f"Curriculum filter matched 0 episodes for mode='{curriculum_mode}'. "
                 f"Check that curriculum JSON keys match the dataset split."
@@ -179,14 +192,15 @@ class HabitatObjectNavEnv:
             )
         else:
             if max_geodesic is not None:
-                before = len(self._env._dataset.episodes)
-                self._env._dataset.episodes = [
+                dataset = self._env._dataset
+                before = len(dataset.episodes)
+                dataset.episodes = [
                     ep
-                    for ep in self._env._dataset.episodes
+                    for ep in dataset.episodes
                     if ep.info is not None
                     and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
                 ]
-                after = len(self._env._dataset.episodes)
+                after = len(dataset.episodes)
                 assert after > 0, (
                     f"max_geodesic={max_geodesic} filtered out all episodes."
                 )
@@ -203,13 +217,14 @@ class HabitatObjectNavEnv:
                 with open(step_counts_path) as f:
                     step_counts = json.load(f)
                 split_counts = step_counts.get(config.split, {})
-                before = len(self._env._dataset.episodes)
-                self._env._dataset.episodes = [
+                dataset = self._env._dataset
+                before = len(dataset.episodes)
+                dataset.episodes = [
                     ep
-                    for ep in self._env._dataset.episodes
+                    for ep in dataset.episodes
                     if split_counts.get(ep.episode_id, 0) < 200
                 ]
-                after = len(self._env._dataset.episodes)
+                after = len(dataset.episodes)
                 assert after > 0, (
                     "step_counts filter removed all episodes — check split key in JSON."
                 )
@@ -227,6 +242,11 @@ class HabitatObjectNavEnv:
         self._prev_position = None
         self._collisions = 0
         self._forward_steps = 0
+
+    @property
+    def current_episode(self) -> Any:
+        """Current Habitat episode exposed without leaking the wrapped env."""
+        return self._env.current_episode
 
     def reset(self) -> ObservationFrame:
         for attempt in range(100):
@@ -254,7 +274,7 @@ class HabitatObjectNavEnv:
         self._forward_steps = 0
         image = self._obs_to_image(obs)
         self._last_obs = obs
-        episode = self._env.current_episode
+        episode = self.current_episode
         return ObservationFrame(
             image=image,
             is_first=True,
@@ -272,7 +292,7 @@ class HabitatObjectNavEnv:
             # If the timeout fires on STOP, the agent ended at _prev_dist
             # with the current path_length — surface SoftSPL/DTG accordingly.
             end_metrics = self._episode_end_metrics(self._prev_dist, done)
-            episode = self._env.current_episode
+            episode = self.current_episode
             return ObservationFrame(
                 image=image,
                 reward=self._cfg.step_penalty,
@@ -321,7 +341,7 @@ class HabitatObjectNavEnv:
         image = self._obs_to_image(obs)
 
         end_metrics = self._episode_end_metrics(dist, done)
-        episode = self._env.current_episode
+        episode = self.current_episode
         return ObservationFrame(
             image=image,
             reward=reward,
@@ -343,7 +363,7 @@ class HabitatObjectNavEnv:
         image = self._obs_to_image(obs)
         fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
         end_metrics = self._episode_end_metrics(fallback_dist, True)
-        episode = self._env.current_episode
+        episode = self.current_episode
         return ObservationFrame(
             image=image,
             reward=self._cfg.step_penalty,
@@ -367,7 +387,7 @@ class HabitatObjectNavEnv:
         )
 
     def _episode_context(self) -> str:
-        episode = getattr(self._env, "current_episode", None)
+        episode = self.current_episode
         episode_id = getattr(episode, "episode_id", "unknown")
         category = getattr(episode, "object_category", "unknown")
         scene_id = getattr(episode, "scene_id", "unknown")
@@ -386,7 +406,7 @@ class HabitatObjectNavEnv:
             return 0.0
         return shortest / max(shortest, self._path_length)
 
-    def _episode_end_metrics(self, dist: float, done: bool) -> dict[str, float]:
+    def _episode_end_metrics(self, dist: float, done: bool) -> EpisodeEndMetrics:
         """SoftSPL / DTG / collision_rate. Zero mid-episode; only meaningful at done."""
         if not done:
             return {"softspl": 0.0, "dtg": 0.0, "collision_rate": 0.0}

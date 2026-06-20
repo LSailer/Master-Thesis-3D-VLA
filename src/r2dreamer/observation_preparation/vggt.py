@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, Any
+from typing import Literal, Any, cast
 
 import flax.linen as nn
 
@@ -125,12 +125,15 @@ class VGGTDreamerSpec:
             if self.dreamer.input_layout == "structured_wp_cp":
                 return "wp64_cp"
             return "wp_cp"
-        return {
-            "pooled": "aggregator",
-            "flattened": "agg_raw",
-            "full": "agg_tokens",
-            "global": "agg_tokens",
-        }[self.readout.token_source]
+        return cast(
+            VGGTFeatureKind,
+            {
+                "pooled": "aggregator",
+                "flattened": "agg_raw",
+                "full": "agg_tokens",
+                "global": "agg_tokens",
+            }[self.readout.token_source],
+        )
 
     @property
     def module_cls(self) -> type[nn.Module]:

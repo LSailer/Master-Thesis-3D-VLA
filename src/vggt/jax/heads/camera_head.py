@@ -20,6 +20,8 @@ name within a single ``__call__``.
 
 from __future__ import annotations
 
+from typing import cast
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -187,16 +189,20 @@ class CameraHead(nn.Module):
 
             for k in range(self.trunk_depth):
                 if use_cache:
-                    pose_tokens_mod, new_kv = self.trunk_blocks[k](
-                        pose_tokens_mod,
-                        attn_mask=None,
-                        past_kv=new_past_kvs_camera[k],
-                        use_cache=True,
+                    pose_tokens_mod, new_kv = cast(
+                        tuple[jnp.ndarray, tuple],
+                        self.trunk_blocks[k](
+                            pose_tokens_mod,
+                            attn_mask=None,
+                            past_kv=new_past_kvs_camera[k],
+                            use_cache=True,
+                        ),
                     )
                     new_past_kvs_camera[k] = new_kv
                 else:
-                    pose_tokens_mod = self.trunk_blocks[k](
-                        pose_tokens_mod, attn_mask=attn_mask
+                    pose_tokens_mod = cast(
+                        jnp.ndarray,
+                        self.trunk_blocks[k](pose_tokens_mod, attn_mask=attn_mask),
                     )
 
             delta = self.pose_branch(self.trunk_norm(pose_tokens_mod))

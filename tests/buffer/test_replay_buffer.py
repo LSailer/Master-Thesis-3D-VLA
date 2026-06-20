@@ -1,6 +1,8 @@
 """Tests for the unified ReplayBuffer with BufferConfig."""
 
 
+from typing import cast
+
 import numpy as np
 import jax.numpy as jnp
 import pytest
@@ -123,7 +125,8 @@ class TestReplayBufferFloat32:
             buf.add(np.ones(8, dtype=np.float16), 0, 0.0, False)
 
         batch = buf.sample(batch_size=1, seq_len=2)
-        assert batch["obs"].dtype == jnp.float32
+        obs_batch = cast(jnp.ndarray, batch["obs"])
+        assert obs_batch.dtype == jnp.float32
 
 
 class TestReplayBufferMappingObs:
@@ -264,7 +267,8 @@ class TestWriteHeadSafety:
         assert buf.size == cap
         # Should still be able to sample without error
         batch = buf.sample(batch_size=4, seq_len=seq_len)
-        assert batch["obs"].shape == (4, seq_len, 2)
+        obs_batch = cast(jnp.ndarray, batch["obs"])
+        assert obs_batch.shape == (4, seq_len, 2)
 
     def test_sample_works_when_idx_near_end(self):
         """Edge case: idx is close to capacity, small new region."""
@@ -281,7 +285,8 @@ class TestWriteHeadSafety:
         assert buf.idx == 18
         assert buf.size == cap
         batch = buf.sample(batch_size=4, seq_len=seq_len)
-        assert batch["obs"].shape == (4, seq_len, 2)
+        obs_batch = cast(jnp.ndarray, batch["obs"])
+        assert obs_batch.shape == (4, seq_len, 2)
 
 
 class TestEpisodeBoundaries:

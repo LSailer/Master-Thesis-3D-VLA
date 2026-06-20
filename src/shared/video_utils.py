@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 from PIL import Image
@@ -45,7 +45,7 @@ def _resize_panel(frame: np.ndarray, target_size: int = MAX_PANEL_SIZE) -> np.nd
     scale = target_size / max(h, w, 1)
     size = (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
     if size != (w, h):
-        resample = Image.NEAREST if scale > 1 else Image.BILINEAR
+        resample = Image.Resampling.NEAREST if scale > 1 else Image.Resampling.BILINEAR
         frame = np.asarray(Image.fromarray(frame).resize(size, resample))
     return frame
 
@@ -87,7 +87,7 @@ def render_topdown_frame(
         nav = sample_navmesh(env._env, resolution=0.1)
     fig, ax = plt.subplots(1, 1, figsize=(2.56, 2.56), dpi=100)
 
-    extent = [nav["x_min"], nav["x_max"], nav["z_max"], nav["z_min"]]
+    extent = (nav["x_min"], nav["x_max"], nav["z_max"], nav["z_min"])
     ax.imshow(nav["grid"], extent=extent, cmap="Greys_r", alpha=0.3)
 
     traj = np.asarray(trajectory_so_far, dtype=np.float32)
@@ -105,7 +105,7 @@ def render_topdown_frame(
     fig.tight_layout(pad=0)
 
     fig.canvas.draw()
-    frame = np.asarray(fig.canvas.buffer_rgba())[..., :3].copy()
+    frame = np.asarray(cast(Any, fig.canvas).buffer_rgba())[..., :3].copy()
     plt.close(fig)
     return frame.astype(np.uint8)
 

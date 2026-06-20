@@ -42,6 +42,9 @@ from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
 class Env(Protocol):
+    _env: Any
+    current_episode: Any
+
     def reset(self) -> ObservationFrame: ...
     def step(self, action: int) -> ObservationFrame: ...
     def close(self) -> None: ...
@@ -55,6 +58,7 @@ class R2DreamerAgentLike(Protocol):
     still be passed to ``Trainer`` if they expose the same public contract.
     """
 
+    cfg: Any
     params: Any
     opt_state: Any
     slow_critic_params: Any
@@ -127,8 +131,9 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
         softspl = last_obs.softspl
         dtg = last_obs.dtg
         collision_rate = last_obs.collision_rate
-        category = getattr(env._env.current_episode, "object_category", "unknown")
-        scene_raw = getattr(env._env.current_episode, "scene_id", "")
+        episode = env.current_episode
+        category = getattr(episode, "object_category", "unknown")
+        scene_raw = getattr(episode, "scene_id", "")
         path_length = env._path_length
         shortest_path = env._start_geodesic
         path_ratio = path_length / shortest_path if shortest_path > 0 else 0.0
@@ -333,11 +338,9 @@ class Trainer:
 
     def _prepare_observation(
         self, adapter: ObsAdapter, obs: ObservationFrame
-    ) -> tuple[Any, dict]:
-        if hasattr(adapter, "prepare_env_step"):
-            prepared = adapter.prepare_env_step(obs)
-            return prepared.replay_obs, prepared.agent_obs
-        return adapter.transform(obs)
+    ) -> tuple[Any, dict[str, Any]]:
+        prepared = adapter.prepare_env_step(obs)
+        return prepared.replay_obs, prepared.agent_obs
 
     def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> None:
         acfg, tcfg = self.acfg, self.tcfg
@@ -570,7 +573,7 @@ class Trainer:
 
     def _goal_positions(self, env: Env) -> list[list[float]]:
         positions = []
-        for goal in env._env.current_episode.goals:
+        for goal in env.current_episode.goals:
             if goal.view_points:
                 pos = goal.view_points[0].agent_state.position
             else:
@@ -782,8 +785,13 @@ class Trainer:
         record_video: bool,
         step: int,
     ) -> tuple[dict[str, Any], jnp.ndarray]:
+        val_env = self.val_env
         val_adapter = self.val_obs_adapter
-        obs = self.val_env.reset()
+        val_episode_metrics_fn = self.val_episode_metrics_fn
+        if val_env is None or val_adapter is None or val_episode_metrics_fn is None:
+            raise RuntimeError("validation loop is not configured")
+
+        obs = val_env.reset()
         if val_adapter.on_episode_reset:
             val_adapter.on_episode_reset()
         _, agent_obs = self._prepare_observation(val_adapter, obs)
@@ -794,19 +802,19 @@ class Trainer:
 
         recording = None
         if record_video:
-            recording = self._start_video_recording(self.val_env, obs)
+            recording = self._start_video_recording(val_env, obs)
 
         for _ in range(self.tcfg.val_max_episode_steps):
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(agent_obs, act_key, training=False)
-            next_obs = self.val_env.step(action)
+            next_obs = val_env.step(action)
             _, next_agent_obs = self._prepare_observation(val_adapter, next_obs)
 
             action_counts[action] += 1
             episode_reward += next_obs.reward
             episode_steps += 1
             if recording is not None:
-                self._append_video_frame(self.val_env, recording, next_obs)
+                self._append_video_frame(val_env, recording, next_obs)
 
             if next_obs.done:
                 obs = next_obs
@@ -814,8 +822,8 @@ class Trainer:
             obs = next_obs
             agent_obs = next_agent_obs
 
-        val_metrics = self.val_episode_metrics_fn(
-            self.val_env,
+        val_metrics = val_episode_metrics_fn(
+            val_env,
             obs,
             episode_reward,
             episode_steps,

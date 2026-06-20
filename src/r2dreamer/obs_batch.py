@@ -34,6 +34,7 @@ class ObsBatchConfig(Protocol):
 
     encoder_type: str
     obs_shape: ObsShape
+    compute_dtype: str
     vggt_feature_dim: int
     vggt_token_count: int
     vggt_token_dim: int

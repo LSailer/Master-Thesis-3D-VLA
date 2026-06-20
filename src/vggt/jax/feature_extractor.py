@@ -1,6 +1,6 @@
 """JAX StreamVGGT feature extractor for streaming 3D point extraction.
 
-Mirrors the public API of ``src.vggt.feature_extractor.VGGTFeatureExtractor``
+Mirrors the public API of ``src.vggt.reference.feature_extractor.VGGTFeatureExtractor``
 so callers can swap backends by changing one import:
 
     extractor = JAXVGGTFeatureExtractor(device="cuda")
@@ -72,7 +72,7 @@ class HeadOutputs:
     dense_world_points: jnp.ndarray | None
 
 
-def select_jax_device(device: str) -> jax.Device:
+def select_jax_device(device: str) -> Any:
     """Resolve the public device string to a concrete JAX device."""
     if device in ("cuda", "gpu"):
         return jax.devices("gpu")[0]
@@ -81,7 +81,7 @@ def select_jax_device(device: str) -> jax.Device:
     raise ValueError(f"unknown device {device!r}")
 
 
-def load_params_on_device(device: jax.Device) -> ExtractorParams:
+def load_params_on_device(device: Any) -> ExtractorParams:
     """Load StreamVGGT weights, convert them to Flax layout, and place on device."""
     state_dict = load_checkpoint()
     tree, _ = load_pytorch_weights(state_dict, include_v1_only=True)
@@ -286,7 +286,7 @@ class JAXVGGTFeatureExtractor:
         return self._wp_pool_size
 
     @property
-    def aggregator_feature_shape(self) -> tuple[int, int, int]:
+    def aggregator_feature_shape(self) -> tuple[int, int]:
         """Shape of one frame's all-token pre-head global aggregator features."""
         return (
             1 + self._aggregator.num_register_tokens + self.patch_grid**2,
@@ -640,6 +640,8 @@ class JAXVGGTFeatureExtractor:
                 "aggregator_full_tokens": aggregator_full_tokens,
             }
             if return_dense:
+                if head_outputs.dense_world_points is None:
+                    raise RuntimeError("dense world points missing")
                 out["dense_world_points"] = head_outputs.dense_world_points
             return out
         return {

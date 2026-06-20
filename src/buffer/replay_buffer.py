@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any, cast
 
 import numpy as np
 import jax.numpy as jnp
@@ -12,6 +13,7 @@ import jax.numpy as jnp
 ObsShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
 ObsDType = str | Mapping[str, str]
 ObsNormalize = bool | Mapping[str, bool]
+ReplayBatch = dict[str, jnp.ndarray | dict[str, jnp.ndarray]]
 
 
 @dataclass(frozen=True)
@@ -52,7 +54,7 @@ def _gather_sequence_batch(
     terminals: np.ndarray,
     normalize: bool | Mapping[str, bool],
     keep_uint8_on_sample: bool | Mapping[str, bool],
-) -> dict[str, jnp.ndarray]:
+) -> ReplayBatch:
     """Gather length-``seq_len`` windows at ``starts`` and pack a batch dict.
 
     Shared by :class:`ReplayBuffer` and :class:`ValReplayDataset`, which differ
@@ -180,9 +182,10 @@ class ReplayBuffer:
     def __init__(self, config: BufferConfig | object) -> None:
         # Backward compat: accept a DreamerConfig or R2DreamerConfig
         if not isinstance(config, BufferConfig):
+            legacy_config = cast(Any, config)
             config = BufferConfig(
-                capacity=config.buffer_capacity,
-                obs_shape=config.obs_shape,
+                capacity=legacy_config.buffer_capacity,
+                obs_shape=legacy_config.obs_shape,
             )
         cap = config.capacity
         field_specs = _field_specs(config)
@@ -237,7 +240,7 @@ class ReplayBuffer:
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
-    def sample(self, batch_size: int, seq_len: int) -> dict[str, jnp.ndarray]:
+    def sample(self, batch_size: int, seq_len: int) -> ReplayBatch:
         starts = self._sample_starts(batch_size, seq_len)
         return _gather_sequence_batch(
             starts,

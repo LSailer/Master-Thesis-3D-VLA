@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -27,3 +28,6 @@ class ObservationFrame:
     invalid_goal_distance_raw: str | None = None
     is_last: bool = False
     is_terminal: bool = False
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)

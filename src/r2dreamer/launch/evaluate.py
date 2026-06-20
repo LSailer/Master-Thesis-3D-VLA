@@ -36,7 +36,7 @@ def _render_topdown(env, trajectory, goal_positions, output_path):
 
 def _extract_goal_positions(env):
     goal_positions = []
-    for goal in env._env.current_episode.goals:
+    for goal in env.current_episode.goals:
         if goal.view_points:
             for vp in goal.view_points:
                 pos = vp.agent_state.position
@@ -211,6 +211,8 @@ def _make_eval_agent(args, eff_checkpoint: str | None, agent_config_kwargs: dict
     if args.random:
         print("Using random agent")
         return None
+    if eff_checkpoint is None:
+        raise ValueError("checkpoint is required unless --random is set")
     agent = R2DreamerAgent.from_checkpoint(
         eff_checkpoint,
         num_actions=4,
@@ -229,8 +231,8 @@ def _start_eval_episode(env_instance, adapter):
 
     start_pos = env_instance._env.sim.get_agent_state().position.tolist()
     goal_positions = _extract_goal_positions(env_instance)
-    scene_id = env_instance._env.current_episode.scene_id
-    object_category = env_instance._env.current_episode.object_category
+    scene_id = env_instance.current_episode.scene_id
+    object_category = env_instance.current_episode.object_category
     trajectory = [start_pos]
     headings = [_get_agent_heading(env_instance)]
     return (

@@ -13,6 +13,8 @@ callers express that by passing ``init_values=None``.
 from __future__ import annotations
 
 
+from typing import cast
+
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
@@ -99,7 +101,7 @@ class Block(nn.Module):
         rope_tables: tuple[jnp.ndarray, jnp.ndarray] | None = None,
         positions: jnp.ndarray | None = None,
         attn_mask: jnp.ndarray | None = None,
-        past_kv: tuple[jnp.ndarray, jnp.ndarray] | None = None,
+        past_kv: tuple | None = None,
         use_cache: bool = False,
         cache_budget: int | None = None,
         num_anchor_tokens: int = 0,
@@ -126,11 +128,11 @@ class Block(nn.Module):
         scores = None
         if use_cache:
             if cache_budget is not None:
-                h, new_kv, scores = attn_out
+                h, new_kv, scores = cast(tuple[jnp.ndarray, tuple, object], attn_out)
             else:
-                h, new_kv = attn_out
+                h, new_kv = cast(tuple[jnp.ndarray, tuple], attn_out)
         else:
-            h = attn_out
+            h = cast(jnp.ndarray, attn_out)
         if self.init_values:
             h = LayerScale(self.dim, init_values=self.init_values, name="ls1")(h)
         x = x + h

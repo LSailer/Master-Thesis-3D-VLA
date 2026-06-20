@@ -14,7 +14,7 @@ from src.environments.habitat import (
 )
 
 
-class _RewardTestEnv:
+class _RewardTestEnv(HabitatObjectNavEnv):
     """Minimal stand-in to test _compute_reward logic in isolation."""
 
     def __init__(self, cfg: DreamerConfig):
@@ -66,7 +66,7 @@ def _make_step_test_env(distance: float) -> HabitatObjectNavEnv:
     env._start_geodesic = 1.0
     env._step_count = 0
     env._path_length = 0.0
-    env._prev_position = [0.0, 0.0, 0.0]
+    env._prev_position = np.array([0.0, 0.0, 0.0])
     env._collisions = 0
     env._forward_steps = 0
     return env

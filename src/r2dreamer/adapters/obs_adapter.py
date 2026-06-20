@@ -9,6 +9,7 @@ from typing import Any, Callable
 import numpy as np
 
 from src.environments.observation import ObservationFrame
+from src.r2dreamer.observation_preparation.contracts import PreparedObservation
 
 
 BufferShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
@@ -46,6 +47,11 @@ class ObsAdapter:
     ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         """Returns (buffer_obs, agent_obs_dict)."""
         return env_obs.image, {"image": env_obs.image, "is_first": env_obs.is_first}
+
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+        """Return the explicit replay/agent observation pair."""
+        replay_obs, agent_obs = self.transform(env_obs)
+        return PreparedObservation(replay_obs=replay_obs, agent_obs=agent_obs)
 
     def augment_replay_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Optionally add live adapter context to a sampled replay batch."""

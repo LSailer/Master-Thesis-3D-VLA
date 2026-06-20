@@ -1,5 +1,7 @@
 """Crafter environment wrapper compatible with our DreamerV3 training loop."""
 
+from typing import Any, cast
+
 import numpy as np
 
 from src.environments.observation import ObservationFrame
@@ -9,7 +11,8 @@ class CrafterEnv:
     def __init__(self, size=(64, 64), seed=None):
         import crafter
 
-        self._env = crafter.Env(size=size, reward=True, seed=seed)
+        crafter_module = cast(Any, crafter)
+        self._env = crafter_module.Env(size=size, reward=True, seed=seed)
         self.num_actions = self._env.action_space.n  # 17
 
     def reset(self) -> ObservationFrame:

@@ -1,12 +1,24 @@
 """Unit tests for EpisodeTracker — per-category accumulators + collision-rate flag."""
 
+from typing import TypedDict
+
 import pytest
 
 from src.shared.wandb_utils import EpisodeTracker
 
 
-def _make_episode(category, spl, success=0.0, reward=0.0):
-    return dict(
+class EpisodeKwargs(TypedDict):
+    reward: float
+    success: float
+    spl: float
+    category: str
+    scene_id: str
+
+
+def _make_episode(
+    category: str, spl: float, success: float = 0.0, reward: float = 0.0
+) -> EpisodeKwargs:
+    return EpisodeKwargs(
         reward=reward, success=success, spl=spl,
         category=category, scene_id="some/scene.basis.glb",
     )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any, cast
 
 import jax
 
@@ -53,7 +54,7 @@ def state_dict() -> dict[str, np.ndarray]:
             return {k: f[k] for k in f.files}
     sd = load_checkpoint()
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(_CACHE_NPZ, **sd)
+    cast(Any, np.savez)(str(_CACHE_NPZ), **sd)
     return sd
 
 
@@ -731,7 +732,10 @@ class TestLevel3AggregatorCache:
 
         # No-cache: process all frames at once with shape (1, N, 3, 518, 518).
         all_frames = frames[None]  # (1, N, 3, H, W)
-        nc_out_list, _ = Aggregator().apply(jx_params, jnp.asarray(all_frames))
+        nc_out_list, _ = cast(
+            tuple[list[jnp.ndarray], int],
+            Aggregator().apply(jx_params, jnp.asarray(all_frames)),
+        )
         nc_last = np.asarray(nc_out_list[-1])  # (1, N, P, 2C)
 
         # Cache: loop frame-by-frame with S=1 each.
@@ -740,13 +744,16 @@ class TestLevel3AggregatorCache:
         cached_last_per_frame = []
         for i in range(frames.shape[0]):
             one = jnp.asarray(frames[i : i + 1][None])  # (1, 1, 3, H, W)
-            out_list, _, past_kvs, last_scores = Aggregator().apply(
-                jx_params,
-                one,
-                use_cache=True,
-                past_kvs=past_kvs,
-                past_frame_idx=i,
-                last_scores=last_scores,
+            out_list, _, past_kvs, last_scores = cast(
+                tuple[list[jnp.ndarray], int, list[Any], jnp.ndarray],
+                Aggregator().apply(
+                    jx_params,
+                    one,
+                    use_cache=True,
+                    past_kvs=past_kvs,
+                    past_frame_idx=i,
+                    last_scores=last_scores,
+                ),
             )
             cached_last_per_frame.append(np.asarray(out_list[-1]))
         cached_last = np.concatenate(cached_last_per_frame, axis=1)  # (1, N, P, 2C)
@@ -799,13 +806,16 @@ class TestLevel3AggregatorCache:
         jx_last_per_frame = []
         for i in range(N):
             one = jnp.asarray(frames[i : i + 1][None])
-            out_list, _, jx_past_kvs, jx_last_scores = Aggregator().apply(
-                jx_params,
-                one,
-                use_cache=True,
-                past_kvs=jx_past_kvs,
-                past_frame_idx=i,
-                last_scores=jx_last_scores,
+            out_list, _, jx_past_kvs, jx_last_scores = cast(
+                tuple[list[jnp.ndarray], int, list[Any], jnp.ndarray],
+                Aggregator().apply(
+                    jx_params,
+                    one,
+                    use_cache=True,
+                    past_kvs=jx_past_kvs,
+                    past_frame_idx=i,
+                    last_scores=jx_last_scores,
+                ),
             )
             jx_last_per_frame.append(np.asarray(out_list[-1]))
         jx_last = np.concatenate(jx_last_per_frame, axis=1)
@@ -1001,17 +1011,22 @@ class TestLevel3Eviction:
         sizes = []
         for i, frame in enumerate(frames):
             one = jnp.asarray(frame[None, None])
-            out_list, _, past, last_scores = Aggregator().apply(
-                jx_params,
-                one,
-                use_cache=True,
-                past_kvs=past,
-                past_frame_idx=i,
-                total_budget=total_budget,
-                last_scores=last_scores,
+            out_list, _, past, last_scores = cast(
+                tuple[list[jnp.ndarray], int, list[Any], jnp.ndarray],
+                Aggregator().apply(
+                    jx_params,
+                    one,
+                    use_cache=True,
+                    past_kvs=past,
+                    past_frame_idx=i,
+                    total_budget=total_budget,
+                    last_scores=last_scores,
+                ),
             )
             outs.append(np.asarray(out_list[-1]))
             sizes.append(past[0][0].shape[2])
+        if past is None:
+            raise AssertionError("JAX cache was not populated")
         past_np = [(np.asarray(k), np.asarray(v)) for (k, v) in past]
         return outs, sizes, past_np
 
@@ -1188,16 +1203,21 @@ class TestLevel3DynamicBudget:
                 np.asarray(_calculate_dynamic_budgets(ls, total_budget))
             )
             one = jnp.asarray(frame[None, None])
-            out_list, _, past, last_scores = Aggregator().apply(
-                jx_params,
-                one,
-                use_cache=True,
-                past_kvs=past,
-                past_frame_idx=i,
-                total_budget=total_budget,
-                last_scores=last_scores,
+            out_list, _, past, last_scores = cast(
+                tuple[list[jnp.ndarray], int, list[Any], jnp.ndarray],
+                Aggregator().apply(
+                    jx_params,
+                    one,
+                    use_cache=True,
+                    past_kvs=past,
+                    past_frame_idx=i,
+                    total_budget=total_budget,
+                    last_scores=last_scores,
+                ),
             )
             outs.append(np.asarray(out_list[-1]))
+        if past is None:
+            raise AssertionError("JAX cache was not populated")
         past_np = [(np.asarray(k), np.asarray(v)) for (k, v) in past]
         return outs, past_np, budgets_per_frame, np.asarray(last_scores)
 
@@ -1449,13 +1469,19 @@ class TestLevel3CameraHeadPaddedParity:
         for i, frame_tokens in enumerate(agg_tokens_per_frame):
             jx_input = [jnp.asarray(x) for x in frame_tokens]
 
-            pose_legacy, legacy_past = head.apply(
-                jx_params, jx_input,
-                use_cache=True, past_kvs_camera=legacy_past,
+            pose_legacy, legacy_past = cast(
+                tuple[list[jnp.ndarray], list[Any]],
+                head.apply(
+                    jx_params, jx_input,
+                    use_cache=True, past_kvs_camera=legacy_past,
+                ),
             )
-            pose_padded, padded_past = head.apply(
-                jx_params, jx_input,
-                use_cache=True, past_kvs_camera=padded_past,
+            pose_padded, padded_past = cast(
+                tuple[list[jnp.ndarray], list[Any]],
+                head.apply(
+                    jx_params, jx_input,
+                    use_cache=True, past_kvs_camera=padded_past,
+                ),
             )
 
             # Pose output parity (last-iter prediction).
