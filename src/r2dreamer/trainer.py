@@ -2,7 +2,8 @@
 
 Provides Trainer (training loop), convert_batch (buffer→agent format),
 save/load_checkpoint, ObsAdapter (env→buffer/agent bridge), and
-habitat_defaults (pre-configured Habitat+CNN settings).
+habitat_defaults (pre-configured Habitat+CNN settings). Loop/orchestration
+knobs live in ``TrainerConfig`` (``src.r2dreamer.config``).
 """
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ import csv
 import os
 import sys
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.environments.observation import ObservationFrame
 from src.shared.video_utils import (
     compose_frame,
     log_episode_video,
@@ -31,7 +32,7 @@ from src.r2dreamer.checkpointing import (
     load_checkpoint,
     save_checkpoint,
 )
-from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
@@ -41,8 +42,8 @@ from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 
 
 class Env(Protocol):
-    def reset(self) -> dict: ...
-    def step(self, action: int) -> dict: ...
+    def reset(self) -> ObservationFrame: ...
+    def step(self, action: int) -> ObservationFrame: ...
     def close(self) -> None: ...
 
 
@@ -95,65 +96,6 @@ def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# TrainerConfig
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class TrainerConfig:
-    """Controls the training loop (separate from R2DreamerConfig model arch)."""
-
-    output_dir: str = "output/runs/r2dreamer"
-    total_steps: int = 10_000_000
-    prefill_steps: int = 5000
-    log_every: int = 250
-    checkpoint_every: int = 50_000
-    seed: int = 0
-
-    # When True, a fully completed run hard-exits the process (os._exit(0))
-    # after the final checkpoint, MANIFEST, and W&B are flushed — skipping
-    # habitat_sim's GL teardown, which SIGABRTs ("no current context") on some
-    # magnum builds and would otherwise poison the exit code of a successful
-    # run. Set by the SLURM launcher (env R2DREAMER_HARD_EXIT_ON_FINISH=1);
-    # left False for notebook/test callers so they keep the normal close() path
-    # and real failures still surface a non-zero exit.
-    hard_exit_on_finish: bool = False
-
-    # WandB (None = disabled)
-    wandb_project: str | None = "3d-vla-objectnav"
-    wandb_name: str | None = None
-    wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
-    # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
-    wandb_id: str | None = None
-    video_log_every: int = 0
-    video_log_episodes: int = 0
-
-    # Deterministic Val-Episode-Loop. val_every=0 disables. Requires a
-    # val_env to be passed to Trainer. Default off keeps production runs
-    # scalars-only unless validation is explicitly requested.
-    val_every: int = 0
-    val_episodes: int = 50
-    val_video_episodes: int = 0
-    val_max_episode_steps: int = 500
-
-    # Resume from checkpoint (.pkl produced by save_checkpoint). When set,
-    # restores agent.{params, opt_state, slow_critic_params, ema_state} and
-    # offsets the train loop to start at the checkpoint's step.
-    resume_from: str | None = None
-
-    # --- Karpathy step-3 diagnostic: overfit a single sampled batch ---
-    # When True, the run does the normal prefill, then samples one batch
-    # (overfit_batch_size, overfit_seq_len) once, freezes it, and runs
-    # agent.train_step on that same batch for overfit_steps iterations.
-    # No env rollouts, no validation, no checkpointing.
-    overfit_one_batch: bool = False
-    overfit_steps: int = 1000
-    overfit_batch_size: int = 1
-    overfit_seq_len: int = 8
-    overfit_min_loss_drop: float = 0.20
-
-
-# ---------------------------------------------------------------------------
 # habitat_defaults
 # ---------------------------------------------------------------------------
 
@@ -175,16 +117,16 @@ def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[st
 
     def episode_metrics_fn(
         env: Any,
-        last_obs: dict,
+        last_obs: ObservationFrame,
         episode_reward: float,
         episode_steps: int,
         action_counts: np.ndarray,
     ) -> dict[str, Any]:
-        success = last_obs.get("success", 0.0)
-        spl = last_obs.get("spl", 0.0)
-        softspl = last_obs.get("softspl", 0.0)
-        dtg = last_obs.get("dtg", 0.0)
-        collision_rate = last_obs.get("collision_rate", 0.0)
+        success = last_obs.success
+        spl = last_obs.spl
+        softspl = last_obs.softspl
+        dtg = last_obs.dtg
+        collision_rate = last_obs.collision_rate
         category = getattr(env._env.current_episode, "object_category", "unknown")
         scene_raw = getattr(env._env.current_episode, "scene_id", "")
         path_length = env._path_length
@@ -389,7 +331,9 @@ class Trainer:
     # Prefill
     # ------------------------------------------------------------------
 
-    def _prepare_observation(self, adapter: ObsAdapter, obs: dict) -> tuple[Any, dict]:
+    def _prepare_observation(
+        self, adapter: ObsAdapter, obs: ObservationFrame
+    ) -> tuple[Any, dict]:
         if hasattr(adapter, "prepare_env_step"):
             prepared = adapter.prepare_env_step(obs)
             return prepared.replay_obs, prepared.agent_obs
@@ -409,16 +353,16 @@ class Trainer:
             next_obs = self.env.step(action)
             next_buffer_obs, _ = self._prepare_observation(self.obs_adapter, next_obs)
 
-            success = next_obs.get("success", 0.0) > 0
+            success = next_obs.success > 0
             self.buffer.add(
                 buffer_obs,
                 action,
-                next_obs["reward"],
-                next_obs["done"],
+                next_obs.reward,
+                next_obs.done,
                 terminal=success,
             )
 
-            if next_obs["done"]:
+            if next_obs.done:
                 obs = self.env.reset()
                 if self.obs_adapter.on_episode_reset:
                     self.obs_adapter.on_episode_reset()
@@ -433,46 +377,33 @@ class Trainer:
 
     def _reset_train_episode(
         self,
-    ) -> tuple[dict, np.ndarray | dict[str, np.ndarray], dict]:
+    ) -> tuple[ObservationFrame, np.ndarray | dict[str, np.ndarray], dict]:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
         buffer_obs, agent_obs = self._prepare_observation(self.obs_adapter, obs)
         return obs, buffer_obs, agent_obs
 
-    def _zero_episode_counters(self) -> tuple[float, int, np.ndarray]:
-        return 0.0, 0, np.zeros(self.acfg.num_actions, dtype=int)
-
-    def _start_train_video_if_due(
-        self,
-        step: int,
-        next_video_step: int,
-        obs: dict,
-    ) -> dict[str, Any] | None:
-        if self._should_record_video(step, next_video_step):
-            return self._start_video_recording(self.env, obs)
-        return None
-
     def _record_train_transition(
         self,
         *,
         buffer_obs: np.ndarray | dict[str, np.ndarray],
         action: int,
-        next_obs: dict,
+        next_obs: ObservationFrame,
     ) -> None:
-        success = next_obs.get("success", 0.0) > 0
+        success = next_obs.success > 0
         self.buffer.add(
             buffer_obs,
             action,
-            next_obs["reward"],
-            next_obs["done"],
+            next_obs.reward,
+            next_obs.done,
             terminal=success,
         )
 
     def _finish_train_episode(
         self,
         *,
-        last_obs: dict,
+        last_obs: ObservationFrame,
         episode_reward: float,
         episode_steps: int,
         action_counts: np.ndarray,
@@ -482,7 +413,7 @@ class Trainer:
         video_recording: dict[str, Any] | None,
         video_next_step: int,
     ) -> tuple[
-        dict,
+        ObservationFrame,
         np.ndarray | dict[str, np.ndarray],
         dict,
         float,
@@ -510,7 +441,11 @@ class Trainer:
             video_recording = None
             video_next_step = step + max(1, self.tcfg.video_log_every)
 
-        episode_reward, episode_steps, action_counts = self._zero_episode_counters()
+        episode_reward, episode_steps, action_counts = (
+            0.0,
+            0,
+            np.zeros(self.acfg.num_actions, dtype=int),
+        )
         obs, buffer_obs, agent_obs = self._reset_train_episode()
         if self._should_record_video(step + 1, video_next_step):
             video_recording = self._start_video_recording(self.env, obs)
@@ -531,7 +466,11 @@ class Trainer:
         start_step = self._resume_step
         print(f"Training from step {start_step} to {tcfg.total_steps}...")
         obs, buffer_obs, agent_obs = self._reset_train_episode()
-        episode_reward, episode_steps, action_counts = self._zero_episode_counters()
+        episode_reward, episode_steps, action_counts = (
+            0.0,
+            0,
+            np.zeros(acfg.num_actions, dtype=int),
+        )
         self._t0 = time.time()
         self._last_log_time = self._t0
         self._last_log_step = start_step - 1
@@ -539,11 +478,9 @@ class Trainer:
         train_credit = 0.0
         metrics: dict[str, Any] = {}
         video_next_step = start_step
-        video_recording = self._start_train_video_if_due(
-            start_step,
-            video_next_step,
-            obs,
-        )
+        video_recording = None
+        if self._should_record_video(start_step, video_next_step):
+            video_recording = self._start_video_recording(self.env, obs)
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -560,12 +497,12 @@ class Trainer:
                 next_obs=next_obs,
             )
             action_counts[action] += 1
-            episode_reward += next_obs["reward"]
+            episode_reward += next_obs.reward
             episode_steps += 1
             if video_recording is not None:
                 self._append_video_frame(self.env, video_recording, next_obs)
 
-            if next_obs["done"]:
+            if next_obs.done:
                 (
                     obs,
                     buffer_obs,
@@ -645,7 +582,7 @@ class Trainer:
         pos = env._env.sim.get_agent_state().position
         return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 
-    def _start_video_recording(self, env: Env, obs: dict) -> dict[str, Any]:
+    def _start_video_recording(self, env: Env, obs: ObservationFrame) -> dict[str, Any]:
         recording = {
             "trajectory": [self._agent_position(env)],
             "goals": self._goal_positions(env),
@@ -655,14 +592,12 @@ class Trainer:
         return recording
 
     def _append_video_frame(
-        self, env: Env, recording: dict[str, Any], obs: dict
+        self, env: Env, recording: dict[str, Any], obs: ObservationFrame
     ) -> None:
-        if "image" not in obs:
-            return
         if recording["frames"]:
             recording["trajectory"].append(self._agent_position(env))
         topdown = render_topdown_frame(env, recording["trajectory"], recording["goals"])
-        recording["frames"].append(compose_frame(obs["image"], topdown))
+        recording["frames"].append(compose_frame(obs.image, topdown))
 
     # ------------------------------------------------------------------
     # Overfit-one-batch diagnostic loop (Karpathy step 3)
@@ -741,7 +676,7 @@ class Trainer:
 
     def _on_episode_end(
         self,
-        last_obs: dict,
+        last_obs: ObservationFrame,
         episode_reward: float,
         episode_steps: int,
         action_counts: np.ndarray,
@@ -868,12 +803,12 @@ class Trainer:
             _, next_agent_obs = self._prepare_observation(val_adapter, next_obs)
 
             action_counts[action] += 1
-            episode_reward += next_obs["reward"]
+            episode_reward += next_obs.reward
             episode_steps += 1
             if recording is not None:
                 self._append_video_frame(self.val_env, recording, next_obs)
 
-            if next_obs["done"]:
+            if next_obs.done:
                 obs = next_obs
                 break
             obs = next_obs

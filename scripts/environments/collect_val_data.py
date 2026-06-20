@@ -41,14 +41,14 @@ def main():
         while True:
             action = np.random.randint(0, 4)
             next_obs = env.step(action)
-            all_obs.append(obs["image"])  # (C, H, W) uint8
+            all_obs.append(obs.image)  # (C, H, W) uint8
             all_actions.append(action)
-            all_rewards.append(next_obs["reward"])
-            success = next_obs.get("success", 0.0) > 0
-            all_dones.append(next_obs["done"])
+            all_rewards.append(next_obs.reward)
+            success = next_obs.success > 0
+            all_dones.append(next_obs.done)
             all_terminals.append(success)
             ep_steps += 1
-            if next_obs["done"]:
+            if next_obs.done:
                 break
             obs = next_obs
 

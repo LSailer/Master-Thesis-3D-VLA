@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.shared.configs import DreamerConfig
 
 # Discrete actions: STOP is a no-op (no movement), kept for action-space parity
@@ -227,7 +228,7 @@ class HabitatObjectNavEnv:
         self._collisions = 0
         self._forward_steps = 0
 
-    def reset(self) -> dict:
+    def reset(self) -> ObservationFrame:
         for attempt in range(100):
             obs = self._env.reset()
             raw_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
@@ -253,9 +254,16 @@ class HabitatObjectNavEnv:
         self._forward_steps = 0
         image = self._obs_to_image(obs)
         self._last_obs = obs
-        return {"image": image, "is_first": True, "reward": 0.0, "done": False}
+        episode = self._env.current_episode
+        return ObservationFrame(
+            image=image,
+            is_first=True,
+            scene_id=getattr(episode, "scene_id", None),
+            episode_id=getattr(episode, "episode_id", None),
+            step=self._step_count,
+        )
 
-    def step(self, action: int) -> dict:
+    def step(self, action: int) -> ObservationFrame:
         # STOP (action 0) is a no-op: no movement, no termination
         if action == 0:
             self._step_count += 1
@@ -263,15 +271,19 @@ class HabitatObjectNavEnv:
             done = self._step_count >= self._cfg.max_episode_steps
             # If the timeout fires on STOP, the agent ended at _prev_dist
             # with the current path_length — surface SoftSPL/DTG accordingly.
-            return {
-                "image": image,
-                "reward": self._cfg.step_penalty,
-                "done": done,
-                "is_first": False,
-                "success": 0.0,
-                "spl": 0.0,
-                **self._episode_end_metrics(self._prev_dist, done),
-            }
+            end_metrics = self._episode_end_metrics(self._prev_dist, done)
+            episode = self._env.current_episode
+            return ObservationFrame(
+                image=image,
+                reward=self._cfg.step_penalty,
+                done=done,
+                is_first=False,
+                is_last=done,
+                scene_id=getattr(episode, "scene_id", None),
+                episode_id=getattr(episode, "episode_id", None),
+                step=self._step_count,
+                **end_metrics,
+            )
 
         obs = self._env.step(action=action)
         self._step_count += 1
@@ -308,30 +320,43 @@ class HabitatObjectNavEnv:
 
         image = self._obs_to_image(obs)
 
-        return {
-            "image": image,
-            "reward": reward,
-            "done": done,
-            "is_first": False,
-            "success": success,
-            "spl": spl,
-            **self._episode_end_metrics(dist, done),
-        }
+        end_metrics = self._episode_end_metrics(dist, done)
+        episode = self._env.current_episode
+        return ObservationFrame(
+            image=image,
+            reward=reward,
+            done=done,
+            is_first=False,
+            success=success,
+            spl=spl,
+            is_last=done,
+            is_terminal=success > 0,
+            scene_id=getattr(episode, "scene_id", None),
+            episode_id=getattr(episode, "episode_id", None),
+            step=self._step_count,
+            **end_metrics,
+        )
 
-    def _invalid_goal_distance_transition(self, obs, raw_dist: object) -> dict:
+    def _invalid_goal_distance_transition(
+        self, obs, raw_dist: object
+    ) -> ObservationFrame:
         image = self._obs_to_image(obs)
         fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
-        return {
-            "image": image,
-            "reward": self._cfg.step_penalty,
-            "done": True,
-            "is_first": False,
-            "success": 0.0,
-            "spl": 0.0,
-            "invalid_goal_distance": 1.0,
-            "invalid_goal_distance_raw": str(raw_dist),
-            **self._episode_end_metrics(fallback_dist, True),
-        }
+        end_metrics = self._episode_end_metrics(fallback_dist, True)
+        episode = self._env.current_episode
+        return ObservationFrame(
+            image=image,
+            reward=self._cfg.step_penalty,
+            done=True,
+            is_first=False,
+            is_last=True,
+            invalid_goal_distance=1.0,
+            invalid_goal_distance_raw=str(raw_dist),
+            scene_id=getattr(episode, "scene_id", None),
+            episode_id=getattr(episode, "episode_id", None),
+            step=self._step_count,
+            **end_metrics,
+        )
 
     def _log_invalid_goal_distance(self, raw_dist: object, *, phase: str) -> None:
         print(

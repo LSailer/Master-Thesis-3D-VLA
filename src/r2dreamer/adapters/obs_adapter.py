@@ -8,6 +8,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from src.environments.observation import ObservationFrame
+
 
 BufferShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
 BufferDType = str | Mapping[str, str]
@@ -18,8 +20,8 @@ BufferNormalize = bool | Mapping[str, bool]
 class ObsAdapter:
     """Bridges env observations to agent/buffer, called once per step.
 
-    Default: extracts obs["image"] for buffer (uint8), passes obs dict
-    through to agent unchanged.
+    Default: extracts the image for buffer (uint8), passes the prepared
+    image/is_first observation to the agent.
     """
 
     buffer_dtype: BufferDType = "uint8"
@@ -40,10 +42,10 @@ class ObsAdapter:
         return self.buffer_shape
 
     def transform(
-        self, obs_dict: dict
+        self, env_obs: ObservationFrame
     ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
         """Returns (buffer_obs, agent_obs_dict)."""
-        return obs_dict["image"], obs_dict
+        return env_obs.image, {"image": env_obs.image, "is_first": env_obs.is_first}
 
     def augment_replay_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Optionally add live adapter context to a sampled replay batch."""

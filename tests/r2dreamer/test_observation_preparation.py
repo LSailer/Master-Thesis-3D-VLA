@@ -5,6 +5,7 @@ import json
 
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
     HYBRID_FEATURE_DIM,
@@ -73,7 +74,7 @@ class TestCNNObservationPreparation:
         prep = CNNObservationPreparation()
         image = np.arange(3 * 64 * 64, dtype=np.uint8).reshape(3, 64, 64)
 
-        prepared = prep.prepare_env_step({"image": image, "is_first": True})
+        prepared = prep.prepare_env_step(ObservationFrame(image=image, is_first=True))
 
         assert isinstance(prepared, PreparedObservation)
         np.testing.assert_array_equal(prepared.replay_obs, image)
@@ -84,7 +85,9 @@ class TestCNNObservationPreparation:
         prep = CNNObservationPreparation()
         image = np.zeros((3, 64, 64), dtype=np.uint8)
 
-        replay_obs, agent_obs = prep.transform({"image": image})
+        replay_obs, agent_obs = prep.transform(
+            ObservationFrame(image=image, is_first=False)
+        )
 
         np.testing.assert_array_equal(replay_obs, image)
         assert agent_obs["image"] is image

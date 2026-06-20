@@ -10,66 +10,53 @@ import json
 import os
 import sys
 import time
+from dataclasses import dataclass, fields
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import numpy as np
 
-from src.shared.configs import DreamerConfig
-from src.environments.habitat import ACTIONS, HabitatObjectNavEnv
+from src.environments.habitat import ACTIONS, HabitatObjectNavEnv, build_habitat_env
 
 
-_CSV_HEADER = [
-    "episode",
-    "scene",
-    "category",
-    "steps",
-    "reward",
-    "success",
-    "spl",
-    "stop_pct",
-    "forward_pct",
-    "left_pct",
-    "right_pct",
-]
+@dataclass(frozen=True)
+class EpisodeResult:
+    """Per-episode metrics; fields match ``episodes.csv`` columns."""
 
+    episode: int
+    scene: str
+    category: str
+    steps: int
+    reward: float
+    success: float
+    spl: float
+    stop_pct: float
+    forward_pct: float
+    left_pct: float
+    right_pct: float
 
-def _build_eval_env(
-    curriculum_path: str, max_episode_steps: int
-) -> HabitatObjectNavEnv:
-    """Construct the Habitat ObjectNav env in eval mode for the curriculum."""
-    config = DreamerConfig(
-        obs_shape=(3, 64, 64),
-        max_episode_steps=max_episode_steps,
-        reward_type="geodesic_delta",
-    )
-    return HabitatObjectNavEnv(
-        config,
-        curriculum_path=curriculum_path,
-        curriculum_mode="eval",
-    )
+    @classmethod
+    def csv_header(cls) -> list[str]:
+        return [field.name for field in fields(cls)]
 
+    def to_csv_row(self) -> list[str | int]:
+        return [
+            self.episode,
+            self.scene,
+            self.category,
+            self.steps,
+            f"{self.reward:.4f}",
+            f"{self.success:.0f}",
+            f"{self.spl:.4f}",
+            f"{self.stop_pct:.1f}",
+            f"{self.forward_pct:.1f}",
+            f"{self.left_pct:.1f}",
+            f"{self.right_pct:.1f}",
+        ]
 
-def _episode_csv_row(ep_idx: int, result: dict) -> list:
-    """Format one episode result as a CSV row matching ``_CSV_HEADER``."""
-    steps = result["steps"]
-    pcts = {
-        name: result["action_counts"][idx] / steps * 100
-        for idx, name in ACTIONS.items()
-    }
-    return [
-        ep_idx,
-        result["scene"],
-        result["category"],
-        steps,
-        f"{result['reward']:.4f}",
-        f"{result['success']:.0f}",
-        f"{result['spl']:.4f}",
-        f"{pcts['STOP']:.1f}",
-        f"{pcts['MOVE_FORWARD']:.1f}",
-        f"{pcts['TURN_LEFT']:.1f}",
-        f"{pcts['TURN_RIGHT']:.1f}",
-    ]
+    def action_count(self, action_idx: int) -> float:
+        pcts = (self.stop_pct, self.forward_pct, self.left_pct, self.right_pct)
+        return self.steps * pcts[action_idx] / 100
 
 
 def _print_summary(
@@ -86,14 +73,14 @@ def _print_summary(
     print(f"Saved: {json_path}")
 
 
-def _run_episode(env, rng, num_actions: int, max_episode_steps: int) -> dict:
-    """Roll one uniform-random episode and return its summary metrics.
-
-    Steps the env with actions drawn from ``rng`` until ``done`` or
-    ``max_episode_steps``. The returned dict carries everything the caller needs
-    for both the per-episode CSV row and the aggregate (scene/category plus
-    counts), leaving CSV/print orchestration to ``run_random_baseline``.
-    """
+def _run_episode(
+    env: HabitatObjectNavEnv,
+    rng,
+    num_actions: int,
+    max_episode_steps: int,
+    ep_idx: int,
+) -> EpisodeResult:
+    """Roll one uniform-random episode and return its summary metrics."""
     obs = env.reset()
     episode = env._env.current_episode
     scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
@@ -106,39 +93,46 @@ def _run_episode(env, rng, num_actions: int, max_episode_steps: int) -> dict:
         action = int(rng.integers(0, num_actions))
         obs = env.step(action)
         action_counts[action] += 1
-        total_reward += obs["reward"]
+        total_reward += obs.reward
         steps += 1
-        if obs["done"]:
+        if obs.done:
             break
 
-    return {
-        "scene": scene,
-        "category": category,
-        "steps": steps,
-        "reward": total_reward,
-        "success": float(obs.get("success", 0.0)),
-        "spl": float(obs.get("spl", 0.0)),
-        "action_counts": action_counts,
+    action_pcts = {
+        name: action_counts[idx] / steps * 100 for idx, name in ACTIONS.items()
     }
+    return EpisodeResult(
+        episode=ep_idx,
+        scene=scene,
+        category=category,
+        steps=steps,
+        reward=total_reward,
+        success=obs.success,
+        spl=obs.spl,
+        stop_pct=action_pcts["STOP"],
+        forward_pct=action_pcts["MOVE_FORWARD"],
+        left_pct=action_pcts["TURN_LEFT"],
+        right_pct=action_pcts["TURN_RIGHT"],
+    )
 
 
 def _aggregate_results(
-    all_results: list[dict],
+    all_results: list[EpisodeResult],
     *,
     seed: int,
     max_episode_steps: int,
     curriculum_path: str,
 ) -> dict:
     """Reduce per-episode results to aggregate metrics + action distribution."""
-    successes = [r["success"] for r in all_results]
-    spls = [r["spl"] for r in all_results]
-    rewards = [r["reward"] for r in all_results]
-    steps_list = [r["steps"] for r in all_results]
-    total_actions = sum(sum(r["action_counts"].values()) for r in all_results)
+    successes = [r.success for r in all_results]
+    spls = [r.spl for r in all_results]
+    rewards = [r.reward for r in all_results]
+    steps_list = [r.steps for r in all_results]
+    total_actions = sum(r.steps for r in all_results)
     agg_action_counts = {name: 0 for name in ACTIONS.values()}
-    for r in all_results:
+    for result in all_results:
         for idx, name in ACTIONS.items():
-            agg_action_counts[name] += r["action_counts"][idx]
+            agg_action_counts[name] += result.action_count(idx)
 
     return {
         "episodes": len(all_results),
@@ -171,7 +165,12 @@ def run_random_baseline(
     rng = np.random.default_rng(seed)
     num_actions = len(ACTIONS)
 
-    env = _build_eval_env(curriculum_path, max_episode_steps)
+    env = build_habitat_env(
+        (3, 64, 64),
+        max_episode_steps=max_episode_steps,
+        curriculum_path=curriculum_path,
+        curriculum_mode="eval",
+    )
     num_episodes = len(env._env._dataset.episodes)
     print(f"Running random baseline on {num_episodes} eval episodes")
 
@@ -183,16 +182,16 @@ def run_random_baseline(
 
     with open(csv_path, "w", newline="") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(_CSV_HEADER)
+        writer.writerow(EpisodeResult.csv_header())
 
         for ep_idx in range(num_episodes):
-            result = _run_episode(env, rng, num_actions, max_episode_steps)
-            writer.writerow(_episode_csv_row(ep_idx, result))
+            result = _run_episode(env, rng, num_actions, max_episode_steps, ep_idx)
+            writer.writerow(result.to_csv_row())
             all_results.append(result)
 
             if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
                 elapsed = time.time() - t_start
-                sr_so_far = np.mean([r["success"] for r in all_results]) * 100
+                sr_so_far = np.mean([r.success for r in all_results]) * 100
                 print(
                     f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
                     f"elapsed={elapsed:.0f}s"

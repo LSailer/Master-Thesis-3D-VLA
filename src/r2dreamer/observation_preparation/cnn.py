@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
@@ -62,17 +61,17 @@ class CNNObservationPreparation(ObsAdapter):
             agent_obs_shape=self.contract.encoder_input.shape,
         )
 
-    def prepare_env_step(self, obs_dict: dict[str, Any]) -> PreparedObservation:
-        image = np.asarray(obs_dict["image"])
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+        image = np.asarray(env_obs.image)
         return PreparedObservation(
             replay_obs=image,
             agent_obs={
                 "image": image,
-                "is_first": obs_dict.get("is_first", False),
+                "is_first": env_obs.is_first,
             },
         )
 
-    def transform(self, obs_dict: dict[str, Any]):
-        """Compatibility wrapper for legacy ObsAdapter call sites."""
-        prepared = self.prepare_env_step(obs_dict)
+    def transform(self, env_obs: ObservationFrame):
+        """Compatibility wrapper for ObsAdapter call sites."""
+        prepared = self.prepare_env_step(env_obs)
         return prepared.replay_obs, prepared.agent_obs

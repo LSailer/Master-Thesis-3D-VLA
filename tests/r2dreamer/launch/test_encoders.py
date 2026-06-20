@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
 from src.r2dreamer.adapters.hybrid_adapter import (
     HybridObsAdapter,
@@ -74,7 +75,7 @@ class TestCNNEncoder:
     def test_cnn_adapter_passthrough(self):
         adapter = CNNEncoder().make_adapter()
         dummy_img = np.zeros((3, 64, 64), dtype=np.uint8)
-        obs = {"image": dummy_img, "is_first": True}
+        obs = ObservationFrame(image=dummy_img, is_first=True)
         buf_obs, agent_obs = adapter.transform(obs)
         # CNN Observation Preparation returns explicit replay and agent observations.
         np.testing.assert_array_equal(buf_obs, dummy_img)
@@ -266,7 +267,7 @@ class TestVGGTEncoderConfiguration:
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_dense")
         replay_features, agent_obs = adapter.transform(
-            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
 
         expected = np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
@@ -350,7 +351,9 @@ class TestVGGTEncoderConfiguration:
             WORLD_POINTS_KEY: (3, 64, 64),
             CAMERA_POSE_KEY: (9,),
         }
-        rep, agent_obs = adapter.transform({"image": np.zeros((3, 518, 518), np.uint8)})
+        rep, agent_obs = adapter.transform(
+            ObservationFrame(image=np.zeros((3, 518, 518), np.uint8), is_first=False)
+        )
         assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert rep[WORLD_POINTS_KEY].dtype == np.float16
         np.testing.assert_allclose(rep[CAMERA_POSE_KEY], np.arange(9, dtype=np.float16))
@@ -387,7 +390,9 @@ class TestVGGTEncoderConfiguration:
             WORLD_POINTS_KEY: "float16",
             CAMERA_POSE_KEY: "float16",
         }
-        rep, agent_obs = adapter.transform({"image": np.zeros((3, 518, 518), np.uint8)})
+        rep, agent_obs = adapter.transform(
+            ObservationFrame(image=np.zeros((3, 518, 518), np.uint8), is_first=False)
+        )
         assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert rep[WORLD_POINTS_KEY].dtype == np.float16
         assert rep[CAMERA_POSE_KEY].shape == (9,)
@@ -454,7 +459,7 @@ class TestVGGTEncoderConfiguration:
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform(
-            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
 
         tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
@@ -482,7 +487,7 @@ class TestVGGTEncoderConfiguration:
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="agg_tokens")
         replay_features, agent_obs = adapter.transform(
-            {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
 
         expected = np.arange(40, dtype=np.float32)
@@ -562,9 +567,9 @@ class TestHybridEncoder:
 
         rng = np.random.default_rng(0)
         image = rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
-        obs_dict = {"image": image, "is_first": True}
+        env_obs = ObservationFrame(image=image, is_first=True)
 
-        replay, agent_obs = adapter.transform(obs_dict)
+        replay, agent_obs = adapter.transform(env_obs)
 
         assert set(replay) == {HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY}
         assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
@@ -645,7 +650,9 @@ class TestVGGTHouseContextEncoder:
             0, 256, size=(3, 518, 518), dtype=np.uint8
         )
 
-        replay, agent_obs = adapter.transform({"image": image, "is_first": True})
+        replay, agent_obs = adapter.transform(
+            ObservationFrame(image=image, is_first=True)
+        )
 
         assert replay.shape == (3, 64, 64)
         assert replay.dtype == np.uint8
@@ -721,7 +728,9 @@ class TestVGGTHouseFullTokenNoGateEncoder:
             0, 256, size=(3, 518, 518), dtype=np.uint8
         )
 
-        replay, agent_obs = adapter.transform({"image": image, "is_first": True})
+        replay, agent_obs = adapter.transform(
+            ObservationFrame(image=image, is_first=True)
+        )
 
         assert replay.shape == (3, 64, 64)
         assert replay.dtype == np.uint8
@@ -814,7 +823,9 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
             0, 256, size=(3, 518, 518), dtype=np.uint8
         )
 
-        replay, agent_obs = adapter.transform({"image": image, "is_first": True})
+        replay, agent_obs = adapter.transform(
+            ObservationFrame(image=image, is_first=True)
+        )
 
         assert replay.shape == (3, 64, 64)
         assert replay.dtype == np.uint8
@@ -865,7 +876,7 @@ class TestVGGTEncoder:
         adapter._extractor.reset()
 
         for i in range(len(frames)):
-            obs = {"image": frames[i], "is_first": i == 0}
+            obs = ObservationFrame(image=frames[i], is_first=i == 0)
             features, agent_obs = adapter.transform(obs)
 
             expected_wp = world_points[i].transpose(2, 0, 1)

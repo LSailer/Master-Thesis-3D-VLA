@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     flatten_world_points_camera_pose,
@@ -74,10 +75,10 @@ class HybridObsAdapter(ObsAdapter):
         )
         self._extractor = extractor
 
-    def transform(self, obs_dict: dict) -> tuple[dict[str, np.ndarray], dict]:
-        out = self._extractor.extract(obs_dict["image"])  # image is 518 CHW uint8
+    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+        out = self._extractor.extract(env_obs.image)  # image is 518 CHW uint8
         wp_cp = flatten_world_points_camera_pose(out)  # jnp (4116,)
-        img64 = resize_chw_uint8(obs_dict["image"], 64)  # (3,64,64) uint8
+        img64 = resize_chw_uint8(env_obs.image, 64)  # (3,64,64) uint8
         replay = {
             HYBRID_IMAGE_KEY: img64,
             HYBRID_WP_CP_KEY: np.asarray(wp_cp, dtype=np.float32),
@@ -85,7 +86,7 @@ class HybridObsAdapter(ObsAdapter):
         agent_obs = {
             HYBRID_IMAGE_KEY: img64,
             HYBRID_WP_CP_KEY: jnp.asarray(replay[HYBRID_WP_CP_KEY]),
-            "is_first": obs_dict.get("is_first", False),
+            "is_first": env_obs.is_first,
         }
         return replay, agent_obs
 
@@ -122,13 +123,13 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
         self._tokens = np.asarray(tokens, dtype=np.float32)
         return self._tokens
 
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
-        image64 = resize_chw_uint8(obs_dict["image"], 64)
-        tokens = self._extract_tokens(obs_dict["image"])
+    def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
+        image64 = resize_chw_uint8(env_obs.image, 64)
+        tokens = self._extract_tokens(env_obs.image)
         return image64, {
             HYBRID_IMAGE_KEY: image64,
             self.token_key: jnp.asarray(tokens, dtype=jnp.float32),
-            "is_first": obs_dict.get("is_first", False),
+            "is_first": env_obs.is_first,
         }
 
     def augment_replay_batch(self, batch: dict) -> dict:
@@ -228,13 +229,13 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self._context = context
         return context
 
-    def transform(self, obs_dict: dict) -> tuple[np.ndarray, dict]:
-        image64 = resize_chw_uint8(obs_dict["image"], 64)
-        context = self._extract_context(obs_dict["image"])
+    def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
+        image64 = resize_chw_uint8(env_obs.image, 64)
+        context = self._extract_context(env_obs.image)
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,
             HOUSE_CONTEXT_KEY: jnp.asarray(context, dtype=jnp.float32),
-            "is_first": obs_dict.get("is_first", False),
+            "is_first": env_obs.is_first,
         }
         return image64, agent_obs
 

@@ -9,7 +9,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.environments.observation import ObservationFrame
+from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.observation_preparation import (
@@ -18,7 +19,6 @@ from src.r2dreamer.observation_preparation import (
 )
 from src.r2dreamer.trainer import (
     Trainer,
-    TrainerConfig,
     config_snapshot,
     convert_batch,
     load_checkpoint,
@@ -38,16 +38,17 @@ def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
 class _DummyEnv:
     """Minimal env stub — Trainer.__init__ does not call any of these methods."""
 
-    def reset(self) -> dict:
-        return {"image": np.zeros((3, 64, 64), dtype=np.uint8), "is_first": True}
+    def reset(self) -> ObservationFrame:
+        return ObservationFrame(
+            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            is_first=True,
+        )
 
-    def step(self, action: int) -> dict:
-        return {
-            "image": np.zeros((3, 64, 64), dtype=np.uint8),
-            "reward": 0.0,
-            "done": False,
-            "success": 0.0,
-        }
+    def step(self, action: int) -> ObservationFrame:
+        return ObservationFrame(
+            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            is_first=False,
+        )
 
     def close(self) -> None:
         pass
@@ -60,23 +61,22 @@ class _TinyCNNEnv:
         self.t = 0
         self.closed = False
 
-    def reset(self) -> dict:
+    def reset(self) -> ObservationFrame:
         self.t = 0
-        return {
-            "image": np.zeros((3, 64, 64), dtype=np.uint8),
-            "is_first": True,
-        }
+        return ObservationFrame(
+            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            is_first=True,
+        )
 
-    def step(self, action: int) -> dict:
+    def step(self, action: int) -> ObservationFrame:
         self.t += 1
         done = self.t >= 4
-        return {
-            "image": np.full((3, 64, 64), self.t, dtype=np.uint8),
-            "reward": 1.0,
-            "done": done,
-            "success": 0.0,
-            "is_first": False,
-        }
+        return ObservationFrame(
+            image=np.full((3, 64, 64), self.t, dtype=np.uint8),
+            reward=1.0,
+            done=done,
+            is_first=False,
+        )
 
     def close(self) -> None:
         self.closed = True
@@ -91,11 +91,11 @@ class _MappingObsAdapter(ObsAdapter):
             agent_obs_shape=(16404,),
         )
 
-    def transform(self, obs_dict: dict) -> tuple[dict[str, np.ndarray], dict]:
+    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         return {
-            "image": obs_dict["image"],
+            "image": env_obs.image,
             "wp_cp": np.ones((4116,), dtype=np.float32),
-        }, obs_dict
+        }, {"image": env_obs.image, "is_first": env_obs.is_first}
 
 
 class _PrepareOnlyAdapter(ObsAdapter):
@@ -103,14 +103,14 @@ class _PrepareOnlyAdapter(ObsAdapter):
         super().__init__()
         self.calls = 0
 
-    def prepare_env_step(self, obs_dict: dict) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
         self.calls += 1
         return PreparedObservation(
-            replay_obs=obs_dict["image"],
-            agent_obs={"image": obs_dict["image"], "is_first": True},
+            replay_obs=env_obs.image,
+            agent_obs={"image": env_obs.image, "is_first": True},
         )
 
-    def transform(self, obs_dict: dict):
+    def transform(self, env_obs: ObservationFrame):
         raise AssertionError("trainer should route through prepare_env_step")
 
 
@@ -473,7 +473,11 @@ class TestTrainerMappingReplay:
         trainer._record_train_transition(
             buffer_obs=buffer_obs,
             action=1,
-            next_obs={"reward": 1.0, "done": False, "success": 0.0},
+            next_obs=ObservationFrame(
+                image=np.zeros((3, 64, 64), dtype=np.uint8),
+                is_first=False,
+                reward=1.0,
+            ),
         )
 
         assert trainer.buffer.size == 1
