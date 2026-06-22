@@ -1,7 +1,7 @@
 """World-model loss: KL (dynamics + representation) + reward + continue heads.
 
 The shared forward pass (encoder, RSSM observe, prior, get_feat) is computed
-once in `agent._world_model_forward` and passed in via the `forward` dict.
+once in `agent._world_model_forward` and passed in via `WorldModelForward`.
 This file owns only the loss math; it has no Flax modules of its own.
 """
 
@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import optax
 
 from src.r2dreamer.obs_batch import decoder_rgb_target
+from src.r2dreamer.learning_types import LossResult, WorldModelForward
 
 
 def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
@@ -27,11 +28,9 @@ def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
         rep_loss: (N,) — KL(post || sg(prior)), clipped to >= kl_free.
     """
     del stoch_classes, stoch_discrete  # only kept for signature back-compat
-    post_probs = jax.nn.softmax(post_logits, axis=-1)
-    prior_probs = jax.nn.softmax(prior_logits, axis=-1)
-
-    post_log = jnp.log(post_probs + 1e-8)
-    prior_log = jnp.log(prior_probs + 1e-8)
+    post_log = jax.nn.log_softmax(post_logits, axis=-1)
+    prior_log = jax.nn.log_softmax(prior_logits, axis=-1)
+    post_probs = jnp.exp(post_log)
 
     def _kl(p, logp, logq):
         return jnp.sum(p * (logp - logq), axis=-1)  # (N, C)
@@ -48,13 +47,13 @@ def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
     return dyn_loss, rep_loss
 
 
-def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
+def world_model_loss(
+    *, forward: WorldModelForward, params, batch, modules, cfg, twohot
+) -> LossResult:
     """KL + reward + continue losses, plus latent diagnostics.
 
     Args:
-        forward: dict from `agent._world_model_forward`. Must contain
-            `embed` (B, T, E), `feat` (B, T, F), `post_logits` (B, T, C, K),
-            `prior_logits` (B, T, C, K).
+        forward: shared `agent._world_model_forward` output.
         params: full agent params dict (only `reward`, `cont` are read here).
         batch: training batch (uses `rewards`, `is_terminal`).
         modules: dict of Flax modules (uses `reward`, `cont`).
@@ -65,14 +64,14 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         (losses, metrics) — losses has keys {dyn, rep, rew, con}; metrics
         contains latent entropy/KL diagnostics.
     """
-    B, T = forward["embed"].shape[0], forward["embed"].shape[1]
+    B, T = forward.embed.shape[0], forward.embed.shape[1]
     losses, metrics = {}, {}
 
     # ---- KL losses ----
-    post_logits_flat = forward["post_logits"].reshape(
+    post_logits_flat = forward.post_logits.reshape(
         B * T, cfg.stoch_classes, cfg.stoch_discrete
     )
-    prior_logits_flat = forward["prior_logits"].reshape(
+    prior_logits_flat = forward.prior_logits.reshape(
         B * T, cfg.stoch_classes, cfg.stoch_discrete
     )
     dyn_loss, rep_loss = kl_loss(
@@ -86,7 +85,7 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
     losses["rep"] = jnp.mean(rep_loss)
 
     # ---- Reward head ----
-    feat_flat = forward["feat"].reshape(B * T, -1)
+    feat_flat = forward.feat.reshape(B * T, -1)
     rew_logits = modules["reward"].apply(params["reward"], feat_flat).reshape(B, T, -1)
     losses["rew"] = jnp.mean(twohot.loss(rew_logits, batch["rewards"]))
 
@@ -121,4 +120,4 @@ def world_model_loss(*, forward, params, batch, modules, cfg, twohot):
         jnp.sum(post_probs * jnp.log(post_probs + 1e-8), axis=-1)
     )
 
-    return losses, metrics
+    return LossResult(losses=losses, metrics=metrics)

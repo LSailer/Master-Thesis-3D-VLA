@@ -29,6 +29,30 @@ class CheckpointAgentLike(Protocol):
     ema_state: Any
 
 
+def _missing_pickle_class(module: str, name: str) -> type:
+    class MissingPickleClass:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def __setstate__(self, state):
+            self.state = state
+
+    MissingPickleClass.__name__ = name
+    MissingPickleClass.__module__ = module
+    return MissingPickleClass
+
+
+class _CheckpointUnpickler(pickle.Unpickler):
+    """Load old checkpoints even when unused optimizer-state classes moved."""
+
+    def find_class(self, module: str, name: str):
+        try:
+            return super().find_class(module, name)
+        except (AttributeError, ModuleNotFoundError):
+            return _missing_pickle_class(module, name)
+
+
 def config_snapshot(config: Any) -> dict[str, Any]:
     """Return a JSON-serializable run config snapshot for manifests/W&B."""
     snapshot = (
@@ -82,8 +106,10 @@ def save_checkpoint(agent: CheckpointAgentLike, step: int, output_dir: str) -> s
     contract_snapshot = encoder_input_contract_snapshot(agent.cfg)
     if contract_snapshot is not None:
         data["encoder_input_contract"] = contract_snapshot
-    with open(path, "wb") as f:
+    tmp_path = f"{path}.tmp-{os.getpid()}"
+    with open(tmp_path, "wb") as f:
         pickle.dump(data, f)
+    os.replace(tmp_path, path)
     print(f"Checkpoint saved: {path}")
     return path
 
@@ -91,4 +117,4 @@ def save_checkpoint(agent: CheckpointAgentLike, step: int, output_dir: str) -> s
 def load_checkpoint(path: str) -> dict[str, Any]:
     """Load checkpoint dict from disk. Returns raw dict — caller restores."""
     with open(path, "rb") as f:
-        return pickle.load(f)
+        return _CheckpointUnpickler(f).load()

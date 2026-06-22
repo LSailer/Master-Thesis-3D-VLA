@@ -30,6 +30,7 @@ class CrafterEnv:
             done=bool(done),
             is_first=False,
             is_last=bool(done),
+            is_terminal=bool(done),
         )
 
     def close(self):

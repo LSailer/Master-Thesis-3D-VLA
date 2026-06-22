@@ -18,10 +18,11 @@ only aggregator, camera_head, and point_head.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from src.vggt.paths import infinite_vggt_src
 
 # --------------------------------------------------------------------------- #
 #  Scope
@@ -561,9 +562,7 @@ def load_checkpoint(repo: str = _DEFAULT_REPO) -> dict[str, np.ndarray]:
     """
     import sys
 
-    ivggt_src = (
-        Path(__file__).resolve().parents[3] / "external" / "InfiniteVGGT" / "src"
-    )
+    ivggt_src = infinite_vggt_src()
     if str(ivggt_src) not in sys.path:
         sys.path.insert(0, str(ivggt_src))
 

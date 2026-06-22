@@ -170,34 +170,35 @@ def run_random_baseline(
         max_episode_steps=max_episode_steps,
         curriculum_path=curriculum_path,
         curriculum_mode="eval",
+        seed=seed,
     )
-    num_episodes = len(env._env._dataset.episodes)
-    print(f"Running random baseline on {num_episodes} eval episodes")
-
-    os.makedirs(output_dir, exist_ok=True)
-    csv_path = os.path.join(output_dir, "episodes.csv")
-
     all_results = []
     t_start = time.time()
+    csv_path = os.path.join(output_dir, "episodes.csv")
+    try:
+        num_episodes = len(env._env._dataset.episodes)
+        print(f"Running random baseline on {num_episodes} eval episodes")
 
-    with open(csv_path, "w", newline="") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(EpisodeResult.csv_header())
+        os.makedirs(output_dir, exist_ok=True)
 
-        for ep_idx in range(num_episodes):
-            result = _run_episode(env, rng, num_actions, max_episode_steps, ep_idx)
-            writer.writerow(result.to_csv_row())
-            all_results.append(result)
+        with open(csv_path, "w", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(EpisodeResult.csv_header())
 
-            if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
-                elapsed = time.time() - t_start
-                sr_so_far = np.mean([r.success for r in all_results]) * 100
-                print(
-                    f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
-                    f"elapsed={elapsed:.0f}s"
-                )
+            for ep_idx in range(num_episodes):
+                result = _run_episode(env, rng, num_actions, max_episode_steps, ep_idx)
+                writer.writerow(result.to_csv_row())
+                all_results.append(result)
 
-    env.close()
+                if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
+                    elapsed = time.time() - t_start
+                    sr_so_far = np.mean([r.success for r in all_results]) * 100
+                    print(
+                        f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
+                        f"elapsed={elapsed:.0f}s"
+                    )
+    finally:
+        env.close()
 
     summary = _aggregate_results(
         all_results,

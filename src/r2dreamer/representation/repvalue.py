@@ -9,7 +9,7 @@ repval as a representation-shaping signal.
 import jax
 import jax.numpy as jnp
 
-from ..behavior.imagination import _lambda_return
+from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
 
 
 def repval_loss(
@@ -57,14 +57,16 @@ def repval_loss(
     replay_slow_value = twohot.pred(replay_slow_logits)  # (B, T, 1)
 
     disc = 1.0 - 1.0 / cfg.horizon
-    replay_ret = _lambda_return(
-        replay_last[..., None],
-        replay_term[..., None],
-        replay_reward[..., None],
-        replay_value,
-        boot,
-        disc,
-        cfg.lamb,
+    replay_ret = lambda_return(
+        LambdaReturnInputs(
+            last=replay_last[..., None],
+            term=replay_term[..., None],
+            reward=replay_reward[..., None],
+            value=replay_value,
+            boot=boot,
+            disc=disc,
+            lamb=cfg.lamb,
+        )
     )  # (B, T-1, 1)
     ret_padded = jnp.concatenate(
         [replay_ret, jnp.zeros_like(replay_ret[:, -1:])], axis=1

@@ -487,11 +487,11 @@ class RGBFullTokenTransformerEncoder(nn.Module):
 
 
 class RGBGlobalTokenTransformerEncoder(RGBFullTokenTransformerEncoder):
-    """RGB + singleton live VGGT global-token encoder without a learned gate."""
+    """RGB + per-step VGGT global-token encoder without a learned gate."""
 
     token_dim: int = 1024
     token_key: str = GLOBAL_TOKENS_KEY
-    singleton_tokens: bool = True
+    singleton_tokens: bool = False
 
 
 class HybridEncoder(nn.Module):

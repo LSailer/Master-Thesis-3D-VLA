@@ -43,7 +43,7 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     params = agent.params
     forward = agent._world_model_forward(params, batch, rng_key)
     B, T = obs_leading_shape(batch["obs"])
-    feat = forward["feat"]
+    feat = forward.feat
     rew_logits = (
         agent._modules["reward"]
         .apply(
@@ -70,8 +70,8 @@ def _k_step_rollout_error(
     """
     params = agent.params
     forward = agent._world_model_forward(params, batch, rng_key)
-    post_stochs = forward["post_stochs"]  # (B, T, C, K)
-    post_deters = forward["post_deters"]  # (B, T, D)
+    post_stochs = forward.post_stochs  # (B, T, C, K)
+    post_deters = forward.post_deters  # (B, T, D)
 
     T = post_stochs.shape[1]
     max_k = max(k_values)

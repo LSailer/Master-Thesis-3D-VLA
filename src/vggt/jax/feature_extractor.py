@@ -223,6 +223,7 @@ class JAXVGGTFeatureExtractor:
 
         self._init_modules()
         self._configure_aggregator_cache(total_budget)
+        self._finalize_static_budget_override()
         self._configure_camera_cache(max_camera_frames)
         self._compile_apply_functions()
 
@@ -254,8 +255,35 @@ class JAXVGGTFeatureExtractor:
         self._P = 5 + (_IMG_SIZE // _PATCH_SIZE) ** 2
         uniform = max(total_budget // self._agg_depth, self._P)
         self._MAX = uniform + self._P
+        self._MAX_BUDGET = self._MAX - self._P
         self._num_heads = self._aggregator.num_heads
         self._head_dim = self._aggregator.embed_dim // self._num_heads
+
+    def _finalize_static_budget_override(self) -> None:
+        """Default to fixed budgets and validate explicit static budgets."""
+        if self._MAX_BUDGET <= self._P:
+            raise ValueError(
+                f"total_budget={self._total_budget} leaves no room beyond "
+                f"{self._P} anchor tokens per block"
+            )
+        if self._budgets_static_override is None:
+            self._budgets_static_override = (self._MAX_BUDGET,) * self._agg_depth
+            return
+        if len(self._budgets_static_override) != self._agg_depth:
+            raise ValueError(
+                f"budgets_static length {len(self._budgets_static_override)} "
+                f"!= aggregator depth {self._agg_depth}"
+            )
+        invalid = [
+            budget
+            for budget in self._budgets_static_override
+            if budget > self._MAX_BUDGET or budget <= self._P
+        ]
+        if invalid:
+            raise ValueError(
+                "budgets_static entries must be in "
+                f"({self._P}, {self._MAX_BUDGET}], got {invalid}"
+            )
 
     def _configure_camera_cache(self, max_camera_frames: int) -> None:
         """Derive padded cache dimensions for the fixed-window camera head."""
@@ -333,8 +361,8 @@ class JAXVGGTFeatureExtractor:
                 self._total_budget,
             )
         )
-        # Cap by MAX so top_k k values stay <= MAX - P.
-        bud = np.minimum(bud, self._MAX)
+        # Leave room for the next frame append before eviction runs.
+        bud = np.clip(bud, self._P + 1, self._MAX_BUDGET)
         return tuple(int(x) for x in bud.tolist())
 
     def _warmup(self) -> None:
@@ -442,6 +470,15 @@ class JAXVGGTFeatureExtractor:
 
     def _prepare_input_image(self, rgb: np.ndarray) -> jnp.ndarray:
         """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
+        if not isinstance(rgb, np.ndarray):
+            raise TypeError(f"rgb must be a numpy array, got {type(rgb).__name__}")
+        if rgb.shape != (3, _IMG_SIZE, _IMG_SIZE):
+            raise ValueError(
+                f"VGGT extractor expects CHW image shape "
+                f"(3, {_IMG_SIZE}, {_IMG_SIZE}), got {rgb.shape}"
+            )
+        if rgb.dtype != np.uint8:
+            raise ValueError(f"VGGT extractor expects uint8 image, got {rgb.dtype}")
         img = (jnp.asarray(rgb, dtype=jnp.float32) / 255.0).astype(self._dtype)
         return jax.device_put(img[None, None], self._device)
 

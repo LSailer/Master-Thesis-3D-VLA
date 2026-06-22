@@ -85,17 +85,22 @@ class R2DreamerAgentLike(Protocol):
 def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
     """Convert replay buffer output to agent training format.
 
-    - actions: int32 (B,T) -> one_hot float32 (B,T,A)
-    - dones -> is_last
-    - terminals -> is_terminal
+    Replay stores transitions as ``obs_t, action_t, reward_{t+1}``. The RSSM
+    posterior for ``obs_t`` must receive the previous action/labels, so shift
+    transition fields right by one step inside each sampled window.
     """
+    actions = jax.nn.one_hot(batch["actions"], num_actions)
+    zero_action = jnp.zeros_like(actions[:, :1])
+    zero_scalar = jnp.zeros_like(batch["rewards"][:, :1])
     return {
         "obs": batch["obs"],
-        "actions": jax.nn.one_hot(batch["actions"], num_actions),
-        "rewards": batch["rewards"],
+        "actions": jnp.concatenate([zero_action, actions[:, :-1]], axis=1),
+        "rewards": jnp.concatenate([zero_scalar, batch["rewards"][:, :-1]], axis=1),
         "is_first": batch["is_first"],
-        "is_last": batch["dones"],
-        "is_terminal": batch["terminals"],
+        "is_last": jnp.concatenate([zero_scalar, batch["dones"][:, :-1]], axis=1),
+        "is_terminal": jnp.concatenate(
+            [zero_scalar, batch["terminals"][:, :-1]], axis=1
+        ),
     }
 
 
@@ -303,7 +308,7 @@ class Trainer:
                         f"Resume mode: skipping prefill, jumping to step {self._resume_step}"
                     )
                 else:
-                    self._prefill(rng_key, writer, f)
+                    rng_key = self._prefill(rng_key, writer, f)
                 if tcfg.overfit_one_batch:
                     rng_key = self._overfit_loop(rng_key, writer, f)
                 else:
@@ -342,7 +347,7 @@ class Trainer:
         prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.agent_obs
 
-    def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> None:
+    def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
@@ -352,17 +357,17 @@ class Trainer:
         buffer_obs, _ = self._prepare_observation(self.obs_adapter, obs)
 
         for _ in range(tcfg.prefill_steps):
-            action = np.random.randint(0, acfg.num_actions)
+            rng_key, action_key = jax.random.split(rng_key)
+            action = int(jax.random.randint(action_key, (), 0, acfg.num_actions))
             next_obs = self.env.step(action)
             next_buffer_obs, _ = self._prepare_observation(self.obs_adapter, next_obs)
 
-            success = next_obs.success > 0
             self.buffer.add(
                 buffer_obs,
                 action,
                 next_obs.reward,
                 next_obs.done,
-                terminal=success,
+                terminal=next_obs.is_terminal,
             )
 
             if next_obs.done:
@@ -373,6 +378,7 @@ class Trainer:
             else:
                 obs = next_obs
                 buffer_obs = next_buffer_obs
+        return rng_key
 
     # ------------------------------------------------------------------
     # Train loop
@@ -394,13 +400,12 @@ class Trainer:
         action: int,
         next_obs: ObservationFrame,
     ) -> None:
-        success = next_obs.success > 0
         self.buffer.add(
             buffer_obs,
             action,
             next_obs.reward,
             next_obs.done,
-            terminal=success,
+            terminal=next_obs.is_terminal,
         )
 
     def _finish_train_episode(
@@ -898,21 +903,26 @@ class Trainer:
         ):
             return
 
+        act_state = self._snapshot_agent_act_state()
         last_val_metrics: dict[str, Any] = {}
         videos_recorded = 0
         val_t0 = time.time()
 
-        for ep_idx in range(tcfg.val_episodes):
-            record_video = (
-                videos_recorded < tcfg.val_video_episodes and self._wandb is not None
-            )
-            last_val_metrics, rng_key = self._run_single_val_episode(
-                rng_key=rng_key,
-                record_video=record_video,
-                step=step,
-            )
-            if record_video:
-                videos_recorded += 1
+        try:
+            for _ep_idx in range(tcfg.val_episodes):
+                record_video = (
+                    videos_recorded < tcfg.val_video_episodes
+                    and self._wandb is not None
+                )
+                last_val_metrics, rng_key = self._run_single_val_episode(
+                    rng_key=rng_key,
+                    record_video=record_video,
+                    step=step,
+                )
+                if record_video:
+                    videos_recorded += 1
+        finally:
+            self._restore_agent_act_state(act_state)
 
         # Prefix the final episode's tracker snapshot with `val/`. The
         # rolling-mean fields already reflect the whole val loop (since the
@@ -921,3 +931,22 @@ class Trainer:
         self._log_val_metrics(val_logged, step, writer, f)
         elapsed = time.time() - val_t0
         self._print_val_summary(val_logged, step, elapsed)
+
+    def _snapshot_agent_act_state(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+        """Return a copy of the stateful acting latent, when the agent has one."""
+        snapshot = getattr(self.agent, "snapshot_act_state", None)
+        if snapshot is None:
+            return None
+        return snapshot()
+
+    def _restore_agent_act_state(
+        self, state: tuple[np.ndarray, np.ndarray, np.ndarray] | None
+    ) -> None:
+        """Restore stateful acting latent after validation rollouts."""
+        if state is None:
+            return
+        restore = getattr(self.agent, "restore_act_state", None)
+        if restore is not None:
+            restore(state)

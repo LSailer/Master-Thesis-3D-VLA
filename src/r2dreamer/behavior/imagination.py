@@ -9,6 +9,14 @@ value-learning bootstrap (`representation.repvalue`).
 import jax
 import jax.numpy as jnp
 
+from src.r2dreamer.learning_types import ImaginationRollout
+from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
+
+
+def _lambda_return(*args):
+    """Compatibility wrapper for the historical positional helper."""
+    return lambda_return(LambdaReturnInputs(*args))
+
 
 def _imagine(
     rssm_params,
@@ -37,9 +45,7 @@ def _imagine(
         rng_key: PRNG key.
 
     Returns:
-        feats: (N, horizon, feat_size) — detached.
-        actions: (N, horizon, num_actions) — clean one-hot, detached.
-        None: legacy slot kept for tuple-arity back-compat.
+        `ImaginationRollout` with detached `feats` and clean one-hot `actions`.
     """
     frozen_rssm_params = jax.lax.stop_gradient(rssm_params)
     frozen_actor_params = jax.lax.stop_gradient(actor_params)
@@ -49,7 +55,7 @@ def _imagine(
     feats = []
     actions = []
 
-    for step in range(horizon):
+    for _ in range(horizon):
         feat = rssm_mod.apply(
             frozen_rssm_params, stoch, deter, method=rssm_mod.get_feat
         )
@@ -75,31 +81,7 @@ def _imagine(
             rngs={"sample": k_img},
         )
 
-    return jnp.stack(feats, axis=1), jnp.stack(actions, axis=1), None
-
-
-def _lambda_return(last, term, reward, value, boot, disc, lamb):
-    """Compute lambda-returns (generalized advantage estimation target).
-
-    All inputs: (..., T, 1).
-    Returns: (..., T-1, 1).
-    """
-    live = (1.0 - term)[..., 1:, :] * disc
-    cont = (1.0 - last)[..., 1:, :] * lamb
-    interm = reward[..., 1:, :] + (1.0 - cont) * live * boot[..., 1:, :]
-    T_minus_1 = live.shape[-2]
-
-    def _scan_fn(carry, i):
-        # i counts from 0 to T_minus_1 - 1, but we want reversed order
-        idx = T_minus_1 - 1 - i
-        val = interm[..., idx, :] + live[..., idx, :] * cont[..., idx, :] * carry
-        return val, val
-
-    init = boot[..., -1, :]
-    _, outs = jax.lax.scan(_scan_fn, init, jnp.arange(T_minus_1))
-    # outs: (T_minus_1, ..., 1) — need to reverse and transpose
-    outs = jnp.flip(outs, axis=0)
-    ndim = outs.ndim
-    axes = list(range(1, ndim - 1)) + [0, ndim - 1]
-    outs = jnp.transpose(outs, axes)
-    return outs
+    return ImaginationRollout(
+        feats=jnp.stack(feats, axis=1),
+        actions=jnp.stack(actions, axis=1),
+    )

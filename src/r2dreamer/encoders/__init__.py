@@ -84,6 +84,10 @@ class Encoder(ABC):
             self._adapter = self._build_adapter()
         return self._adapter
 
+    def new_adapter(self) -> ObsAdapter:
+        """Build an uncached adapter with independent mutable state."""
+        return self._build_adapter()
+
     @abstractmethod
     def _build_adapter(self) -> ObsAdapter:
         """Build the adapter. Called at most once per encoder; result is cached."""
@@ -178,7 +182,10 @@ class VGGTEncoder(Encoder):
 
     def __init__(self, resolution: int = 518):
         self.env_render_resolution = resolution
-        self._extractor = VGGTFeatureExtractor(
+        self._extractor = self._make_extractor()
+
+    def _make_extractor(self):
+        return VGGTFeatureExtractor(
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
             compute_heads=self.vggt_compute_heads,
@@ -186,8 +193,15 @@ class VGGTEncoder(Encoder):
         )  # device="cuda" default
 
     def _build_adapter(self) -> ObsAdapter:
+        return self._build_adapter_for_extractor(self._extractor)
+
+    def new_adapter(self) -> ObsAdapter:
+        """Build an adapter backed by a fresh VGGT extractor/cache."""
+        return self._build_adapter_for_extractor(self._make_extractor())
+
+    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
         return VGGTObsAdapter(
-            self._extractor,
+            extractor,
             feature_kind=self.feature_kind,
             env_render_resolution=self.env_render_resolution,
             encoder_type=self.encoder_type,
@@ -221,8 +235,11 @@ class HybridEncoder(VGGTEncoder):
     variant = VGGT_VARIANTS["hybrid"]
 
     def _build_adapter(self) -> ObsAdapter:
+        return self._build_adapter_for_extractor(self._extractor)
+
+    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
         return HybridObsAdapter(
-            self._extractor,
+            extractor,
             env_render_resolution=self.env_render_resolution,
             encoder_module_cls=self.module_cls,
             agent_overrides=self.agent_overrides,
@@ -295,8 +312,11 @@ class VGGTHouseContextEncoder(VGGTEncoder):
         return MappingProxyType(overrides)
 
     def _build_adapter(self) -> ObsAdapter:
+        return self._build_adapter_for_extractor(self._extractor)
+
+    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
         return VGGTHouseContextObsAdapter(
-            self._extractor,
+            extractor,
             context_transformer=self._context_transformer,
         )
 
@@ -307,7 +327,10 @@ class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant = VGGT_VARIANTS["vggt_house_full_tokens_nogate"]
 
     def _build_adapter(self) -> ObsAdapter:
-        return VGGTHouseFullTokenObsAdapter(self._extractor)
+        return self._build_adapter_for_extractor(self._extractor)
+
+    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
+        return VGGTHouseFullTokenObsAdapter(extractor)
 
 
 class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
@@ -316,7 +339,10 @@ class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant = VGGT_VARIANTS["vggt_house_global_tokens_nogate"]
 
     def _build_adapter(self) -> ObsAdapter:
-        return VGGTHouseGlobalTokenObsAdapter(self._extractor)
+        return self._build_adapter_for_extractor(self._extractor)
+
+    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
+        return VGGTHouseGlobalTokenObsAdapter(extractor)
 
 
 class VGGTWPCP64Encoder(VGGTEncoder):

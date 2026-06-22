@@ -128,6 +128,7 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
         semantic=args.semantic,
         curriculum_path=curriculum_path,
         curriculum_mode="eval",
+        seed=args.seed,
     )
     return env_instance, needs_hires, render_resolution
 
@@ -207,7 +208,18 @@ def _agent_config_kwargs(encoder_spec, *, args, eff_checkpoint: str | None) -> d
         "obs_shape": encoder_spec.obs_shape,
     }
     if not args.random:
-        agent_config_kwargs.update(_load_arch_overrides_from_manifest(eff_checkpoint))
+        overrides = _load_arch_overrides_from_manifest(eff_checkpoint)
+        checkpoint_encoder = overrides.get("encoder_type")
+        if (
+            checkpoint_encoder is not None
+            and checkpoint_encoder != encoder_spec.encoder_type
+        ):
+            raise ValueError(
+                "checkpoint encoder contract mismatch: CLI/registry resolved "
+                f"{encoder_spec.encoder_type!r}, checkpoint has "
+                f"{checkpoint_encoder!r}"
+            )
+        agent_config_kwargs.update(overrides)
     return agent_config_kwargs
 
 
@@ -231,7 +243,7 @@ def _start_eval_episode(env_instance, adapter):
     obs = env_instance.reset()
     if adapter.on_episode_reset:
         adapter.on_episode_reset()
-    _, agent_obs = adapter.transform(obs)
+    agent_obs = adapter.prepare_env_step(obs).agent_obs
 
     start_pos = env_instance._env.sim.get_agent_state().position.tolist()
     goal_positions = _extract_goal_positions(env_instance)
@@ -356,7 +368,7 @@ def _run_eval_episode(
             action = np.random.randint(0, config.num_actions)
 
         next_obs = env_instance.step(action)
-        _, next_agent_obs = adapter.transform(next_obs)
+        next_agent_obs = adapter.prepare_env_step(next_obs).agent_obs
         actions_taken.append(int(action))
         rewards.append(float(_obs_value(next_obs, "reward")))
 
@@ -449,71 +461,69 @@ def evaluate(
     os.makedirs(eff_output_dir, exist_ok=True)
     output_path = os.path.join(eff_output_dir, "eval_results.json")
 
-    wandb_module = _init_eval_wandb(args)
+    wandb_module = None
+    env_instance = None
+    try:
+        wandb_module = _init_eval_wandb(args)
 
-    # --- Build env ---
-    if env not in env_registry:
-        raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
-    env_instance, needs_hires, render_resolution = _make_eval_env(
-        args=args,
-        curriculum_path=curriculum_path,
-        eff_encoder=eff_encoder,
-    )
-
-    # --- Build encoder + adapter ---
-    enc, adapter, encoder_spec = _make_eval_encoder(
-        eff_encoder,
-        encoder_registry,
-        needs_hires,
-        render_resolution,
-    )
-
-    # --- Build agent ---
-    # Source encoder_type + obs_shape from the spec so every registered encoder
-    # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn) evaluates correctly.
-    # Source encoder_type + obs_shape from the spec so every registered encoder
-    # (cnn / vggt / vggt_aggregator_mlp / vggt_wp_dense_cnn / hybrid) evaluates
-    # correctly; the hybrid's (16404,) obs_shape and "hybrid" type flow through.
-    agent_config_kwargs = _agent_config_kwargs(
-        encoder_spec,
-        args=args,
-        eff_checkpoint=eff_checkpoint,
-    )
-
-    config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
-    rng_key = jax.random.PRNGKey(args.seed)
-
-    agent = _make_eval_agent(args, eff_checkpoint, agent_config_kwargs)
-    if agent is not None:
-        # Match the rng_key split the inline init_key used to consume so the
-        # downstream act_key chain stays identical.
-        rng_key, _ = jax.random.split(rng_key)
-
-    # --- Evaluate ---
-    results = []
-    for ep_idx in range(args.episodes):
-        ep_result, rng_key = _run_eval_episode(
-            ep_idx=ep_idx,
+        # --- Build env ---
+        if env not in env_registry:
+            raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
+        env_instance, needs_hires, render_resolution = _make_eval_env(
             args=args,
-            env_instance=env_instance,
-            adapter=adapter,
-            agent=agent,
-            rng_key=rng_key,
-            config=config,
-            wandb_module=wandb_module,
-            output_dir=eff_output_dir,
+            curriculum_path=curriculum_path,
+            eff_encoder=eff_encoder,
         )
-        results.append(ep_result)
 
-    _print_eval_summary(results, args.episodes)
+        # --- Build encoder + adapter ---
+        _enc, adapter, encoder_spec = _make_eval_encoder(
+            eff_encoder,
+            encoder_registry,
+            needs_hires,
+            render_resolution,
+        )
 
-    meta = {"agent": "random" if args.random else eff_checkpoint}
-    output = {"meta": meta, "results": results}
-    with open(output_path, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"Results saved to {output_path}")
+        agent_config_kwargs = _agent_config_kwargs(
+            encoder_spec,
+            args=args,
+            eff_checkpoint=eff_checkpoint,
+        )
 
-    if wandb_module is not None:
-        wandb_module.finish()
-    env_instance.close()
-    return output
+        config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
+        rng_key = jax.random.PRNGKey(args.seed)
+
+        agent = _make_eval_agent(args, eff_checkpoint, agent_config_kwargs)
+        if agent is not None:
+            # Match the rng_key split the inline init_key used to consume so the
+            # downstream act_key chain stays identical.
+            rng_key, _ = jax.random.split(rng_key)
+
+        # --- Evaluate ---
+        results = []
+        for ep_idx in range(args.episodes):
+            ep_result, rng_key = _run_eval_episode(
+                ep_idx=ep_idx,
+                args=args,
+                env_instance=env_instance,
+                adapter=adapter,
+                agent=agent,
+                rng_key=rng_key,
+                config=config,
+                wandb_module=wandb_module,
+                output_dir=eff_output_dir,
+            )
+            results.append(ep_result)
+
+        _print_eval_summary(results, args.episodes)
+
+        meta = {"agent": "random" if args.random else eff_checkpoint}
+        output = {"meta": meta, "results": results}
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"Results saved to {output_path}")
+        return output
+    finally:
+        if wandb_module is not None:
+            wandb_module.finish()
+        if env_instance is not None:
+            env_instance.close()

@@ -15,7 +15,6 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
-import pickle
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -25,6 +24,8 @@ import numpy as np
 import optax
 
 from .config import R2DreamerConfig
+from .checkpointing import load_checkpoint
+from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import (
     normalize_encoder_module_kwargs,
     recover_encoder_input_contract,
@@ -110,35 +111,10 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
     )
 
 
-def _missing_pickle_class(module: str, name: str) -> type:
-    class MissingPickleClass:
-        def __init__(self, *args, **kwargs):
-            self.args = args
-            self.kwargs = kwargs
-
-        def __setstate__(self, state):
-            self.state = state
-
-    MissingPickleClass.__name__ = name
-    MissingPickleClass.__module__ = module
-    return MissingPickleClass
-
-
-class _CheckpointUnpickler(pickle.Unpickler):
-    """Load old checkpoints even when unused optimizer-state classes moved."""
-
-    def find_class(self, module: str, name: str):
-        try:
-            return super().find_class(module, name)
-        except (AttributeError, ModuleNotFoundError):
-            return _missing_pickle_class(module, name)
-
-
 def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     """Load an R2DreamerAgent checkpoint, tolerating moved optimizer classes."""
     path = Path(path)
-    with path.open("rb") as f:
-        ckpt = _CheckpointUnpickler(f).load()
+    ckpt = load_checkpoint(str(path))
     missing = {"params", "slow_critic_params"} - set(ckpt)
     if missing:
         raise KeyError(f"checkpoint {path} is missing required keys: {sorted(missing)}")
@@ -379,7 +355,7 @@ def _add_hybrid_contribution_metrics(
     *,
     cfg: R2DreamerConfig,
     params: dict[str, Any],
-    forward: dict[str, Any],
+    forward: WorldModelForward,
     B: int,
     T: int,
 ) -> None:
@@ -387,7 +363,7 @@ def _add_hybrid_contribution_metrics(
     # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
     # leading cnn_dim columns are the CNN branch and the rest are the
     # gated VGGT branch. The raw gate scalar is read straight from params.
-    embed_flat = forward["embed"].reshape(B * T, -1)
+    embed_flat = forward.embed.reshape(B * T, -1)
     cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
     cnn_e = embed_flat[:, :cnn_dim]
     vggt_e = embed_flat[:, cnn_dim:]
@@ -484,9 +460,22 @@ class R2DreamerAgent:
             contract = recover_encoder_input_contract(contract_snapshot)
             if obs_shape is None:
                 obs_shape = contract.encoder_input.buffer_shape()
-            config_kwargs.setdefault("encoder_type", contract.encoder_type)
-            config_kwargs.setdefault("encoder_module_cls", contract.encoder_module_cls)
-            config_kwargs.setdefault("encoder_input_contract", contract_snapshot)
+            requested_type = config_kwargs.get("encoder_type")
+            if requested_type is not None and requested_type != contract.encoder_type:
+                raise ValueError(
+                    "checkpoint encoder contract mismatch: requested "
+                    f"{requested_type!r}, checkpoint has {contract.encoder_type!r}"
+                )
+            requested_shape = obs_shape
+            contract_shape = contract.encoder_input.buffer_shape()
+            if requested_shape != contract_shape:
+                raise ValueError(
+                    "checkpoint encoder shape mismatch: requested "
+                    f"{requested_shape!r}, checkpoint has {contract_shape!r}"
+                )
+            config_kwargs["encoder_type"] = contract.encoder_type
+            config_kwargs["encoder_module_cls"] = contract.encoder_module_cls
+            config_kwargs["encoder_input_contract"] = contract_snapshot
         if obs_shape is None:
             raise ValueError(
                 "obs_shape must be provided when checkpoint has no Encoder Input "
@@ -661,6 +650,20 @@ class R2DreamerAgent:
     # Acting
     # ------------------------------------------------------------------
 
+    def snapshot_act_state(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Copy the mutable single-env acting latent state."""
+        return (
+            np.array(self._act_stoch, copy=True),
+            np.array(self._act_deter, copy=True),
+            np.array(self._act_prev_action, copy=True),
+        )
+
+    def restore_act_state(
+        self, state: tuple[np.ndarray, np.ndarray, np.ndarray]
+    ) -> None:
+        """Restore the mutable single-env acting latent state."""
+        self._act_stoch, self._act_deter, self._act_prev_action = state
+
     def act(
         self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True
     ) -> int:
@@ -794,6 +797,21 @@ class R2DreamerAgent:
         )
         return {k: float(v) for k, v in metrics.items()}
 
+    def eval_loss(
+        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
+    ) -> Dict[str, float]:
+        """Evaluate the current objective on a batch without updating state."""
+        _total_loss, aux = self._loss_fn(
+            self.params,
+            slow_critic_params=self.slow_critic_params,
+            ema_state=self.ema_state,
+            batch=batch,
+            rng_key=rng_key,
+        )
+        metrics = dict(aux.metrics)
+        metrics["total_loss"] = aux.agent_loss
+        return {k: float(v) for k, v in metrics.items()}
+
     def _train_step_pure(self, state: R2DTrainState, batch, rng_key):
         """Pure-functional training step (JIT-able)."""
         params = state.params
@@ -826,7 +844,7 @@ class R2DreamerAgent:
         updates, new_opt_state = self.tx.update(grads, opt_state, params)
         new_params = optax.apply_updates(params, updates)
 
-        new_ema_state = self.return_ema.update(ema_state, aux["imag_returns"])
+        new_ema_state = self.return_ema.update(ema_state, aux.imag_returns)
 
         # Roll back to pre-update state on NaN/inf
         new_params = jax.tree.map(
@@ -844,9 +862,9 @@ class R2DreamerAgent:
             lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state
         )
 
-        metrics = aux["metrics"]
+        metrics = aux.metrics
         metrics["opt_loss"] = total_loss
-        metrics["total_loss"] = aux["agent_loss"]
+        metrics["total_loss"] = aux.agent_loss
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         new_state = R2DTrainState(
             params=new_params,
@@ -860,7 +878,7 @@ class R2DreamerAgent:
     # Composition root: shared forward + 3 sub-losses
     # ------------------------------------------------------------------
 
-    def _world_model_forward(self, params, batch, rng_key):
+    def _world_model_forward(self, params, batch, rng_key) -> WorldModelForward:
         """Encoder + posterior rollout + prior + features. Shared across sub-losses.
 
         Computing this once is essential: if each sub-loss recomputed `embed`,
@@ -918,14 +936,14 @@ class R2DreamerAgent:
             ),
         )
 
-        return {
-            "embed": embed,
-            "post_stochs": post_stochs,
-            "post_deters": post_deters,
-            "post_logits": post_logits,
-            "prior_logits": prior_logits,
-            "feat": feat,
-        }
+        return WorldModelForward(
+            embed=embed,
+            post_stochs=post_stochs,
+            post_deters=post_deters,
+            post_logits=post_logits,
+            prior_logits=prior_logits,
+            feat=feat,
+        )
 
     def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
         """Compose the world-model, behavior, and representation losses.
@@ -940,7 +958,7 @@ class R2DreamerAgent:
         rng_key, k_fwd = jax.random.split(rng_key)
         forward = self._world_model_forward(params, batch, k_fwd)
 
-        wm_losses, wm_metrics = world_model_loss(
+        wm_result = world_model_loss(
             forward=forward,
             params=params,
             batch=batch,
@@ -950,7 +968,7 @@ class R2DreamerAgent:
         )
 
         rng_key, k_behavior = jax.random.split(rng_key)
-        bh_losses, bh_metrics, imag_ret = behavior_loss(
+        behavior_result = behavior_loss(
             forward=forward,
             params=params,
             modules=self._modules,
@@ -964,7 +982,7 @@ class R2DreamerAgent:
             T=T,
         )
 
-        rep_losses, rep_metrics = representation_loss(
+        rep_result = representation_loss(
             forward=forward,
             batch=batch,
             params=params,
@@ -972,12 +990,16 @@ class R2DreamerAgent:
             cfg=cfg,
             twohot=self.twohot,
             slow_critic_params=slow_critic_params,
-            imag_ret=imag_ret,
+            imag_ret=behavior_result.imag_returns,
             B=B,
             T=T,
         )
 
-        losses = {**wm_losses, **bh_losses, **rep_losses}
+        losses = {
+            **wm_result.losses,
+            **behavior_result.losses,
+            **rep_result.losses,
+        }
         agent_loss = _weighted_total_loss(cfg, losses)
         # The decoder is a stop-gradient visualisation probe. Add its detached
         # reconstruction loss only to the optimiser objective so the decoder
@@ -988,7 +1010,11 @@ class R2DreamerAgent:
             total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
 
         # ---- Metrics ----
-        metrics = {**wm_metrics, **bh_metrics, **rep_metrics}
+        metrics = {
+            **wm_result.metrics,
+            **behavior_result.metrics,
+            **rep_result.metrics,
+        }
         _add_loss_metrics(metrics, losses)
         _add_encoder_l2_metric(metrics, params)
 
@@ -1007,9 +1033,9 @@ class R2DreamerAgent:
                 T=T,
             )
 
-        aux = {
-            "metrics": metrics,
-            "imag_returns": imag_ret.reshape(-1),
-            "agent_loss": agent_loss,
-        }
+        aux = AgentLossAux(
+            metrics=metrics,
+            imag_returns=behavior_result.imag_returns.reshape(-1),
+            agent_loss=agent_loss,
+        )
         return total_loss, aux

@@ -612,7 +612,10 @@ class TestVGGTHouseContextEncoder:
 
         assert isinstance(adapter, VGGTHouseContextObsAdapter)
         assert spec.encoder_type == "vggt_house_context"
-        assert adapter.buffer_shape == (3, 64, 64)
+        assert adapter.buffer_shape == {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HOUSE_CONTEXT_KEY: (1024,),
+        }
         assert spec.obs_shape == (13312,)
         assert spec.env_render_resolution == 518
         assert spec.module_cls is wm_encoders.HybridEncoder
@@ -624,8 +627,10 @@ class TestVGGTHouseContextEncoder:
         assert spec.agent_overrides["vggt_token_transformer_dropout"] == 0.0
         assert adapter.on_episode_reset is None
 
-    def test_house_context_adapter_stores_rgb_and_injects_live_context(self):
-        full_tokens = np.arange(1374 * 2048, dtype=np.float32).reshape(1374, 2048)
+    def test_house_context_adapter_stores_rgb_and_context_in_replay(self):
+        full_tokens = (
+            np.arange(1374 * 2048, dtype=np.float32).reshape(1374, 2048) / 1000.0
+        )
         context = np.arange(1024, dtype=np.float32)
 
         class FakeExtractor:
@@ -654,13 +659,19 @@ class TestVGGTHouseContextEncoder:
             ObservationFrame(image=image, is_first=True)
         )
 
-        assert replay.shape == (3, 64, 64)
-        assert replay.dtype == np.uint8
+        assert set(replay) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
+        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
+        assert replay[HOUSE_CONTEXT_KEY].shape == (1024,)
+        assert replay[HOUSE_CONTEXT_KEY].dtype == np.float32
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
         assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
 
         batch = {
-            "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.float32),
+            "obs": {
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                HOUSE_CONTEXT_KEY: np.zeros((2, 3, 1024), dtype=np.float32),
+            },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
             "dones": np.zeros((2, 3), dtype=bool),
@@ -673,13 +684,8 @@ class TestVGGTHouseContextEncoder:
         assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
         assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
 
-        # The 1024-d Transformer context is cached outside replay and injected
-        # into sampled batches.
         np.testing.assert_allclose(
             np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context
-        )
-        np.testing.assert_allclose(
-            np.asarray(augmented["obs"][HOUSE_CONTEXT_KEY][0, 0]), context
         )
 
 
@@ -704,19 +710,24 @@ class TestVGGTHouseFullTokenNoGateEncoder:
 
         assert isinstance(adapter, VGGTHouseFullTokenObsAdapter)
         assert spec.encoder_type == "vggt_house_full_tokens_nogate"
-        assert adapter.buffer_shape == (3, 64, 64)
+        assert adapter.buffer_shape == {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            FULL_TOKENS_KEY: (1374, 2048),
+        }
         assert spec.obs_shape == {
             HYBRID_IMAGE_KEY: (3, 64, 64),
             FULL_TOKENS_KEY: (1374, 2048),
         }
         assert spec.module_cls is wm_encoders.RGBFullTokenTransformerEncoder
-        assert spec.agent_overrides["buffer_capacity"] == 1_000_000
+        assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 2048
         assert spec.agent_overrides["vggt_token_count"] == 1374
         assert adapter.on_episode_reset is None
 
-    def test_full_token_adapter_stores_only_rgb_and_injects_live_tokens(self):
-        full_tokens = np.arange(1374 * 2048, dtype=np.float32).reshape(1374, 2048)
+    def test_full_token_adapter_stores_rgb_and_tokens_in_replay(self):
+        full_tokens = (
+            np.arange(1374 * 2048, dtype=np.float32).reshape(1374, 2048) / 1000.0
+        )
 
         class FakeExtractor:
             def extract(self, image):
@@ -732,13 +743,19 @@ class TestVGGTHouseFullTokenNoGateEncoder:
             ObservationFrame(image=image, is_first=True)
         )
 
-        assert replay.shape == (3, 64, 64)
-        assert replay.dtype == np.uint8
+        assert set(replay) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
+        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
+        assert replay[FULL_TOKENS_KEY].shape == (1374, 2048)
+        assert replay[FULL_TOKENS_KEY].dtype == np.float16
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY, "is_first"}
         assert agent_obs[FULL_TOKENS_KEY].shape == (1374, 2048)
 
         batch = {
-            "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.float32),
+            "obs": {
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                FULL_TOKENS_KEY: np.zeros((2, 3, 1374, 2048), dtype=np.float16),
+            },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
             "dones": np.zeros((2, 3), dtype=bool),
@@ -750,13 +767,10 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
         assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
         assert augmented["obs"][FULL_TOKENS_KEY].shape == (2, 3, 1374, 2048)
-        np.testing.assert_allclose(
-            np.asarray(augmented["obs"][FULL_TOKENS_KEY][0, 0]), full_tokens
-        )
 
 
 class TestVGGTHouseGlobalTokenNoGateEncoder:
-    def test_global_token_nogate_encoder_exposes_rgb_replay_and_singleton_token_obs(self, monkeypatch):
+    def test_global_token_nogate_encoder_exposes_rgb_replay_and_token_obs(self, monkeypatch):
         from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
         from src.r2dreamer.encoders import VGGTHouseGlobalTokenNoGateEncoder
 
@@ -779,34 +793,26 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
 
         assert isinstance(adapter, VGGTHouseGlobalTokenObsAdapter)
         assert spec.encoder_type == "vggt_house_global_tokens_nogate"
-        assert adapter.buffer_shape == (3, 64, 64)
+        assert adapter.buffer_shape == {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            GLOBAL_TOKENS_KEY: (1374, 1024),
+        }
         assert spec.obs_shape == {
             HYBRID_IMAGE_KEY: (3, 64, 64),
             GLOBAL_TOKENS_KEY: (1374, 1024),
         }
         assert spec.module_cls is wm_encoders.RGBGlobalTokenTransformerEncoder
-        assert spec.agent_overrides["buffer_capacity"] == 1_000_000
+        assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 1024
         assert spec.agent_overrides["vggt_token_count"] == 1374
         assert adapter.on_episode_reset is None
 
-    def test_global_token_adapter_requires_live_tokens_before_replay_augmentation(self):
+    def test_global_token_adapter_stores_rgb_and_tokens_in_replay(self):
         from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
 
-        class FakeExtractor:
-            def extract(self, image):  # pragma: no cover - should not be called
-                raise AssertionError("augment_replay_batch must not run VGGT")
-
-        adapter = VGGTHouseGlobalTokenObsAdapter(FakeExtractor())
-        batch = {"obs": np.zeros((2, 3, 3, 64, 64), dtype=np.uint8)}
-
-        with pytest.raises(RuntimeError, match="no live global tokens"):
-            adapter.augment_replay_batch(batch)
-
-    def test_global_token_adapter_stores_only_rgb_and_injects_singleton_live_tokens(self):
-        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
-
-        global_tokens = np.arange(1374 * 1024, dtype=np.float32).reshape(1374, 1024)
+        global_tokens = (
+            np.arange(1374 * 1024, dtype=np.float32).reshape(1374, 1024) / 1000.0
+        )
 
         class FakeExtractor:
             def __init__(self):
@@ -827,14 +833,20 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
             ObservationFrame(image=image, is_first=True)
         )
 
-        assert replay.shape == (3, 64, 64)
-        assert replay.dtype == np.uint8
+        assert set(replay) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
+        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
+        assert replay[GLOBAL_TOKENS_KEY].shape == (1374, 1024)
+        assert replay[GLOBAL_TOKENS_KEY].dtype == np.float16
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY, "is_first"}
         assert agent_obs[GLOBAL_TOKENS_KEY].shape == (1374, 1024)
         assert extractor.calls == 1
 
         batch = {
-            "obs": np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+            "obs": {
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                GLOBAL_TOKENS_KEY: np.zeros((2, 3, 1374, 1024), dtype=np.float16),
+            },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
             "dones": np.zeros((2, 3), dtype=bool),
@@ -843,13 +855,10 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         }
         augmented = adapter.augment_replay_batch(batch)
 
-        assert extractor.calls == 1, "cached live tokens should be reused during replay sampling"
+        assert extractor.calls == 1, "replay augmentation must not run VGGT"
         assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
         assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
-        assert augmented["obs"][GLOBAL_TOKENS_KEY].shape == (1, 1374, 1024)
-        np.testing.assert_allclose(
-            np.asarray(augmented["obs"][GLOBAL_TOKENS_KEY][0]), global_tokens
-        )
+        assert augmented["obs"][GLOBAL_TOKENS_KEY].shape == (2, 3, 1374, 1024)
 
 
 @pytest.mark.gpu

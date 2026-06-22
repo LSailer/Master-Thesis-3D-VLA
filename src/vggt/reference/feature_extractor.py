@@ -1,7 +1,6 @@
 """VGGT feature extractor for streaming 3D point extraction during RL acting."""
 
 import sys
-from pathlib import Path
 from contextlib import nullcontext
 from typing import Any, cast
 
@@ -10,10 +9,10 @@ import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
+from src.vggt.paths import infinite_vggt_src
+
 # Ensure InfiniteVGGT source is importable.
-_IVGGT_SRC = str(
-    Path(__file__).resolve().parent.parent.parent / "external" / "InfiniteVGGT" / "src"
-)
+_IVGGT_SRC = str(infinite_vggt_src())
 if _IVGGT_SRC not in sys.path:
     sys.path.insert(0, _IVGGT_SRC)
 

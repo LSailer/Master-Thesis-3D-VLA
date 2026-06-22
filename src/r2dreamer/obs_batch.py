@@ -140,12 +140,12 @@ def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> Encode
         tokens = jnp.asarray(
             obs[GLOBAL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
         )
-        expected_shape = (1, cfg.vggt_token_count, cfg.vggt_token_dim)
-        if tokens.shape != expected_shape:
-            raise ValueError(
-                "vggt_house_global_tokens_nogate expects singleton live global "
-                f"tokens with shape {expected_shape}, got {tokens.shape}"
+        if tokens.shape == (1, cfg.vggt_token_count, cfg.vggt_token_dim):
+            tokens = jnp.broadcast_to(
+                tokens, (B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
             )
+        else:
+            tokens = tokens.reshape(B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
         return {HYBRID_IMAGE_KEY: image, GLOBAL_TOKENS_KEY: tokens}
     elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         if not isinstance(obs, Mapping):

@@ -255,7 +255,9 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
     "vggt_house_context": VGGTDreamerSpec(
         name="vggt_house_context",
         readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
-        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        storage=StorageSpec(
+            replay_rgb=True, replay_readout=True, readout_dtype="float32"
+        ),
         dreamer=DreamerEncoderSpec(
             "hybrid", wm_encoders.HybridEncoder, "rgb_plus_context"
         ),
@@ -270,30 +272,30 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
     "vggt_house_full_tokens_nogate": VGGTDreamerSpec(
         name="vggt_house_full_tokens_nogate",
         readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
-        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        storage=StorageSpec(replay_rgb=True, replay_readout=True),
         dreamer=DreamerEncoderSpec(
             "transformer", wm_encoders.RGBFullTokenTransformerEncoder, "rgb_plus_tokens"
         ),
         agent_overrides={
-            "buffer_capacity": 1_000_000,
+            **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
             "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
         },
-        design_notes="RGB replay plus live full-width VGGT tokens, no gate.",
+        design_notes="RGB replay plus per-step full-width VGGT tokens, no gate.",
     ),
     "vggt_house_global_tokens_nogate": VGGTDreamerSpec(
         name="vggt_house_global_tokens_nogate",
         readout=TokenReadout("global"),
-        storage=StorageSpec(replay_rgb=True, replay_readout=False),
+        storage=StorageSpec(replay_rgb=True, replay_readout=True),
         dreamer=DreamerEncoderSpec(
             "transformer", wm_encoders.RGBGlobalTokenTransformerEncoder, "rgb_plus_tokens"
         ),
         agent_overrides={
-            "buffer_capacity": 1_000_000,
+            **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
             "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
         },
-        design_notes="RGB replay plus live global-half VGGT tokens, no gate.",
+        design_notes="RGB replay plus per-step global-half VGGT tokens, no gate.",
     ),
 }
 

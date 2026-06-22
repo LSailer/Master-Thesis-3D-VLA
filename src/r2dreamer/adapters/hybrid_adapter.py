@@ -96,13 +96,12 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
     token_key: str
     token_shape: tuple[int, int]
     token_name: str
-    singleton_batch: bool = False
 
     def __init__(self, extractor):
         super().__init__(
-            buffer_dtype="uint8",
-            buffer_shape=IMAGE_SHAPE,
-            normalize_on_sample=True,
+            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", self.token_key: "float16"},
+            buffer_shape={HYBRID_IMAGE_KEY: IMAGE_SHAPE, self.token_key: self.token_shape},
+            normalize_on_sample={HYBRID_IMAGE_KEY: True, self.token_key: False},
             agent_obs_shape={
                 HYBRID_IMAGE_KEY: IMAGE_SHAPE,
                 self.token_key: self.token_shape,
@@ -110,7 +109,6 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
             on_episode_reset=None,
         )
         self._extractor = extractor
-        self._tokens: np.ndarray | None = None
 
     def _tokens_from_output(self, out: dict) -> jnp.ndarray:
         raise NotImplementedError
@@ -121,33 +119,23 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
             raise ValueError(
                 f"expected VGGT {self.token_name} shape {self.token_shape}, got {tokens.shape}"
             )
-        self._tokens = np.asarray(tokens, dtype=np.float32)
-        return self._tokens
+        return np.asarray(tokens, dtype=np.float32)
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
+    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         tokens = self._extract_tokens(env_obs.image)
-        return image64, {
+        replay = {
+            HYBRID_IMAGE_KEY: image64,
+            self.token_key: tokens.astype(np.float16),
+        }
+        return replay, {
             HYBRID_IMAGE_KEY: image64,
             self.token_key: jnp.asarray(tokens, dtype=jnp.float32),
             "is_first": env_obs.is_first,
         }
 
     def augment_replay_batch(self, batch: dict) -> dict:
-        if self._tokens is None:
-            raise RuntimeError(
-                f"{type(self).__name__} has no live {self.token_name} yet; "
-                "call transform() before sampling replay."
-            )
-        tokens = jnp.asarray(self._tokens, dtype=jnp.float32)
-        if not self.singleton_batch:
-            tokens = jnp.broadcast_to(tokens, (*batch["obs"].shape[:2], *self.token_shape))
-        else:
-            tokens = tokens[None]
-        return {
-            **batch,
-            "obs": {HYBRID_IMAGE_KEY: batch["obs"], self.token_key: tokens},
-        }
+        return batch
 
 
 class VGGTHouseFullTokenObsAdapter(_RGBLiveTokenObsAdapter):
@@ -167,7 +155,6 @@ class VGGTHouseGlobalTokenObsAdapter(_RGBLiveTokenObsAdapter):
     token_key = GLOBAL_TOKENS_KEY
     token_shape = GLOBAL_TOKEN_SHAPE
     token_name = "global tokens"
-    singleton_batch = True
 
     def _tokens_from_output(self, out: dict) -> jnp.ndarray:
         return out["aggregator_features"]
@@ -190,9 +177,12 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         rng_seed: int = 0,
     ):
         super().__init__(
-            buffer_dtype="uint8",
-            buffer_shape=IMAGE_SHAPE,
-            normalize_on_sample=True,
+            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", HOUSE_CONTEXT_KEY: "float32"},
+            buffer_shape={
+                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
+                HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_DIM,),
+            },
+            normalize_on_sample={HYBRID_IMAGE_KEY: True, HOUSE_CONTEXT_KEY: False},
             on_episode_reset=None,
         )
         self._extractor = extractor
@@ -230,29 +220,19 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self._context = context
         return context
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
+    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         context = self._extract_context(env_obs.image)
+        replay = {
+            HYBRID_IMAGE_KEY: image64,
+            HOUSE_CONTEXT_KEY: context.astype(np.float32),
+        }
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,
             HOUSE_CONTEXT_KEY: jnp.asarray(context, dtype=jnp.float32),
             "is_first": env_obs.is_first,
         }
-        return image64, agent_obs
+        return replay, agent_obs
 
     def augment_replay_batch(self, batch: dict) -> dict:
-        if self._context is None:
-            raise RuntimeError(
-                "VGGTHouseContextObsAdapter has no live house context yet; "
-                "call transform() before sampling replay."
-            )
-        image = batch["obs"]
-        context = jnp.asarray(self._context, dtype=jnp.float32)
-        context = jnp.broadcast_to(context, (*image.shape[:2], HOUSE_CONTEXT_DIM))
-        return {
-            **batch,
-            "obs": {
-                HYBRID_IMAGE_KEY: image,
-                HOUSE_CONTEXT_KEY: context,
-            },
-        }
+        return batch

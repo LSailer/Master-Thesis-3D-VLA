@@ -134,7 +134,7 @@ class TestVGGTObservationPreparationContracts:
         assert VGGT_DREAMER_SPECS["hybrid"].storage.replay_readout is True
         assert VGGT_DREAMER_SPECS[
             "vggt_house_global_tokens_nogate"
-        ].storage.replay_readout is False
+        ].storage.replay_readout is True
         assert (
             VGGT_DREAMER_SPECS["vggt_agg_raw"].readout.token_source == "flattened"
         )

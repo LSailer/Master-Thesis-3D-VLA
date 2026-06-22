@@ -37,6 +37,8 @@ def barlow_loss(*, feat, embed, params, modules, cfg, B, T):
     Returns:
         scalar loss = invariance + cfg.barlow_lambda * redundancy.
     """
+    if B * T < 2:
+        raise ValueError("barlow_loss requires at least two samples across B*T")
     feat_flat = feat.reshape(B * T, -1)
     embed_flat = embed.reshape(B * T, -1)
 

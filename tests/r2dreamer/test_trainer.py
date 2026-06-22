@@ -168,35 +168,47 @@ class TestConvertBatch:
         }
 
     def test_actions_become_onehot(self, replay_batch):
+        replay_batch["actions"] = jnp.array([[1, 2, 3, 4, 5, 0, 1, 2]] * 4)
         out = convert_batch(replay_batch, num_actions=6)
         assert out["actions"].shape == (4, 8, 6)
         assert out["actions"].dtype == jnp.float32
-        # Each row should sum to 1 (one-hot)
-        assert jnp.allclose(out["actions"].sum(axis=-1), 1.0)
+        assert jnp.allclose(out["actions"][:, 0].sum(axis=-1), 0.0)
+        assert jnp.allclose(out["actions"][:, 1:].sum(axis=-1), 1.0)
+        np.testing.assert_allclose(np.asarray(out["actions"][0, 1]), np.eye(6)[1])
 
     def test_dones_renamed_to_is_last(self, replay_batch):
         replay_batch["dones"] = jnp.ones((4, 8))
         out = convert_batch(replay_batch, num_actions=6)
         assert "is_last" in out
         assert "dones" not in out
-        assert jnp.allclose(out["is_last"], 1.0)
+        assert jnp.allclose(out["is_last"][:, 0], 0.0)
+        assert jnp.allclose(out["is_last"][:, 1:], 1.0)
 
     def test_terminals_renamed_to_is_terminal(self, replay_batch):
         replay_batch["terminals"] = jnp.ones((4, 8))
         out = convert_batch(replay_batch, num_actions=6)
         assert "is_terminal" in out
         assert "terminals" not in out
-        assert jnp.allclose(out["is_terminal"], 1.0)
+        assert jnp.allclose(out["is_terminal"][:, 0], 0.0)
+        assert jnp.allclose(out["is_terminal"][:, 1:], 1.0)
 
     def test_obs_and_rewards_pass_through(self, replay_batch):
         out = convert_batch(replay_batch, num_actions=6)
         assert jnp.allclose(out["obs"], replay_batch["obs"])
-        assert jnp.allclose(out["rewards"], replay_batch["rewards"])
+        assert jnp.allclose(out["rewards"][:, 0], 0.0)
+        assert jnp.allclose(out["rewards"][:, 1:], replay_batch["rewards"][:, :-1])
         assert jnp.allclose(out["is_first"], replay_batch["is_first"])
 
     def test_output_keys(self, replay_batch):
         out = convert_batch(replay_batch, num_actions=6)
-        assert set(out.keys()) == {"obs", "actions", "rewards", "is_first", "is_last", "is_terminal"}
+        assert set(out.keys()) == {
+            "obs",
+            "actions",
+            "rewards",
+            "is_first",
+            "is_last",
+            "is_terminal",
+        }
 
 
 class TestCheckpoint:

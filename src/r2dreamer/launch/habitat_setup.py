@@ -27,4 +27,5 @@ def make_habitat_env(
         config,
         curriculum_path=str(curriculum_path) if curriculum_path is not None else None,
         curriculum_mode=curriculum_mode,
+        seed=seed,
     )

@@ -8,10 +8,15 @@ Returns the imagination lambda-return `ret` so the composition root can:
   2) update the `ReturnEMA` outside `jax.grad`.
 """
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 
-from .imagination import _imagine, _lambda_return
+from src.r2dreamer.learning_types import BehaviorLossResult, WorldModelForward
+from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
+
+from .imagination import _imagine
 
 
 def behavior_loss(
@@ -27,11 +32,11 @@ def behavior_loss(
     rng_key,
     B,
     T,
-):
+) -> BehaviorLossResult:
     """Compute policy + value losses on an imagined rollout.
 
     Args:
-        forward: shared forward dict (uses `post_stochs`, `post_deters`).
+        forward: shared world-model forward output.
         params: agent params (uses `rssm`, `actor`, `critic`, plus frozen
             reads of `reward`, `cont` for scoring).
         modules: Flax module dict.
@@ -51,14 +56,15 @@ def behavior_loss(
     cfg_horizon = cfg.imagination_horizon + 1
 
     # Detach starting state — imagination must not backprop into the world model.
+    forward = cast(WorldModelForward, forward)
     start_stoch = jax.lax.stop_gradient(
-        forward["post_stochs"].reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
+        forward.post_stochs.reshape(B * T, cfg.stoch_classes, cfg.stoch_discrete)
     )
     start_deter = jax.lax.stop_gradient(
-        forward["post_deters"].reshape(B * T, cfg.deter_size)
+        forward.post_deters.reshape(B * T, cfg.deter_size)
     )
 
-    imag_feats, imag_actions, _ = _imagine(
+    rollout = _imagine(
         params["rssm"],
         params["actor"],
         modules["rssm"],
@@ -69,8 +75,8 @@ def behavior_loss(
         rng_key,
     )
     # Already-frozen inside _imagine, but guard at the boundary too
-    imag_feats = jax.lax.stop_gradient(imag_feats)
-    imag_actions = jax.lax.stop_gradient(imag_actions)
+    imag_feats = jax.lax.stop_gradient(rollout.feats)
+    imag_actions = jax.lax.stop_gradient(rollout.actions)
 
     imag_feat_flat = imag_feats.reshape(B * T * cfg_horizon, -1)
 
@@ -98,14 +104,16 @@ def behavior_loss(
 
     last = jnp.zeros_like(imag_cont)
     term = 1.0 - imag_cont
-    ret = _lambda_return(
-        last,
-        term,
-        imag_reward,
-        imag_value,
-        imag_value,
-        disc,
-        cfg.lamb,
+    ret = lambda_return(
+        LambdaReturnInputs(
+            last=last,
+            term=term,
+            reward=imag_reward,
+            value=imag_value,
+            boot=imag_value,
+            disc=disc,
+            lamb=cfg.lamb,
+        )
     )  # (BT, H-1, 1)
 
     _, ret_scale = return_ema.get_stats(ema_state)
@@ -153,4 +161,4 @@ def behavior_loss(
         jax.lax.stop_gradient(weight[:, :-1, 0]) * (critic_loss_tar + critic_loss_slow)
     )
 
-    return losses, {}, ret
+    return BehaviorLossResult(losses=losses, metrics={}, imag_returns=ret)

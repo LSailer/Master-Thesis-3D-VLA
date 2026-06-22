@@ -53,6 +53,9 @@ class R2TwoHotDist:
 
     def encode(self, target: jnp.ndarray) -> jnp.ndarray:
         """Two-hot encode a scalar target in real space. target: (...)."""
+        target = jnp.asarray(target)
+        if target.ndim > 0 and target.shape[-1] == 1:
+            target = jnp.squeeze(target, axis=-1)
         # Find below/above indices (matching PyTorch's logic)
         below = jnp.sum((self.bins <= target[..., None]).astype(jnp.int32), axis=-1) - 1
         above = self.num_bins - jnp.sum(

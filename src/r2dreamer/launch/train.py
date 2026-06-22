@@ -255,7 +255,7 @@ def _make_trainer(
         # Val-Episode-Loop (3D-36) wiring: own adapter so the train
         # VGGT video buffer isn't disturbed; own tracker so val
         # rolling means stay independent of train rollouts.
-        val_adapter = enc.make_adapter()
+        val_adapter = enc.new_adapter()
         val_hab = habitat_defaults_fn(val_env_instance, track_collision_rate=True)
         val_kwargs = {
             "val_env": val_env_instance,
