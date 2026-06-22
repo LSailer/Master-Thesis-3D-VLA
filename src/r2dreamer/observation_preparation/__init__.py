@@ -8,7 +8,6 @@ from src.r2dreamer.observation_preparation.contracts import (
     encoder_module_kwargs_from_config,
     module_class_path,
     normalize_encoder_module_kwargs,
-    recover_encoder_input_contract,
     replay_observation_form,
 )
 from src.r2dreamer.observation_preparation.cnn import (

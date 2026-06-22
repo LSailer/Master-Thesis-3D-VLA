@@ -228,7 +228,7 @@ class TestProjector:
 class TestReturnEMA:
     def test_update_and_stats(self):
         ema = ReturnEMA(alpha=0.5)
-        state = ema.init_state()
+        state = jnp.zeros(2)
         returns = jnp.array([1.0, 2.0, 3.0, 4.0, 5.0])
         state = ema.update(state, returns)
         offset, scale = ema.get_stats(state)

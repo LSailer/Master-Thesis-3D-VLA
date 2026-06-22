@@ -289,13 +289,6 @@ class EncoderInputContract:
         )
 
 
-def recover_encoder_input_contract(
-    snapshot: Mapping[str, Any],
-) -> EncoderInputContract:
-    """Recover a runtime Encoder Input Contract from its durable snapshot."""
-    return EncoderInputContract.from_snapshot(snapshot)
-
-
 @dataclass(frozen=True)
 class PreparedObservation:
     """Per-step prepared observation for replay storage and immediate acting."""

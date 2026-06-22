@@ -13,9 +13,9 @@ import numpy as np
 
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
+    EncoderInputContract,
     encoder_module_kwargs_from_config,
     module_class_path,
-    recover_encoder_input_contract,
 )
 
 
@@ -80,7 +80,7 @@ def encoder_input_contract_snapshot(config: Any) -> dict[str, Any] | None:
             return None
         snapshot = CNNObservationPreparation().contract.to_snapshot()
     snapshot = dict(snapshot)
-    contract = recover_encoder_input_contract(snapshot)
+    contract = EncoderInputContract.from_snapshot(snapshot)
     snapshot["encoder_module_kwargs"] = encoder_module_kwargs_from_config(
         config,
         contract.encoder_module_cls,

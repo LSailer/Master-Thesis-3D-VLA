@@ -14,6 +14,7 @@ from src.r2dreamer.config import (
 )
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
+    EncoderInputContract,
     HYBRID_FEATURE_DIM,
     HYBRID_IMAGE_SHAPE,
     VGGTFeatureKind,
@@ -21,7 +22,6 @@ from src.r2dreamer.observation_preparation import (
     build_hybrid_contract,
     build_vggt_contract,
     PreparedObservation,
-    recover_encoder_input_contract,
 )
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
@@ -84,7 +84,7 @@ class TestCNNObservationPreparation:
 
         snapshot = contract.to_snapshot()
         encoded = json.loads(json.dumps(snapshot))
-        recovered = recover_encoder_input_contract(encoded)
+        recovered = EncoderInputContract.from_snapshot(encoded)
 
         assert encoded["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
         assert "encoder_module_cls" not in encoded

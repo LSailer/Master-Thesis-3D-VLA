@@ -7,7 +7,7 @@ from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import (
     GLOBAL_TOKENS_KEY,
     HYBRID_IMAGE_KEY,
-    encoder_obs_from_batch,
+    ObservationPacker,
 )
 
 
@@ -26,7 +26,7 @@ def test_global_token_nogate_batch_keeps_tokens_singleton_and_flattens_images():
         }
     }
 
-    encoder_obs = encoder_obs_from_batch(batch, cfg)
+    encoder_obs = ObservationPacker(cfg).from_batch(batch["obs"])
 
     assert set(encoder_obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
     assert encoder_obs[HYBRID_IMAGE_KEY].shape == (6, 3, 64, 64)
@@ -49,4 +49,4 @@ def test_global_token_nogate_batch_rejects_broadcasted_replay_tokens():
     }
 
     with pytest.raises(ValueError, match="singleton"):
-        encoder_obs_from_batch(batch, cfg)
+        ObservationPacker(cfg).from_batch(batch["obs"])

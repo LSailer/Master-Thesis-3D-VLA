@@ -99,7 +99,7 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
         def __init__(self):
             self.seen = []
 
-        def initial_act_state(self):
+        def snapshot_act_state(self):
             return None
 
         def act_with_state(self, encoder_obs, is_first, state, act_key, training=False):

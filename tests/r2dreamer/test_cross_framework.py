@@ -33,7 +33,7 @@ from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear, R2RSSM
 from src.r2dreamer.world_model.encoders import ConvEncoder
 from src.r2dreamer.world_model.heads import R2MLP, onehot_mode_st
 from src.r2dreamer.world_model.loss import kl_loss
-from src.r2dreamer.behavior.imagination import _lambda_return
+from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
 
 
 # =========================================================================
@@ -689,9 +689,18 @@ class TestLambdaReturn:
         pt_ret = _to_np(pt_lambda_return(last, term, reward, value, boot, disc, lamb))
 
         # JAX
-        jax_ret = np.array(_lambda_return(
-            jnp.array(last), jnp.array(term), jnp.array(reward),
-            jnp.array(value), jnp.array(boot), disc, lamb,
-        ))
+        jax_ret = np.array(
+            lambda_return(
+                LambdaReturnInputs(
+                    jnp.array(last),
+                    jnp.array(term),
+                    jnp.array(reward),
+                    jnp.array(value),
+                    jnp.array(boot),
+                    disc,
+                    lamb,
+                )
+            )
+        )
 
         np.testing.assert_allclose(jax_ret, pt_ret, atol=ATOL_COMPONENT, rtol=RTOL)

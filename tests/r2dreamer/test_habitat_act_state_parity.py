@@ -78,7 +78,7 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
         cfg = _small_agent_config()
         packer = ObservationPacker(cfg)
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
-        state = agent.initial_act_state()
+        state = agent.snapshot_act_state()
         obs = env.reset()
         prepared = adapter.prepare_env_step(obs, packer)
         encoder_obs = prepared.encoder_obs

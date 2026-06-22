@@ -15,9 +15,6 @@ class ReturnEMA:
     def __init__(self, alpha=0.01):
         self.alpha = alpha
 
-    def init_state(self):
-        return jnp.zeros(2)
-
     def update(self, state, returns):
         quantiles = jnp.array(
             [

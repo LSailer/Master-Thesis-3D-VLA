@@ -6,7 +6,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.obs_batch import ObservationPacker, encoder_obs_from_batch
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
@@ -177,7 +177,7 @@ class TestR2DreamerAgent:
         assert 0 <= action < cfg.num_actions
 
     def test_act_with_state_matches_mutable_act_and_jits(self, agent, cfg):
-        state = agent.initial_act_state()
+        state = agent.snapshot_act_state()
         packer = ObservationPacker(cfg)
         image = np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8)
         for step, is_first in enumerate((True, False, True, False)):
@@ -196,7 +196,7 @@ class TestR2DreamerAgent:
         action, _state = compiled.__call__(
             agent.params,
             packer.from_step(obs),
-            agent.initial_act_state(),
+            state,
             jnp.asarray(True),
             jax.random.PRNGKey(99),
             False,
@@ -367,7 +367,7 @@ class TestR2DreamerAgent:
             }
         }
 
-        encoder_obs = encoder_obs_from_batch(batch, cfg)
+        encoder_obs = ObservationPacker(cfg).from_batch(batch["obs"])
         _, token_e = agent.encoder_mod.apply(
             {"params": agent.params["encoder"]["params"]},
             encoder_obs,

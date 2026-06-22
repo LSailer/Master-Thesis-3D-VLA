@@ -26,8 +26,8 @@ from .config import R2DreamerConfig
 from .checkpointing import load_checkpoint
 from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import (
+    EncoderInputContract,
     normalize_encoder_module_kwargs,
-    recover_encoder_input_contract,
 )
 from .world_model.rssm import R2RSSM
 from .world_model.encoders import (
@@ -51,14 +51,13 @@ from .obs_batch import (
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss, kl_loss as _kl_loss
 from .behavior.return_ema import ReturnEMA
-from .behavior.imagination import _imagine, _lambda_return
 from .behavior.loss import behavior_loss
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
 from .obs_batch import (
+    ObservationPacker,
     compute_jnp_dtype,
     decoder_rgb_target,
-    encoder_obs_from_batch,
     obs_leading_shape,
 )
 from src.shared.optim import laprop, agc
@@ -88,25 +87,6 @@ class R2DTrainState(NamedTuple):
 
 
 # ---------------------------------------------------------------------------
-# Module factories
-# ---------------------------------------------------------------------------
-
-
-def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
-    return R2RSSM(
-        deter_size=cfg.deter_size,
-        stoch_classes=cfg.stoch_classes,
-        stoch_discrete=cfg.stoch_discrete,
-        num_actions=cfg.num_actions,
-        hidden=cfg.hidden_size,
-        blocks=cfg.blocks,
-        dyn_layers=cfg.dyn_layers,
-        obs_layers=cfg.obs_layers,
-        img_layers=cfg.img_layers,
-        unimix_ratio=cfg.unimix_ratio,
-    )
-
-
 def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     """Load an R2DreamerAgent checkpoint, tolerating moved optimizer classes."""
     path = Path(path)
@@ -160,46 +140,6 @@ def _contract_encoder_kwargs(cfg: R2DreamerConfig) -> dict[str, Any]:
     return normalize_encoder_module_kwargs(snapshot.get("encoder_module_kwargs", {}))
 
 
-def _make_conv_encoder(cfg: R2DreamerConfig):
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return ConvEncoder(**kwargs)
-    return ConvEncoder(
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
-
-
-def _make_wp_conv_encoder(cfg: R2DreamerConfig):
-    # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
-    # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return ConvEncoder(**kwargs)
-    return ConvEncoder(
-        input_kind="world_points",
-        embed_dim=cfg.vggt_embed_dim,
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
-
-
-def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return WP64CNNCPMLPEncoder(**kwargs)
-    return WP64CNNCPMLPEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        conv_depth=cfg.encoder_depth,
-        conv_kernel=cfg.encoder_kernel,
-        conv_mults=cfg.encoder_mults,
-        cp_hidden=cfg.mlp_vggt_hidden,
-        cp_layers=cfg.mlp_vggt_layers,
-    )
-
-
 def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
     # Guard the packed encoder-layout contract: replay may store modalities in
@@ -232,63 +172,74 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     )
 
 
-def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
-    # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
+def _make_encoder(cfg: R2DreamerConfig):
+    cls = _resolve_encoder_cls(cfg)
+    _validate_encoder_config(cfg, cls)
     kwargs = _contract_encoder_kwargs(cfg)
+    if cls is ConvEncoder:
+        if kwargs:
+            return ConvEncoder(**kwargs)
+        if cfg.encoder_type != "vggt_wp_dense_cnn":
+            return ConvEncoder(
+                depth=cfg.encoder_depth,
+                kernel_size=cfg.encoder_kernel,
+                mults=cfg.encoder_mults,
+            )
+        # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses
+        # RGB conv hyperparameters; symlog handles metric XYZ range.
+        return ConvEncoder(
+            input_kind="world_points",
+            embed_dim=cfg.vggt_embed_dim,
+            depth=cfg.encoder_depth,
+            kernel_size=cfg.encoder_kernel,
+            mults=cfg.encoder_mults,
+        )
+    if cls is WP64CNNCPMLPEncoder:
+        if kwargs:
+            return WP64CNNCPMLPEncoder(**kwargs)
+        return WP64CNNCPMLPEncoder(
+            embed_dim=cfg.vggt_embed_dim,
+            conv_depth=cfg.encoder_depth,
+            conv_kernel=cfg.encoder_kernel,
+            conv_mults=cfg.encoder_mults,
+            cp_hidden=cfg.mlp_vggt_hidden,
+            cp_layers=cfg.mlp_vggt_layers,
+        )
+    if cls is WMHybridEncoder:
+        return _make_hybrid_encoder(cfg)
+    if cls is WMVGGTAggTokenTransformerEncoder:
+        return WMVGGTAggTokenTransformerEncoder(
+            embed_dim=cfg.vggt_embed_dim,
+            token_dim=cfg.vggt_token_dim,
+            num_tokens=cfg.vggt_token_count,
+            projection_dim=cfg.vggt_token_projection_dim,
+            layers=cfg.vggt_token_transformer_layers,
+            heads=cfg.vggt_token_transformer_heads,
+            mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+            keep_register_tokens=cfg.vggt_keep_register_tokens,
+        )
+    if cls in (WMRGBFullTokenTransformerEncoder, WMRGBGlobalTokenTransformerEncoder):
+        return cls(
+            cnn_depth=cfg.encoder_depth,
+            cnn_kernel=cfg.encoder_kernel,
+            cnn_mults=cfg.encoder_mults,
+            context_dim=cfg.vggt_embed_dim,
+            token_dim=cfg.vggt_token_dim,
+            num_tokens=cfg.vggt_token_count,
+            transformer_layers=cfg.vggt_token_transformer_layers,
+            transformer_heads=cfg.vggt_token_transformer_heads,
+            transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+            transformer_dropout=cfg.vggt_token_transformer_dropout,
+            compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
+        )
     if kwargs:
         return cls(**kwargs)
+    # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
     return cls(
         embed_dim=cfg.vggt_embed_dim,
         hidden=cfg.vggt_embed_dim,
         num_layers=cfg.vggt_mlp_layers,
     )
-
-
-def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
-    return cls(
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
-        context_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        transformer_layers=cfg.vggt_token_transformer_layers,
-        transformer_heads=cfg.vggt_token_transformer_heads,
-        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        transformer_dropout=cfg.vggt_token_transformer_dropout,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
-    )
-
-
-def _make_token_transformer_encoder(cfg: R2DreamerConfig):
-    return WMVGGTAggTokenTransformerEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        projection_dim=cfg.vggt_token_projection_dim,
-        layers=cfg.vggt_token_transformer_layers,
-        heads=cfg.vggt_token_transformer_heads,
-        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        keep_register_tokens=cfg.vggt_keep_register_tokens,
-    )
-
-
-def _make_encoder(cfg: R2DreamerConfig):
-    cls = _resolve_encoder_cls(cfg)
-    _validate_encoder_config(cfg, cls)
-    if cls is ConvEncoder:
-        if cfg.encoder_type == "vggt_wp_dense_cnn":
-            return _make_wp_conv_encoder(cfg)
-        return _make_conv_encoder(cfg)
-    if cls is WP64CNNCPMLPEncoder:
-        return _make_wp64_cnn_cp_mlp_encoder(cfg)
-    if cls is WMHybridEncoder:
-        return _make_hybrid_encoder(cfg)
-    if cls is WMVGGTAggTokenTransformerEncoder:
-        return _make_token_transformer_encoder(cfg)
-    if cls in (WMRGBFullTokenTransformerEncoder, WMRGBGlobalTokenTransformerEncoder):
-        return _make_rgb_token_encoder(cfg, cls)
-    return _make_mlp_encoder(cfg, cls)
 
 
 def _dummy_encoder_obs(cfg: R2DreamerConfig):
@@ -453,7 +404,7 @@ class R2DreamerAgent:
         ckpt = load_policy_checkpoint(path)
         contract_snapshot = ckpt.get("encoder_input_contract")
         if contract_snapshot is not None:
-            contract = recover_encoder_input_contract(contract_snapshot)
+            contract = EncoderInputContract.from_snapshot(contract_snapshot)
             if obs_shape is None:
                 obs_shape = contract.encoder_input.buffer_shape()
             requested_type = config_kwargs.get("encoder_type")
@@ -497,7 +448,18 @@ class R2DreamerAgent:
 
         # ---- Instantiate Flax modules (for .apply) ----
         self.encoder_mod = _make_encoder(config)
-        self.rssm_mod = _make_rssm(config)
+        self.rssm_mod = R2RSSM(
+            deter_size=config.deter_size,
+            stoch_classes=config.stoch_classes,
+            stoch_discrete=config.stoch_discrete,
+            num_actions=config.num_actions,
+            hidden=config.hidden_size,
+            blocks=config.blocks,
+            dyn_layers=config.dyn_layers,
+            obs_layers=config.obs_layers,
+            img_layers=config.img_layers,
+            unimix_ratio=config.unimix_ratio,
+        )
 
         # Dummy forward to discover embed_size
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
@@ -622,7 +584,7 @@ class R2DreamerAgent:
 
         # ---- Return EMA ----
         self.return_ema = ReturnEMA()
-        ema_state = self.return_ema.init_state()
+        ema_state = jnp.zeros(2)
 
         self.train_state = R2DTrainState(
             params=params,
@@ -632,7 +594,13 @@ class R2DreamerAgent:
         )
 
         # ---- Acting state (for legacy single-env stepping wrapper) ----
-        self._act_state = self.initial_act_state()
+        self._act_state = ActState(
+            stoch=jnp.zeros(
+                (1, self.cfg.stoch_classes, self.cfg.stoch_discrete), dtype=jnp.float32
+            ),
+            deter=jnp.zeros((1, self.cfg.deter_size), dtype=jnp.float32),
+            prev_action=jnp.zeros((1, self.cfg.num_actions), dtype=jnp.float32),
+        )
 
         # ---- JIT-compiled functions ----
         self._jitted_train_step = cast(Any, jax.jit(self._train_step_pure))
@@ -641,16 +609,6 @@ class R2DreamerAgent:
     # ------------------------------------------------------------------
     # Acting
     # ------------------------------------------------------------------
-
-    def initial_act_state(self) -> ActState:
-        """Return a zeroed functional single-env acting state."""
-        return ActState(
-            stoch=jnp.zeros(
-                (1, self.cfg.stoch_classes, self.cfg.stoch_discrete), dtype=jnp.float32
-            ),
-            deter=jnp.zeros((1, self.cfg.deter_size), dtype=jnp.float32),
-            prev_action=jnp.zeros((1, self.cfg.num_actions), dtype=jnp.float32),
-        )
 
     def snapshot_act_state(self) -> ActState:
         """Copy the legacy mutable wrapper's acting state."""
@@ -705,7 +663,14 @@ class R2DreamerAgent:
         """JIT-able acting logic. Returns (action_int, next ActState)."""
         state = jax.lax.cond(
             is_first,
-            lambda _: self.initial_act_state(),
+            lambda _: ActState(
+                stoch=jnp.zeros(
+                    (1, self.cfg.stoch_classes, self.cfg.stoch_discrete),
+                    dtype=jnp.float32,
+                ),
+                deter=jnp.zeros((1, self.cfg.deter_size), dtype=jnp.float32),
+                prev_action=jnp.zeros((1, self.cfg.num_actions), dtype=jnp.float32),
+            ),
             lambda current: current,
             state,
         )
@@ -762,7 +727,7 @@ class R2DreamerAgent:
             return None
         params = self.params
         B, T = obs_leading_shape(batch["obs"])
-        obs_flat = encoder_obs_from_batch(batch, self.cfg)
+        obs_flat = ObservationPacker(self.cfg).from_batch(batch["obs"])
         embed = cast(
             jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
         ).reshape(B, T, -1)
@@ -898,7 +863,7 @@ class R2DreamerAgent:
         cfg = self.cfg
         B, T = obs_leading_shape(batch["obs"])
 
-        obs_flat = encoder_obs_from_batch(batch, cfg)
+        obs_flat = ObservationPacker(cfg).from_batch(batch["obs"])
         embed = cast(
             jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
         ).reshape(B, T, -1)

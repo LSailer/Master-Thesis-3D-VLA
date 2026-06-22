@@ -198,7 +198,7 @@ class TestVGGTEncoderConfiguration:
         assert spec.env_render_resolution == 256
         assert spec.encoder_type == "vggt_agg_token_transformer"
         assert spec.module_cls is wm_encoders.VGGTAggTokenTransformerEncoder
-        assert enc.vggt_compute_heads is False
+        assert enc.variant.compute_heads is False
         assert spec.agent_overrides == {
             "buffer_capacity": 5_000,
             "batch_size": 1,
@@ -242,7 +242,7 @@ class TestVGGTEncoderConfiguration:
         assert spec.env_render_resolution == 518
         assert spec.encoder_type == "vggt_wp_dense_cnn"
         # Needs the point head (the dense map is its raw output).
-        assert enc.vggt_compute_heads is True
+        assert enc.variant.compute_heads is True
         assert spec.agent_overrides == {
             "buffer_capacity": 5_000,
             "batch_size": 4,
@@ -301,7 +301,7 @@ class TestVGGTEncoderConfiguration:
         assert adapter.contract.encoder_type == "vggt_wp_cp_64"
         assert adapter.contract.encoder_input.shape == (12297,)
         # 64x64 WP grid: obs = 64*64*3 + 9 = 12297 (vs 4116 at 37x37).
-        assert enc.wp_pool_size == 64
+        assert enc.variant.wp_pool_size == 64
         assert adapter.buffer_shape == {
             WORLD_POINTS_KEY: (3, 64, 64),
             CAMERA_POSE_KEY: (9,),

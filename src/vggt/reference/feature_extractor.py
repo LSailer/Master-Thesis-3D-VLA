@@ -2,6 +2,7 @@
 
 import sys
 from contextlib import nullcontext
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -9,10 +10,10 @@ import torch
 import torch.nn.functional as F
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
-from src.vggt.paths import infinite_vggt_src
-
 # Ensure InfiniteVGGT source is importable.
-_IVGGT_SRC = str(infinite_vggt_src())
+_IVGGT_SRC = str(
+    Path(__file__).resolve().parents[3] / "external" / "InfiniteVGGT" / "src"
+)
 if _IVGGT_SRC not in sys.path:
     sys.path.insert(0, _IVGGT_SRC)
 

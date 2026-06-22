@@ -29,42 +29,37 @@ CNN_OBSERVATION_CONFIG = ObservationRunConfig(
 CNN_IMAGE_SHAPE = CNN_OBSERVATION_CONFIG.dims.image_shape
 
 
-def _cnn_contract(
-    config: ObservationRunConfig = CNN_OBSERVATION_CONFIG,
-) -> EncoderInputContract:
-    image_uint8 = ObservationField(config.dims.image_shape, config.replay.image_dtype)
-    return EncoderInputContract(
-        observation_preparation_type="cnn",
-        encoder_type="cnn",
-        env_render_resolution=config.dims.render_size,
-        encoder_module_cls=wm_encoders.ConvEncoder,
-        env_observation=ObservationFormContract(
-            {
-                "image": image_uint8,
-                "is_first": ObservationField((), "bool"),
-            }
-        ),
-        replay_observation=replay_observation_form(config),
-        agent_observation=ObservationFormContract(
-            {
-                "image": image_uint8,
-                "is_first": ObservationField((), "bool"),
-            }
-        ),
-        encoder_input=ObservationFormContract(
-            ObservationField(config.dims.image_shape, "float32")
-        ),
-        decoder_target=ObservationFormContract(
-            ObservationField(config.dims.image_shape, "float32")
-        ),
-    )
-
-
 class CNNObservationPreparation(ObsAdapter):
     """Prepare 64x64 CHW RGB observations for the CNN Encoder Module."""
 
     def __init__(self, contract: EncoderInputContract | None = None):
-        self.contract = contract or _cnn_contract()
+        config = CNN_OBSERVATION_CONFIG
+        image_uint8 = ObservationField(config.dims.image_shape, config.replay.image_dtype)
+        self.contract = contract or EncoderInputContract(
+            observation_preparation_type="cnn",
+            encoder_type="cnn",
+            env_render_resolution=config.dims.render_size,
+            encoder_module_cls=wm_encoders.ConvEncoder,
+            env_observation=ObservationFormContract(
+                {
+                    "image": image_uint8,
+                    "is_first": ObservationField((), "bool"),
+                }
+            ),
+            replay_observation=replay_observation_form(config),
+            agent_observation=ObservationFormContract(
+                {
+                    "image": image_uint8,
+                    "is_first": ObservationField((), "bool"),
+                }
+            ),
+            encoder_input=ObservationFormContract(
+                ObservationField(config.dims.image_shape, "float32")
+            ),
+            decoder_target=ObservationFormContract(
+                ObservationField(config.dims.image_shape, "float32")
+            ),
+        )
         super().__init__(
             buffer_dtype=self.contract.replay_observation.buffer_dtype(),
             buffer_shape=self.contract.replay_observation.buffer_shape(),

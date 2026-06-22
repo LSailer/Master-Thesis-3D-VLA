@@ -19,7 +19,7 @@ from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import ObservationPacker
-from src.r2dreamer.observation_preparation import recover_encoder_input_contract
+from src.r2dreamer.observation_preparation import EncoderInputContract
 from src.shared.video_utils import (
     compose_frame,
     log_episode_video,
@@ -186,7 +186,7 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
     }
     contract_snapshot = saved.get("encoder_input_contract")
     if contract_snapshot is not None:
-        contract = recover_encoder_input_contract(contract_snapshot)
+        contract = EncoderInputContract.from_snapshot(contract_snapshot)
         overrides.update(
             encoder_type=contract.encoder_type,
             encoder_module_cls=contract.encoder_module_cls,
@@ -361,7 +361,7 @@ def _run_eval_episode(
         goal_positions,
         record_video,
     )
-    act_state = agent.initial_act_state() if agent is not None else None
+    act_state = agent.snapshot_act_state() if agent is not None else None
 
     for _step in range(500):
         if agent is not None:

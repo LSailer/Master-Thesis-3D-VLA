@@ -1,21 +1,13 @@
 """Imagination rollout in latent space + lambda-return computation.
 
 `_imagine` runs the actor inside the (frozen) RSSM for H steps, producing
-detached imagined features and one-hot actions. `_lambda_return` computes the
-GAE-style target used by both the imagination critic loss and the replay
-value-learning bootstrap (`representation.repvalue`).
+detached imagined features and one-hot actions.
 """
 
 import jax
 import jax.numpy as jnp
 
 from src.r2dreamer.learning_types import ImaginationRollout
-from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
-
-
-def _lambda_return(*args):
-    """Compatibility wrapper for the historical positional helper."""
-    return lambda_return(LambdaReturnInputs(*args))
 
 
 def _imagine(

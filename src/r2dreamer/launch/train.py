@@ -162,8 +162,8 @@ def _make_agent_config(
     config_cls: type,
 ):
     from src.r2dreamer.observation_preparation import (
+        EncoderInputContract,
         encoder_module_kwargs_from_config,
-        recover_encoder_input_contract,
     )
 
     config = config_cls(
@@ -182,7 +182,7 @@ def _make_agent_config(
         **agent_overrides,
     )
     if config.encoder_input_contract is not None:
-        contract = recover_encoder_input_contract(config.encoder_input_contract)
+        contract = EncoderInputContract.from_snapshot(config.encoder_input_contract)
         config.encoder_input_contract = dict(config.encoder_input_contract)
         config.encoder_input_contract["encoder_module_kwargs"] = (
             encoder_module_kwargs_from_config(config, contract.encoder_module_cls)

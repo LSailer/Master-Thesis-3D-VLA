@@ -10,7 +10,6 @@ from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
     WORLD_POINTS_KEY,
     ObservationPacker,
-    encoder_obs_from_batch,
 )
 from src.r2dreamer.world_model.encoders import (
     ConvEncoder,
@@ -285,7 +284,7 @@ class TestWP64CNNCPMLPObservationBatch:
             }
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
+        enc_obs = ObservationPacker(cfg).from_batch(batch["obs"])
         act_obs = ObservationPacker(cfg).from_step(
             {
                 WORLD_POINTS_KEY: jnp.ones((3, 64, 64), dtype=jnp.float16),
@@ -313,7 +312,7 @@ class TestVGGTObservationBatchDType:
             }
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
+        enc_obs = ObservationPacker(cfg).from_batch(batch["obs"])
         act_obs = ObservationPacker(cfg).from_step(
             {
                 WORLD_POINTS_KEY: jnp.ones((3, 37, 37), dtype=jnp.float16),

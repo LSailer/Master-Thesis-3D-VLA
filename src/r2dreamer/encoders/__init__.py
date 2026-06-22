@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable, cast
 
 import flax.linen as nn
 
@@ -43,11 +43,18 @@ VGGTVariantSpec = VGGTDreamerSpec
 VGGT_VARIANTS = VGGT_DREAMER_SPECS
 
 
+def _instantiate_adapter(
+    adapter_cls: Callable[..., ObsAdapter], *args: Any, **kwargs: Any
+) -> ObsAdapter:
+    return adapter_cls(*args, **kwargs)
+
+
 class Encoder:
     """Base launcher-side input mode."""
 
     encoder_type: str = ""
     module_cls: type[nn.Module] | None = None
+    adapter_cls: Callable[..., ObsAdapter] | None = None
     env_render_resolution: int = 64
     agent_overrides: Mapping[str, Any] = {}
     design_notes: str = ""
@@ -60,14 +67,15 @@ class Encoder:
 
     def make_adapter(self) -> ObsAdapter:
         if self._adapter is None:
-            self._adapter = self._build_adapter()
+            self._adapter = self.new_adapter()
         return self._adapter
 
     def new_adapter(self) -> ObsAdapter:
-        return self._build_adapter()
-
-    def _build_adapter(self) -> ObsAdapter:
-        raise NotImplementedError(f"{type(self).__name__} must build an adapter")
+        adapter_cls = self.adapter_cls
+        if adapter_cls is None:
+            raise NotImplementedError(f"{type(self).__name__} must set adapter_cls")
+        adapter_factory = cast(Callable[..., ObsAdapter], adapter_cls)
+        return _instantiate_adapter(adapter_factory)
 
     def spec(self) -> EncoderSpec:
         if self.module_cls is None:
@@ -99,9 +107,7 @@ class CNNEncoder(Encoder):
 
     encoder_type = "cnn"
     module_cls = wm_encoders.ConvEncoder
-
-    def _build_adapter(self) -> ObsAdapter:
-        return CNNObservationPreparation()
+    adapter_cls = CNNObservationPreparation
 
 
 class VGGTEncoder(Encoder):
@@ -111,34 +117,7 @@ class VGGTEncoder(Encoder):
     VGGT_STATIC_BUDGETS = tuple([8333] * 24)
 
     variant = VGGT_VARIANTS["vggt"]
-
-    @property
-    def feature_kind(self) -> VGGTFeatureKind:
-        return self.variant.feature_kind
-
-    @property
-    def encoder_type(self) -> str:
-        return self.variant.encoder_type
-
-    @property
-    def module_cls(self) -> type[nn.Module]:
-        return self.variant.module_cls
-
-    @property
-    def agent_overrides(self) -> Mapping[str, Any]:
-        return self.variant.agent_overrides
-
-    @property
-    def design_notes(self) -> str:
-        return self.variant.design_notes
-
-    @property
-    def vggt_compute_heads(self) -> bool:
-        return self.variant.compute_heads
-
-    @property
-    def wp_pool_size(self) -> int:
-        return self.variant.wp_pool_size
+    adapter_cls = VGGTObsAdapter
 
     @classmethod
     def from_train_args(cls, args: Any) -> "VGGTEncoder":
@@ -146,31 +125,78 @@ class VGGTEncoder(Encoder):
 
     def __init__(self, resolution: int = 518):
         self.env_render_resolution = resolution
-        self._extractor = self._make_extractor()
-
-    def _make_extractor(self):
-        return VGGTFeatureExtractor(
+        self._extractor = VGGTFeatureExtractor(
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
-            compute_heads=self.vggt_compute_heads,
-            wp_pool_size=self.wp_pool_size,
+            compute_heads=self.variant.compute_heads,
+            wp_pool_size=self.variant.wp_pool_size,
         )
 
-    def _build_adapter(self) -> ObsAdapter:
-        return self._build_adapter_for_extractor(self._extractor)
+    def make_adapter(self) -> ObsAdapter:
+        if self._adapter is None:
+            adapter_cls = self.adapter_cls
+            if adapter_cls is None:
+                raise NotImplementedError(f"{type(self).__name__} must set adapter_cls")
+            adapter_factory = cast(Callable[..., ObsAdapter], adapter_cls)
+            self._adapter = _instantiate_adapter(
+                adapter_factory,
+                self._extractor,
+                **self._adapter_kwargs(),
+            )
+        return self._adapter
 
     def new_adapter(self) -> ObsAdapter:
-        return self._build_adapter_for_extractor(self._make_extractor())
-
-    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTObsAdapter(
+        extractor = VGGTFeatureExtractor(
+            total_budget=self.VGGT_TOTAL_BUDGET,
+            budgets_static=self.VGGT_STATIC_BUDGETS,
+            compute_heads=self.variant.compute_heads,
+            wp_pool_size=self.variant.wp_pool_size,
+        )
+        adapter_cls = self.adapter_cls
+        if adapter_cls is None:
+            raise NotImplementedError(f"{type(self).__name__} must set adapter_cls")
+        adapter_factory = cast(Callable[..., ObsAdapter], adapter_cls)
+        return _instantiate_adapter(
+            adapter_factory,
             extractor,
-            feature_kind=self.feature_kind,
+            **self._adapter_kwargs(),
+        )
+
+    def _adapter_kwargs(self) -> dict[str, Any]:
+        return {
+            "feature_kind": self.variant.feature_kind,
+            "env_render_resolution": self.env_render_resolution,
+            "encoder_type": self.variant.name,
+            "encoder_module_cls": self.variant.dreamer.module_cls,
+            "agent_overrides": self.variant.agent_overrides,
+            "design_notes": self.variant.design_notes,
+        }
+
+    def spec(self) -> EncoderSpec:
+        adapter = self.make_adapter()
+        contract = getattr(adapter, "contract", None)
+        if contract is not None:
+            return EncoderSpec(
+                obs_shape=contract.encoder_input.buffer_shape(),
+                env_render_resolution=contract.env_render_resolution,
+                encoder_type=contract.encoder_type,
+                module_cls=contract.encoder_module_cls,
+                agent_overrides=dict(contract.agent_overrides),
+                design_notes=contract.design_notes,
+                contract_snapshot=contract.to_snapshot(),
+            )
+        overrides = (
+            self.agent_overrides
+            if isinstance(getattr(type(self), "agent_overrides", None), property)
+            else self.variant.agent_overrides
+        )
+        return EncoderSpec(
+            obs_shape=adapter.encoder_obs_shape,
             env_render_resolution=self.env_render_resolution,
-            encoder_type=self.encoder_type,
-            encoder_module_cls=self.module_cls,
-            agent_overrides=self.agent_overrides,
-            design_notes=self.design_notes,
+            encoder_type=self.variant.name,
+            module_cls=self.variant.dreamer.module_cls,
+            agent_overrides=dict(overrides),
+            design_notes=self.variant.design_notes,
         )
 
 
@@ -197,21 +223,22 @@ class HybridEncoder(VGGTEncoder):
     """CNN(RGB 64) + gated MLP(WP+CP 4116)."""
 
     variant = VGGT_VARIANTS["hybrid"]
+    adapter_cls = HybridObsAdapter
 
-    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return HybridObsAdapter(
-            extractor,
-            env_render_resolution=self.env_render_resolution,
-            encoder_module_cls=self.module_cls,
-            agent_overrides=self.agent_overrides,
-            design_notes=self.design_notes,
-        )
+    def _adapter_kwargs(self) -> dict[str, Any]:
+        return {
+            "env_render_resolution": self.env_render_resolution,
+            "encoder_module_cls": self.variant.dreamer.module_cls,
+            "agent_overrides": self.variant.agent_overrides,
+            "design_notes": self.variant.design_notes,
+        }
 
 
 class VGGTHouseContextEncoder(VGGTEncoder):
     """L1 RGB replay + live bounded InfiniteVGGT house-context readout."""
 
     variant = VGGT_VARIANTS["vggt_house_context"]
+    adapter_cls = VGGTHouseContextObsAdapter
 
     @classmethod
     def from_train_args(cls, args: Any) -> "VGGTHouseContextEncoder":
@@ -256,26 +283,25 @@ class VGGTHouseContextEncoder(VGGTEncoder):
         )
         return MappingProxyType(overrides)
 
-    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTHouseContextObsAdapter(
-            extractor,
-            context_transformer=self._context_transformer,
-        )
+    def _adapter_kwargs(self) -> dict[str, Any]:
+        return {"context_transformer": self._context_transformer}
 
 
 class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
     """L1 RGB replay + live full-token Transformer inside the agent, no gate."""
 
     variant = VGGT_VARIANTS["vggt_house_full_tokens_nogate"]
+    adapter_cls = VGGTHouseFullTokenObsAdapter
 
-    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTHouseFullTokenObsAdapter(extractor)
+    def _adapter_kwargs(self) -> dict[str, Any]:
+        return {}
 
 
 class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
     """L1 RGB replay + singleton global-token Transformer, no gate."""
 
     variant = VGGT_VARIANTS["vggt_house_global_tokens_nogate"]
+    adapter_cls = VGGTHouseGlobalTokenObsAdapter
 
-    def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTHouseGlobalTokenObsAdapter(extractor)
+    def _adapter_kwargs(self) -> dict[str, Any]:
+        return {}

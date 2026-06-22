@@ -63,16 +63,15 @@ class EpisodeTracker:
         # per-step action statistics, so a per-episode aggregate is more
         # informative in the deterministic val setting.
         self._track_collision_rate = track_collision_rate
-        self._global: dict[str, deque[float]] = defaultdict(self._new_window)
+        self._global: dict[str, deque[float]] = defaultdict(
+            lambda: deque(maxlen=self._window)
+        )
         self._global_totals: dict[str, float] = defaultdict(float)
         self._global_counts: dict[str, int] = defaultdict(int)
         self._per_cat: dict[str, dict[str, deque[float]]] = defaultdict(
-            lambda: defaultdict(self._new_window)
+            lambda: defaultdict(lambda: deque(maxlen=self._window))
         )
         self._episode_count = 0
-
-    def _new_window(self) -> deque[float]:
-        return deque(maxlen=self._window)
 
     def record(
         self,

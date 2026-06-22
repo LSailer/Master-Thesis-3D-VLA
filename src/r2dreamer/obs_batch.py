@@ -283,11 +283,6 @@ class ObservationPacker:
         return encoder_obs[None]
 
 
-def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> EncoderObs:
-    """Return flattened per-step observations consumed by ``agent.encoder_mod``."""
-    return ObservationPacker(cfg).from_batch(batch["obs"])
-
-
 def decoder_rgb_target(batch: dict[str, Any], cfg: ObsBatchConfig) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch["obs"]
