@@ -27,5 +27,6 @@ from src.r2dreamer.observation_preparation.vggt import (
     VGGTDreamerSpec,
     VGGT_IMAGE_SHAPE,
     build_hybrid_contract,
+    build_vggt_rgb_contract,
     build_vggt_contract,
 )

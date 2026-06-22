@@ -204,7 +204,6 @@ class HybridEncoder(VGGTEncoder):
             env_render_resolution=self.env_render_resolution,
             encoder_module_cls=self.module_cls,
             agent_overrides=self.agent_overrides,
-            design_notes=self.design_notes,
         )
 
 
@@ -260,6 +259,11 @@ class VGGTHouseContextEncoder(VGGTEncoder):
         return VGGTHouseContextObsAdapter(
             extractor,
             context_transformer=self._context_transformer,
+            contract_options={
+                "env_render_resolution": self.env_render_resolution,
+                "encoder_module_cls": self.module_cls,
+                "agent_overrides": self.agent_overrides,
+            },
         )
 
 
@@ -269,7 +273,12 @@ class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant = VGGT_VARIANTS["vggt_house_full_tokens_nogate"]
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTHouseFullTokenObsAdapter(extractor)
+        return VGGTHouseFullTokenObsAdapter(
+            extractor,
+            env_render_resolution=self.env_render_resolution,
+            encoder_module_cls=self.module_cls,
+            agent_overrides=self.agent_overrides,
+        )
 
 
 class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
@@ -278,4 +287,9 @@ class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant = VGGT_VARIANTS["vggt_house_global_tokens_nogate"]
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        return VGGTHouseGlobalTokenObsAdapter(extractor)
+        return VGGTHouseGlobalTokenObsAdapter(
+            extractor,
+            env_render_resolution=self.env_render_resolution,
+            encoder_module_cls=self.module_cls,
+            agent_overrides=self.agent_overrides,
+        )

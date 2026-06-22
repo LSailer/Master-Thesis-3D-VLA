@@ -246,6 +246,9 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
 
 
 def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return cls(**kwargs)
     return cls(
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
@@ -262,6 +265,9 @@ def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
 
 
 def _make_token_transformer_encoder(cfg: R2DreamerConfig):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return WMVGGTAggTokenTransformerEncoder(**kwargs)
     return WMVGGTAggTokenTransformerEncoder(
         embed_dim=cfg.vggt_embed_dim,
         token_dim=cfg.vggt_token_dim,

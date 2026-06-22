@@ -487,7 +487,7 @@ class RGBGlobalTokenTransformerEncoder(RGBFullTokenTransformerEncoder):
 
     token_dim: int = 1024
     token_key: str = GLOBAL_TOKENS_KEY
-    singleton_tokens: bool = False
+    singleton_tokens: bool = True
 
 
 class HybridEncoder(nn.Module):

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 import jax.numpy as jnp
 import jax
 import numpy as np
@@ -20,13 +23,13 @@ from src.r2dreamer.obs_batch import (
     HYBRID_WP_CP_KEY,
 )
 from src.r2dreamer.observation_preparation.vggt import (
-    HYBRID_IMAGE_SHAPE as IMAGE_SHAPE,
     HYBRID_IMAGE_SIZE as IMAGE_SIZE,
     HYBRID_RGB_DIM,
     VGGT_AGGREGATOR_EMBED_DIM,
     VGGT_AGGREGATOR_TOKEN_COUNT,
     VGGT_FULL_TOKEN_EMBED_DIM,
     build_hybrid_contract,
+    build_vggt_rgb_contract,
     wp_cp_dim,
 )
 from src.shared.video_utils import resize_chw_uint8
@@ -58,14 +61,12 @@ class HybridObsAdapter(ObsAdapter):
         env_render_resolution: int | None = None,
         encoder_module_cls=None,
         agent_overrides=None,
-        design_notes: str = "",
     ):
         self.contract = build_hybrid_contract(
             extractor,
             env_render_resolution=env_render_resolution,
             encoder_module_cls=encoder_module_cls,
             agent_overrides=agent_overrides,
-            design_notes=design_notes,
         )
         super().__init__(
             buffer_dtype=self.contract.replay_observation.buffer_dtype(),
@@ -97,16 +98,29 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
     token_shape: tuple[int, int]
     token_name: str
 
-    def __init__(self, extractor):
+    encoder_type: str
+
+    def __init__(
+        self,
+        extractor,
+        *,
+        env_render_resolution: int | None = None,
+        encoder_module_cls=None,
+        agent_overrides=None,
+    ):
+        self.contract = build_vggt_rgb_contract(
+            extractor,
+            encoder_type=self.encoder_type,
+            env_render_resolution=env_render_resolution,
+            encoder_module_cls=encoder_module_cls,
+            agent_overrides=agent_overrides,
+        )
         super().__init__(
-            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", self.token_key: "float16"},
-            buffer_shape={HYBRID_IMAGE_KEY: IMAGE_SHAPE, self.token_key: self.token_shape},
-            normalize_on_sample={HYBRID_IMAGE_KEY: True, self.token_key: False},
-            agent_obs_shape={
-                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
-                self.token_key: self.token_shape,
-            },
-            on_episode_reset=None,
+            buffer_dtype=self.contract.replay_observation.buffer_dtype(),
+            buffer_shape=self.contract.replay_observation.buffer_shape(),
+            normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
+            agent_obs_shape=self.contract.encoder_input.buffer_shape(),
+            on_episode_reset=getattr(extractor, "reset", None),
         )
         self._extractor = extractor
 
@@ -138,6 +152,7 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
 class VGGTHouseFullTokenObsAdapter(_RGBLiveTokenObsAdapter):
     """RGB replay plus live full VGGT tokens for the no-gate Transformer test."""
 
+    encoder_type = "vggt_house_full_tokens_nogate"
     token_key = FULL_TOKENS_KEY
     token_shape = FULL_TOKEN_SHAPE
     token_name = "full tokens"
@@ -149,6 +164,7 @@ class VGGTHouseFullTokenObsAdapter(_RGBLiveTokenObsAdapter):
 class VGGTHouseGlobalTokenObsAdapter(_RGBLiveTokenObsAdapter):
     """RGB replay plus live singleton VGGT global-half tokens."""
 
+    encoder_type = "vggt_house_global_tokens_nogate"
     token_key = GLOBAL_TOKENS_KEY
     token_shape = GLOBAL_TOKEN_SHAPE
     token_name = "global tokens"
@@ -171,16 +187,23 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         extractor,
         *,
         context_transformer: VGGTFullTokenContextTransformer | None = None,
+        contract_options: Mapping[str, Any] | None = None,
         rng_seed: int = 0,
     ):
+        options = dict(contract_options or {})
+        self.contract = build_vggt_rgb_contract(
+            extractor,
+            encoder_type="vggt_house_context",
+            env_render_resolution=options.get("env_render_resolution"),
+            encoder_module_cls=options.get("encoder_module_cls"),
+            agent_overrides=options.get("agent_overrides"),
+        )
         super().__init__(
-            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", HOUSE_CONTEXT_KEY: "float32"},
-            buffer_shape={
-                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
-                HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_DIM,),
-            },
-            normalize_on_sample={HYBRID_IMAGE_KEY: True, HOUSE_CONTEXT_KEY: False},
-            on_episode_reset=None,
+            buffer_dtype=self.contract.replay_observation.buffer_dtype(),
+            buffer_shape=self.contract.replay_observation.buffer_shape(),
+            normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
+            agent_obs_shape=self.contract.encoder_input.buffer_shape(),
+            on_episode_reset=getattr(extractor, "reset", None),
         )
         self._extractor = extractor
         self._context_transformer = (
@@ -189,7 +212,6 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self._context_params = None
         self._rng = jax.random.PRNGKey(rng_seed)
         self._context: np.ndarray | None = None
-        self.agent_obs_shape = (HOUSE_CONTEXT_FEATURE_DIM,)
 
     def _ensure_context_params(self, tokens: jnp.ndarray):
         if self._context_params is None:

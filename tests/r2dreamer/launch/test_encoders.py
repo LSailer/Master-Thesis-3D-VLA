@@ -611,6 +611,8 @@ class TestVGGTHouseContextEncoder:
         spec = enc.spec()
 
         assert isinstance(adapter, VGGTHouseContextObsAdapter)
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_input_layout == "rgb_plus_context"
         assert spec.encoder_type == "vggt_house_context"
         assert adapter.buffer_shape == {
             HYBRID_IMAGE_KEY: (3, 64, 64),
@@ -625,7 +627,8 @@ class TestVGGTHouseContextEncoder:
         assert spec.agent_overrides["vggt_token_transformer_layers"] == 2
         assert spec.agent_overrides["vggt_token_transformer_heads"] == 8
         assert spec.agent_overrides["vggt_token_transformer_dropout"] == 0.0
-        assert adapter.on_episode_reset is None
+        assert spec.contract_snapshot["encoder_input_layout"] == "rgb_plus_context"
+        assert adapter.on_episode_reset is not None
 
     def test_house_context_adapter_stores_rgb_and_context_in_replay(self):
         full_tokens = (
@@ -709,6 +712,8 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         spec = enc.spec()
 
         assert isinstance(adapter, VGGTHouseFullTokenObsAdapter)
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_input_layout == "rgb_plus_tokens"
         assert spec.encoder_type == "vggt_house_full_tokens_nogate"
         assert adapter.buffer_shape == {
             HYBRID_IMAGE_KEY: (3, 64, 64),
@@ -722,7 +727,8 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 2048
         assert spec.agent_overrides["vggt_token_count"] == 1374
-        assert adapter.on_episode_reset is None
+        assert spec.contract_snapshot["encoder_input_layout"] == "rgb_plus_tokens"
+        assert adapter.on_episode_reset is not None
 
     def test_full_token_adapter_stores_rgb_and_tokens_in_replay(self):
         full_tokens = (
@@ -792,6 +798,8 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         spec = enc.spec()
 
         assert isinstance(adapter, VGGTHouseGlobalTokenObsAdapter)
+        assert isinstance(adapter.contract, EncoderInputContract)
+        assert adapter.contract.encoder_input_layout == "rgb_plus_tokens"
         assert spec.encoder_type == "vggt_house_global_tokens_nogate"
         assert adapter.buffer_shape == {
             HYBRID_IMAGE_KEY: (3, 64, 64),
@@ -805,7 +813,8 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 1024
         assert spec.agent_overrides["vggt_token_count"] == 1374
-        assert adapter.on_episode_reset is None
+        assert spec.contract_snapshot["encoder_input_layout"] == "rgb_plus_tokens"
+        assert adapter.on_episode_reset is not None
 
     def test_global_token_adapter_stores_rgb_and_tokens_in_replay(self):
         from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter

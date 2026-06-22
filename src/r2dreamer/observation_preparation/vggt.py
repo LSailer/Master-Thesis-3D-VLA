@@ -580,6 +580,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
             encoder_input=encoder_input_by_layout[spec.dreamer.input_layout],
             decoder_target=None,
             agent_overrides=resolved_overrides,
+            encoder_input_layout=spec.dreamer.input_layout,
             design_notes=resolved_notes,
         )
 
@@ -605,6 +606,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
         encoder_input=ObservationFormContract(encoder_field),
         decoder_target=None,
         agent_overrides=resolved_overrides,
+        encoder_input_layout=spec.dreamer.input_layout,
         design_notes=resolved_notes,
     )
 
@@ -656,5 +658,98 @@ def build_hybrid_contract(
         agent_overrides=dict(
             agent_overrides if agent_overrides is not None else spec.agent_overrides
         ),
+        encoder_input_layout=spec.dreamer.input_layout,
         design_notes=design_notes or spec.design_notes,
+    )
+
+
+def _rgb_token_field(
+    spec: VGGTDreamerSpec,
+    token_shape: tuple[int, int],
+) -> tuple[str, ObservationField]:
+    if spec.encoder_type == "vggt_house_full_tokens_nogate":
+        return "full_tokens", ObservationField(
+            token_shape, spec.storage.readout_dtype, normalize_on_sample=False
+        )
+    if spec.encoder_type == "vggt_house_global_tokens_nogate":
+        return "global_tokens", ObservationField(
+            token_shape, spec.storage.readout_dtype, normalize_on_sample=False
+        )
+    return "house_context", ObservationField(
+        (wm_encoders.HOUSE_CONTEXT_DIM,),
+        spec.storage.readout_dtype,
+        normalize_on_sample=False,
+    )
+
+
+def build_vggt_rgb_contract(
+    extractor: Any,
+    *,
+    encoder_type: str,
+    env_render_resolution: int | None = None,
+    encoder_module_cls: type[nn.Module] | None = None,
+    agent_overrides: Mapping[str, Any] | None = None,
+) -> EncoderInputContract:
+    """Build the Encoder Input Contract for RGB replay plus VGGT context/tokens."""
+    spec = VGGT_DREAMER_SPECS[encoder_type]
+    if not spec.storage.replay_rgb:
+        raise ValueError(f"{encoder_type} is not an RGB replay VGGT variant")
+    if spec.dreamer.input_layout not in ("rgb_plus_context", "rgb_plus_tokens"):
+        raise ValueError(
+            f"{encoder_type} does not use an RGB plus context/token layout"
+        )
+    render_resolution = int(
+        env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
+    )
+    if isinstance(spec.readout, TokenReadout):
+        token_shape = (spec.readout.num_tokens, spec.readout.token_dim)
+    else:
+        token_shape = VGGT_DEFAULT_AGGREGATOR_SHAPE
+    replay_feature_key, replay_feature_field = _rgb_token_field(spec, token_shape)
+    image_field = ObservationField(
+        HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=True
+    )
+    replay_fields = {
+        HYBRID_IMAGE_KEY: image_field,
+        replay_feature_key: replay_feature_field,
+    }
+    agent_fields = {
+        HYBRID_IMAGE_KEY: ObservationField(
+            HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
+        ),
+        replay_feature_key: ObservationField(
+            replay_feature_field.shape, "float32", normalize_on_sample=False
+        ),
+        "is_first": ObservationField((), "bool"),
+    }
+    if spec.dreamer.input_layout == "rgb_plus_context":
+        encoder_input = ObservationFormContract(
+            ObservationField((HYBRID_RGB_DIM + wm_encoders.HOUSE_CONTEXT_DIM,), "float32")
+        )
+    else:
+        encoder_input = ObservationFormContract(
+            {
+                HYBRID_IMAGE_KEY: ObservationField(HYBRID_IMAGE_SHAPE, "float32"),
+                replay_feature_key: ObservationField(
+                    replay_feature_field.shape, "float32"
+                ),
+            }
+        )
+    return EncoderInputContract(
+        observation_preparation_type=spec.encoder_type,
+        encoder_type=spec.encoder_type,
+        env_render_resolution=render_resolution,
+        encoder_module_cls=encoder_module_cls or spec.module_cls,
+        env_observation=_env_observation(render_resolution),
+        replay_observation=ObservationFormContract(replay_fields),
+        agent_observation=ObservationFormContract(agent_fields),
+        encoder_input=encoder_input,
+        decoder_target=ObservationFormContract(
+            ObservationField(HYBRID_IMAGE_SHAPE, "float32")
+        ),
+        agent_overrides=dict(
+            agent_overrides if agent_overrides is not None else spec.agent_overrides
+        ),
+        encoder_input_layout=spec.dreamer.input_layout,
+        design_notes=spec.design_notes,
     )

@@ -355,19 +355,29 @@ def _run_eval_episode(
         goal_positions,
         record_video,
     )
-    act_state = agent.initial_act_state() if agent is not None else None
+    act_state = (
+        agent.initial_act_state()
+        if agent is not None and hasattr(agent, "initial_act_state")
+        else None
+    )
 
     for _step in range(500):
         if agent is not None:
             rng_key, act_key = jax.random.split(rng_key)
-            action, act_state = agent.act_with_state(
-                agent_obs, act_state, act_key, training=False
-            )
+            if hasattr(agent, "act_with_state"):
+                action, act_state = agent.act_with_state(
+                    agent_obs, act_state, act_key, training=False
+                )
+            else:
+                action = agent.act(agent_obs, act_key, training=False)
         else:
             action = np.random.randint(0, config.num_actions)
 
         next_obs = env_instance.step(action)
-        next_agent_obs = adapter.prepare_env_step(next_obs).agent_obs
+        if hasattr(adapter, "prepare_env_step"):
+            next_agent_obs = adapter.prepare_env_step(next_obs).agent_obs
+        else:
+            _, next_agent_obs = adapter.transform(next_obs)
         actions_taken.append(int(action))
         rewards.append(float(_obs_value(next_obs, "reward")))
 

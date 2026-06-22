@@ -9,6 +9,7 @@ from src.environments.observation import ObservationFrame
 from src.r2dreamer.config import (
     ObservationDims,
     ObservationRunConfig,
+    R2DreamerConfig,
     ReplayObservationConfig,
 )
 from src.r2dreamer.observation_preparation import (
@@ -18,12 +19,17 @@ from src.r2dreamer.observation_preparation import (
     VGGTFeatureKind,
     VGGT_DREAMER_SPECS,
     build_hybrid_contract,
+    build_vggt_rgb_contract,
     build_vggt_contract,
+    encoder_module_kwargs_from_config,
     PreparedObservation,
     recover_encoder_input_contract,
 )
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
+    FULL_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
+    HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
@@ -160,6 +166,7 @@ class TestVGGTObservationPreparationContracts:
         assert replay.fields[CAMERA_POSE_KEY].dtype == "float16"
         assert contract.agent_observation.fields[WORLD_POINTS_KEY].shape == (3, 37, 37)
         assert contract.encoder_input.shape == (37 * 37 * 3 + 9,)
+        assert contract.encoder_input_layout == "flat_wp_cp"
         assert contract.decoder_target is None
         assert contract.agent_overrides == {"buffer_capacity": 1_000_000}
 
@@ -183,6 +190,7 @@ class TestVGGTObservationPreparationContracts:
             assert contract.replay_observation.shape == shape
             assert contract.replay_observation.dtype == dtype
             assert contract.encoder_input.shape == shape
+            assert contract.encoder_input_layout == "flat_features"
             assert contract.decoder_target is None
 
     def test_wp_cp_64_contract_is_resolution_ablation(self):
@@ -222,6 +230,7 @@ class TestVGGTObservationPreparationContracts:
         assert contract.replay_observation.fields[CAMERA_POSE_KEY].dtype == "float16"
         assert contract.encoder_input.fields[WORLD_POINTS_KEY].dtype == "float32"
         assert contract.encoder_input.fields[CAMERA_POSE_KEY].dtype == "float32"
+        assert contract.encoder_input_layout == "structured_wp_cp"
         assert contract.decoder_target is None
         assert contract.agent_overrides == {"buffer_capacity": 1_000_000}
 
@@ -240,5 +249,89 @@ class TestVGGTObservationPreparationContracts:
         assert contract.agent_observation.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
         assert contract.agent_observation.fields[HYBRID_WP_CP_KEY].shape == (37 * 37 * 3 + 9,)
         assert contract.encoder_input.shape == (HYBRID_FEATURE_DIM,)
+        assert contract.encoder_input_layout == "rgb_plus_flat"
         assert contract.decoder_target is not None
         assert contract.decoder_target.shape == HYBRID_IMAGE_SHAPE
+
+    def test_rgb_vggt_context_contract_declares_replay_agent_and_encoder_forms(self):
+        contract = build_vggt_rgb_contract(
+            self._Extractor(),
+            encoder_type="vggt_house_context",
+        )
+
+        assert contract.observation_preparation_type == "vggt_house_context"
+        assert contract.encoder_type == "vggt_house_context"
+        assert contract.encoder_module_cls is wm_encoders.HybridEncoder
+        assert contract.env_observation.fields[HYBRID_IMAGE_KEY].shape == (3, 518, 518)
+        assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
+        assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].dtype == "uint8"
+        assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].normalize_on_sample is True
+        assert contract.replay_observation.fields[HOUSE_CONTEXT_KEY].shape == (1024,)
+        assert contract.replay_observation.fields[HOUSE_CONTEXT_KEY].dtype == "float32"
+        assert contract.agent_observation.fields[HOUSE_CONTEXT_KEY].dtype == "float32"
+        assert contract.encoder_input.shape == (12288 + 1024,)
+        assert contract.encoder_input_layout == "rgb_plus_context"
+        assert contract.decoder_target is not None
+
+    def test_rgb_vggt_token_contracts_are_structured_encoder_inputs(self):
+        cases = [
+            (
+                "vggt_house_full_tokens_nogate",
+                FULL_TOKENS_KEY,
+                (1374, 2048),
+                wm_encoders.RGBFullTokenTransformerEncoder,
+            ),
+            (
+                "vggt_house_global_tokens_nogate",
+                GLOBAL_TOKENS_KEY,
+                (1374, 1024),
+                wm_encoders.RGBGlobalTokenTransformerEncoder,
+            ),
+        ]
+
+        for encoder_type, token_key, token_shape, module_cls in cases:
+            contract = build_vggt_rgb_contract(
+                self._Extractor(),
+                encoder_type=encoder_type,
+            )
+
+            assert contract.encoder_module_cls is module_cls
+            assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
+            assert contract.replay_observation.fields[token_key].shape == token_shape
+            assert contract.replay_observation.fields[token_key].dtype == "float16"
+            assert contract.encoder_input.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
+            assert contract.encoder_input.fields[token_key].shape == token_shape
+            assert contract.encoder_input.fields[token_key].dtype == "float32"
+            assert contract.encoder_input_layout == "rgb_plus_tokens"
+            assert contract.decoder_target is not None
+
+    def test_contract_snapshots_preserve_layout_and_module_kwargs(self):
+        contract = build_vggt_rgb_contract(
+            self._Extractor(),
+            encoder_type="vggt_house_full_tokens_nogate",
+        )
+        config = R2DreamerConfig(
+            encoder_type=contract.encoder_type,
+            encoder_module_cls=contract.encoder_module_cls,
+            obs_shape=contract.encoder_input.buffer_shape(),
+            encoder_input_contract=contract.to_snapshot(),
+            vggt_embed_dim=64,
+            vggt_token_count=1374,
+            vggt_token_dim=2048,
+            vggt_token_transformer_layers=3,
+            vggt_token_transformer_heads=8,
+            compute_dtype="float32",
+        )
+
+        kwargs = encoder_module_kwargs_from_config(config, contract.encoder_module_cls)
+        snapshot = contract.to_snapshot()
+        snapshot["encoder_module_kwargs"] = kwargs
+        recovered = recover_encoder_input_contract(json.loads(json.dumps(snapshot)))
+
+        assert snapshot["encoder_input_layout"] == "rgb_plus_tokens"
+        assert kwargs["context_dim"] == 64
+        assert kwargs["token_dim"] == 2048
+        assert kwargs["transformer_layers"] == 3
+        assert recovered.encoder_input_layout == "rgb_plus_tokens"
+        assert recovered.encoder_module_kwargs["cnn_mults"] == (2, 3, 4, 4)
+        assert recovered.encoder_module_kwargs["compute_dtype"] == np.float32

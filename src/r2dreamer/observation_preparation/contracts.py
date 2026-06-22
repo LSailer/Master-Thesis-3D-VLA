@@ -14,6 +14,7 @@ from importlib import import_module
 from typing import Any
 
 import flax.linen as nn
+import jax.numpy as jnp
 import numpy as np
 
 from src.r2dreamer.config import ObservationRunConfig
@@ -82,6 +83,32 @@ def encoder_module_kwargs_from_config(
             "vggt_embed_dim": int(config.vggt_embed_dim),
             "mlp_hidden": int(config.mlp_vggt_hidden),
             "mlp_layers": int(config.mlp_vggt_layers),
+            "vggt_dim": int(config.vggt_feature_dim),
+        }
+    if class_name == "VGGTAggTokenTransformerEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_tokens": int(config.vggt_token_count),
+            "projection_dim": int(config.vggt_token_projection_dim),
+            "layers": int(config.vggt_token_transformer_layers),
+            "heads": int(config.vggt_token_transformer_heads),
+            "mlp_ratio": int(config.vggt_token_transformer_mlp_ratio),
+            "keep_register_tokens": bool(config.vggt_keep_register_tokens),
+        }
+    if class_name in ("RGBFullTokenTransformerEncoder", "RGBGlobalTokenTransformerEncoder"):
+        return {
+            "cnn_depth": int(config.encoder_depth),
+            "cnn_kernel": int(config.encoder_kernel),
+            "cnn_mults": _tuple_value(config, "encoder_mults"),
+            "context_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_tokens": int(config.vggt_token_count),
+            "transformer_layers": int(config.vggt_token_transformer_layers),
+            "transformer_heads": int(config.vggt_token_transformer_heads),
+            "transformer_mlp_ratio": int(config.vggt_token_transformer_mlp_ratio),
+            "transformer_dropout": float(config.vggt_token_transformer_dropout),
+            "compute_dtype": str(config.compute_dtype),
         }
     return {
         "embed_dim": int(config.vggt_embed_dim),
@@ -96,6 +123,14 @@ def normalize_encoder_module_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]
     for key in ("mults", "cnn_mults", "conv_mults"):
         if key in normalized:
             normalized[key] = tuple(normalized[key])
+    if "compute_dtype" in normalized:
+        dtype = normalized["compute_dtype"]
+        if dtype == "bfloat16":
+            normalized["compute_dtype"] = jnp.bfloat16
+        elif dtype == "float16":
+            normalized["compute_dtype"] = jnp.float16
+        elif dtype == "float32":
+            normalized["compute_dtype"] = jnp.float32
     return normalized
 
 
@@ -225,6 +260,7 @@ class EncoderInputContract:
     decoder_target: ObservationFormContract | None
     agent_overrides: Mapping[str, Any] = field(default_factory=dict)
     encoder_module_kwargs: Mapping[str, Any] = field(default_factory=dict)
+    encoder_input_layout: str = ""
     design_notes: str = ""
 
     def to_snapshot(self) -> ContractSnapshot:
@@ -245,6 +281,7 @@ class EncoderInputContract:
             ),
             "agent_overrides": dict(self.agent_overrides),
             "encoder_module_kwargs": dict(self.encoder_module_kwargs),
+            "encoder_input_layout": self.encoder_input_layout,
             "design_notes": self.design_notes,
         }
 
@@ -285,6 +322,7 @@ class EncoderInputContract:
             encoder_module_kwargs=normalize_encoder_module_kwargs(
                 snapshot.get("encoder_module_kwargs", {})
             ),
+            encoder_input_layout=str(snapshot.get("encoder_input_layout", "")),
             design_notes=str(snapshot.get("design_notes", "")),
         )
 
