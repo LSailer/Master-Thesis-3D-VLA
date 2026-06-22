@@ -87,16 +87,6 @@ class ReplayObservationConfig:
         if "features" in self.components and self.feature_shape is None:
             raise ValueError("feature_shape is required for generic 'features'")
 
-    @property
-    def stores_image(self) -> bool:
-        return "image" in self.components
-
-    @property
-    def stores_features(self) -> bool:
-        return any(
-            component in self.components
-            for component in ("world_points", "wp_cp", "tokens", "features")
-        )
 
 
 @dataclass(frozen=True)
@@ -123,12 +113,6 @@ class ObservationRunConfig:
             fields["features"] = self.replay.feature_shape or ()
         return fields
 
-    def replay_buffer_shape(self) -> tuple[int, ...] | dict[str, tuple[int, ...]]:
-        fields = self.replay_field_shapes()
-        if len(fields) == 1:
-            return next(iter(fields.values()))
-        return fields
-
     def replay_field_dtypes(self) -> dict[str, str]:
         return {
             name: (
@@ -139,23 +123,12 @@ class ObservationRunConfig:
             for name in self.replay_field_shapes()
         }
 
-    def replay_buffer_dtype(self) -> str | dict[str, str]:
-        dtypes = self.replay_field_dtypes()
-        if len(dtypes) == 1:
-            return next(iter(dtypes.values()))
-        return dtypes
-
     def replay_field_normalize(self) -> dict[str, bool]:
         return {
             name: name == "image" and self.replay.normalize_image
             for name in self.replay_field_shapes()
         }
 
-    def replay_buffer_normalize(self) -> bool | dict[str, bool]:
-        normalize = self.replay_field_normalize()
-        if len(normalize) == 1:
-            return next(iter(normalize.values()))
-        return normalize
 
 
 @dataclass

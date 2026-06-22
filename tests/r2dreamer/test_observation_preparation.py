@@ -39,15 +39,15 @@ class TestObservationRunConfig:
             replay=ReplayObservationConfig(components=("image", "wp_cp")),
         )
 
-        assert config.replay_buffer_shape() == {
+        assert config.replay_field_shapes() == {
             "image": (3, 64, 64),
             "wp_cp": (64 * 64 * 3 + 9,),
         }
-        assert config.replay_buffer_dtype() == {
+        assert config.replay_field_dtypes() == {
             "image": "uint8",
             "wp_cp": "float32",
         }
-        assert config.replay_buffer_normalize() == {
+        assert config.replay_field_normalize() == {
             "image": True,
             "wp_cp": False,
         }

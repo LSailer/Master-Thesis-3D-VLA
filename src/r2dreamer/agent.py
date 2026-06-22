@@ -65,17 +65,6 @@ from .obs_batch import (
 )
 from src.shared.optim import laprop, agc
 
-# Re-export internal helpers so test_cross_framework.py keeps working.
-__all__ = [
-    "R2DreamerAgent",
-    "R2DTrainState",
-    "load_policy_checkpoint",
-    "_kl_loss",
-    "_lambda_return",
-    "_imagine",
-]
-
-
 class R2DTrainState(NamedTuple):
     """Mutable-on-Python-side training state bundled for the JIT step.
 

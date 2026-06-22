@@ -7,12 +7,7 @@ import numpy as np
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_preparation.vggt import (
-    VGGT_AGGREGATOR_TOKEN_COUNT,
-    VGGT_DEFAULT_AGGREGATOR_SHAPE,
-    VGGT_FULL_TOKEN_EMBED_DIM,
     VGGTFeatureKind,
-    aggregator_raw_dim,
-    aggregator_token_dim,
     build_vggt_contract,
     wp_cp_dim,
 )
@@ -23,15 +18,6 @@ from src.vggt.jax.feature_extractor import (
 
 
 VGGT_FEATURE_DIM = wp_cp_dim()  # 37*37*3 + 9
-
-# Backwards-compatible aliases. Dimensions are derived from the shared VGGT
-# observation-preparation constants instead of being hand-typed here.
-AGG_RAW_DIM = aggregator_raw_dim(VGGT_DEFAULT_AGGREGATOR_SHAPE)
-AGG_RAW_TOKENS = AGG_RAW_DIM // VGGT_DEFAULT_AGGREGATOR_SHAPE[-1]
-AGG_TOKEN_TOKENS = VGGT_AGGREGATOR_TOKEN_COUNT
-AGG_TOKEN_DIM = aggregator_token_dim(VGGT_DEFAULT_AGGREGATOR_SHAPE)
-FULL_TOKEN_DIM = AGG_TOKEN_TOKENS * VGGT_FULL_TOKEN_EMBED_DIM
-
 
 class VGGTObsAdapter(ObsAdapter):
     """Runs VGGT extraction, returns features for both buffer and agent."""

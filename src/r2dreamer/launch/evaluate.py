@@ -32,12 +32,6 @@ def _obs_value(obs, name: str):
     return obs[name] if isinstance(obs, dict) else getattr(obs, name)
 
 
-def _render_topdown(env, trajectory, goal_positions, output_path):
-    """Render a top-down map with navmesh, trajectory, and goal."""
-    frame = render_topdown_frame(env, trajectory, goal_positions)
-    Image.fromarray(frame).save(output_path)
-
-
 def _extract_goal_positions(env):
     goal_positions = []
     for goal in env.current_episode.goals:
@@ -320,7 +314,9 @@ def _write_eval_episode_artifacts(
         topdown_dir = os.path.join(output_dir, "topdown")
         os.makedirs(topdown_dir, exist_ok=True)
         topdown_path = os.path.join(topdown_dir, f"episode_{ep_idx:03d}.png")
-        _render_topdown(env_instance, trajectory, goal_positions, topdown_path)
+        Image.fromarray(
+            render_topdown_frame(env_instance, trajectory, goal_positions)
+        ).save(topdown_path)
     if record_video:
         log_episode_video(
             wandb_module, f"eval/episode_video_{ep_idx}", video_frames, ep_idx

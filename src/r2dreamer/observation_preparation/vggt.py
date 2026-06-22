@@ -31,8 +31,6 @@ from src.r2dreamer.world_model import encoders as wm_encoders
 VGGTFeatureKind = Literal[
     "wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"
 ]
-HeadEncoderInputKind = Literal["flat_wp_cp", "structured_wp_cp", "world_points"]
-
 DEFAULT_OBSERVATION_DIMS = ObservationDims()
 VGGT_IMAGE_SIZE = DEFAULT_OBSERVATION_DIMS.render_size
 VGGT_IMAGE_SHAPE = DEFAULT_OBSERVATION_DIMS.render_shape
@@ -305,11 +303,6 @@ def wp_cp_dim(wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE) -> int:
     return wp_pool_size * wp_pool_size * VGGT_XYZ_CHANNELS + VGGT_CAMERA_POSE_DIM
 
 
-def world_points_chw_shape(wp_side: int) -> tuple[int, int, int]:
-    """Canonical channel-first world-points shape for replay/agent contracts."""
-    return (VGGT_XYZ_CHANNELS, int(wp_side), int(wp_side))
-
-
 def world_points_hwc_shape(wp_side: int) -> tuple[int, int, int]:
     """Canonical VGGT extractor output shape before adapter transposition."""
     return (int(wp_side), int(wp_side), VGGT_XYZ_CHANNELS)
@@ -405,10 +398,6 @@ def _wp_cp_fields(
     }
 
 
-HEAD_REPLAY_DTYPES = {
-    WORLD_POINTS_KEY: "float16",
-    CAMERA_POSE_KEY: "float16",
-}
 HEAD_AGENT_DTYPES = {
     WORLD_POINTS_KEY: "float16",
     CAMERA_POSE_KEY: "float16",

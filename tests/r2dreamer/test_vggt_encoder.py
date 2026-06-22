@@ -22,7 +22,7 @@ from src.r2dreamer.world_model.encoders import (
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
-from src.buffer.replay_buffer import VGGTReplayBuffer
+from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
@@ -379,11 +379,22 @@ class TestConvEncoderWorldPoints:
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 3, 64, 64)))
 
 
-class TestVGGTReplayBuffer:
-    """Test VGGTReplayBuffer stores and samples correctly."""
+def _vggt_replay_buffer(capacity: int) -> ReplayBuffer:
+    return ReplayBuffer(
+        BufferConfig(
+            capacity=capacity,
+            obs_shape=(FEATURE_DIM,),
+            obs_dtype="float32",
+            normalize_obs=False,
+        )
+    )
+
+
+class TestVGGTFeatureReplayBuffer:
+    """Test float32 VGGT feature replay stores and samples correctly."""
 
     def test_add_and_sample(self):
-        buf = VGGTReplayBuffer(capacity=1000, feature_dim=FEATURE_DIM)
+        buf = _vggt_replay_buffer(capacity=1000)
         for i in range(200):
             features = np.random.randn(FEATURE_DIM).astype(np.float32)
             buf.add(features, action=i % 4, reward=0.1, done=(i % 50 == 49))
@@ -398,7 +409,7 @@ class TestVGGTReplayBuffer:
 
     def test_no_normalization(self):
         """VGGT features should NOT be divided by 255."""
-        buf = VGGTReplayBuffer(capacity=100, feature_dim=FEATURE_DIM)
+        buf = _vggt_replay_buffer(capacity=100)
         features = np.ones(FEATURE_DIM, dtype=np.float32) * 500.0
         buf.add(features, action=0, reward=0.0, done=False)
         # Add enough for sampling
@@ -410,7 +421,7 @@ class TestVGGTReplayBuffer:
         assert float(batch["obs"][0, 0, 0]) == pytest.approx(500.0)
 
     def test_is_first_at_boundaries(self):
-        buf = VGGTReplayBuffer(capacity=1000, feature_dim=FEATURE_DIM)
+        buf = _vggt_replay_buffer(capacity=1000)
         for i in range(100):
             features = np.zeros(FEATURE_DIM, dtype=np.float32)
             buf.add(features, action=0, reward=0.0, done=(i % 20 == 19))

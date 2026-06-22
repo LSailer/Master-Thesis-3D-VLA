@@ -134,9 +134,6 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
             "is_first": env_obs.is_first,
         }
 
-    def augment_replay_batch(self, batch: dict) -> dict:
-        return batch
-
 
 class VGGTHouseFullTokenObsAdapter(_RGBLiveTokenObsAdapter):
     """RGB replay plus live full VGGT tokens for the no-gate Transformer test."""
@@ -233,6 +230,3 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             "is_first": env_obs.is_first,
         }
         return replay, agent_obs
-
-    def augment_replay_batch(self, batch: dict) -> dict:
-        return batch

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import jax.numpy as jnp
@@ -176,17 +176,10 @@ def _gather_obs(
 class ReplayBuffer:
     """Ring buffer that stores transitions and samples fixed-length sequences.
 
-    Replaces the old separate ReplayBuffer (uint8) and VGGTReplayBuffer (float32).
+    Stores uint8 images, float features, or structured multi-modal observations.
     """
 
-    def __init__(self, config: BufferConfig | object) -> None:
-        # Backward compat: accept a DreamerConfig or R2DreamerConfig
-        if not isinstance(config, BufferConfig):
-            legacy_config = cast(Any, config)
-            config = BufferConfig(
-                capacity=legacy_config.buffer_capacity,
-                obs_shape=legacy_config.obs_shape,
-            )
+    def __init__(self, config: BufferConfig) -> None:
         cap = config.capacity
         field_specs = _field_specs(config)
         if field_specs is None:
@@ -337,15 +330,3 @@ class ValReplayDataset:
             self._normalize,
             False,
         )
-
-
-def VGGTReplayBuffer(capacity: int, feature_dim: int = 4116) -> ReplayBuffer:
-    """Backward-compat factory. Use ReplayBuffer(BufferConfig(...)) directly."""
-    return ReplayBuffer(
-        BufferConfig(
-            capacity=capacity,
-            obs_shape=(feature_dim,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
-    )
