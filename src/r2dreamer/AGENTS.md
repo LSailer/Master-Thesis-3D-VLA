@@ -64,8 +64,7 @@ src/r2dreamer/
     ├── registries.py ... encoder_registry {cnn, vggt, vggt_aggregator_mlp,
     │                     vggt_wp_dense_cnn, vggt_wp_cp_64, hybrid}, env_registry {habitat, crafter}
     ├── curricula.py .... CURRICULA {L1..L4} → data/curriculum/*.json
-    ├── habitat_setup.py  make_habitat_env() (HabitatObjectNavEnv factory)
-    └── parity/ ......... train_parity.py, batch_utils.py, benchmark.py — JAX↔PyTorch parity
+    └── habitat_setup.py  make_habitat_env() (HabitatObjectNavEnv factory)
 ```
 
 ## Entry points
@@ -157,5 +156,3 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
 - **Imagination is fully detached** — reward/cont/RSSM are read under `stop_gradient`; the
   critic bootstraps from the **slow** EMA critic, not the live one.
 - **Actions:** buffer stores int32; `convert_batch()` one-hots to float `(B,T,A)` for the agent.
-- **Parity** against the PyTorch reference (`external/r2dreamer/`) lives in `launch/parity/`;
-  use it to debug numerical drift. Tolerances: ~1e-4 per-op, ~2e-3 composed.

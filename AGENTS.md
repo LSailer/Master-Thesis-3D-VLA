@@ -71,8 +71,9 @@ Match the existing `\section`/`\subsection`, `\label{sec:|fig:|tab:}`, and
 
 ## Naming
 
-- Branch/worktree: `<linear-key>-<short-task-slug>`
-- Commit/PR title: `<Linear issue key>: <summary>`
+- Branch/worktree with Linear key: `<linear-key>-<short-task-slug>`.
+- Branch/worktree without Linear key: use an intent prefix, e.g. `fix-<slug>`, `add-<slug>`, `remove-<slug>`, or `chore-<slug>`.
+- Commit/PR title: `<Linear issue key>: <summary>` when tied to Linear; otherwise use `<type>: <summary>`.
 - Do not include agent/tool/model names in branch, worktree, commit, or PR titles.
 
 - For PRs and reviews, follow `docs/agents/pr-workflow.md`.

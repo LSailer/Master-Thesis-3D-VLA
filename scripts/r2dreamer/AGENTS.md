@@ -25,8 +25,7 @@ Run ids: `habitat-l{1,2,3,4}-cnn`, `habitat-l{1,2,3,4}-vggt`,
 `scripts/slurm/configs/*.yaml` whose `run_id:` names it — no new Python file.
 Slurm configs render `run.py <id>` from their `run_id` field (the shared
 `script: run.py` is inherited from `_base`); legacy `*.sbatch` call `run.py <id>`
-directly. Eval shims: `eval_habitat.py`, `eval_habitat_vggt.py`. Validation
-shims: `run_parity_training.py`, `run_benchmark.py`.
+directly. Eval shims: `eval_habitat.py`, `eval_habitat_vggt.py`.
 
 ### Curriculum / analysis / profiling
 | File | Role |
