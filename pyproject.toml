@@ -4,8 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # VGGT deps
-    "torch>=2.7",
-    "torchvision>=0.22",
+    # Keep PyTorch on CUDA 12; newer wheels pull CUDA 13 libs that conflict with JAX CUDA 12.
+    "torch>=2.7,<2.8",
+    "torchvision>=0.22,<0.23",
     "numpy>=1.26",
     "Pillow",
     "huggingface_hub",
@@ -40,6 +41,7 @@ dependencies = [
     "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
     # dev
     "pytest",
+    "pylint",
     "pandas>=2.3.3",
     "transformers>=5.3.0",
     "pyvista>=0.47.1",

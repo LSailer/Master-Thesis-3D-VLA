@@ -6,7 +6,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.obs_batch import encoder_obs_from_batch
+from src.r2dreamer.obs_batch import encoder_obs_from_agent_obs, encoder_obs_from_batch
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
@@ -137,8 +137,8 @@ def make_hybrid_mapping_batch(cfg, B=1, T=4):
     image_values = np.arange(B * T * 3 * 64 * 64, dtype=np.uint32) % 256
     image = image_values.astype(np.uint8).reshape(B, T, 3, 64, 64)
     wp_cp = np.linspace(
-        -1.0, 1.0, B * T * VGGT_FEATURE_DIM, dtype=np.float32
-    ).reshape(B, T, VGGT_FEATURE_DIM)
+        -1.0, 1.0, num=B * T * VGGT_FEATURE_DIM, dtype=np.float32
+    ).reshape((B, T, VGGT_FEATURE_DIM))
     action_ids = jnp.arange(B * T).reshape(B, T) % cfg.num_actions
     return {
         "obs": {
@@ -168,9 +168,35 @@ class TestR2DreamerAgent:
         assert agent is not None
 
     def test_act(self, agent, cfg):
-        obs = {"image": np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8), "is_first": True}
+        obs = {
+            "image": np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8),
+            "is_first": True,
+        }
         action = agent.act(obs, jax.random.PRNGKey(0))
         assert 0 <= action < cfg.num_actions
+
+    def test_act_with_state_matches_mutable_act_and_jits(self, agent, cfg):
+        state = agent.initial_act_state()
+        image = np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8)
+        for step, is_first in enumerate((True, False, True, False)):
+            obs = {"image": image, "is_first": is_first}
+            key = jax.random.PRNGKey(step)
+            mutable_action = agent.act(obs, key, training=False)
+            state_action, state = agent.act_with_state(obs, state, key, training=False)
+            assert state_action == mutable_action
+            assert tree_allclose(state, agent.snapshot_act_state())
+
+        obs = {"image": image, "is_first": True}
+        compiled = jax.jit(agent.act_with_state_pure)
+        action, _state = compiled.__call__(
+            agent.params,
+            encoder_obs_from_agent_obs(obs, cfg),
+            agent.initial_act_state(),
+            jnp.asarray(True),
+            jax.random.PRNGKey(99),
+            False,
+        )
+        assert 0 <= int(action) < cfg.num_actions
 
     def test_train_step_produces_metrics(self, agent, cfg):
         batch = make_batch(cfg)

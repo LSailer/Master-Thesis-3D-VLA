@@ -772,7 +772,7 @@ class Trainer:
         pair = self.agent.reconstruct(batch)
         if pair is None:
             return
-        target, recon = pair  # (B*T, 3, 64, 64) in [0, 1]
+        target, recon = jax.device_get(pair)  # (B*T, 3, 64, 64) in [0, 1]
         n = min(4, target.shape[0])
         images = []
         for i in range(n):
@@ -932,18 +932,14 @@ class Trainer:
         elapsed = time.time() - val_t0
         self._print_val_summary(val_logged, step, elapsed)
 
-    def _snapshot_agent_act_state(
-        self,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    def _snapshot_agent_act_state(self) -> Any | None:
         """Return a copy of the stateful acting latent, when the agent has one."""
         snapshot = getattr(self.agent, "snapshot_act_state", None)
         if snapshot is None:
             return None
         return snapshot()
 
-    def _restore_agent_act_state(
-        self, state: tuple[np.ndarray, np.ndarray, np.ndarray] | None
-    ) -> None:
+    def _restore_agent_act_state(self, state: Any | None) -> None:
         """Restore stateful acting latent after validation rollouts."""
         if state is None:
             return

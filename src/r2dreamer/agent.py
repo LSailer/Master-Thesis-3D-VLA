@@ -20,7 +20,6 @@ from typing import Any, Dict, NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 import optax
 
 from .config import R2DreamerConfig
@@ -64,6 +63,15 @@ from .obs_batch import (
     obs_leading_shape,
 )
 from src.shared.optim import laprop, agc
+
+
+class ActState(NamedTuple):
+    """Functional single-env acting state."""
+
+    stoch: jax.Array
+    deter: jax.Array
+    prev_action: jax.Array
+
 
 class R2DTrainState(NamedTuple):
     """Mutable-on-Python-side training state bundled for the JIT step.
@@ -624,34 +632,34 @@ class R2DreamerAgent:
             ema_state=ema_state,
         )
 
-        # ---- Acting state (for single-env stepping) ----
-        self._act_stoch = np.zeros(
-            (1, config.stoch_classes, config.stoch_discrete), dtype=np.float32
-        )
-        self._act_deter = np.zeros((1, config.deter_size), dtype=np.float32)
-        self._act_prev_action = np.zeros((1, config.num_actions), dtype=np.float32)
+        # ---- Acting state (for legacy single-env stepping wrapper) ----
+        self._act_state = self.initial_act_state()
 
         # ---- JIT-compiled functions ----
-        self._jitted_train_step = jax.jit(self._train_step_pure)
-        self._jit_act = jax.jit(self._act_jit)
+        self._jitted_train_step = cast(Any, jax.jit(self._train_step_pure))
+        self._jit_act_with_state = cast(Any, jax.jit(self.act_with_state_pure))
 
     # ------------------------------------------------------------------
     # Acting
     # ------------------------------------------------------------------
 
-    def snapshot_act_state(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Copy the mutable single-env acting latent state."""
-        return (
-            np.array(self._act_stoch, copy=True),
-            np.array(self._act_deter, copy=True),
-            np.array(self._act_prev_action, copy=True),
+    def initial_act_state(self) -> ActState:
+        """Return a zeroed functional single-env acting state."""
+        return ActState(
+            stoch=jnp.zeros(
+                (1, self.cfg.stoch_classes, self.cfg.stoch_discrete), dtype=jnp.float32
+            ),
+            deter=jnp.zeros((1, self.cfg.deter_size), dtype=jnp.float32),
+            prev_action=jnp.zeros((1, self.cfg.num_actions), dtype=jnp.float32),
         )
 
-    def restore_act_state(
-        self, state: tuple[np.ndarray, np.ndarray, np.ndarray]
-    ) -> None:
-        """Restore the mutable single-env acting latent state."""
-        self._act_stoch, self._act_deter, self._act_prev_action = state
+    def snapshot_act_state(self) -> ActState:
+        """Copy the legacy mutable wrapper's acting state."""
+        return jax.tree.map(jnp.copy, self._act_state)
+
+    def restore_act_state(self, state: ActState) -> None:
+        """Restore the legacy mutable wrapper's acting state."""
+        self._act_state = state
 
     def act(
         self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True
@@ -669,41 +677,45 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)
-
-        is_first = bool(obs_dict["is_first"])
-        if is_first:
-            self._act_stoch = np.zeros_like(self._act_stoch)
-            self._act_deter = np.zeros_like(self._act_deter)
-            self._act_prev_action = np.zeros_like(self._act_prev_action)
-
-        stoch = jnp.array(self._act_stoch)
-        deter = jnp.array(self._act_deter)
-        prev_action = jnp.array(self._act_prev_action)
-
-        action_int, new_stoch, new_deter = self._jit_act(
-            self.params, obs, stoch, deter, prev_action, rng_key, training
+        action_int, self._act_state = self.act_with_state(
+            obs_dict, self._act_state, rng_key, training
         )
-        action_int = int(action_int)
-
-        self._act_stoch = np.array(new_stoch)
-        self._act_deter = np.array(new_deter)
-        self._act_prev_action = np.zeros((1, self.cfg.num_actions), dtype=np.float32)
-        self._act_prev_action[0, action_int] = 1.0
-
         return action_int
 
-    def _act_jit(self, params, obs, stoch, deter, prev_action, rng_key, training):
-        """JIT-able acting logic. Returns (action_int, new_stoch, new_deter)."""
+    def act_with_state(
+        self,
+        obs_dict: Dict[str, Any],
+        state: ActState,
+        rng_key: jnp.ndarray,
+        training: bool = True,
+    ) -> tuple[int, ActState]:
+        """Select an action and return the next functional acting state."""
+        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)
+        is_first = jnp.asarray(obs_dict["is_first"], dtype=jnp.bool_)
+        action_int, new_state = self._jit_act_with_state.__call__(
+            self.params, obs, state, is_first, rng_key, training
+        )
+        return int(action_int), new_state
+
+    def act_with_state_pure(
+        self, params, obs, state: ActState, is_first, rng_key, training
+    ):
+        """JIT-able acting logic. Returns (action_int, next ActState)."""
+        state = jax.lax.cond(
+            is_first,
+            lambda _: self.initial_act_state(),
+            lambda current: current,
+            state,
+        )
         embed = cast(jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs))
         rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = cast(
             tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
             self.rssm_mod.apply(
                 params["rssm"],
-                stoch,
-                deter,
-                prev_action,
+                state.stoch,
+                state.deter,
+                state.prev_action,
                 embed,
                 rngs={"sample": k_sample},
             ),
@@ -723,7 +735,14 @@ class R2DreamerAgent:
             return jnp.argmax(logits, axis=-1)[0]
 
         action_int = jax.lax.cond(training, _sample, _greedy, logits, rng_key)
-        return action_int, new_stoch, new_deter
+        new_state = ActState(
+            stoch=new_stoch,
+            deter=new_deter,
+            prev_action=jax.nn.one_hot(
+                action_int, self.cfg.num_actions, dtype=jnp.float32
+            )[None],
+        )
+        return action_int, new_state
 
     # ------------------------------------------------------------------
     # Decoder reconstruction probe (visual verification; only when cfg.decoder)
@@ -732,7 +751,7 @@ class R2DreamerAgent:
     def reconstruct(self, batch: Dict[str, jnp.ndarray]):
         """Decode RGB reconstructions for a batch (encoder -> RSSM -> decoder).
 
-        Returns ``(target, recon)`` as numpy arrays ``(B*T, 3, 64, 64)`` in
+        Returns ``(target, recon)`` as JAX arrays ``(B*T, 3, 64, 64)`` in
         [0, 1], or ``None`` when no decoder is configured. Non-JIT, deterministic
         (fixed sample key) — called by the trainer at log cadence for W&B image
         logging, so it is intentionally cheap-and-occasional rather than fast.
@@ -769,7 +788,7 @@ class R2DreamerAgent:
         )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
         target = decoder_rgb_target(batch, self.cfg)
-        return np.asarray(target), np.asarray(recon)
+        return target, recon
 
     # ------------------------------------------------------------------
     # Training
@@ -779,7 +798,7 @@ class R2DreamerAgent:
         self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
     ) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
-        self.train_state, metrics = self._jitted_train_step(
+        self.train_state, metrics = self._jitted_train_step.__call__(
             self.train_state,
             batch,
             rng_key,

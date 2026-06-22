@@ -355,11 +355,14 @@ def _run_eval_episode(
         goal_positions,
         record_video,
     )
+    act_state = agent.initial_act_state() if agent is not None else None
 
     for _step in range(500):
         if agent is not None:
             rng_key, act_key = jax.random.split(rng_key)
-            action = agent.act(agent_obs, act_key, training=False)
+            action, act_state = agent.act_with_state(
+                agent_obs, act_state, act_key, training=False
+            )
         else:
             action = np.random.randint(0, config.num_actions)
 
