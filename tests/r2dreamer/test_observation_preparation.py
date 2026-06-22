@@ -9,6 +9,7 @@ from src.environments.observation import ObservationFrame
 from src.r2dreamer.config import (
     ObservationDims,
     ObservationRunConfig,
+    R2DreamerConfig,
     ReplayObservationConfig,
 )
 from src.r2dreamer.observation_preparation import (
@@ -27,6 +28,7 @@ from src.r2dreamer.obs_batch import (
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
+    ObservationPacker,
 )
 from src.r2dreamer.world_model import encoders as wm_encoders
 
@@ -97,16 +99,19 @@ class TestCNNObservationPreparation:
         }
         assert recovered == contract
 
-    def test_prepare_env_step_returns_replay_and_agent_observations(self):
+    def test_prepare_env_step_returns_replay_and_encoder_observation(self):
         prep = CNNObservationPreparation()
         image = np.arange(3 * 64 * 64, dtype=np.uint8).reshape(3, 64, 64)
+        packer = ObservationPacker(R2DreamerConfig())
 
-        prepared = prep.prepare_env_step(ObservationFrame(image=image, is_first=True))
+        prepared = prep.prepare_env_step(
+            ObservationFrame(image=image, is_first=True), packer
+        )
 
         assert isinstance(prepared, PreparedObservation)
         np.testing.assert_array_equal(prepared.replay_obs, image)
-        assert prepared.agent_obs["image"] is image
-        assert prepared.agent_obs["is_first"] is True
+        assert prepared.encoder_obs.shape == (1, 3, 64, 64)
+        assert prepared.is_first is True
 
     def test_legacy_transform_routes_through_prepared_observation(self):
         prep = CNNObservationPreparation()

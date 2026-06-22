@@ -32,7 +32,9 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from src.r2dreamer.adapters.vggt_adapter import pool_aggregator_tokens
+from src.r2dreamer.observation_preparation.vggt_readouts import (
+    _pool_aggregator_tokens,
+)
 from src.shared.profiling import (
     block_until_ready_tree,
     summarize_values_ms,
@@ -44,6 +46,7 @@ from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.launch.curricula import CURRICULA
 from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
 
@@ -112,7 +115,7 @@ def transform_timed(adapter, obs_dict):
     pt = {"vggt_forward": [], "vggt_wrapper": []}
     t_e0 = time.perf_counter()
     out = adapter._extractor.extract(obs_dict["image"], phase_times=pt)
-    features_jax = pool_aggregator_tokens(out, adapter._aggregator_feature_shape)
+    features_jax = _pool_aggregator_tokens(out["aggregator_features"])
     block_tree(features_jax)
     t_extract_ms = (time.perf_counter() - t_e0) * 1000
 
@@ -159,6 +162,7 @@ def run_prefill(adapter, env, buffer, num_actions, n_steps):
 
 def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_steps, accum):
     print(f"--- {label} {n_steps} steps ---", flush=True)
+    packer = ObservationPacker(cfg)
     obs = env.reset()
     if adapter.on_episode_reset:
         adapter.on_episode_reset()
@@ -171,7 +175,8 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
         # act
         rng, act_key = jax.random.split(rng)
         with timed(accum, "act"):
-            action = agent.act(agent_obs, act_key)
+            encoder_obs = packer.from_step(agent_obs)
+            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
             block_tree(action)
 
         # env step

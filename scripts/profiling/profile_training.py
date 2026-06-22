@@ -33,6 +33,7 @@ from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.adapters import ObsAdapter
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
 
 VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches the vggt encoder (run id habitat-l1-vggt)
@@ -179,6 +180,7 @@ def run_loop(
     episode_count = 0
 
     rng_key = jax.random.PRNGKey(seed + 1)
+    packer = ObservationPacker(acfg)
 
     def transform(obs_dict: dict) -> tuple[np.ndarray, dict]:
         """Build (buffer_obs, agent_obs). For VGGT, time VGGT phases inline."""
@@ -249,7 +251,8 @@ def run_loop(
             probe_jax_upload(buffer_obs)
 
         with timed(phase_times, "wm_inference"):
-            action = agent.act(agent_obs, act_key)
+            encoder_obs = packer.from_step(agent_obs)
+            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
 
         with timed(phase_times, "env_step"):
             next_obs = env.step(action)

@@ -103,11 +103,13 @@ class _PrepareOnlyAdapter(ObsAdapter):
         super().__init__()
         self.calls = 0
 
-    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame, packer) -> PreparedObservation:
         self.calls += 1
+        step_obs = {"image": env_obs.image, "is_first": True}
         return PreparedObservation(
             replay_obs=env_obs.image,
-            agent_obs={"image": env_obs.image, "is_first": True},
+            encoder_obs=packer.from_step(step_obs),
+            is_first=True,
         )
 
     def transform(self, env_obs: ObservationFrame):
@@ -429,11 +431,12 @@ class TestTrainerObservationPreparation:
             obs_adapter=obs_adapter,
         )
 
-        _, buffer_obs, agent_obs = trainer._reset_train_episode()
+        _, buffer_obs, encoder_obs, is_first = trainer._reset_train_episode()
 
         assert obs_adapter.calls == 1
         assert buffer_obs.shape == (3, 64, 64)
-        assert agent_obs["is_first"] is True
+        assert encoder_obs.shape == (1, 3, 64, 64)
+        assert is_first is True
 
 
 class TestTrainerFullPipeline:

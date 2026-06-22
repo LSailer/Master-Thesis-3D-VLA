@@ -38,9 +38,12 @@ import numpy as np
 
 from src.r2dreamer.launch.registries import encoder_registry
 from src.r2dreamer.adapters import VGGT_FEATURE_DIM
-from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
+from src.r2dreamer.observation_preparation.vggt_readouts import (
+    flatten_world_points_camera_pose,
+)
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.environments.habitat import build_habitat_env
 
 
@@ -142,6 +145,8 @@ def main(argv: list[str] | None = None) -> dict:
         agent.params = jax.tree.map(jnp.array, ckpt["params"])
         agent.slow_critic_params = jax.tree.map(jnp.array, ckpt["slow_critic_params"])
 
+    packer = ObservationPacker(config)
+
     # --- eval loop ---
     ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
     results = []
@@ -201,10 +206,14 @@ def main(argv: list[str] | None = None) -> dict:
             # --- act ---
             if agent is not None:
                 rng_key, act_key = jax.random.split(rng_key)
-                action = agent.act(agent_obs, act_key, training=False)
+                encoder_obs = packer.from_step(agent_obs)
+                action = agent.act(
+                    encoder_obs, agent_obs["is_first"], act_key, training=False
+                )
                 # Capture RSSM latents AFTER act() — they're updated in-place.
-                stoch = np.asarray(agent._act_stoch[0]).astype(np.float32)  # (32,16)
-                deter = np.asarray(agent._act_deter[0]).astype(np.float32)  # (2048,)
+                act_state = agent.snapshot_act_state()
+                stoch = np.asarray(act_state.stoch[0]).astype(np.float32)
+                deter = np.asarray(act_state.deter[0]).astype(np.float32)
             else:
                 action = int(np.random.randint(0, config.num_actions))
                 stoch = np.zeros((config.stoch_classes, config.stoch_discrete), dtype=np.float32)

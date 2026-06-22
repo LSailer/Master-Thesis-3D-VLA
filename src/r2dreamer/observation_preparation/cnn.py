@@ -72,17 +72,19 @@ class CNNObservationPreparation(ObsAdapter):
             agent_obs_shape=self.contract.encoder_input.shape,
         )
 
-    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame, packer) -> PreparedObservation:
         image = np.asarray(env_obs.image)
+        step_obs = {
+            "image": image,
+            "is_first": env_obs.is_first,
+        }
         return PreparedObservation(
             replay_obs=image,
-            agent_obs={
-                "image": image,
-                "is_first": env_obs.is_first,
-            },
+            encoder_obs=packer.from_step(step_obs),
+            is_first=bool(env_obs.is_first),
         )
 
     def transform(self, env_obs: ObservationFrame):
         """Compatibility wrapper for ObsAdapter call sites."""
-        prepared = self.prepare_env_step(env_obs)
-        return prepared.replay_obs, prepared.agent_obs
+        image = np.asarray(env_obs.image)
+        return image, {"image": image, "is_first": env_obs.is_first}

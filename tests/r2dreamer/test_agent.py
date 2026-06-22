@@ -6,7 +6,7 @@ import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.obs_batch import encoder_obs_from_agent_obs, encoder_obs_from_batch
+from src.r2dreamer.obs_batch import ObservationPacker, encoder_obs_from_batch
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
@@ -172,17 +172,22 @@ class TestR2DreamerAgent:
             "image": np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8),
             "is_first": True,
         }
-        action = agent.act(obs, jax.random.PRNGKey(0))
+        encoder_obs = ObservationPacker(cfg).from_step(obs)
+        action = agent.act(encoder_obs, obs["is_first"], jax.random.PRNGKey(0))
         assert 0 <= action < cfg.num_actions
 
     def test_act_with_state_matches_mutable_act_and_jits(self, agent, cfg):
         state = agent.initial_act_state()
+        packer = ObservationPacker(cfg)
         image = np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8)
         for step, is_first in enumerate((True, False, True, False)):
             obs = {"image": image, "is_first": is_first}
+            encoder_obs = packer.from_step(obs)
             key = jax.random.PRNGKey(step)
-            mutable_action = agent.act(obs, key, training=False)
-            state_action, state = agent.act_with_state(obs, state, key, training=False)
+            mutable_action = agent.act(encoder_obs, is_first, key, training=False)
+            state_action, state = agent.act_with_state(
+                encoder_obs, is_first, state, key, training=False
+            )
             assert state_action == mutable_action
             assert tree_allclose(state, agent.snapshot_act_state())
 
@@ -190,7 +195,7 @@ class TestR2DreamerAgent:
         compiled = jax.jit(agent.act_with_state_pure)
         action, _state = compiled.__call__(
             agent.params,
-            encoder_obs_from_agent_obs(obs, cfg),
+            packer.from_step(obs),
             agent.initial_act_state(),
             jnp.asarray(True),
             jax.random.PRNGKey(99),

@@ -18,6 +18,7 @@ from src.r2dreamer.launch.registries import env_registry
 from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (
     compose_frame,
@@ -233,11 +234,13 @@ def _make_eval_agent(args, eff_checkpoint: str | None, agent_config_kwargs: dict
     return agent
 
 
-def _start_eval_episode(env_instance, adapter):
+def _start_eval_episode(env_instance, adapter, packer: ObservationPacker):
     obs = env_instance.reset()
     if adapter.on_episode_reset:
         adapter.on_episode_reset()
-    agent_obs = adapter.prepare_env_step(obs).agent_obs
+    prepared = adapter.prepare_env_step(obs, packer)
+    encoder_obs = prepared.encoder_obs
+    is_first = prepared.is_first
 
     start_pos = env_instance._env.sim.get_agent_state().position.tolist()
     goal_positions = _extract_goal_positions(env_instance)
@@ -247,7 +250,8 @@ def _start_eval_episode(env_instance, adapter):
     headings = [_get_agent_heading(env_instance)]
     return (
         obs,
-        agent_obs,
+        encoder_obs,
+        is_first,
         start_pos,
         goal_positions,
         scene_id,
@@ -335,16 +339,18 @@ def _run_eval_episode(
     wandb_module,
     output_dir: str,
 ) -> tuple[dict, jax.Array]:
+    packer = ObservationPacker(config)
     (
         obs,
-        agent_obs,
+        encoder_obs,
+        is_first,
         start_pos,
         goal_positions,
         scene_id,
         object_category,
         trajectory,
         headings,
-    ) = _start_eval_episode(env_instance, adapter)
+    ) = _start_eval_episode(env_instance, adapter, packer)
     actions_taken = []
     rewards = []
     record_video = wandb_module is not None and ep_idx < args.log_video_episodes
@@ -361,13 +367,15 @@ def _run_eval_episode(
         if agent is not None:
             rng_key, act_key = jax.random.split(rng_key)
             action, act_state = agent.act_with_state(
-                agent_obs, act_state, act_key, training=False
+                encoder_obs, is_first, act_state, act_key, training=False
             )
         else:
             action = np.random.randint(0, config.num_actions)
 
         next_obs = env_instance.step(action)
-        next_agent_obs = adapter.prepare_env_step(next_obs).agent_obs
+        next_prepared = adapter.prepare_env_step(next_obs, packer)
+        next_encoder_obs = next_prepared.encoder_obs
+        next_is_first = next_prepared.is_first
         actions_taken.append(int(action))
         rewards.append(float(_obs_value(next_obs, "reward")))
 
@@ -382,7 +390,8 @@ def _run_eval_episode(
             obs = next_obs
             break
         obs = next_obs
-        agent_obs = next_agent_obs
+        encoder_obs = next_encoder_obs
+        is_first = next_is_first
 
     ep_result = _make_eval_episode_result(
         ep_idx=ep_idx,

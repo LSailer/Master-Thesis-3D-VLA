@@ -26,11 +26,14 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.r2dreamer.adapters.vggt_adapter import flatten_full_aggregator_tokens
+from src.r2dreamer.observation_preparation.vggt_readouts import (
+    _flatten_full_aggregator_tokens,
+)
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.encoders import VGGTAggTokenTransformerEncoder
 from src.r2dreamer.launch.curricula import CURRICULA
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
+from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
 from src.r2dreamer.agent import R2DreamerAgent
 from src.shared.profiling import timed
@@ -134,7 +137,7 @@ def transform_timed(adapter, obs_dict, accum):
     pt = {"vggt_forward": [], "vggt_wrapper": []}
     t0 = time.perf_counter()
     out = adapter._extractor.extract(obs_dict["image"], phase_times=pt)
-    features_jax = flatten_full_aggregator_tokens(out, adapter._aggregator_feature_shape)
+    features_jax = _flatten_full_aggregator_tokens(out["aggregator_features"])
     block_tree(features_jax)
     accum["vggt_extract_total"].append((time.perf_counter() - t0) * 1000.0)
     if pt["vggt_forward"]:
@@ -164,13 +167,15 @@ def init_accum() -> dict[str, list[float]]:
 
 def run_phase(label, n_steps, adapter, env, cfg, agent, buffer, rng, buffer_obs, agent_obs):
     accum = init_accum()
+    packer = ObservationPacker(cfg)
     batch_steps = cfg.batch_size * cfg.seq_len
     train_credit = 0.0
     for i in range(n_steps):
         step_t0 = time.perf_counter()
         rng, act_key = jax.random.split(rng)
         with timed(accum, "act"):
-            action = agent.act(agent_obs, act_key)
+            encoder_obs = packer.from_step(agent_obs)
+            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
 
         with timed(accum, "env_step"):
             next_obs = env.step(int(action))

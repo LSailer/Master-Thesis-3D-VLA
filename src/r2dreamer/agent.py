@@ -58,7 +58,6 @@ from .representation.loss import representation_loss
 from .obs_batch import (
     compute_jnp_dtype,
     decoder_rgb_target,
-    encoder_obs_from_agent_obs,
     encoder_obs_from_batch,
     obs_leading_shape,
 )
@@ -662,15 +661,18 @@ class R2DreamerAgent:
         self._act_state = state
 
     def act(
-        self, obs_dict: Dict[str, Any], rng_key: jnp.ndarray, training: bool = True
+        self,
+        encoder_obs: Any,
+        is_first: bool,
+        rng_key: jnp.ndarray,
+        training: bool = True,
     ) -> int:
-        """Select an action for a single environment step.
+        """Select an action for a single prepared environment step.
 
         Args:
-            obs_dict: {"image": uint8 (C,H,W), "is_first": bool} for CNN,
-                      {"features": float32 (D,), "is_first": bool} for VGGT,
-                      or {"image": uint8 (3,64,64), "wp_cp": float32 (4116,)}
-                      for hybrid.
+            encoder_obs: batched one-step Encoder Module input from
+                ``ObservationPacker.from_step``.
+            is_first: whether the step starts an episode and should reset RSSM state.
             rng_key: PRNG key.
             training: if False, use argmax (greedy).
 
@@ -678,22 +680,22 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         action_int, self._act_state = self.act_with_state(
-            obs_dict, self._act_state, rng_key, training
+            encoder_obs, is_first, self._act_state, rng_key, training
         )
         return action_int
 
     def act_with_state(
         self,
-        obs_dict: Dict[str, Any],
+        encoder_obs: Any,
+        is_first: bool,
         state: ActState,
         rng_key: jnp.ndarray,
         training: bool = True,
     ) -> tuple[int, ActState]:
         """Select an action and return the next functional acting state."""
-        obs = encoder_obs_from_agent_obs(obs_dict, self.cfg)
-        is_first = jnp.asarray(obs_dict["is_first"], dtype=jnp.bool_)
+        reset = jnp.asarray(is_first, dtype=jnp.bool_)
         action_int, new_state = self._jit_act_with_state.__call__(
-            self.params, obs, state, is_first, rng_key, training
+            self.params, encoder_obs, state, reset, rng_key, training
         )
         return int(action_int), new_state
 

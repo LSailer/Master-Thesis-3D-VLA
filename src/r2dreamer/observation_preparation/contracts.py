@@ -301,4 +301,5 @@ class PreparedObservation:
     """Per-step prepared observation for replay storage and immediate acting."""
 
     replay_obs: ObservationValue
-    agent_obs: dict[str, Any]
+    encoder_obs: Any
+    is_first: bool

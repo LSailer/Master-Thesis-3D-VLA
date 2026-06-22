@@ -9,8 +9,8 @@ from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
     WORLD_POINTS_KEY,
+    ObservationPacker,
     encoder_obs_from_batch,
-    encoder_obs_from_agent_obs,
 )
 from src.r2dreamer.world_model.encoders import (
     ConvEncoder,
@@ -286,12 +286,11 @@ class TestWP64CNNCPMLPObservationBatch:
         }
 
         enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = encoder_obs_from_agent_obs(
+        act_obs = ObservationPacker(cfg).from_step(
             {
                 WORLD_POINTS_KEY: jnp.ones((3, 64, 64), dtype=jnp.float16),
                 CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            },
-            cfg,
+            }
         )
 
         assert enc_obs[WORLD_POINTS_KEY].shape == (6, 3, 64, 64)
@@ -315,12 +314,11 @@ class TestVGGTObservationBatchDType:
         }
 
         enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = encoder_obs_from_agent_obs(
+        act_obs = ObservationPacker(cfg).from_step(
             {
                 WORLD_POINTS_KEY: jnp.ones((3, 37, 37), dtype=jnp.float16),
                 CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            },
-            cfg,
+            }
         )
 
         assert enc_obs.shape == (6, FEATURE_DIM)
@@ -464,7 +462,8 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
+        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
+        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_aggregator_mlp(self):
@@ -483,7 +482,8 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
+        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
+        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_agg_token_transformer_reduced_shape(self):
@@ -509,7 +509,8 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
+        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
+        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_wp64_cnn_cp_mlp(self):
@@ -534,7 +535,8 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
+        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
+        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_wp_dense(self):
@@ -556,7 +558,8 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        action = agent.act(obs_dict, act_key)
+        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
+        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_mlp_layers_rejected_by_conv_encoders(self):

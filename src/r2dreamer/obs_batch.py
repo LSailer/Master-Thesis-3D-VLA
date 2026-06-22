@@ -32,12 +32,29 @@ class ObsBatchConfig(Protocol):
     shims can pass config-like objects without importing the concrete dataclass.
     """
 
-    encoder_type: str
-    obs_shape: ObsShape
-    compute_dtype: str
-    vggt_feature_dim: int
-    vggt_token_count: int
-    vggt_token_dim: int
+    @property
+    def encoder_type(self) -> str:
+        """Observation preparation / Encoder Module type key."""
+
+    @property
+    def obs_shape(self) -> ObsShape:
+        """Shape consumed by the Encoder Module."""
+
+    @property
+    def compute_dtype(self) -> str:
+        """JAX compute dtype name for prepared feature tensors."""
+
+    @property
+    def vggt_feature_dim(self) -> int:
+        """Flat VGGT feature dimension used by hybrid decoder targets."""
+
+    @property
+    def vggt_token_count(self) -> int:
+        """Number of VGGT tokens expected by token encoders."""
+
+    @property
+    def vggt_token_dim(self) -> int:
+        """Width of each VGGT token expected by token encoders."""
 
 
 def compute_jnp_dtype(dtype: str):
@@ -116,121 +133,165 @@ def _flat_obs_shape(cfg: ObsBatchConfig) -> tuple[int, ...]:
     return cfg.obs_shape
 
 
+def _mapping_obs(obs: Any, encoder_type: str) -> Mapping[str, Any]:
+    """Return a structured observation or fail with an encoder-specific error."""
+    if not isinstance(obs, Mapping):
+        raise TypeError(f"{encoder_type} expects dict obs")
+    return obs
+
+
+def _rgb_token_image(
+    obs: Mapping[str, Any], batch_size: int, seq_len: int
+) -> jnp.ndarray:
+    """Return RGB replay images flattened from ``(B, T)`` to ``B*T``."""
+    return normalize_image_obs(obs[HYBRID_IMAGE_KEY]).reshape(
+        batch_size * seq_len, 3, 64, 64
+    )
+
+
+def _full_tokens_batch(
+    obs: Any, cfg: ObsBatchConfig, batch_size: int, seq_len: int, compute_dtype
+) -> EncoderObs:
+    """Pack full-token replay fields for the RGB+token Encoder Module."""
+    mapped = _mapping_obs(obs, "vggt_house_full_tokens_nogate")
+    image = _rgb_token_image(mapped, batch_size, seq_len)
+    tokens = jnp.asarray(mapped[FULL_TOKENS_KEY], dtype=compute_dtype).reshape(
+        batch_size * seq_len, cfg.vggt_token_count, cfg.vggt_token_dim
+    )
+    return {HYBRID_IMAGE_KEY: image, FULL_TOKENS_KEY: tokens}
+
+
+def _global_tokens_batch(
+    obs: Any, cfg: ObsBatchConfig, batch_size: int, seq_len: int, compute_dtype
+) -> EncoderObs:
+    """Pack singleton global-token replay fields for the RGB+token encoder."""
+    mapped = _mapping_obs(obs, "vggt_house_global_tokens_nogate")
+    image = _rgb_token_image(mapped, batch_size, seq_len)
+    tokens = jnp.asarray(mapped[GLOBAL_TOKENS_KEY], dtype=compute_dtype)
+    expected_tokens = (1, cfg.vggt_token_count, cfg.vggt_token_dim)
+    if tokens.shape != expected_tokens:
+        raise ValueError(
+            "vggt_house_global_tokens_nogate expects singleton "
+            f"global tokens with shape {expected_tokens}, got {tokens.shape}"
+        )
+    return {HYBRID_IMAGE_KEY: image, GLOBAL_TOKENS_KEY: tokens}
+
+
+def _wp64_cnn_cp_mlp_batch(
+    obs: Any, cfg: ObsBatchConfig, batch_size: int, seq_len: int, compute_dtype
+) -> EncoderObs:
+    """Pack structured WP64+CP replay fields for the hybrid Encoder Module."""
+    mapped = _mapping_obs(obs, "vggt_wp64_cnn_cp_mlp")
+    world_points_shape = tuple(cfg.obs_shape[WORLD_POINTS_KEY])  # type: ignore[index]
+    camera_pose_shape = tuple(cfg.obs_shape[CAMERA_POSE_KEY])  # type: ignore[index]
+    world_points = jnp.asarray(mapped[WORLD_POINTS_KEY], dtype=compute_dtype).reshape(
+        batch_size * seq_len, *world_points_shape
+    )
+    camera_pose = jnp.asarray(mapped[CAMERA_POSE_KEY], dtype=compute_dtype).reshape(
+        batch_size * seq_len, *camera_pose_shape
+    )
+    return {WORLD_POINTS_KEY: world_points, CAMERA_POSE_KEY: camera_pose}
+
+
+class ObservationPacker:
+    """Pack prepared observations into Encoder Module inputs.
+
+    The same modality rules are used for live one-step acting and sampled replay
+    windows. ``from_step`` adds a single-env batch dimension; ``from_batch``
+    flattens replay's ``(B, T)`` prefix to the encoder batch axis.
+    """
+
+    def __init__(self, cfg: ObsBatchConfig):
+        self.cfg = cfg
+
+    def from_batch(self, obs: Any) -> EncoderObs:
+        """Return Encoder Module input for a sampled replay observation batch."""
+        cfg = self.cfg
+        batch_size, seq_len = obs_leading_shape(obs)
+        compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
+        if cfg.encoder_type == "hybrid":
+            obs = pack_hybrid_obs(obs)
+        elif cfg.encoder_type == "vggt_house_context":
+            obs = pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
+        elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
+            return _full_tokens_batch(obs, cfg, batch_size, seq_len, compute_dtype)
+        elif cfg.encoder_type == "vggt_house_global_tokens_nogate":
+            return _global_tokens_batch(obs, cfg, batch_size, seq_len, compute_dtype)
+        elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
+            return _wp64_cnn_cp_mlp_batch(obs, cfg, batch_size, seq_len, compute_dtype)
+        elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and isinstance(
+            obs, Mapping
+        ):
+            obs = pack_world_points_camera_pose_obs(obs, dtype=compute_dtype)
+        elif cfg.encoder_type == "vggt_wp_dense_cnn" and isinstance(obs, Mapping):
+            obs = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype)
+        elif cfg.encoder_type == "cnn":
+            obs = normalize_image_obs(obs)
+        else:
+            obs = jnp.asarray(obs, dtype=compute_dtype)
+        return obs.reshape(batch_size * seq_len, *_flat_obs_shape(cfg))
+
+    def from_step(self, obs: Mapping[str, Any]) -> EncoderObs:
+        """Return batched Encoder Module input for one live environment step."""
+        cfg = self.cfg
+        compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
+        if cfg.encoder_type == "hybrid":
+            if "hybrid" in obs:
+                encoder_obs = jnp.asarray(obs["hybrid"], dtype=jnp.float32)
+            else:
+                encoder_obs = pack_hybrid_obs(obs)
+        elif cfg.encoder_type == "vggt_house_context":
+            encoder_obs = pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
+        elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
+            return {
+                HYBRID_IMAGE_KEY: normalize_image_obs(obs[HYBRID_IMAGE_KEY])[None],
+                FULL_TOKENS_KEY: jnp.asarray(
+                    obs[FULL_TOKENS_KEY], dtype=compute_dtype
+                )[None],
+            }
+        elif cfg.encoder_type == "vggt_house_global_tokens_nogate":
+            tokens = jnp.asarray(obs[GLOBAL_TOKENS_KEY], dtype=compute_dtype)
+            if tokens.ndim == 2:
+                tokens = tokens[None]
+            return {
+                HYBRID_IMAGE_KEY: normalize_image_obs(obs[HYBRID_IMAGE_KEY])[None],
+                GLOBAL_TOKENS_KEY: tokens,
+            }
+        elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
+            return {
+                WORLD_POINTS_KEY: jnp.asarray(
+                    obs[WORLD_POINTS_KEY], dtype=compute_dtype
+                )[None],
+                CAMERA_POSE_KEY: jnp.asarray(
+                    obs[CAMERA_POSE_KEY], dtype=compute_dtype
+                )[None],
+            }
+        elif cfg.encoder_type == "vggt_wp_dense_cnn" and WORLD_POINTS_KEY in obs:
+            encoder_obs = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype)
+        elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and WORLD_POINTS_KEY in obs:
+            encoder_obs = pack_world_points_camera_pose_obs(obs, dtype=compute_dtype)
+        elif cfg.encoder_type in (
+            "vggt",
+            "vggt_aggregator_mlp",
+            "vggt_agg_token_transformer",
+            "vggt_wp_dense_cnn",
+            "vggt_wp_cp_64",
+        ):
+            encoder_obs = jnp.asarray(obs["features"], dtype=compute_dtype)
+        else:
+            encoder_obs = normalize_image_obs(obs["image"])
+        return encoder_obs[None]
+
+
 def encoder_obs_from_batch(batch: dict[str, Any], cfg: ObsBatchConfig) -> EncoderObs:
     """Return flattened per-step observations consumed by ``agent.encoder_mod``."""
-    obs = batch["obs"]
-    B, T = obs_leading_shape(obs)
-    compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
-    if cfg.encoder_type == "hybrid":
-        obs = pack_hybrid_obs(obs)
-    elif cfg.encoder_type == "vggt_house_context":
-        obs = pack_rgb_context_obs(obs, context_key=HOUSE_CONTEXT_KEY)
-    elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
-        if not isinstance(obs, Mapping):
-            raise TypeError("vggt_house_full_tokens_nogate expects dict obs")
-        image = normalize_image_obs(obs[HYBRID_IMAGE_KEY]).reshape(B * T, 3, 64, 64)
-        tokens = jnp.asarray(
-            obs[FULL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
-        ).reshape(B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
-        return {HYBRID_IMAGE_KEY: image, FULL_TOKENS_KEY: tokens}
-    elif cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        if not isinstance(obs, Mapping):
-            raise TypeError("vggt_house_global_tokens_nogate expects dict obs")
-        image = normalize_image_obs(obs[HYBRID_IMAGE_KEY]).reshape(B * T, 3, 64, 64)
-        tokens = jnp.asarray(
-            obs[GLOBAL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
-        )
-        if tokens.shape == (1, cfg.vggt_token_count, cfg.vggt_token_dim):
-            tokens = jnp.broadcast_to(
-                tokens, (B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
-            )
-        else:
-            tokens = tokens.reshape(B * T, cfg.vggt_token_count, cfg.vggt_token_dim)
-        return {HYBRID_IMAGE_KEY: image, GLOBAL_TOKENS_KEY: tokens}
-    elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
-        if not isinstance(obs, Mapping):
-            raise TypeError("vggt_wp64_cnn_cp_mlp expects dict obs")
-        world_points_shape = tuple(cfg.obs_shape[WORLD_POINTS_KEY])  # type: ignore[index]
-        camera_pose_shape = tuple(cfg.obs_shape[CAMERA_POSE_KEY])  # type: ignore[index]
-        world_points = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype).reshape(
-            B * T, *world_points_shape
-        )
-        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY], dtype=compute_dtype).reshape(
-            B * T, *camera_pose_shape
-        )
-        return {WORLD_POINTS_KEY: world_points, CAMERA_POSE_KEY: camera_pose}
-    elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and isinstance(obs, Mapping):
-        obs = pack_world_points_camera_pose_obs(obs, dtype=compute_dtype)
-    elif cfg.encoder_type == "vggt_wp_dense_cnn" and isinstance(obs, Mapping):
-        obs = jnp.asarray(obs[WORLD_POINTS_KEY], dtype=compute_dtype)
-    elif cfg.encoder_type == "cnn":
-        obs = normalize_image_obs(obs)
-    else:
-        obs = jnp.asarray(obs, dtype=compute_dtype)
-    return obs.reshape(B * T, *_flat_obs_shape(cfg))
-
-
-def encoder_obs_from_agent_obs(
-    obs_dict: Mapping[str, Any], cfg: ObsBatchConfig
-) -> EncoderObs:
-    """Return one-step encoder input for acting."""
-    compute_dtype = compute_jnp_dtype(cfg.compute_dtype)
-    if cfg.encoder_type == "hybrid":
-        if "hybrid" in obs_dict:
-            obs = jnp.asarray(obs_dict["hybrid"], dtype=jnp.float32)
-        else:
-            obs = pack_hybrid_obs(obs_dict)
-    elif cfg.encoder_type == "vggt_house_context":
-        obs = pack_rgb_context_obs(obs_dict, context_key=HOUSE_CONTEXT_KEY)
-    elif cfg.encoder_type == "vggt_house_full_tokens_nogate":
-        obs = {
-            HYBRID_IMAGE_KEY: normalize_image_obs(obs_dict[HYBRID_IMAGE_KEY])[None],
-            FULL_TOKENS_KEY: jnp.asarray(
-                obs_dict[FULL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
-            )[None],
-        }
-        return obs
-    elif cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        tokens = jnp.asarray(
-            obs_dict[GLOBAL_TOKENS_KEY], dtype=compute_jnp_dtype(cfg.compute_dtype)
-        )
-        if tokens.ndim == 2:
-            tokens = tokens[None]
-        obs = {
-            HYBRID_IMAGE_KEY: normalize_image_obs(obs_dict[HYBRID_IMAGE_KEY])[None],
-            GLOBAL_TOKENS_KEY: tokens,
-        }
-        return obs
-    elif cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
-        return {
-            WORLD_POINTS_KEY: jnp.asarray(
-                obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype
-            )[None],
-            CAMERA_POSE_KEY: jnp.asarray(
-                obs_dict[CAMERA_POSE_KEY], dtype=compute_dtype
-            )[None],
-        }
-    elif cfg.encoder_type == "vggt_wp_dense_cnn" and WORLD_POINTS_KEY in obs_dict:
-        obs = jnp.asarray(obs_dict[WORLD_POINTS_KEY], dtype=compute_dtype)
-    elif cfg.encoder_type in ("vggt", "vggt_wp_cp_64") and WORLD_POINTS_KEY in obs_dict:
-        obs = pack_world_points_camera_pose_obs(obs_dict, dtype=compute_dtype)
-    elif cfg.encoder_type in (
-        "vggt",
-        "vggt_aggregator_mlp",
-        "vggt_agg_token_transformer",
-        "vggt_wp_dense_cnn",
-        "vggt_wp_cp_64",
-    ):
-        obs = jnp.asarray(obs_dict["features"], dtype=compute_dtype)
-    else:
-        obs = normalize_image_obs(obs_dict["image"])
-    return obs[None]
+    return ObservationPacker(cfg).from_batch(batch["obs"])
 
 
 def decoder_rgb_target(batch: dict[str, Any], cfg: ObsBatchConfig) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch["obs"]
-    B, T = obs_leading_shape(obs)
+    batch_size, seq_len = obs_leading_shape(obs)
     if cfg.encoder_type in (
         "hybrid",
         "vggt_house_context",
@@ -239,13 +300,13 @@ def decoder_rgb_target(batch: dict[str, Any], cfg: ObsBatchConfig) -> jnp.ndarra
     ):
         if isinstance(obs, Mapping):
             image = normalize_image_obs(obs[HYBRID_IMAGE_KEY])
-            return image.reshape(B * T, 3, 64, 64)
+            return image.reshape(batch_size * seq_len, 3, 64, 64)
         obs_shape = _flat_obs_shape(cfg)
         rgb_dim = obs_shape[0] - cfg.vggt_feature_dim
         return (
             jnp.asarray(obs, dtype=jnp.float32)
-            .reshape(B * T, -1)[:, :rgb_dim]
-            .reshape(B * T, 3, 64, 64)
+            .reshape(batch_size * seq_len, -1)[:, :rgb_dim]
+            .reshape(batch_size * seq_len, 3, 64, 64)
         )
     image = normalize_image_obs(obs)
-    return image.reshape(B * T, 3, 64, 64)
+    return image.reshape(batch_size * seq_len, 3, 64, 64)

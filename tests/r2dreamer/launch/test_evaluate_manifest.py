@@ -9,6 +9,7 @@ from src.r2dreamer.launch.evaluate import (
     _load_arch_overrides_from_manifest,
 )
 from src.r2dreamer.observation_preparation import CNNObservationPreparation
+from src.r2dreamer.observation_preparation.contracts import PreparedObservation
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
@@ -88,20 +89,30 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
         def transform(self, obs):
             return None, f"agent-{obs['id']}"
 
+        def prepare_env_step(self, obs, _packer):
+            _, encoder_obs = self.transform(obs)
+            return PreparedObservation(
+                replay_obs=None, encoder_obs=encoder_obs, is_first=False
+            )
+
     class _FakeAgent:
         def __init__(self):
             self.seen = []
 
-        def act(self, agent_obs, act_key, training=False):
-            self.seen.append(agent_obs)
-            return 1
+        def initial_act_state(self):
+            return None
 
-    def _fake_start_episode(env_instance, adapter):
+        def act_with_state(self, encoder_obs, is_first, state, act_key, training=False):
+            self.seen.append(encoder_obs)
+            return 1, state
+
+    def _fake_start_episode(env_instance, adapter, _packer):
         obs = {"id": "initial", "done": False, "reward": 0.0, "success": 0.0, "spl": 0.0}
-        _, agent_obs = adapter.transform(obs)
+        _, encoder_obs = adapter.transform(obs)
         return (
             obs,
-            agent_obs,
+            encoder_obs,
+            True,
             [0.0, 0.0, 0.0],
             [],
             "scene",

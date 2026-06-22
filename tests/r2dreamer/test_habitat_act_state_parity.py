@@ -19,6 +19,7 @@ from src.environments.habitat import build_habitat_env
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.encoders import CNNEncoder
 from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.obs_batch import ObservationPacker
 
 
 HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
@@ -74,26 +75,31 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
             pytest.skip(f"Habitat dataset/scene unavailable: {exc}")
 
         adapter = CNNEncoder().make_adapter()
-        agent = R2DreamerAgent(_small_agent_config(), jax.random.PRNGKey(7))
+        cfg = _small_agent_config()
+        packer = ObservationPacker(cfg)
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
         state = agent.initial_act_state()
         obs = env.reset()
-        prepared = adapter.prepare_env_step(obs)
-        agent_obs = prepared.agent_obs
+        prepared = adapter.prepare_env_step(obs, packer)
+        encoder_obs = prepared.encoder_obs
+        is_first = prepared.is_first
         rng = jax.random.PRNGKey(11)
         forced_reset_checked = False
 
         for step in range(6):
             # Fold reset parity into the real stream: step 0 is env reset, step 3
             # forces a synthetic episode boundary through both APIs.
-            compare_obs = dict(agent_obs)
+            compare_is_first = is_first
             if step == 3:
-                compare_obs["is_first"] = True
+                compare_is_first = True
                 forced_reset_checked = True
 
             rng, act_key = jax.random.split(rng)
-            mutable_action = agent.act(compare_obs, act_key, training=False)
+            mutable_action = agent.act(
+                encoder_obs, compare_is_first, act_key, training=False
+            )
             state_action, state = agent.act_with_state(
-                compare_obs, state, act_key, training=False
+                encoder_obs, compare_is_first, state, act_key, training=False
             )
 
             assert state_action == mutable_action
@@ -102,7 +108,9 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
             obs = env.step(mutable_action)
             if obs.done:
                 break
-            agent_obs = adapter.prepare_env_step(obs).agent_obs
+            prepared = adapter.prepare_env_step(obs, packer)
+            encoder_obs = prepared.encoder_obs
+            is_first = prepared.is_first
 
         assert forced_reset_checked
     finally:
