@@ -15,6 +15,14 @@ from src.r2dreamer.observation_preparation.cnn import (
     CNN_IMAGE_SHAPE,
     CNNObservationPreparation,
 )
+from src.r2dreamer.observation_preparation.module_factory import (
+    dummy_encoder_input,
+    legacy_encoder_input_contract_from_config,
+    make_encoder_module,
+    make_rssm_module,
+    require_decoder_target,
+    resolve_encoder_input_contract,
+)
 from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_FEATURE_DIM,
     HYBRID_IMAGE_SHAPE,
