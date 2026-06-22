@@ -4,9 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.10,<3.13"
 dependencies = [
     # VGGT deps
-    # Keep PyTorch on CUDA 12; newer wheels pull CUDA 13 libs that conflict with JAX CUDA 12.
-    "torch>=2.7,<2.8",
-    "torchvision>=0.22,<0.23",
+    # Keep PyTorch on CUDA 12; 2.12 wheels pull CUDA 13 libs that conflict with JAX CUDA 12.
+    "torch==2.8.0",
+    "torchvision==0.23.0",
     "numpy>=1.26",
     "Pillow",
     "huggingface_hub",
@@ -29,7 +29,8 @@ dependencies = [
     "wandb",
     "moviepy",
     # DreamerV3 / JAX
-    "jax[cuda12]>=0.4.30",
+    "jax[cuda12]==0.6.2; python_version < '3.11'",
+    "jax[cuda12]==0.10.2; python_version >= '3.11'",
     "flax>=0.10",
     "optax>=0.2",
     "pydantic>=2",
