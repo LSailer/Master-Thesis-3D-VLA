@@ -8,6 +8,11 @@ from typing import Literal, Any, cast
 
 import flax.linen as nn
 
+from src.r2dreamer.config import (
+    ObservationDims,
+    ObservationRunConfig,
+    ReplayObservationConfig,
+)
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
     HYBRID_IMAGE_KEY,
@@ -18,6 +23,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
     ObservationField,
     ObservationFormContract,
+    replay_observation_form,
 )
 from src.r2dreamer.world_model import encoders as wm_encoders
 
@@ -27,22 +33,24 @@ VGGTFeatureKind = Literal[
 ]
 HeadEncoderInputKind = Literal["flat_wp_cp", "structured_wp_cp", "world_points"]
 
-VGGT_IMAGE_SIZE = 518
-VGGT_IMAGE_SHAPE = (3, VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE)
-VGGT_DEFAULT_WP_POOL_SIZE = 37
-VGGT_CAMERA_POSE_DIM = 9
-VGGT_XYZ_CHANNELS = 3
+DEFAULT_OBSERVATION_DIMS = ObservationDims()
+VGGT_IMAGE_SIZE = DEFAULT_OBSERVATION_DIMS.render_size
+VGGT_IMAGE_SHAPE = DEFAULT_OBSERVATION_DIMS.render_shape
+VGGT_DEFAULT_WP_POOL_SIZE = DEFAULT_OBSERVATION_DIMS.wp_side
+VGGT_CAMERA_POSE_DIM = DEFAULT_OBSERVATION_DIMS.camera_pose_dim
+VGGT_XYZ_CHANNELS = DEFAULT_OBSERVATION_DIMS.xyz_channels
 VGGT_AGGREGATOR_POOL_COUNT = 3
 VGGT_AGGREGATOR_PATCH_START_IDX = 5
-VGGT_AGGREGATOR_TOKEN_COUNT = 1374
-VGGT_AGGREGATOR_EMBED_DIM = 1024
+VGGT_AGGREGATOR_TOKEN_COUNT = DEFAULT_OBSERVATION_DIMS.token_count
+VGGT_AGGREGATOR_EMBED_DIM = DEFAULT_OBSERVATION_DIMS.token_dim
 VGGT_FULL_TOKEN_EMBED_DIM = 2048
 VGGT_DEFAULT_AGGREGATOR_SHAPE = (
     VGGT_AGGREGATOR_TOKEN_COUNT,
     VGGT_AGGREGATOR_EMBED_DIM,
 )
 
-HYBRID_IMAGE_SHAPE = (3, 64, 64)
+HYBRID_IMAGE_SHAPE = DEFAULT_OBSERVATION_DIMS.image_shape
+HYBRID_IMAGE_SIZE = HYBRID_IMAGE_SHAPE[-1]
 HYBRID_RGB_DIM = HYBRID_IMAGE_SHAPE[0] * HYBRID_IMAGE_SHAPE[1] * HYBRID_IMAGE_SHAPE[2]
 
 
@@ -400,8 +408,8 @@ HEAD_REPLAY_DTYPES = {
     CAMERA_POSE_KEY: "float16",
 }
 HEAD_AGENT_DTYPES = {
-    WORLD_POINTS_KEY: "float32",
-    CAMERA_POSE_KEY: "float32",
+    WORLD_POINTS_KEY: "float16",
+    CAMERA_POSE_KEY: "float16",
 }
 
 
@@ -457,6 +465,58 @@ def _vggt_shape_dtype(
     raise ValueError(f"unknown non-head VGGT feature_kind {feature_kind!r}")
 
 
+def _observation_dims(
+    *,
+    render_size: int,
+    wp_side: int = VGGT_DEFAULT_WP_POOL_SIZE,
+    token_count: int = VGGT_AGGREGATOR_TOKEN_COUNT,
+    token_dim: int = VGGT_AGGREGATOR_EMBED_DIM,
+) -> ObservationDims:
+    return ObservationDims(
+        render_size=render_size,
+        replay_image_size=HYBRID_IMAGE_SIZE,
+        wp_side=wp_side,
+        camera_pose_dim=VGGT_CAMERA_POSE_DIM,
+        xyz_channels=VGGT_XYZ_CHANNELS,
+        token_count=token_count,
+        token_dim=token_dim,
+    )
+
+
+def _head_replay_config(
+    spec: VGGTDreamerSpec,
+    *,
+    dims: ObservationDims,
+) -> ObservationRunConfig:
+    return ObservationRunConfig(
+        encoder=spec.encoder_type,
+        dims=dims,
+        replay=ReplayObservationConfig(
+            components=("image", "wp_cp") if spec.storage.replay_rgb else ("world_points",),
+            feature_dtype=spec.storage.readout_dtype,
+            normalize_image=False,
+        ),
+    )
+
+
+def _feature_replay_config(
+    spec: VGGTDreamerSpec,
+    *,
+    dims: ObservationDims,
+    feature_shape: tuple[int, ...],
+) -> ObservationRunConfig:
+    return ObservationRunConfig(
+        encoder=spec.encoder_type,
+        dims=dims,
+        replay=ReplayObservationConfig(
+            components=("features",),
+            feature_dtype=spec.storage.readout_dtype,
+            normalize_image=False,
+            feature_shape=feature_shape,
+        ),
+    )
+
+
 def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
     extractor: Any,
     *,
@@ -492,24 +552,26 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
 
     if isinstance(spec.readout, HeadReadout):
         wp_side = world_points_side_for_head_readout(extractor, spec.readout)
-        wp_shape = world_points_chw_shape(wp_side)
-        replay_fields = _wp_cp_fields(
-            wp_shape,
-            world_points_dtype=spec.storage.readout_dtype,
-            camera_pose_dtype=spec.storage.readout_dtype,
-        )
+        dims = _observation_dims(render_size=render_resolution, wp_side=wp_side)
+        wp_shape = dims.world_points_shape
+        replay_config = _head_replay_config(spec, dims=dims)
         agent_fields = _wp_cp_fields(
             wp_shape,
             world_points_dtype=HEAD_AGENT_DTYPES[WORLD_POINTS_KEY],
             camera_pose_dtype=HEAD_AGENT_DTYPES[CAMERA_POSE_KEY],
         )
+        encoder_fields = _wp_cp_fields(
+            wp_shape,
+            world_points_dtype="float32",
+            camera_pose_dtype="float32",
+        )
         encoder_input_by_layout = {
             "flat_wp_cp": ObservationFormContract(
                 ObservationField(
-                    (wp_cp_dim(wp_side),), "float32", normalize_on_sample=False
+                    dims.wp_cp_shape, "float32", normalize_on_sample=False
                 )
             ),
-            "structured_wp_cp": ObservationFormContract(agent_fields),
+            "structured_wp_cp": ObservationFormContract(encoder_fields),
             "world_points": ObservationFormContract(
                 ObservationField(wp_shape, "float32", normalize_on_sample=False)
             ),
@@ -520,7 +582,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
             env_render_resolution=render_resolution,
             encoder_module_cls=encoder_module_cls or spec.module_cls,
             env_observation=_env_observation(render_resolution),
-            replay_observation=ObservationFormContract(replay_fields),
+            replay_observation=replay_observation_form(replay_config),
             agent_observation=ObservationFormContract(
                 {**agent_fields, "is_first": ObservationField((), "bool")}
             ),
@@ -531,9 +593,15 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
         )
 
     shape, _dtype = _vggt_shape_dtype(extractor, spec.feature_kind)
-    replay_field = ObservationField(
-        shape, spec.storage.readout_dtype, normalize_on_sample=False
+    token_shape = tuple(getattr(extractor, "aggregator_feature_shape", ()))
+    token_count = int(token_shape[0]) if token_shape else VGGT_AGGREGATOR_TOKEN_COUNT
+    token_dim = int(token_shape[-1]) if token_shape else VGGT_AGGREGATOR_EMBED_DIM
+    dims = _observation_dims(
+        render_size=render_resolution,
+        token_count=token_count,
+        token_dim=token_dim,
     )
+    replay_config = _feature_replay_config(spec, dims=dims, feature_shape=shape)
     encoder_field = ObservationField(shape, "float32", normalize_on_sample=False)
     return EncoderInputContract(
         observation_preparation_type=spec.encoder_type,
@@ -541,7 +609,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
         env_render_resolution=render_resolution,
         encoder_module_cls=encoder_module_cls or spec.module_cls,
         env_observation=_env_observation(render_resolution),
-        replay_observation=ObservationFormContract(replay_field),
+        replay_observation=replay_observation_form(replay_config),
         agent_observation=_agent_features_observation(shape),
         encoder_input=ObservationFormContract(encoder_field),
         decoder_target=None,
@@ -561,24 +629,18 @@ def build_hybrid_contract(
     """Build the Encoder Input Contract for the RGB + VGGT WP/CP hybrid."""
     spec = VGGT_DREAMER_SPECS["hybrid"]
     wp_pool_size = spec.wp_pool_size
-    wp_cp_shape = (wp_cp_dim(wp_pool_size),)
     render_resolution = int(
         env_render_resolution or getattr(extractor, "image_size", VGGT_IMAGE_SIZE)
     )
+    dims = _observation_dims(render_size=render_resolution, wp_side=wp_pool_size)
+    wp_cp_shape = dims.wp_cp_shape
+    replay_config = _head_replay_config(spec, dims=dims)
     if not (spec.storage.replay_rgb and spec.storage.replay_readout):
         raise ValueError("hybrid requires RGB and VGGT readout in replay")
 
-    replay_fields = {
-        HYBRID_IMAGE_KEY: ObservationField(
-            HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
-        ),
-        HYBRID_WP_CP_KEY: ObservationField(
-            wp_cp_shape, spec.storage.readout_dtype, normalize_on_sample=False
-        ),
-    }
     agent_fields = {
         HYBRID_IMAGE_KEY: ObservationField(
-            HYBRID_IMAGE_SHAPE, "uint8", normalize_on_sample=False
+            dims.image_shape, "uint8", normalize_on_sample=False
         ),
         HYBRID_WP_CP_KEY: ObservationField(
             wp_cp_shape, "float32", normalize_on_sample=False
@@ -592,13 +654,13 @@ def build_hybrid_contract(
         env_render_resolution=render_resolution,
         encoder_module_cls=encoder_module_cls or spec.module_cls,
         env_observation=_env_observation(render_resolution),
-        replay_observation=ObservationFormContract(replay_fields),
+        replay_observation=replay_observation_form(replay_config),
         agent_observation=ObservationFormContract(agent_fields),
         encoder_input=ObservationFormContract(
-            ObservationField((hybrid_feature_dim(wp_pool_size),), "float32")
+            ObservationField((HYBRID_RGB_DIM + dims.wp_cp_dim,), "float32")
         ),
         decoder_target=ObservationFormContract(
-            ObservationField(HYBRID_IMAGE_SHAPE, "float32")
+            ObservationField(dims.image_shape, "float32")
         ),
         agent_overrides=dict(
             agent_overrides if agent_overrides is not None else spec.agent_overrides

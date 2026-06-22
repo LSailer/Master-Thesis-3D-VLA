@@ -28,6 +28,10 @@ from src.shared.video_utils import (
 _ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
 
 
+def _obs_value(obs, name: str):
+    return obs[name] if isinstance(obs, dict) else getattr(obs, name)
+
+
 def _render_topdown(env, trajectory, goal_positions, output_path):
     """Render a top-down map with navmesh, trajectory, and goal."""
     frame = render_topdown_frame(env, trajectory, goal_positions)
@@ -253,7 +257,7 @@ def _initial_eval_video_frames(
     if not record_video:
         return []
     topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-    return [compose_frame(obs.image, topdown)]
+    return [compose_frame(_obs_value(obs, "image"), topdown)]
 
 
 def _make_eval_episode_result(
@@ -275,8 +279,8 @@ def _make_eval_episode_result(
         "object_category": object_category,
         "steps": len(actions_taken),
         "reward": sum(rewards),
-        "success": float(obs.success),
-        "spl": float(obs.spl),
+        "success": float(_obs_value(obs, "success")),
+        "spl": float(_obs_value(obs, "spl")),
         "actions": actions_taken,
         "action_counts": {
             name: actions_taken.count(idx) for idx, name in _ACTIONS.items()
@@ -354,16 +358,16 @@ def _run_eval_episode(
         next_obs = env_instance.step(action)
         _, next_agent_obs = adapter.transform(next_obs)
         actions_taken.append(int(action))
-        rewards.append(float(next_obs.reward))
+        rewards.append(float(_obs_value(next_obs, "reward")))
 
         pos = env_instance._env.sim.get_agent_state().position.tolist()
         trajectory.append(pos)
         headings.append(_get_agent_heading(env_instance))
         if record_video:
             topdown = render_topdown_frame(env_instance, trajectory, goal_positions)
-            video_frames.append(compose_frame(next_obs.image, topdown))
+            video_frames.append(compose_frame(_obs_value(next_obs, "image"), topdown))
 
-        if next_obs.done:
+        if _obs_value(next_obs, "done"):
             obs = next_obs
             break
         obs = next_obs
@@ -395,7 +399,7 @@ def _run_eval_episode(
     print(
         f"Episode {ep_idx}: steps={len(actions_taken):3d}  "
         f"reward={sum(rewards):.2f}  "
-        f"success={obs.success:.0f}  "
+        f"success={float(_obs_value(obs, 'success')):.0f}  "
         f"category={object_category}"
     )
     return ep_result, rng_key

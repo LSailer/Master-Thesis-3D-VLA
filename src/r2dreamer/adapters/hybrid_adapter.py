@@ -20,7 +20,8 @@ from src.r2dreamer.obs_batch import (
     HYBRID_WP_CP_KEY,
 )
 from src.r2dreamer.observation_preparation.vggt import (
-    HYBRID_IMAGE_SHAPE,
+    HYBRID_IMAGE_SHAPE as IMAGE_SHAPE,
+    HYBRID_IMAGE_SIZE as IMAGE_SIZE,
     HYBRID_RGB_DIM,
     VGGT_AGGREGATOR_EMBED_DIM,
     VGGT_AGGREGATOR_TOKEN_COUNT,
@@ -78,7 +79,7 @@ class HybridObsAdapter(ObsAdapter):
     def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         out = self._extractor.extract(env_obs.image)  # image is 518 CHW uint8
         wp_cp = flatten_world_points_camera_pose(out)  # jnp (4116,)
-        img64 = resize_chw_uint8(env_obs.image, 64)  # (3,64,64) uint8
+        img64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         replay = {
             HYBRID_IMAGE_KEY: img64,
             HYBRID_WP_CP_KEY: np.asarray(wp_cp, dtype=np.float32),
@@ -100,10 +101,10 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
     def __init__(self, extractor):
         super().__init__(
             buffer_dtype="uint8",
-            buffer_shape=(3, 64, 64),
+            buffer_shape=IMAGE_SHAPE,
             normalize_on_sample=True,
             agent_obs_shape={
-                HYBRID_IMAGE_KEY: HYBRID_IMAGE_SHAPE,
+                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
                 self.token_key: self.token_shape,
             },
             on_episode_reset=None,
@@ -124,7 +125,7 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
         return self._tokens
 
     def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
-        image64 = resize_chw_uint8(env_obs.image, 64)
+        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         tokens = self._extract_tokens(env_obs.image)
         return image64, {
             HYBRID_IMAGE_KEY: image64,
@@ -190,7 +191,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
     ):
         super().__init__(
             buffer_dtype="uint8",
-            buffer_shape=(3, 64, 64),
+            buffer_shape=IMAGE_SHAPE,
             normalize_on_sample=True,
             on_episode_reset=None,
         )
@@ -230,7 +231,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         return context
 
     def transform(self, env_obs: ObservationFrame) -> tuple[np.ndarray, dict]:
-        image64 = resize_chw_uint8(env_obs.image, 64)
+        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         context = self._extract_context(env_obs.image)
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,

@@ -6,24 +6,37 @@ import numpy as np
 
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
+from src.r2dreamer.config import (
+    ObservationDims,
+    ObservationRunConfig,
+    ReplayObservationConfig,
+)
 from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
     ObservationField,
     ObservationFormContract,
     PreparedObservation,
+    replay_observation_form,
 )
 from src.r2dreamer.world_model import encoders as wm_encoders
 
 
-CNN_IMAGE_SHAPE = (3, 64, 64)
+CNN_OBSERVATION_CONFIG = ObservationRunConfig(
+    encoder="cnn",
+    dims=ObservationDims(render_size=64, replay_image_size=64),
+    replay=ReplayObservationConfig(components=("image",), normalize_image=True),
+)
+CNN_IMAGE_SHAPE = CNN_OBSERVATION_CONFIG.dims.image_shape
 
 
-def _cnn_contract() -> EncoderInputContract:
-    image_uint8 = ObservationField(CNN_IMAGE_SHAPE, "uint8")
+def _cnn_contract(
+    config: ObservationRunConfig = CNN_OBSERVATION_CONFIG,
+) -> EncoderInputContract:
+    image_uint8 = ObservationField(config.dims.image_shape, config.replay.image_dtype)
     return EncoderInputContract(
         observation_preparation_type="cnn",
         encoder_type="cnn",
-        env_render_resolution=64,
+        env_render_resolution=config.dims.render_size,
         encoder_module_cls=wm_encoders.ConvEncoder,
         env_observation=ObservationFormContract(
             {
@@ -31,9 +44,7 @@ def _cnn_contract() -> EncoderInputContract:
                 "is_first": ObservationField((), "bool"),
             }
         ),
-        replay_observation=ObservationFormContract(
-            ObservationField(CNN_IMAGE_SHAPE, "uint8", normalize_on_sample=True)
-        ),
+        replay_observation=replay_observation_form(config),
         agent_observation=ObservationFormContract(
             {
                 "image": image_uint8,
@@ -41,10 +52,10 @@ def _cnn_contract() -> EncoderInputContract:
             }
         ),
         encoder_input=ObservationFormContract(
-            ObservationField(CNN_IMAGE_SHAPE, "float32")
+            ObservationField(config.dims.image_shape, "float32")
         ),
         decoder_target=ObservationFormContract(
-            ObservationField(CNN_IMAGE_SHAPE, "float32")
+            ObservationField(config.dims.image_shape, "float32")
         ),
     )
 

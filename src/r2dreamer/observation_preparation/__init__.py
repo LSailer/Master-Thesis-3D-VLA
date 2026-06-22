@@ -9,6 +9,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     module_class_path,
     normalize_encoder_module_kwargs,
     recover_encoder_input_contract,
+    replay_observation_form,
 )
 from src.r2dreamer.observation_preparation.cnn import (
     CNN_IMAGE_SHAPE,
@@ -43,6 +44,7 @@ __all__ = [
     "module_class_path",
     "normalize_encoder_module_kwargs",
     "recover_encoder_input_contract",
+    "replay_observation_form",
     "HeadReadout",
     "StorageSpec",
     "TokenReadout",

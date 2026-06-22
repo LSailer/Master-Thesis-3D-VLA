@@ -276,7 +276,7 @@ class TestVGGTEncoderConfiguration:
         np.testing.assert_allclose(replay_features[WORLD_POINTS_KEY], expected.astype(np.float16))
         assert replay_features[CAMERA_POSE_KEY].shape == (9,)
         assert agent_obs[WORLD_POINTS_KEY].shape == (3, 4, 4)
-        assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float32"
+        assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp_cp_64_encoder_spec(self, monkeypatch):
@@ -900,7 +900,7 @@ class TestVGGTEncoder:
             )
 
             assert agent_obs[WORLD_POINTS_KEY].shape == (3, 37, 37)
-            assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float32"
+            assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
             assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
-            assert agent_obs[CAMERA_POSE_KEY].dtype.name == "float32"
+            assert agent_obs[CAMERA_POSE_KEY].dtype.name == "float16"
             assert agent_obs["is_first"] is (i == 0)

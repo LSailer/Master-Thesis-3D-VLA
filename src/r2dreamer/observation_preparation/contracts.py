@@ -16,6 +16,8 @@ from typing import Any
 import flax.linen as nn
 import numpy as np
 
+from src.r2dreamer.config import ObservationRunConfig
+
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]
 ContractSnapshot = dict[str, Any]
@@ -190,6 +192,22 @@ class ObservationFormContract:
                 }
             )
         raise ValueError(f"unknown observation form snapshot kind {kind!r}")
+
+
+def replay_observation_form(
+    config: ObservationRunConfig,
+) -> ObservationFormContract:
+    """Build a replay observation contract from run observation config."""
+    shapes = config.replay_field_shapes()
+    dtypes = config.replay_field_dtypes()
+    normalize = config.replay_field_normalize()
+    fields = {
+        name: ObservationField(shapes[name], dtypes[name], normalize[name])
+        for name in shapes
+    }
+    if len(fields) == 1:
+        return ObservationFormContract(next(iter(fields.values())))
+    return ObservationFormContract(fields)
 
 
 @dataclass(frozen=True)

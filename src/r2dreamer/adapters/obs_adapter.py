@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.observation_preparation.contracts import PreparedObservation
+
+if TYPE_CHECKING:
+    from src.r2dreamer.observation_preparation.contracts import PreparedObservation
 
 
 BufferShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
@@ -48,8 +50,10 @@ class ObsAdapter:
         """Returns (buffer_obs, agent_obs_dict)."""
         return env_obs.image, {"image": env_obs.image, "is_first": env_obs.is_first}
 
-    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame) -> "PreparedObservation":
         """Return the explicit replay/agent observation pair."""
+        from src.r2dreamer.observation_preparation.contracts import PreparedObservation
+
         replay_obs, agent_obs = self.transform(env_obs)
         return PreparedObservation(replay_obs=replay_obs, agent_obs=agent_obs)
 

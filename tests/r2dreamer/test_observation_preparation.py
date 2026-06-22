@@ -6,6 +6,11 @@ import json
 import numpy as np
 
 from src.environments.observation import ObservationFrame
+from src.r2dreamer.config import (
+    ObservationDims,
+    ObservationRunConfig,
+    ReplayObservationConfig,
+)
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
     HYBRID_FEATURE_DIM,
@@ -24,6 +29,28 @@ from src.r2dreamer.obs_batch import (
     WORLD_POINTS_KEY,
 )
 from src.r2dreamer.world_model import encoders as wm_encoders
+
+
+class TestObservationRunConfig:
+    def test_replay_shapes_are_derived_from_dimension_knobs(self):
+        config = ObservationRunConfig(
+            encoder="hybrid",
+            dims=ObservationDims(wp_side=64),
+            replay=ReplayObservationConfig(components=("image", "wp_cp")),
+        )
+
+        assert config.replay_buffer_shape() == {
+            "image": (3, 64, 64),
+            "wp_cp": (64 * 64 * 3 + 9,),
+        }
+        assert config.replay_buffer_dtype() == {
+            "image": "uint8",
+            "wp_cp": "float32",
+        }
+        assert config.replay_buffer_normalize() == {
+            "image": True,
+            "wp_cp": False,
+        }
 
 
 class TestCNNObservationPreparation:
