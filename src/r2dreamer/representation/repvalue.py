@@ -19,7 +19,7 @@ def repval_loss(
 
     Args:
         feat: (B, T, F) — RSSM features WITH gradients to encoder/RSSM.
-        batch: training batch (uses `is_last`, `is_terminal`, `rewards`).
+        batch: training batch (uses `is_episode_end`, `rewards`).
         params: agent params (uses `critic`).
         modules: Flax module dict (uses `critic`).
         cfg: R2DreamerConfig (uses `horizon`, `lamb`, `twohot_bins`).
@@ -32,8 +32,7 @@ def repval_loss(
     Returns:
         scalar repval loss.
     """
-    replay_last = batch["is_last"]  # (B, T)
-    replay_term = batch["is_terminal"]  # (B, T)
+    replay_episode_end = batch["is_episode_end"]  # (B, T)
     replay_reward = batch["rewards"]  # (B, T)
 
     # Bootstrap from the imagined return at step 0
@@ -59,8 +58,8 @@ def repval_loss(
     disc = 1.0 - 1.0 / cfg.horizon
     replay_ret = lambda_return(
         LambdaReturnInputs(
-            last=replay_last[..., None],
-            term=replay_term[..., None],
+            last=replay_episode_end[..., None],
+            term=replay_episode_end[..., None],
             reward=replay_reward[..., None],
             value=replay_value,
             boot=boot,
@@ -79,7 +78,7 @@ def repval_loss(
         .reshape(B, T, cfg.twohot_bins)
     )
 
-    repval_weight = 1.0 - replay_last  # (B, T)
+    repval_weight = 1.0 - replay_episode_end  # (B, T)
     loss_tar = twohot.loss(
         repval_logits[:, :-1],
         jax.lax.stop_gradient(ret_padded[:, :-1, 0]),

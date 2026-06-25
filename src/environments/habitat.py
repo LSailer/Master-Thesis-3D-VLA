@@ -49,7 +49,7 @@ class HabitatEnvConfig:
 
 
 class EpisodeEndMetrics(TypedDict):
-    """Metrics populated on terminal transitions."""
+    """Metrics populated on episode-end transitions."""
 
     softspl: float
     dtg: float
@@ -346,10 +346,10 @@ class HabitatObjectNavEnv:
             episode = self.current_episode
             return ObservationFrame(
                 image=image,
+                is_first=False,
+                previous_action=int(action),
                 reward=self._cfg.step_penalty,
                 done=done,
-                is_first=False,
-                is_last=done,
                 scene_id=getattr(episode, "scene_id", None),
                 episode_id=getattr(episode, "episode_id", None),
                 step=self._step_count,
@@ -381,7 +381,7 @@ class HabitatObjectNavEnv:
             dist = _validate_goal_distance(raw_dist)
         except ValueError:
             self._log_invalid_goal_distance(raw_dist, phase="step")
-            return self._invalid_goal_distance_transition(obs, raw_dist)
+            return self._invalid_goal_distance_transition(obs, raw_dist, action)
 
         reward = self._compute_reward(dist)
         success = 1.0 if _is_success_distance(dist) else 0.0
@@ -395,13 +395,12 @@ class HabitatObjectNavEnv:
         episode = self.current_episode
         return ObservationFrame(
             image=image,
+            is_first=False,
+            previous_action=int(action),
             reward=reward,
             done=done,
-            is_first=False,
             success=success,
             spl=spl,
-            is_last=done,
-            is_terminal=success > 0,
             scene_id=getattr(episode, "scene_id", None),
             episode_id=getattr(episode, "episode_id", None),
             step=self._step_count,
@@ -409,7 +408,7 @@ class HabitatObjectNavEnv:
         )
 
     def _invalid_goal_distance_transition(
-        self, obs, raw_dist: object
+        self, obs, raw_dist: object, action: int
     ) -> ObservationFrame:
         image = self._obs_to_image(obs)
         fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
@@ -417,10 +416,10 @@ class HabitatObjectNavEnv:
         episode = self.current_episode
         return ObservationFrame(
             image=image,
+            is_first=False,
+            previous_action=int(action),
             reward=self._cfg.step_penalty,
             done=True,
-            is_first=False,
-            is_last=True,
             invalid_goal_distance=1.0,
             invalid_goal_distance_raw=str(raw_dist),
             scene_id=getattr(episode, "scene_id", None),

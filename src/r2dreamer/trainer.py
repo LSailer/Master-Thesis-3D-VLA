@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
 from src.environments.observation import ObservationFrame
 from src.shared.video_utils import (
     compose_frame,
@@ -95,16 +95,17 @@ def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
     transition fields right by one step inside each sampled window.
     """
     actions = jax.nn.one_hot(batch["actions"], num_actions)
+    rewards = jnp.asarray(batch["rewards"], dtype=jnp.float32)
+    episode_end = jnp.asarray(batch["is_episode_end"], dtype=jnp.float32)
     zero_action = jnp.zeros_like(actions[:, :1])
-    zero_scalar = jnp.zeros_like(batch["rewards"][:, :1])
+    zero_scalar = jnp.zeros_like(rewards[:, :1])
     return {
         "obs": batch["obs"],
         "actions": jnp.concatenate([zero_action, actions[:, :-1]], axis=1),
-        "rewards": jnp.concatenate([zero_scalar, batch["rewards"][:, :-1]], axis=1),
-        "is_first": batch["is_first"],
-        "is_last": jnp.concatenate([zero_scalar, batch["dones"][:, :-1]], axis=1),
-        "is_terminal": jnp.concatenate(
-            [zero_scalar, batch["terminals"][:, :-1]], axis=1
+        "rewards": jnp.concatenate([zero_scalar, rewards[:, :-1]], axis=1),
+        "is_first": jnp.asarray(batch["is_first"], dtype=jnp.float32),
+        "is_episode_end": jnp.concatenate(
+            [zero_scalar, episode_end[:, :-1]], axis=1
         ),
     }
 
@@ -222,29 +223,9 @@ class Trainer:
         self.val_obs_adapter = val_obs_adapter
         self.val_episode_metrics_fn = val_episode_metrics_fn
 
-        # Build buffer from the Observation Preparation contract when present;
-        # legacy adapters keep using their adapter attributes during migration.
-        replay_contract = getattr(
-            getattr(self.obs_adapter, "contract", None),
-            "replay_observation",
-            None,
-        )
-        if replay_contract is not None:
-            obs_shape = replay_contract.buffer_shape()
-            obs_dtype = replay_contract.buffer_dtype()
-            normalize_obs = replay_contract.buffer_normalize()
-        else:
-            obs_shape = self.obs_adapter.buffer_shape
-            obs_dtype = self.obs_adapter.buffer_dtype
-            normalize_obs = self.obs_adapter.normalize_on_sample
-        self.buffer = ReplayBuffer(
-            BufferConfig(
-                capacity=agent_config.buffer_capacity,
-                obs_shape=obs_shape,
-                obs_dtype=obs_dtype,
-                normalize_obs=normalize_obs,
-            )
-        )
+        # Replay shape and dtype are inferred lazily from the first prepared
+        # observation; normalization belongs to Observation Preparation.
+        self.buffer = ReplayBuffer(capacity=agent_config.buffer_capacity)
 
         # Resume from checkpoint (overwrite freshly-initialised agent state).
         self._resume_step = 0
@@ -370,12 +351,10 @@ class Trainer:
                 self.obs_adapter, next_obs
             )
 
-            self.buffer.add(
-                buffer_obs,
-                action,
-                next_obs.reward,
-                next_obs.done,
-                terminal=next_obs.is_terminal,
+            self._record_train_transition(
+                buffer_obs=buffer_obs,
+                action=action,
+                next_obs=next_obs,
             )
 
             if next_obs.done:
@@ -410,13 +389,12 @@ class Trainer:
         action: int,
         next_obs: ObservationFrame,
     ) -> None:
-        self.buffer.add(
-            buffer_obs,
-            action,
-            next_obs.reward,
-            next_obs.done,
-            terminal=next_obs.is_terminal,
-        )
+        if next_obs.previous_action != action:
+            raise ValueError(
+                "ObservationFrame.previous_action does not match recorded action: "
+                f"expected {action}, got {next_obs.previous_action}"
+            )
+        self.buffer.add(buffer_obs, next_obs)
 
     def _finish_train_episode(
         self,

@@ -28,8 +28,7 @@ def make_batch(cfg, B=4, T=16):
             np.random.randint(0, cfg.num_actions, (B, T))]),
         "rewards": jnp.array(np.random.randn(B, T).astype(np.float32)),
         "is_first": jnp.zeros((B, T)),
-        "is_last": jnp.zeros((B, T)),
-        "is_terminal": jnp.zeros((B, T)),
+        "is_episode_end": jnp.zeros((B, T)),
     }
 
 
@@ -66,15 +65,13 @@ def make_deterministic_batch(cfg, B=2, T=4):
     action_ids = jnp.arange(B * T).reshape(B, T) % cfg.num_actions
     rewards = jnp.linspace(-1.0, 1.0, B * T, dtype=jnp.float32).reshape(B, T)
     is_first = jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0)
-    is_last = jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0)
-    is_terminal = jnp.zeros((B, T), dtype=jnp.float32).at[0, -1].set(1.0)
+    is_episode_end = jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0)
     return {
         "obs": obs,
         "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         "rewards": rewards,
         "is_first": is_first,
-        "is_last": is_last,
-        "is_terminal": is_terminal,
+        "is_episode_end": is_episode_end,
     }
 
 
@@ -148,8 +145,7 @@ def make_hybrid_mapping_batch(cfg, B=1, T=4):
         "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         "rewards": jnp.zeros((B, T), dtype=jnp.float32),
         "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_last": jnp.zeros((B, T), dtype=jnp.float32),
-        "is_terminal": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32),
     }
 
 
@@ -264,8 +260,7 @@ class TestR2DreamerAgent:
             ),
             "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
             "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_last": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_terminal": jnp.zeros((1, 2), dtype=jnp.float32),
+            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
         }
 
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))
@@ -323,8 +318,7 @@ class TestR2DreamerAgent:
             ),
             "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
             "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_last": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_terminal": jnp.zeros((1, 2), dtype=jnp.float32),
+            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
         }
 
         before = agent.params["encoder"]

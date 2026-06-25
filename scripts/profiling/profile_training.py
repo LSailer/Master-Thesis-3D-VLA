@@ -28,7 +28,7 @@ from src.shared.profiling import (
     timed,
     write_json,
 )
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
 from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
@@ -81,7 +81,7 @@ def _build_cnn(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    buffer = ReplayBuffer(agent_cfg)
+    buffer = ReplayBuffer(capacity=agent_cfg.buffer_capacity)
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     obs_adapter = ObsAdapter()
@@ -139,12 +139,7 @@ def _build_vggt(
         normalize_on_sample=False,
         on_episode_reset=extractor.reset,
     )
-    buffer = ReplayBuffer(BufferConfig(
-        capacity=agent_cfg.buffer_capacity,
-        obs_shape=(VGGT_FEATURE_DIM,),
-        obs_dtype="float32",
-        normalize_obs=False,
-    ))
+    buffer = ReplayBuffer(capacity=agent_cfg.buffer_capacity)
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     return env, agent, buffer, obs_adapter, agent_cfg, extractor
@@ -227,10 +222,7 @@ def run_loop(
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(
-                buffer_obs, action, next_obs["reward"],
-                next_obs["done"], terminal=(next_obs.get("success", 0.0) > 0),
-            )
+            buffer.add(buffer_obs, next_obs)
         total_steps += 1
         total_reward += next_obs["reward"]
 
@@ -259,10 +251,7 @@ def run_loop(
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(
-                buffer_obs, action, next_obs["reward"],
-                next_obs["done"], terminal=(next_obs.get("success", 0.0) > 0),
-            )
+            buffer.add(buffer_obs, next_obs)
         total_steps += 1
         total_reward += next_obs["reward"]
 

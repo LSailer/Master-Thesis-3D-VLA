@@ -3,7 +3,7 @@
 Forks src.r2dreamer.launch.evaluate.evaluate() but adds per-step
 artifact dumping for downstream visualization. Captures RGB, raw VGGT
 outputs (world_points + camera_pose), RSSM latents (stoch, deter, feat),
-agent pose, action, reward, and is_first/is_terminal flags.
+agent pose, action, reward, and is_first/is_episode_end flags.
 
 Designed to be run with --episodes N to roll 0..N-1 sequentially with
 the same seed=42 as evaluate.py, dumping npz only for episode indices
@@ -227,7 +227,7 @@ def main(argv: list[str] | None = None) -> dict:
             next_obs = env_instance.step(action)
             actions_taken.append(int(action))
             rewards.append(float(next_obs["reward"]))
-            is_terminal = bool(next_obs["done"])
+            is_episode_end = bool(next_obs["is_episode_end"])
 
             # --- dump per-step npz ---
             if dump_this:
@@ -245,12 +245,12 @@ def main(argv: list[str] | None = None) -> dict:
                     action=np.int32(action),
                     reward=np.float32(next_obs["reward"]),
                     is_first=np.bool_(cur_is_first),
-                    is_terminal=np.bool_(is_terminal),
+                    is_episode_end=np.bool_(is_episode_end),
                 )
                 total_dump_bytes += npz_path.stat().st_size
                 total_dump_steps += 1
 
-            if is_terminal:
+            if is_episode_end:
                 obs = next_obs
                 break
 

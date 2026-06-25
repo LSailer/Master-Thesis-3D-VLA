@@ -55,7 +55,7 @@ def world_model_loss(
     Args:
         forward: shared `agent._world_model_forward` output.
         params: full agent params dict (only `reward`, `cont` are read here).
-        batch: training batch (uses `rewards`, `is_terminal`).
+        batch: training batch (uses `rewards`, `is_episode_end`).
         modules: dict of Flax modules (uses `reward`, `cont`).
         cfg: R2DreamerConfig (uses `stoch_classes`, `stoch_discrete`, `kl_free`).
         twohot: R2TwoHotDist for the reward head.
@@ -91,7 +91,7 @@ def world_model_loss(
 
     # ---- Continue head ----
     cont_logits = modules["cont"].apply(params["cont"], feat_flat).reshape(B, T, 1)
-    cont_target = 1.0 - batch["is_terminal"]
+    cont_target = 1.0 - batch["is_episode_end"]
     losses["con"] = jnp.mean(
         optax.sigmoid_binary_cross_entropy(cont_logits[..., 0], cont_target)
     )

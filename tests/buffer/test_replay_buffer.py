@@ -1,102 +1,127 @@
-"""Tests for the unified ReplayBuffer with BufferConfig."""
-
+"""Tests for the lazy ReplayBuffer."""
 
 from typing import cast
 
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from src.buffer.replay_buffer import ReplayBuffer, BufferConfig, ValReplayDataset
+from src.buffer.replay_buffer import ReplayBuffer, ValReplayDataset
+from src.environments.observation import ObservationFrame
 
 
-class TestBufferConfig:
-    def test_uint8_defaults(self):
-        cfg = BufferConfig(capacity=100, obs_shape=(3, 64, 64))
-        assert cfg.obs_dtype == "uint8"
-        assert cfg.normalize_obs is True
+def _frame(action: int = 0, reward: float = 0.0, done: bool = False) -> ObservationFrame:
+    return ObservationFrame(
+        image=np.empty((0,), dtype=np.uint8),
+        is_first=False,
+        previous_action=action,
+        reward=reward,
+        done=done,
+    )
 
-    def test_float32_no_normalize(self):
-        cfg = BufferConfig(capacity=100, obs_shape=(4116,),
-                           obs_dtype="float32", normalize_obs=False)
-        assert cfg.obs_dtype == "float32"
-        assert cfg.normalize_obs is False
+
+def _add(
+    buffer: ReplayBuffer,
+    obs: np.ndarray | dict[str, np.ndarray],
+    *,
+    action: int = 0,
+    reward: float = 0.0,
+    done: bool = False,
+) -> None:
+    buffer.add(obs, _frame(action=action, reward=reward, done=done))
+
+
+class TestReplayBufferPolicy:
+    def test_capacity_only_initializes_on_first_add(self):
+        buf = ReplayBuffer(capacity=3)
+        assert buf.obs is None
+
+        _add(buf, np.zeros((2,), dtype=np.float32))
+
+        obs_storage = cast(np.ndarray, buf.obs)
+        assert obs_storage.shape == (3, 2)
+        assert obs_storage.dtype == np.float32
+
+    def test_sample_before_first_add_raises(self):
+        buf = ReplayBuffer(capacity=3)
+
+        with pytest.raises(RuntimeError, match="before adding"):
+            buf.sample(batch_size=1, seq_len=1)
+
+    def test_capacity_must_be_positive(self):
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            ReplayBuffer(capacity=0)
 
 
 class TestReplayBufferUint8:
-    """Test ReplayBuffer with uint8 images (old ReplayBuffer behavior)."""
+    """ReplayBuffer preserves uint8 image observations."""
 
     @pytest.fixture
     def buf(self):
-        cfg = BufferConfig(capacity=50, obs_shape=(3, 4, 4))
-        return ReplayBuffer(cfg)
+        return ReplayBuffer(capacity=50)
 
     def test_add_and_size(self, buf):
         obs = np.random.randint(0, 255, (3, 4, 4), dtype=np.uint8)
-        buf.add(obs, action=1, reward=1.0, done=False)
+        _add(buf, obs, action=1, reward=1.0)
         assert buf.size == 1
 
     def test_sample_shapes(self, buf):
         for i in range(20):
             obs = np.random.randint(0, 255, (3, 4, 4), dtype=np.uint8)
-            buf.add(obs, i % 5, float(i), i == 9)
+            _add(buf, obs, action=i % 5, reward=float(i), done=i == 9)
         batch = buf.sample(batch_size=4, seq_len=5)
         assert batch["obs"].shape == (4, 5, 3, 4, 4)
         assert batch["actions"].shape == (4, 5)
         assert batch["rewards"].shape == (4, 5)
-        assert batch["dones"].shape == (4, 5)
-        assert batch["terminals"].shape == (4, 5)
+        assert batch["is_episode_end"].shape == (4, 5)
         assert batch["is_first"].shape == (4, 5)
 
-    def test_sample_normalizes_uint8(self, buf):
+    def test_sample_preserves_uint8(self, buf):
         obs = np.full((3, 4, 4), 255, dtype=np.uint8)
         for _ in range(10):
-            buf.add(obs, 0, 0.0, False)
+            _add(buf, obs)
         batch = buf.sample(2, 3)
-        assert jnp.allclose(batch["obs"], 1.0, atol=1e-5)
+        assert batch["obs"].dtype == jnp.uint8
+        assert int(batch["obs"][0, 0, 0, 0, 0]) == 255
 
     def test_sample_dtypes(self, buf):
         for _ in range(10):
-            buf.add(np.zeros((3, 4, 4), dtype=np.uint8), 0, 0.0, False)
+            _add(buf, np.zeros((3, 4, 4), dtype=np.uint8))
         batch = buf.sample(2, 3)
-        assert batch["obs"].dtype == jnp.float32
+        assert batch["obs"].dtype == jnp.uint8
         assert batch["actions"].dtype == jnp.int32
         assert batch["rewards"].dtype == jnp.float32
-        assert batch["is_first"].dtype == jnp.float32
+        assert batch["is_first"].dtype == jnp.bool_
+        assert batch["is_episode_end"].dtype == jnp.bool_
 
     def test_ring_buffer_wraps(self, buf):
-        """Buffer wraps around when capacity is exceeded."""
-        for i in range(60):  # capacity is 50
-            buf.add(np.zeros((3, 4, 4), dtype=np.uint8), 0, float(i), False)
+        for i in range(60):
+            _add(buf, np.zeros((3, 4, 4), dtype=np.uint8), reward=float(i))
         assert buf.size == 50
 
-    def test_is_first_after_done(self, buf):
-        """is_first should be True at t=0 and after done flags."""
+    def test_is_first_after_episode_end(self, buf):
         for i in range(10):
-            buf.add(np.zeros((3, 4, 4), dtype=np.uint8), 0, 0.0, done=(i == 4))
+            _add(buf, np.zeros((3, 4, 4), dtype=np.uint8), done=(i == 4))
         batch = buf.sample(1, 8)
-        # is_first[:, 0] is always True
-        assert batch["is_first"][0, 0] == 1.0
+        assert batch["is_first"][0, 0]
 
 
 class TestReplayBufferFloat32:
-    """Test ReplayBuffer with float32 features (old VGGTReplayBuffer behavior)."""
+    """ReplayBuffer preserves float32 feature observations."""
 
     @pytest.fixture
     def buf(self):
-        cfg = BufferConfig(capacity=50, obs_shape=(4116,),
-                           obs_dtype="float32", normalize_obs=False)
-        return ReplayBuffer(cfg)
+        return ReplayBuffer(capacity=50)
 
     def test_add_and_size(self, buf):
         obs = np.random.randn(4116).astype(np.float32)
-        buf.add(obs, action=1, reward=1.0, done=False)
+        _add(buf, obs, action=1, reward=1.0)
         assert buf.size == 1
 
     def test_sample_shapes(self, buf):
         for i in range(20):
             obs = np.random.randn(4116).astype(np.float32)
-            buf.add(obs, i % 4, float(i), i == 9)
+            _add(buf, obs, action=i % 4, reward=float(i), done=i == 9)
         batch = buf.sample(batch_size=4, seq_len=5)
         assert batch["obs"].shape == (4, 5, 4116)
         assert batch["actions"].shape == (4, 5)
@@ -104,43 +129,24 @@ class TestReplayBufferFloat32:
     def test_sample_does_not_normalize(self, buf):
         obs = np.full((4116,), 255.0, dtype=np.float32)
         for _ in range(10):
-            buf.add(obs, 0, 0.0, False)
+            _add(buf, obs)
         batch = buf.sample(2, 3)
-        # Should NOT divide by 255
         assert jnp.allclose(batch["obs"], 255.0, atol=1e-5)
 
-    def test_terminal_flag(self, buf):
+    def test_episode_end_flag(self, buf):
         for i in range(10):
-            buf.add(np.zeros(4116, dtype=np.float32), 0, 0.0,
-                    done=(i == 5), terminal=(i == 5))
+            _add(buf, np.zeros(4116, dtype=np.float32), done=(i == 5))
         batch = buf.sample(1, 8)
-        # terminals should be stored and returned
-        assert batch["terminals"].dtype == jnp.float32
-
-    def test_float16_storage_samples_as_float32(self):
-        cfg = BufferConfig(capacity=10, obs_shape=(8,),
-                           obs_dtype="float16", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
-        for _ in range(4):
-            buf.add(np.ones(8, dtype=np.float16), 0, 0.0, False)
-
-        batch = buf.sample(batch_size=1, seq_len=2)
-        obs_batch = cast(jnp.ndarray, batch["obs"])
-        assert obs_batch.dtype == jnp.float32
+        assert batch["is_episode_end"].dtype == jnp.bool_
+        assert jnp.any(batch["is_episode_end"])
 
 
 class TestReplayBufferMappingObs:
-    """Test ReplayBuffer with explicit multi-modal observation fields."""
+    """ReplayBuffer supports explicit multi-modal observation fields."""
 
     @pytest.fixture
     def buf(self):
-        cfg = BufferConfig(
-            capacity=50,
-            obs_shape={"image": (3, 4, 4), "wp_cp": (6,)},
-            obs_dtype={"image": "uint8", "wp_cp": "float32"},
-            normalize_obs={"image": False, "wp_cp": False},
-        )
-        return ReplayBuffer(cfg)
+        return ReplayBuffer(capacity=50)
 
     def test_add_and_sample_fields(self, buf):
         for i in range(20):
@@ -148,7 +154,7 @@ class TestReplayBufferMappingObs:
                 "image": np.full((3, 4, 4), i, dtype=np.uint8),
                 "wp_cp": np.full((6,), float(i), dtype=np.float32),
             }
-            buf.add(obs, i % 4, float(i), done=(i == 9))
+            _add(buf, obs, action=i % 4, reward=float(i), done=i == 9)
 
         batch = buf.sample(batch_size=4, seq_len=5)
         assert set(batch["obs"]) == {"image", "wp_cp"}
@@ -160,89 +166,53 @@ class TestReplayBufferMappingObs:
         assert batch["is_first"].shape == (4, 5)
 
     def test_missing_field_raises(self, buf):
-        obs = {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
-        with pytest.raises(KeyError, match="missing replay fields"):
-            buf.add(obs, action=0, reward=0.0, done=False)
-
-    def test_mapping_field_normalization_is_per_field(self):
-        cfg = BufferConfig(
-            capacity=10,
-            obs_shape={"image": (1,), "features": (1,)},
-            obs_dtype={"image": "uint8", "features": "float32"},
-            normalize_obs={"image": True, "features": False},
+        _add(
+            buf,
+            {
+                "image": np.zeros((3, 4, 4), dtype=np.uint8),
+                "wp_cp": np.zeros((6,), dtype=np.float32),
+            },
         )
-        buf = ReplayBuffer(cfg)
+        obs = {"image": np.zeros((3, 4, 4), dtype=np.uint8)}
+        with pytest.raises(KeyError, match="observation keys changed"):
+            _add(buf, obs)
+
+    def test_mapping_field_dtype_is_preserved(self):
+        buf = ReplayBuffer(capacity=10)
         obs = {
             "image": np.array([255], dtype=np.uint8),
             "features": np.array([255.0], dtype=np.float32),
         }
         for _ in range(4):
-            buf.add(obs, action=0, reward=0.0, done=False)
+            _add(buf, obs)
 
         batch = buf.sample(batch_size=1, seq_len=2)
-        assert jnp.allclose(batch["obs"]["image"], 1.0)
-        assert batch["obs"]["image"].dtype == jnp.float32
+        assert batch["obs"]["image"].dtype == jnp.uint8
+        assert batch["obs"]["features"].dtype == jnp.float32
         assert jnp.allclose(batch["obs"]["features"], 255.0)
-
-
-class TestReplayBufferMappingObsNormalization:
-    def test_sample_mapping_observations_with_per_field_normalization(self):
-        cfg = BufferConfig(
-            capacity=20,
-            obs_shape={"image": (3, 4, 4), "context": (5,)},
-            obs_dtype={"image": "uint8", "context": "float32"},
-            normalize_obs={"image": True, "context": False},
-        )
-        buf = ReplayBuffer(cfg)
-        for i in range(10):
-            buf.add(
-                {
-                    "image": np.full((3, 4, 4), 255, dtype=np.uint8),
-                    "context": np.full((5,), float(i), dtype=np.float32),
-                },
-                action=i % 3,
-                reward=float(i),
-                done=False,
-            )
-
-        batch = buf.sample(batch_size=2, seq_len=3)
-
-        assert set(batch["obs"]) == {"image", "context"}
-        assert batch["obs"]["image"].shape == (2, 3, 3, 4, 4)
-        assert batch["obs"]["context"].shape == (2, 3, 5)
-        assert jnp.allclose(batch["obs"]["image"], 1.0)
-        assert float(jnp.max(batch["obs"]["context"])) > 1.0
 
 
 class TestWriteHeadSafety:
     """Verify sampled sequences never cross the write-head boundary."""
 
     def test_no_temporal_discontinuity_after_wrap(self):
-        """After wrapping, reward sequences must be temporally contiguous.
-
-        We write rewards 0,1,2,...,cap+extra with capacity=20, seq_len=5.
-        After wrapping, positions [0..idx) have the newest rewards,
-        positions [idx..cap) have older rewards. A valid sequence must
-        have monotonically increasing rewards (no backward jump).
-        """
         cap, seq_len = 20, 5
-        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
+        buf = ReplayBuffer(capacity=cap)
 
-        # Write 30 items into a capacity-20 buffer (wraps at 20)
         for i in range(30):
-            buf.add(np.array([float(i), 0.0], dtype=np.float32),
-                    action=0, reward=float(i), done=False)
+            _add(
+                buf,
+                np.array([float(i), 0.0], dtype=np.float32),
+                reward=float(i),
+            )
 
         assert buf.size == cap
-        assert buf.idx == 10  # 30 % 20
+        assert buf.idx == 10
 
-        # Sample many batches — every sequence's rewards must be monotonic
         np.random.seed(42)
         for _ in range(200):
             batch = buf.sample(batch_size=8, seq_len=seq_len)
-            rewards = np.array(batch["rewards"])  # (8, 5)
+            rewards = np.array(batch["rewards"])
             for b in range(8):
                 seq = rewards[b]
                 diffs = np.diff(seq)
@@ -252,35 +222,24 @@ class TestWriteHeadSafety:
                 )
 
     def test_sample_works_when_idx_near_zero(self):
-        """Edge case: buffer just wrapped, idx=1."""
         cap, seq_len = 20, 5
-        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
+        buf = ReplayBuffer(capacity=cap)
 
-        # Write exactly cap+1 items so idx=1
         for i in range(cap + 1):
-            buf.add(np.array([float(i), 0.0], dtype=np.float32),
-                    action=0, reward=float(i), done=False)
+            _add(buf, np.array([float(i), 0.0], dtype=np.float32), reward=float(i))
 
         assert buf.idx == 1
         assert buf.size == cap
-        # Should still be able to sample without error
         batch = buf.sample(batch_size=4, seq_len=seq_len)
         obs_batch = cast(jnp.ndarray, batch["obs"])
         assert obs_batch.shape == (4, seq_len, 2)
 
     def test_sample_works_when_idx_near_end(self):
-        """Edge case: idx is close to capacity, small new region."""
         cap, seq_len = 20, 5
-        cfg = BufferConfig(capacity=cap, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
+        buf = ReplayBuffer(capacity=cap)
 
-        # Write cap+2 items so idx=2
         for i in range(cap + cap - 2):
-            buf.add(np.array([float(i), 0.0], dtype=np.float32),
-                    action=0, reward=float(i), done=False)
+            _add(buf, np.array([float(i), 0.0], dtype=np.float32), reward=float(i))
 
         assert buf.idx == 18
         assert buf.size == cap
@@ -292,13 +251,12 @@ class TestWriteHeadSafety:
 class TestEpisodeBoundaries:
     """Document how ReplayBuffer exposes episode boundaries to the RSSM."""
 
-    def test_done_boundary_sets_following_is_first(self):
-        cfg = BufferConfig(capacity=20, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
+    def test_episode_end_boundary_sets_following_is_first(self):
+        buf = ReplayBuffer(capacity=20)
         for episode in range(3):
             for step in range(4):
-                buf.add(
+                _add(
+                    buf,
                     np.array([episode, step], dtype=np.float32),
                     action=episode,
                     reward=float(episode * 10 + step),
@@ -309,94 +267,70 @@ class TestEpisodeBoundaries:
         for _ in range(50):
             batch = buf.sample(batch_size=4, seq_len=5)
             obs = np.array(batch["obs"])
-            dones = np.array(batch["dones"])
+            episode_end = np.array(batch["is_episode_end"])
             is_first = np.array(batch["is_first"])
 
-            assert np.all(is_first[:, 0] == 1.0)
+            assert np.all(is_first[:, 0])
             for b in range(obs.shape[0]):
                 for t in range(1, obs.shape[1]):
                     episode_changed = obs[b, t, 0] != obs[b, t - 1, 0]
                     if episode_changed:
-                        assert dones[b, t - 1] == 1.0
-                        assert is_first[b, t] == 1.0
-
-    def test_terminal_flag_survives_successful_episode_end(self):
-        cfg = BufferConfig(capacity=12, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
-        for step in range(6):
-            buf.add(
-                np.array([0, step], dtype=np.float32),
-                action=0,
-                reward=float(step),
-                done=(step == 2 or step == 5),
-                terminal=(step == 2),
-            )
-
-        np.random.seed(1)
-        batch = buf.sample(batch_size=8, seq_len=3)
-        dones = np.array(batch["dones"])
-        terminals = np.array(batch["terminals"])
-
-        assert np.any(terminals == 1.0)
-        assert np.all(terminals <= dones)
-        assert np.any((dones == 1.0) & (terminals == 0.0))
+                        assert episode_end[b, t - 1]
+                        assert is_first[b, t]
 
     def test_wraparound_episode_change_has_reset_marker(self):
-        cfg = BufferConfig(capacity=10, obs_shape=(2,),
-                           obs_dtype="float32", normalize_obs=False)
-        buf = ReplayBuffer(cfg)
+        buf = ReplayBuffer(capacity=10)
         for i in range(16):
             episode, step = divmod(i, 4)
-            buf.add(
+            _add(
+                buf,
                 np.array([episode, step], dtype=np.float32),
-                action=0,
                 reward=float(i),
                 done=(step == 3),
-                terminal=(episode == 2 and step == 3),
             )
 
-        assert buf.size == cfg.capacity
+        assert buf.size == 10
         np.random.seed(2)
         for _ in range(100):
             batch = buf.sample(batch_size=6, seq_len=4)
             obs = np.array(batch["obs"])
-            dones = np.array(batch["dones"])
+            episode_end = np.array(batch["is_episode_end"])
             is_first = np.array(batch["is_first"])
             for b in range(obs.shape[0]):
                 for t in range(1, obs.shape[1]):
                     if obs[b, t, 0] != obs[b, t - 1, 0]:
-                        assert dones[b, t - 1] == 1.0
-                        assert is_first[b, t] == 1.0
+                        assert episode_end[b, t - 1]
+                        assert is_first[b, t]
 
 
 class TestValReplayDataset:
-    """Test ValReplayDataset normalization behavior."""
+    """Test ValReplayDataset episode reconstruction behavior."""
 
     @pytest.fixture
     def val_npz(self, tmp_path):
-        """Create a minimal .npz file with 2 episodes of 10 steps each."""
-        N = 20
-        obs = np.full((N, 3, 4, 4), 200, dtype=np.uint8)
-        actions = np.zeros(N, dtype=np.int32)
-        rewards = np.ones(N, dtype=np.float32)
-        dones = np.zeros(N, dtype=bool)
-        dones[9] = True   # episode 1 ends at step 9
-        dones[19] = True  # episode 2 ends at step 19
-        terminals = np.zeros(N, dtype=bool)
+        num_steps = 20
+        obs = np.full((num_steps, 3, 4, 4), 200, dtype=np.uint8)
+        actions = np.zeros(num_steps, dtype=np.int32)
+        rewards = np.ones(num_steps, dtype=np.float32)
+        episode_ends = np.zeros(num_steps, dtype=bool)
+        episode_ends[9] = True
+        episode_ends[19] = True
         path = str(tmp_path / "val.npz")
-        np.savez(path, obs=obs, actions=actions, rewards=rewards,
-                 dones=dones, terminals=terminals)
+        np.savez(
+            path,
+            obs=obs,
+            actions=actions,
+            rewards=rewards,
+            episode_ends=episode_ends,
+        )
         return path
 
-    def test_default_normalizes(self, val_npz):
+    def test_sample_preserves_obs_dtype(self, val_npz):
         ds = ValReplayDataset(val_npz)
         batch = ds.sample(batch_size=2, seq_len=5)
-        # uint8 value 200 / 255 ≈ 0.784
-        assert jnp.allclose(batch["obs"], 200.0 / 255.0, atol=1e-5)
+        assert batch["obs"].dtype == jnp.uint8
+        assert int(batch["obs"][0, 0, 0, 0, 0]) == 200
 
-    def test_normalize_false_skips_division(self, val_npz):
-        ds = ValReplayDataset(val_npz, normalize=False)
-        batch = ds.sample(batch_size=2, seq_len=5)
-        # Should keep raw value 200.0 (as float32, no /255)
-        assert jnp.allclose(batch["obs"], 200.0, atol=1e-5)
+    def test_episode_count_uses_episode_ends(self, val_npz):
+        ds = ValReplayDataset(val_npz)
+        assert ds.episode_count() == 2

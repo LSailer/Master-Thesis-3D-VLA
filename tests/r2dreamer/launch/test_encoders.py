@@ -674,8 +674,7 @@ class TestVGGTHouseContextEncoder:
             },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
-            "dones": np.zeros((2, 3), dtype=bool),
-            "terminals": np.zeros((2, 3), dtype=bool),
+            "is_episode_end": np.zeros((2, 3), dtype=bool),
             "is_first": np.zeros((2, 3), dtype=np.float32),
         }
         augmented = adapter.augment_replay_batch(batch)
@@ -758,8 +757,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
             },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
-            "dones": np.zeros((2, 3), dtype=bool),
-            "terminals": np.zeros((2, 3), dtype=bool),
+            "is_episode_end": np.zeros((2, 3), dtype=bool),
             "is_first": np.zeros((2, 3), dtype=np.float32),
         }
         augmented = adapter.augment_replay_batch(batch)
@@ -849,8 +847,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
             },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
-            "dones": np.zeros((2, 3), dtype=bool),
-            "terminals": np.zeros((2, 3), dtype=bool),
+            "is_episode_end": np.zeros((2, 3), dtype=bool),
             "is_first": np.zeros((2, 3), dtype=np.float32),
         }
         augmented = adapter.augment_replay_batch(batch)

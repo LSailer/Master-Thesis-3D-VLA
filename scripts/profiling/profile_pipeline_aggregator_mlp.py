@@ -47,7 +47,7 @@ from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
 
 
 def block_tree(x):
@@ -95,12 +95,7 @@ def setup(args):
     agent = R2DreamerAgent(cfg, rng)
     rng, _ = jax.random.split(rng)
 
-    buffer = ReplayBuffer(BufferConfig(
-        capacity=cfg.buffer_capacity,
-        obs_shape=adapter.buffer_shape,
-        obs_dtype=adapter.buffer_dtype,
-        normalize_obs=adapter.normalize_on_sample,
-    ))
+    buffer = ReplayBuffer(capacity=cfg.buffer_capacity)
     return enc, adapter, env, cfg, agent, buffer, rng
 
 
@@ -145,8 +140,7 @@ def run_prefill(adapter, env, buffer, num_actions, n_steps):
         action = int(np.random.randint(0, num_actions))
         next_obs = env.step(action)
         next_buffer_obs, _, _ = transform_timed(adapter, next_obs)
-        success = next_obs.get("success", 0.0) > 0
-        buffer.add(buffer_obs, action, next_obs["reward"], next_obs["done"], terminal=success)
+        buffer.add(buffer_obs, next_obs)
         if next_obs["done"]:
             obs = env.reset()
             if adapter.on_episode_reset:
@@ -190,9 +184,8 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
         accum["vggt_wrapper_internal"].append(tx["vggt_wrapper_internal"])
 
         # buffer.add
-        success = next_obs.get("success", 0.0) > 0
         with timed(accum, "buffer_add"):
-            buffer.add(buffer_obs, int(action), next_obs["reward"], next_obs["done"], terminal=success)
+            buffer.add(buffer_obs, next_obs)
 
         if next_obs["done"]:
             obs = env.reset()

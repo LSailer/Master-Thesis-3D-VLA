@@ -33,7 +33,7 @@ def main():
         max_geodesic=args.max_geodesic,
     )
 
-    all_obs, all_actions, all_rewards, all_dones, all_terminals = [], [], [], [], []
+    all_obs, all_actions, all_rewards, all_episode_ends = [], [], [], []
 
     for ep in range(args.episodes):
         obs = env.reset()
@@ -44,9 +44,7 @@ def main():
             all_obs.append(obs.image)  # (C, H, W) uint8
             all_actions.append(action)
             all_rewards.append(next_obs.reward)
-            success = next_obs.success > 0
-            all_dones.append(next_obs.done)
-            all_terminals.append(success)
+            all_episode_ends.append(next_obs.is_episode_end)
             ep_steps += 1
             if next_obs.done:
                 break
@@ -63,8 +61,7 @@ def main():
         obs=np.array(all_obs, dtype=np.uint8),
         actions=np.array(all_actions, dtype=np.int32),
         rewards=np.array(all_rewards, dtype=np.float32),
-        dones=np.array(all_dones, dtype=np.bool_),
-        terminals=np.array(all_terminals, dtype=np.bool_),
+        episode_ends=np.array(all_episode_ends, dtype=np.bool_),
     )
     total = len(all_obs)
     print(f"Saved {total} steps from {args.episodes} episodes to {args.output}")

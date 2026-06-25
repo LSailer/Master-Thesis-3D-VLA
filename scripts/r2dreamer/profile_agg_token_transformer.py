@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _flatten_full_aggregator_tokens,
 )
@@ -123,12 +123,7 @@ def setup(args):
         cfg.train_ratio = args.train_ratio
     rng = jax.random.PRNGKey(args.seed)
     agent = R2DreamerAgent(cfg, rng)
-    buffer = ReplayBuffer(BufferConfig(
-        capacity=cfg.buffer_capacity,
-        obs_shape=adapter.buffer_shape,
-        obs_dtype=adapter.buffer_dtype,
-        normalize_obs=adapter.normalize_on_sample,
-    ))
+    buffer = ReplayBuffer(capacity=cfg.buffer_capacity)
     return enc, adapter, env, cfg, agent, buffer, rng
 
 
@@ -180,9 +175,8 @@ def run_phase(label, n_steps, adapter, env, cfg, agent, buffer, rng, buffer_obs,
             next_obs = env.step(int(action))
         next_buffer_obs, next_agent_obs = transform_timed(adapter, next_obs, accum)
 
-        success = next_obs.get("success", 0.0) > 0
         with timed(accum, "buffer_add"):
-            buffer.add(buffer_obs, int(action), next_obs["reward"], next_obs["done"], terminal=success)
+            buffer.add(buffer_obs, next_obs)
 
         if next_obs["done"]:
             obs = env.reset()
@@ -226,9 +220,8 @@ def run_profile(args, adapter, env, cfg, agent, buffer, rng):
             next_obs = env.step(action)
         next_buffer_obs, next_agent_obs = transform_timed(adapter, next_obs, prefill_accum)
 
-        success = next_obs.get("success", 0.0) > 0
         with timed(prefill_accum, "buffer_add"):
-            buffer.add(buffer_obs, action, next_obs["reward"], next_obs["done"], terminal=success)
+            buffer.add(buffer_obs, next_obs)
 
         if next_obs["done"]:
             obs = env.reset()

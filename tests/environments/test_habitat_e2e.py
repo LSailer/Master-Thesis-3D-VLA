@@ -52,7 +52,7 @@ def test_reset_returns_chw_frame(habitat_env):
     obs = habitat_env.reset()
 
     assert obs.is_first is True
-    assert obs.is_last is False
+    assert obs.is_episode_end is False
     assert obs.image.shape == (3, 64, 64)
     assert obs.image.dtype == np.uint8
     assert obs.scene_id is not None

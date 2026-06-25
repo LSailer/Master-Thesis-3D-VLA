@@ -58,48 +58,67 @@ def _block_tree(tree: Any) -> None:
 def _fill_common(buffer, capacity: int, rng: np.random.Generator) -> None:
     buffer.actions[:] = rng.integers(0, 4, size=capacity, dtype=np.int32)
     buffer.rewards[:] = rng.standard_normal(capacity).astype(np.float32)
-    buffer.dones[:] = False
-    buffer.terminals[:] = False
+    buffer.episode_ends[:] = False
     buffer.size = capacity
     buffer.idx = 0
 
 
+def _frame(action: int = 0, reward: float = 0.0, done: bool = False):
+    from src.environments.observation import ObservationFrame
+
+    return ObservationFrame(
+        image=np.empty((0,), dtype=np.uint8),
+        is_first=False,
+        previous_action=action,
+        reward=reward,
+        done=done,
+    )
+
+
+def _array_storage(buffer: Any) -> np.ndarray:
+    if not isinstance(buffer.obs, np.ndarray):
+        raise TypeError("expected single-array replay storage")
+    return buffer.obs
+
+
+def _mapping_storage(buffer: Any) -> dict[str, np.ndarray]:
+    if not isinstance(buffer.obs, dict):
+        raise TypeError("expected mapping replay storage")
+    return buffer.obs
+
+
 def _make_buffer(kind: str, capacity: int, rng: np.random.Generator):
-    from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+    from src.buffer.replay_buffer import ReplayBuffer
 
     if kind == "wpcp":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape=(4116,),
-            obs_dtype="float32",
-            normalize_obs=False,
+        buffer = ReplayBuffer(capacity=capacity)
+        buffer.add(np.zeros((4116,), dtype=np.float32), _frame())
+        _array_storage(buffer)[:] = rng.standard_normal(
+            (capacity, 4116), dtype=np.float32
         )
-        buffer = ReplayBuffer(cfg)
-        buffer.obs[:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
     elif kind == "flat_hybrid":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape=(16404,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
-        buffer = ReplayBuffer(cfg)
+        buffer = ReplayBuffer(capacity=capacity)
+        buffer.add(np.zeros((16404,), dtype=np.float32), _frame())
         image = rng.integers(0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8)
         wp_cp = rng.standard_normal((capacity, 4116), dtype=np.float32)
         rgb = image.astype(np.float32).reshape(capacity, -1) / 255.0
-        buffer.obs[:] = np.concatenate([rgb, wp_cp], axis=-1).astype(np.float32)
-    elif kind == "modal_hybrid":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape={"image": (3, 64, 64), "wp_cp": (4116,)},
-            obs_dtype={"image": "uint8", "wp_cp": "float32"},
-            normalize_obs={"image": False, "wp_cp": False},
+        _array_storage(buffer)[:] = np.concatenate([rgb, wp_cp], axis=-1).astype(
+            np.float32
         )
-        buffer = ReplayBuffer(cfg)
-        buffer.obs["image"][:] = rng.integers(
+    elif kind == "modal_hybrid":
+        buffer = ReplayBuffer(capacity=capacity)
+        buffer.add(
+            {
+                "image": np.zeros((3, 64, 64), dtype=np.uint8),
+                "wp_cp": np.zeros((4116,), dtype=np.float32),
+            },
+            _frame(),
+        )
+        storage = _mapping_storage(buffer)
+        storage["image"][:] = rng.integers(
             0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8
         )
-        buffer.obs["wp_cp"][:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        storage["wp_cp"][:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
     else:
         raise ValueError(kind)
 

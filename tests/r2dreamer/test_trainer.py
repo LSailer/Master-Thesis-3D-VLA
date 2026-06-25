@@ -48,6 +48,7 @@ class _DummyEnv:
         return ObservationFrame(
             image=np.zeros((3, 64, 64), dtype=np.uint8),
             is_first=False,
+            previous_action=int(action),
         )
 
     def close(self) -> None:
@@ -73,9 +74,10 @@ class _TinyCNNEnv:
         done = self.t >= 4
         return ObservationFrame(
             image=np.full((3, 64, 64), self.t, dtype=np.uint8),
+            is_first=False,
+            previous_action=int(action),
             reward=1.0,
             done=done,
-            is_first=False,
         )
 
     def close(self) -> None:
@@ -164,8 +166,7 @@ class TestConvertBatch:
             "obs": jnp.ones((B, T, 3, 4, 4)),
             "actions": jnp.array(np.random.randint(0, A, (B, T)), dtype=jnp.int32),
             "rewards": jnp.ones((B, T)),
-            "dones": jnp.zeros((B, T)),
-            "terminals": jnp.zeros((B, T)),
+            "is_episode_end": jnp.zeros((B, T)),
             "is_first": jnp.zeros((B, T)),
         }
 
@@ -178,21 +179,12 @@ class TestConvertBatch:
         assert jnp.allclose(out["actions"][:, 1:].sum(axis=-1), 1.0)
         np.testing.assert_allclose(np.asarray(out["actions"][0, 1]), np.eye(6)[1])
 
-    def test_dones_renamed_to_is_last(self, replay_batch):
-        replay_batch["dones"] = jnp.ones((4, 8))
+    def test_episode_end_is_shifted_to_training_alignment(self, replay_batch):
+        replay_batch["is_episode_end"] = jnp.ones((4, 8))
         out = convert_batch(replay_batch, num_actions=6)
-        assert "is_last" in out
-        assert "dones" not in out
-        assert jnp.allclose(out["is_last"][:, 0], 0.0)
-        assert jnp.allclose(out["is_last"][:, 1:], 1.0)
-
-    def test_terminals_renamed_to_is_terminal(self, replay_batch):
-        replay_batch["terminals"] = jnp.ones((4, 8))
-        out = convert_batch(replay_batch, num_actions=6)
-        assert "is_terminal" in out
-        assert "terminals" not in out
-        assert jnp.allclose(out["is_terminal"][:, 0], 0.0)
-        assert jnp.allclose(out["is_terminal"][:, 1:], 1.0)
+        assert "is_episode_end" in out
+        assert jnp.allclose(out["is_episode_end"][:, 0], 0.0)
+        assert jnp.allclose(out["is_episode_end"][:, 1:], 1.0)
 
     def test_obs_and_rewards_pass_through(self, replay_batch):
         out = convert_batch(replay_batch, num_actions=6)
@@ -208,8 +200,7 @@ class TestConvertBatch:
             "actions",
             "rewards",
             "is_first",
-            "is_last",
-            "is_terminal",
+            "is_episode_end",
         }
 
 
@@ -491,6 +482,7 @@ class TestTrainerMappingReplay:
             next_obs=ObservationFrame(
                 image=np.zeros((3, 64, 64), dtype=np.uint8),
                 is_first=False,
+                previous_action=1,
                 reward=1.0,
             ),
         )

@@ -22,7 +22,8 @@ from src.r2dreamer.world_model.encoders import (
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
+from src.environments.observation import ObservationFrame
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
@@ -378,13 +379,16 @@ class TestConvEncoderWorldPoints:
 
 
 def _vggt_replay_buffer(capacity: int) -> ReplayBuffer:
-    return ReplayBuffer(
-        BufferConfig(
-            capacity=capacity,
-            obs_shape=(FEATURE_DIM,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
+    return ReplayBuffer(capacity=capacity)
+
+
+def _transition_frame(action: int, reward: float, done: bool) -> ObservationFrame:
+    return ObservationFrame(
+        image=np.empty((0,), dtype=np.uint8),
+        is_first=False,
+        previous_action=action,
+        reward=reward,
+        done=done,
     )
 
 
@@ -395,7 +399,7 @@ class TestVGGTFeatureReplayBuffer:
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(200):
             features = np.random.randn(FEATURE_DIM).astype(np.float32)
-            buf.add(features, action=i % 4, reward=0.1, done=(i % 50 == 49))
+            buf.add(features, _transition_frame(i % 4, 0.1, i % 50 == 49))
         assert buf.size == 200
 
         batch = buf.sample(batch_size=4, seq_len=16)
@@ -409,10 +413,10 @@ class TestVGGTFeatureReplayBuffer:
         """VGGT features should NOT be divided by 255."""
         buf = _vggt_replay_buffer(capacity=100)
         features = np.ones(FEATURE_DIM, dtype=np.float32) * 500.0
-        buf.add(features, action=0, reward=0.0, done=False)
+        buf.add(features, _transition_frame(0, 0.0, False))
         # Add enough for sampling
         for _ in range(63):
-            buf.add(features, action=0, reward=0.0, done=False)
+            buf.add(features, _transition_frame(0, 0.0, False))
 
         batch = buf.sample(batch_size=1, seq_len=16)
         # Values should be 500.0, not 500/255
@@ -422,7 +426,7 @@ class TestVGGTFeatureReplayBuffer:
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(100):
             features = np.zeros(FEATURE_DIM, dtype=np.float32)
-            buf.add(features, action=0, reward=0.0, done=(i % 20 == 19))
+            buf.add(features, _transition_frame(0, 0.0, i % 20 == 19))
 
         batch = buf.sample(batch_size=8, seq_len=16)
         # is_first should be 1.0 at t=0 of every sequence
@@ -602,8 +606,7 @@ class TestVGGTAgentInit:
             ),
             "rewards": jnp.zeros((B, T)),
             "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_last": jnp.zeros((B, T)),
-            "is_terminal": jnp.zeros((B, T)),
+            "is_episode_end": jnp.zeros((B, T)),
         }
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
@@ -632,8 +635,7 @@ class TestVGGTAgentInit:
             ),
             "rewards": jnp.zeros((B, T)),
             "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_last": jnp.zeros((B, T)),
-            "is_terminal": jnp.zeros((B, T)),
+            "is_episode_end": jnp.zeros((B, T)),
         }
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)

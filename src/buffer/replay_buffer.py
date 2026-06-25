@@ -1,317 +1,379 @@
-"""Unified numpy ring buffer with sequence sampling."""
+"""Numpy replay buffer that stores observations exactly as received.
+
+This scratch version removes replay-level observation normalization and dtype
+switching. ``ReplayBuffer.add`` accepts a prepared observation array/tree plus the
+``ObservationFrame`` returned by ``env.step``; transition metadata is copied from
+that frame.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TypeAlias
 
-import numpy as np
 import jax.numpy as jnp
+import numpy as np
 
+from src.environments.observation import ObservationFrame
 
-ObsShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
-ObsDType = str | Mapping[str, str]
-ObsNormalize = bool | Mapping[str, bool]
-ReplayBatch = dict[str, jnp.ndarray | dict[str, jnp.ndarray]]
+# TODO: Why does we ObservationStorage and ObservationInput it would nice to have only one Obsveration. I want to have Observation Input and Dataclass for the Obsstorage which Replay batch is array from dataclass.
+ObservationInput: TypeAlias = np.ndarray | Mapping[str, np.ndarray]
+ObservationStorage: TypeAlias = np.ndarray | dict[str, np.ndarray]
+JaxObservationBatch: TypeAlias = jnp.ndarray | dict[str, jnp.ndarray]
+ReplayBatch: TypeAlias = dict[str, jnp.ndarray | dict[str, jnp.ndarray]]
 
 
 @dataclass(frozen=True)
-class BufferConfig:
-    """Configuration for ReplayBuffer.
-
-    Args:
-        capacity: Maximum number of transitions to store.
-        obs_shape: Shape of one observation, or a mapping of named fields to
-            shapes for multi-modal observations such as hybrid image+WP/CP.
-        obs_dtype: Storage dtype, either one dtype for single-observation
-            buffers or a mapping keyed like ``obs_shape``.
-        normalize_obs: If True and obs_dtype is "uint8", divide by 255.0 on
-            sample. Mapping configs can choose this per field.
-    """
-
-    capacity: int
-    obs_shape: ObsShape
-    obs_dtype: ObsDType = "uint8"
-    normalize_obs: ObsNormalize = True
+class ReplayTransition:
+    obs: np.ndarray | dict[str, np.ndarray]
+    action: np.int8
+    reward: np.float16
+    is_first: np.bool_
+    is_episode_end: np.bool_
 
 
 @dataclass(frozen=True)
 class _FieldSpec:
+    """Shape and dtype inferred from one replay observation field."""
+
     shape: tuple[int, ...]
-    dtype: str
-    normalize: bool
-    keep_uint8_on_sample: bool
+    dtype: np.dtype
+
+
+@dataclass
+class _ReplayStorage:
+    """Arrays backing replay transitions and lazy observation storage."""
+
+    capacity: int
+    obs: ObservationStorage | None
+    actions: np.ndarray
+    rewards: np.ndarray
+    episode_ends: np.ndarray
+
+    @classmethod
+    def empty(cls, capacity: int) -> "_ReplayStorage":
+        """Allocate transition arrays without observation storage."""
+        # TODO: Why do we need this cls?
+        return cls(
+            capacity=capacity,
+            obs=None,
+            actions=np.empty(capacity, dtype=np.int32),
+            rewards=np.empty(capacity, dtype=np.float32),
+            episode_ends=np.empty(capacity, dtype=np.bool_),
+        )
+
+    @classmethod
+    def from_arrays(
+        cls,
+        *,
+        obs: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        episode_ends: np.ndarray,
+    ) -> "_ReplayStorage":
+        """Wrap loaded arrays in replay-storage form for validation datasets."""
+        return cls(
+            capacity=len(actions),
+            obs=obs,
+            actions=actions.astype(np.int32, copy=False),
+            rewards=rewards.astype(np.float32, copy=False),
+            episode_ends=episode_ends.astype(np.bool_, copy=False),
+        )
+
+
+# TODO why we need this function. Looks like boilercode. It can be removed.
+def _field_spec(array: np.ndarray) -> _FieldSpec:
+    """Return the exact shape and dtype to enforce for later inserts."""
+    return _FieldSpec(shape=tuple(array.shape), dtype=np.dtype(array.dtype))
+
+
+def _validate_array(array: np.ndarray, spec: _FieldSpec, label: str) -> None:
+    """Raise if a replay observation field changes shape or dtype."""
+    shape = tuple(array.shape)
+    if shape != spec.shape:
+        raise ValueError(
+            f"observation{label} shape changed after replay initialization: "
+            f"expected {spec.shape}, got {shape}"
+        )
+    dtype = np.dtype(array.dtype)
+    if dtype != spec.dtype:
+        raise TypeError(
+            f"observation{label} dtype changed after replay initialization: "
+            f"expected {spec.dtype}, got {dtype}"
+        )
+
+
+def _gather_obs(obs: ObservationStorage, indices: np.ndarray) -> JaxObservationBatch:
+    """Gather observation windows without normalization or dtype conversion."""
+    if isinstance(obs, Mapping):
+        return {key: jnp.asarray(value[indices]) for key, value in obs.items()}
+    return jnp.asarray(obs[indices])
 
 
 def _gather_sequence_batch(
     starts: np.ndarray,
     seq_len: int,
-    obs: np.ndarray | Mapping[str, np.ndarray],
-    actions: np.ndarray,
-    rewards: np.ndarray,
-    dones: np.ndarray,
-    terminals: np.ndarray,
-    normalize: bool | Mapping[str, bool],
-    keep_uint8_on_sample: bool | Mapping[str, bool],
+    storage: _ReplayStorage,
 ) -> ReplayBatch:
-    """Gather length-``seq_len`` windows at ``starts`` and pack a batch dict.
+    """Gather fixed-length replay windows from explicit start indices."""
+    if storage.obs is None:
+        raise RuntimeError("ReplayBuffer observation storage is not initialized")
 
-    Shared by :class:`ReplayBuffer` and :class:`ValReplayDataset`, which differ
-    only in how they choose ``starts`` (ring-buffer wrap arithmetic vs. random
-    per-episode offsets). ``is_first`` is set at t=0 and wherever ``done`` flipped
-    on the previous step; ``obs`` is divided by 255 when ``normalize`` is set.
-    """
-    indices = starts[:, None] + np.arange(seq_len)[None, :]  # (B, T)
-    actions_b = actions[indices]
-    rewards_b = rewards[indices]
-    dones_b = dones[indices]
-    terminals_b = terminals[indices]
-
-    is_first = np.zeros_like(dones_b)
+    indices = starts[:, None] + np.arange(seq_len)[None, :]
+    episode_ends_b = storage.episode_ends[indices]
+    is_first = np.zeros_like(episode_ends_b, dtype=np.bool_)
     is_first[:, 0] = True
-    is_first[:, 1:] = dones_b[:, :-1]
-
+    is_first[:, 1:] = episode_ends_b[:, :-1]
     return {
-        "obs": _gather_obs(obs, indices, normalize, keep_uint8_on_sample),
-        "actions": jnp.array(actions_b, dtype=jnp.int32),
-        "rewards": jnp.array(rewards_b, dtype=jnp.float32),
-        "dones": jnp.array(dones_b, dtype=jnp.float32),
-        "terminals": jnp.array(terminals_b, dtype=jnp.float32),
-        "is_first": jnp.array(is_first, dtype=jnp.float32),
+        "obs": _gather_obs(storage.obs, indices),
+        "actions": jnp.asarray(storage.actions[indices]),
+        "rewards": jnp.asarray(storage.rewards[indices]),
+        "is_episode_end": jnp.asarray(episode_ends_b),
+        "is_first": jnp.asarray(is_first),
     }
 
 
-def _np_dtype(name: str) -> type:
-    if name == "uint8":
-        return np.uint8
-    if name == "float16":
-        return np.float16
-    return np.float32
-
-
-def _single_field_spec(config: BufferConfig) -> _FieldSpec:
-    if not isinstance(config.obs_shape, tuple):
-        raise TypeError("single-field BufferConfig requires tuple obs_shape")
-    if not isinstance(config.obs_dtype, str):
-        raise TypeError("single-field BufferConfig requires string obs_dtype")
-    if not isinstance(config.normalize_obs, bool):
-        raise TypeError("single-field BufferConfig requires bool normalize_obs")
-    return _FieldSpec(
-        shape=config.obs_shape,
-        dtype=config.obs_dtype,
-        normalize=config.normalize_obs and config.obs_dtype == "uint8",
-        keep_uint8_on_sample=False,
-    )
-
-
-def _mapping_value(mapping_or_scalar, key: str, default):
-    if isinstance(mapping_or_scalar, Mapping):
-        return mapping_or_scalar.get(key, default)
-    return mapping_or_scalar
-
-
-def _field_specs(config: BufferConfig) -> dict[str, _FieldSpec] | None:
-    if not isinstance(config.obs_shape, Mapping):
-        return None
-    specs: dict[str, _FieldSpec] = {}
-    for key, shape in config.obs_shape.items():
-        dtype = _mapping_value(config.obs_dtype, key, "float32")
-        normalize = bool(_mapping_value(config.normalize_obs, key, False))
-        specs[key] = _FieldSpec(
-            shape=tuple(shape),
-            dtype=str(dtype),
-            normalize=normalize and dtype == "uint8",
-            keep_uint8_on_sample=(dtype == "uint8" and not normalize),
-        )
-    return specs
-
-
-def _to_jax_obs(
-    obs_b: np.ndarray,
-    normalize: bool,
-    keep_uint8_on_sample: bool,
-) -> jnp.ndarray:
-    """Convert sampled replay storage to the dtype expected downstream.
-
-    Feature observations always leave replay as float32, even when stored as
-    float16. The only deferred-cast case is a modal uint8 image field: hybrid
-    training normalizes that image later in obs_batch, after the modalities are
-    still inspectable as separate fields.
-    """
-    if normalize:
-        return jnp.array(obs_b, dtype=jnp.float32) / 255.0
-    if keep_uint8_on_sample:
-        return jnp.asarray(obs_b)
-    return jnp.array(obs_b, dtype=jnp.float32)
-
-
-def _gather_obs(
-    obs: np.ndarray | Mapping[str, np.ndarray],
-    indices: np.ndarray,
-    normalize: bool | Mapping[str, bool],
-    keep_uint8_on_sample: bool | Mapping[str, bool],
-) -> jnp.ndarray | dict[str, jnp.ndarray]:
-    """Gather observation windows and apply each field's sample conversion."""
-    if isinstance(obs, Mapping):
-        if not isinstance(normalize, Mapping):
-            raise TypeError("mapping observations require mapping normalize flags")
-        if not isinstance(keep_uint8_on_sample, Mapping):
-            raise TypeError("mapping observations require mapping uint8 sample flags")
-        return {
-            key: _to_jax_obs(
-                value[indices],
-                bool(normalize.get(key, False)),
-                bool(keep_uint8_on_sample.get(key, False)),
-            )
-            for key, value in obs.items()
-        }
-    if not isinstance(normalize, bool):
-        raise TypeError("single observations require a bool normalize flag")
-    if not isinstance(keep_uint8_on_sample, bool):
-        raise TypeError("single observations require a bool uint8 sample flag")
-    return _to_jax_obs(obs[indices], normalize, keep_uint8_on_sample)
-
-
 class ReplayBuffer:
-    """Ring buffer that stores transitions and samples fixed-length sequences.
+    """Lazy ring buffer for prepared observations and ``ObservationFrame`` data.
 
-    Stores uint8 images, float features, or structured multi-modal observations.
+    Args:
+        capacity: Maximum number of transitions to store.
+
+    The first ``add`` call defines the observation schema. Later observations must
+    have the same keys, shapes, and dtypes. Sampling returns the stored
+    observation dtypes unchanged; any normalization or casting belongs at the
+    observation-packing/training boundary.
     """
 
-    def __init__(self, config: BufferConfig) -> None:
-        cap = config.capacity
-        field_specs = _field_specs(config)
-        if field_specs is None:
-            spec = _single_field_spec(config)
-            self.obs = np.zeros((cap, *spec.shape), dtype=_np_dtype(spec.dtype))
-            self._normalize: bool | dict[str, bool] = spec.normalize
-            self._keep_uint8_on_sample: bool | dict[str, bool] = (
-                spec.keep_uint8_on_sample
-            )
-        else:
-            self.obs = {
-                key: np.zeros((cap, *spec.shape), dtype=_np_dtype(spec.dtype))
-                for key, spec in field_specs.items()
-            }
-            self._normalize = {key: spec.normalize for key, spec in field_specs.items()}
-            self._keep_uint8_on_sample = {
-                key: spec.keep_uint8_on_sample for key, spec in field_specs.items()
-            }
-        self.actions = np.zeros(cap, dtype=np.int32)
-        self.rewards = np.zeros(cap, dtype=np.float32)
-        self.dones = np.zeros(cap, dtype=np.bool_)
-        self.terminals = np.zeros(cap, dtype=np.bool_)
-        self.capacity = cap
+    def __init__(self, capacity: int) -> None:
+        if capacity <= 0:
+            raise ValueError(f"capacity must be positive, got {capacity}")
+        self._storage = _ReplayStorage.empty(capacity)
+        self._obs_specs: _FieldSpec | dict[str, _FieldSpec] | None = None
         self.idx = 0
         self.size = 0
 
-    def add(
-        self,
-        obs: np.ndarray | Mapping[str, np.ndarray],
-        action: int,
-        reward: float,
-        done: bool,
-        terminal: bool = False,
-    ) -> None:
-        if isinstance(self.obs, Mapping):
-            if not isinstance(obs, Mapping):
-                raise TypeError("mapping replay buffer requires mapping obs")
-            missing = set(self.obs) - set(obs)
-            if missing:
-                raise KeyError(f"obs missing replay fields: {sorted(missing)}")
-            for key, storage in self.obs.items():
-                storage[self.idx] = obs[key]
-        else:
-            if isinstance(obs, Mapping):
-                raise TypeError("single replay buffer requires array obs")
-            self.obs[self.idx] = obs
-        self.actions[self.idx] = action
-        self.rewards[self.idx] = reward
-        self.dones[self.idx] = done
-        self.terminals[self.idx] = terminal
+    @property
+    def capacity(self) -> int:
+        """Maximum number of transitions in the ring buffer."""
+        return self._storage.capacity
+
+    # TODO: Change the property to the dataclass ObservationStorage.
+    @property
+    def obs(self) -> ObservationStorage | None:
+        """Observation storage, allocated lazily on the first ``add``."""
+        return self._storage.obs
+
+    @property
+    def actions(self) -> np.ndarray:
+        """Discrete action storage, copied from ``ObservationFrame.previous_action``."""
+        return self._storage.actions
+
+    @property
+    def rewards(self) -> np.ndarray:
+        """Reward storage, copied from ``ObservationFrame.reward``."""
+        return self._storage.rewards
+
+    @property
+    def episode_ends(self) -> np.ndarray:
+        """Episode-end storage, copied from ``ObservationFrame.is_episode_end``."""
+        return self._storage.episode_ends
+
+    def add(self, inputs: ObservationInput, frame: ObservationFrame) -> None:
+        """Append one transition from prepared inputs and the resulting frame.
+
+        Args:
+            inputs: Prepared replay observation for the state before the action.
+                This can be one ndarray or a mapping of named ndarray fields.
+            frame: ``ObservationFrame`` returned by ``env.step``. Its
+                ``previous_action``, ``reward``, and ``is_episode_end`` fields
+                become the transition metadata.
+
+        Raises:
+            ValueError: If a reset frame without ``previous_action`` is added.
+            TypeError: If later observations change dtype or single/dict form.
+        """
+        action = getattr(frame, "previous_action", None)
+        if action is None:
+            raise ValueError(
+                "ReplayBuffer.add requires an ObservationFrame from env.step with "
+                "previous_action set"
+            )
+        if self._storage.obs is None:
+            self._initialize_obs(inputs)
+
+        self._store_obs(inputs)
+        self._storage.actions[self.idx] = int(action)
+        self._storage.rewards[self.idx] = float(frame.reward)
+        self._storage.episode_ends[self.idx] = bool(frame.is_episode_end)
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int, seq_len: int) -> ReplayBatch:
+        """Sample fixed-length transition sequences from valid ring positions.
+
+        Args:
+            batch_size: Number of windows to sample.
+            seq_len: Number of consecutive transitions per window.
+
+        Returns:
+            A replay-sequence batch with raw observations and transition fields.
+            ``is_episode_end`` and ``is_first`` are boolean arrays; convert them
+            at the training boundary if a model expects floats.
+        """
+        if self._storage.obs is None:
+            raise RuntimeError("cannot sample before adding at least one transition")
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if seq_len <= 0:
+            raise ValueError(f"seq_len must be positive, got {seq_len}")
+        if self.size < seq_len:
+            raise ValueError(
+                f"not enough data in replay buffer: size={self.size}, seq_len={seq_len}"
+            )
         starts = self._sample_starts(batch_size, seq_len)
-        return _gather_sequence_batch(
-            starts,
-            seq_len,
-            self.obs,
-            self.actions,
-            self.rewards,
-            self.dones,
-            self.terminals,
-            self._normalize,
-            self._keep_uint8_on_sample,
-        )
+        return _gather_sequence_batch(starts, seq_len, self._storage)
+
+    def _initialize_obs(self, inputs: ObservationInput) -> None:
+        """Allocate observation arrays from the first replay observation."""
+        if isinstance(inputs, Mapping):
+            self._initialize_mapping_obs(inputs)
+            return
+        self._initialize_array_obs(inputs)
+
+    def _initialize_mapping_obs(self, inputs: Mapping[str, np.ndarray]) -> None:
+        """Allocate named observation-field arrays from the first mapping."""
+        if not inputs:
+            raise ValueError("mapping observations must contain at least one field")
+
+        specs = {key: _field_spec(np.asarray(value)) for key, value in inputs.items()}
+        self._storage.obs = {
+            key: np.empty((self.capacity, *spec.shape), dtype=spec.dtype)
+            for key, spec in specs.items()
+        }
+        self._obs_specs = specs
+
+    def _initialize_array_obs(self, inputs: np.ndarray) -> None:
+        """Allocate single-array observation storage from the first ndarray."""
+        array = np.asarray(inputs)
+        spec = _field_spec(array)
+        self._storage.obs = np.empty((self.capacity, *spec.shape), dtype=spec.dtype)
+        self._obs_specs = spec
+
+    def _store_obs(self, inputs: ObservationInput) -> None:
+        """Write one observation into the current ring-buffer slot."""
+        obs_storage = self._storage.obs
+        obs_specs = self._obs_specs
+        if obs_storage is None or obs_specs is None:
+            raise RuntimeError("ReplayBuffer observation storage is not initialized")
+
+        if isinstance(obs_storage, Mapping):
+            if not isinstance(inputs, Mapping):
+                raise TypeError("mapping replay buffer requires mapping inputs")
+            if not isinstance(obs_specs, Mapping):
+                raise TypeError("mapping replay specs missing")
+            self._store_mapping_obs(inputs, obs_storage, obs_specs)
+            return
+
+        if isinstance(inputs, Mapping):
+            raise TypeError("single replay buffer requires ndarray inputs")
+        if not isinstance(obs_specs, _FieldSpec):
+            raise TypeError("single replay spec missing")
+        array = np.asarray(inputs)
+        _validate_array(array, obs_specs, "")
+        obs_storage[self.idx] = array
+
+    def _store_mapping_obs(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        obs_storage: Mapping[str, np.ndarray],
+        obs_specs: Mapping[str, _FieldSpec],
+    ) -> None:
+        """Write one mapping observation after exact key/shape/dtype checks."""
+        expected_keys = set(obs_storage)
+        actual_keys = set(inputs)
+        if actual_keys != expected_keys:
+            missing = sorted(expected_keys - actual_keys)
+            extra = sorted(actual_keys - expected_keys)
+            raise KeyError(
+                "observation keys changed after replay initialization: "
+                f"missing={missing}, extra={extra}"
+            )
+
+        for key, storage in obs_storage.items():
+            array = np.asarray(inputs[key])
+            _validate_array(array, obs_specs[key], f"[{key!r}]")
+            storage[self.idx] = array
 
     def _sample_starts(self, batch_size: int, seq_len: int) -> np.ndarray:
-        """Pick ``batch_size`` valid sequence start indices into the ring buffer.
-
-        Before the buffer wraps, ``[0, size)`` is contiguous. After it wraps,
-        sequences must not cross the write head, so starts are drawn from the two
-        safe regions ``[0, idx-seq_len]`` (new) and ``[idx, cap-seq_len]`` (old)
-        via a single ``randint`` over their combined length and remapped onto the
-        old region — preserving the original RNG draw order.
-        """
+        """Pick valid sequence starts without crossing the ring-buffer write head."""
+        # TODO: I believe that this function can simply written because if i understand correclty. Why we need the valid?
         if self.size < self.capacity:
-            # Buffer hasn't wrapped — data in [0, size) is contiguous
             n_valid = self.size - seq_len + 1
-            assert n_valid > 0, "Not enough data in buffer"
             return np.random.randint(0, n_valid, size=batch_size)
 
-        # Buffer has wrapped — avoid sequences crossing the write head.
         n_new = max(0, self.idx - seq_len + 1)
         n_old = max(0, self.capacity - seq_len - self.idx + 1)
         n_valid = n_new + n_old
-        assert n_valid > 0, "Not enough contiguous data in buffer"
+        if n_valid <= 0:
+            raise ValueError(
+                "not enough contiguous data in replay buffer: "
+                f"capacity={self.capacity}, idx={self.idx}, seq_len={seq_len}"
+            )
         raw = np.random.randint(0, n_valid, size=batch_size)
         return np.where(raw < n_new, raw, raw - n_new + self.idx)
 
 
+# TODO: Why do we need for the Dataset a buffer? This should be in inference time. No need to save it in the storage.
 class ValReplayDataset:
-    """Static replay dataset loaded from a pre-collected .npz file.
+    """Static replay dataset loaded from a pre-collected ``.npz`` file.
 
-    Provides the same sample() interface as ReplayBuffer for computing
-    validation loss without a live environment.
+    This helper mirrors ``ReplayBuffer.sample`` for validation loss computation.
+    It also preserves the stored observation dtype; no replay-level normalization
+    is applied.
     """
 
-    def __init__(self, path: str, normalize: bool = True):
-        self._normalize = normalize
+    def __init__(self, path: str) -> None:
         data = np.load(path)
-        self.obs = data["obs"]  # (N, ...) uint8 or float32
-        self.actions = data["actions"]  # (N,) int32
-        self.rewards = data["rewards"]  # (N,) float32
-        self.dones = data["dones"]  # (N,) bool
-        self.terminals = data["terminals"]  # (N,) bool
-
-        # Reconstruct episode boundaries from dones
-        # Episode starts at index 0 and after every done
-        done_indices = np.where(self.dones)[0]
-        self._ep_starts = np.concatenate([[0], done_indices + 1])
-        # Remove any start that would be past the end of data
-        self._ep_starts = self._ep_starts[self._ep_starts < len(self.obs)]
-        # Episode lengths
-        ends = np.concatenate([done_indices + 1, [len(self.obs)]])
+        self._storage = _ReplayStorage.from_arrays(
+            obs=data["obs"],
+            actions=data["actions"],
+            rewards=data["rewards"],
+            episode_ends=data["episode_ends"],
+        )
+        episode_end_indices = np.where(self._storage.episode_ends)[0]
+        self._ep_starts = np.concatenate([[0], episode_end_indices + 1])
+        self._ep_starts = self._ep_starts[self._ep_starts < len(self)]
+        ends = np.concatenate([episode_end_indices + 1, [len(self)]])
         self._ep_lengths = ends[: len(self._ep_starts)] - self._ep_starts
-
         print(
-            f"ValReplayDataset: {len(self.obs)} steps, "
-            f"{len(self._ep_starts)} episodes from {path}"
+            f"ValReplayDataset: {len(self)} steps, "
+            f"{self.episode_count()} episodes from {path}"
         )
 
-    def sample(self, batch_size: int, seq_len: int) -> dict:
-        """Sample random subsequences, same format as ReplayBuffer.sample()."""
-        # Find episodes long enough
+    def __len__(self) -> int:
+        """Return the number of stored validation transitions."""
+        return self._storage.capacity
+
+    def episode_count(self) -> int:
+        """Return the number of reconstructed validation episodes."""
+        return len(self._ep_starts)
+
+    def sample(self, batch_size: int, seq_len: int) -> ReplayBatch:
+        """Sample random fixed-length subsequences from reconstructed episodes."""
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if seq_len <= 0:
+            raise ValueError(f"seq_len must be positive, got {seq_len}")
+
         valid = np.where(self._ep_lengths >= seq_len)[0]
-        assert len(valid) > 0, (
-            f"No episodes with length >= {seq_len} "
-            f"(max length: {self._ep_lengths.max()})"
-        )
+        if len(valid) == 0:
+            raise ValueError(
+                f"no episodes with length >= {seq_len} "
+                f"(max length: {self._ep_lengths.max()})"
+            )
 
-        # Sample random episodes and random start offsets within them
         ep_idx = np.random.choice(valid, size=batch_size)
         ep_starts = self._ep_starts[ep_idx]
         ep_lens = self._ep_lengths[ep_idx]
@@ -319,14 +381,4 @@ class ValReplayDataset:
             [np.random.randint(0, ep_len - seq_len + 1) for ep_len in ep_lens]
         )
         starts = ep_starts + offsets
-        return _gather_sequence_batch(
-            starts,
-            seq_len,
-            self.obs,
-            self.actions,
-            self.rewards,
-            self.dones,
-            self.terminals,
-            self._normalize,
-            False,
-        )
+        return _gather_sequence_batch(starts, seq_len, self._storage)

@@ -121,7 +121,7 @@ def compute_heldout_metrics(
     """Aggregate heldout metrics across batches.
 
     Each `batch` must already be `convert_batch`'d (obs/actions one-hot/
-    rewards/is_first/is_last/is_terminal). Pulls eval_loss + reward_mse +
+    rewards/is_first/is_episode_end). Pulls eval_loss + reward_mse +
     k-step rollout per batch and averages.
     """
     eval_sums: dict[str, float] = {}

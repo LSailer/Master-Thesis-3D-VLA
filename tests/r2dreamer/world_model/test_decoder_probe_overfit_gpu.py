@@ -76,8 +76,7 @@ def _structured_rgb_batch(cfg: R2DreamerConfig, *, B: int = 2, T: int = 3) -> di
         "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         "rewards": jnp.zeros((B, T), dtype=jnp.float32),
         "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_last": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
-        "is_terminal": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
     }
 
 
@@ -103,8 +102,7 @@ def _habitat_rgb_batch(cfg: R2DreamerConfig, *, B: int = 1, T: int = 8) -> dict:
         "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         "rewards": jnp.zeros((B, T), dtype=jnp.float32),
         "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_last": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
-        "is_terminal": jnp.zeros((B, T), dtype=jnp.float32),
+        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
     }
 
 

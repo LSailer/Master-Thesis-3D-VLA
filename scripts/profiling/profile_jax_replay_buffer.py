@@ -20,23 +20,36 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.trainer import convert_batch
 
+ObsShape: TypeAlias = tuple[int, ...] | Mapping[str, tuple[int, ...]]
+ObsDType: TypeAlias = str | Mapping[str, str]
+ObsNormalize: TypeAlias = bool | Mapping[str, bool]
 ObsTree: TypeAlias = jnp.ndarray | dict[str, jnp.ndarray]
+
+
+@dataclass(frozen=True)
+class ReplaySpec:
+    """Explicit replay shape needed by the experimental JAX Ref buffer."""
+
+    capacity: int
+    obs_shape: ObsShape
+    obs_dtype: ObsDType = "uint8"
+    normalize_obs: ObsNormalize = True
 
 
 @dataclass(frozen=True)
 class ExperimentInputs:
     """Synthetic transitions shared by both replay implementations."""
 
-    config: BufferConfig
+    config: ReplaySpec
     obs: ObsTree
     actions: list[int]
     rewards: list[float]
-    dones: list[bool]
+    episode_ends: list[bool]
 
 
 @dataclass(frozen=True)
@@ -89,7 +102,7 @@ def _mapping_value(value: object, key: str, default: object) -> object:
     return value
 
 
-def _field_specs(config: BufferConfig) -> dict[str, FieldSpec] | None:
+def _field_specs(config: ReplaySpec) -> dict[str, FieldSpec] | None:
     if not isinstance(config.obs_shape, Mapping):
         if not isinstance(config.obs_dtype, str):
             raise TypeError("single-field config needs string obs_dtype")
@@ -110,7 +123,7 @@ def _field_specs(config: BufferConfig) -> dict[str, FieldSpec] | None:
     return specs
 
 
-def _single_spec(config: BufferConfig) -> FieldSpec:
+def _single_spec(config: ReplaySpec) -> FieldSpec:
     if not isinstance(config.obs_shape, tuple):
         raise TypeError("single-field config needs tuple obs_shape")
     if not isinstance(config.obs_dtype, str):
@@ -144,14 +157,13 @@ class ReplayRefs:
     obs: jax.Ref | dict[str, jax.Ref]
     actions: jax.Ref
     rewards: jax.Ref
-    dones: jax.Ref
-    terminals: jax.Ref
+    episode_ends: jax.Ref
 
 
 class JaxRefReplayBuffer:
     """Experimental JAX Ref replay storage on CPU RAM."""
 
-    def __init__(self, config: BufferConfig) -> None:
+    def __init__(self, config: ReplaySpec) -> None:
         if not hasattr(jax, "new_ref"):
             raise RuntimeError("JAX Ref API missing; run with uv's newer JAX environment")
         self.capacity = config.capacity
@@ -177,8 +189,7 @@ class JaxRefReplayBuffer:
             obs=obs,
             actions=jax.new_ref(zeros((self.capacity,), jnp.int32)),
             rewards=jax.new_ref(zeros((self.capacity,), jnp.float32)),
-            dones=jax.new_ref(zeros((self.capacity,), jnp.bool_)),
-            terminals=jax.new_ref(zeros((self.capacity,), jnp.bool_)),
+            episode_ends=jax.new_ref(zeros((self.capacity,), jnp.bool_)),
         )
         self._add_jit = jax.jit(self._add_one)
         self._sample_at_jit = jax.jit(self._sample_at, static_argnames=("seq_len",))
@@ -188,16 +199,14 @@ class JaxRefReplayBuffer:
         obs: ObsTree,
         action: int,
         reward: float,
-        done: bool,
-        terminal: bool = False,
+        episode_end: bool,
     ) -> None:
         """Append one transition."""
         transition = {
             "obs": obs,
             "action": jnp.asarray(action, dtype=jnp.int32),
             "reward": jnp.asarray(reward, dtype=jnp.float32),
-            "done": jnp.asarray(done, dtype=jnp.bool_),
-            "terminal": jnp.asarray(terminal, dtype=jnp.bool_),
+            "episode_end": jnp.asarray(episode_end, dtype=jnp.bool_),
         }
         self._add_jit(jnp.asarray(self.idx, dtype=jnp.int32), transition)
         self.idx = (self.idx + 1) % self.capacity
@@ -224,8 +233,7 @@ class JaxRefReplayBuffer:
             refs.obs[idx] = jnp.asarray(obs, dtype=spec.dtype)
         refs.actions[idx] = transition["action"]
         refs.rewards[idx] = transition["reward"]
-        refs.dones[idx] = transition["done"]
-        refs.terminals[idx] = transition["terminal"]
+        refs.episode_ends[idx] = transition["episode_end"]
 
     def sample(self, batch_size: int, seq_len: int, key: jnp.ndarray) -> dict[str, object]:
         """Sample sequence starts with JAX RNG and gather them from Ref storage."""
@@ -254,16 +262,17 @@ class JaxRefReplayBuffer:
     def _sample_at(self, starts: jnp.ndarray, seq_len: int) -> dict[str, object]:
         indices = starts[:, None] + jnp.arange(seq_len, dtype=jnp.int32)[None, :]
         refs = self._refs
-        dones_b = refs.dones[indices]
-        is_first = jnp.zeros(dones_b.shape, dtype=jnp.float32)
+        episode_ends_b = refs.episode_ends[indices]
+        is_first = jnp.zeros(episode_ends_b.shape, dtype=jnp.float32)
         is_first = is_first.at[:, 0].set(1.0)
-        is_first = is_first.at[:, 1:].set(dones_b[:, :-1].astype(jnp.float32))
+        is_first = is_first.at[:, 1:].set(
+            episode_ends_b[:, :-1].astype(jnp.float32)
+        )
         return {
             "obs": self._gather_obs(indices),
             "actions": refs.actions[indices].astype(jnp.int32),
             "rewards": refs.rewards[indices].astype(jnp.float32),
-            "dones": dones_b.astype(jnp.float32),
-            "terminals": refs.terminals[indices].astype(jnp.float32),
+            "is_episode_end": episode_ends_b.astype(jnp.float32),
             "is_first": is_first,
         }
 
@@ -285,13 +294,13 @@ class JaxRefReplayBuffer:
         return _convert_obs_field(refs.obs[indices], spec.normalize, spec.keep_uint8)
 
 
-def _config(layout: str, capacity: int) -> BufferConfig:
+def _config(layout: str, capacity: int) -> ReplaySpec:
     if layout == "cnn":
-        return BufferConfig(capacity, (3, 64, 64), "uint8", True)
+        return ReplaySpec(capacity, (3, 64, 64), "uint8", True)
     if layout == "vggt":
-        return BufferConfig(capacity, (4116,), "float32", False)
+        return ReplaySpec(capacity, (4116,), "float32", False)
     if layout == "hybrid":
-        return BufferConfig(
+        return ReplaySpec(
             capacity,
             {"image": (3, 64, 64), "wp_cp": (4116,)},
             {"image": "uint8", "wp_cp": "float32"},
@@ -333,12 +342,21 @@ def _fill_numpy_buffer(
     obs: ObsTree,
     actions: list[int],
     rewards: list[float],
-    dones: list[bool],
+    episode_ends: list[bool],
 ) -> dict[str, float]:
+    from src.environments.observation import ObservationFrame
+
     times: list[float] = []
     for idx, action in enumerate(actions):
+        frame = ObservationFrame(
+            image=np.empty((0,), dtype=np.uint8),
+            is_first=False,
+            previous_action=action,
+            reward=rewards[idx],
+            done=episode_ends[idx],
+        )
         t0 = time.perf_counter()
-        buffer.add(_to_numpy_obs(_tree_index(obs, idx)), action, rewards[idx], dones[idx])
+        buffer.add(_to_numpy_obs(_tree_index(obs, idx)), frame)
         times.append((time.perf_counter() - t0) * 1000.0)
     return _summ(times)
 
@@ -348,12 +366,12 @@ def _fill_jax_buffer(
     obs: ObsTree,
     actions: list[int],
     rewards: list[float],
-    dones: list[bool],
+    episode_ends: list[bool],
 ) -> dict[str, float]:
     times: list[float] = []
     for idx, action in enumerate(actions):
         t0 = time.perf_counter()
-        buffer.add(_tree_index(obs, idx), action, rewards[idx], dones[idx])
+        buffer.add(_tree_index(obs, idx), action, rewards[idx], episode_ends[idx])
         times.append((time.perf_counter() - t0) * 1000.0)
     _block_tree(buffer.sample(1, 1, jax.random.PRNGKey(0)))
     return _summ(times)
@@ -462,18 +480,22 @@ def _make_inputs(args: argparse.Namespace) -> ExperimentInputs:
             jax.random.randint(key_actions, (args.capacity,), 0, 4, dtype=jnp.int32)
         ).tolist(),
         rewards=np.asarray(jax.random.normal(key_rewards, (args.capacity,))).tolist(),
-        dones=[False] * args.capacity,
+        episode_ends=[False] * args.capacity,
     )
 
 
 def _measure_replay(args: argparse.Namespace, inputs: ExperimentInputs) -> dict[str, object]:
     """Run replay timing and optional tiny train-step check."""
-    numpy_buffer = ReplayBuffer(inputs.config)
+    numpy_buffer = ReplayBuffer(capacity=inputs.config.capacity)
     jax_buffer = JaxRefReplayBuffer(inputs.config)
     runs: dict[str, dict[str, object]] = {
         "numpy_replay": {
             "add_from_jax_adapter_output": _fill_numpy_buffer(
-                numpy_buffer, inputs.obs, inputs.actions, inputs.rewards, inputs.dones
+                numpy_buffer,
+                inputs.obs,
+                inputs.actions,
+                inputs.rewards,
+                inputs.episode_ends,
             ),
             "sample_convert": _measure_numpy_sample(
                 numpy_buffer,
@@ -485,7 +507,11 @@ def _measure_replay(args: argparse.Namespace, inputs: ExperimentInputs) -> dict[
         },
         "jax_ref_replay": {
             "add_from_jax_adapter_output": _fill_jax_buffer(
-                jax_buffer, inputs.obs, inputs.actions, inputs.rewards, inputs.dones
+                jax_buffer,
+                inputs.obs,
+                inputs.actions,
+                inputs.rewards,
+                inputs.episode_ends,
             ),
             "sample_convert": _measure_jax_sample(
                 jax_buffer,

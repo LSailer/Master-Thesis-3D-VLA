@@ -41,7 +41,7 @@ Time-aligned observation sequences for one sampled replay window.
 _Avoid_: obs dict, observation dict, input batch
 
 **EpisodeBoundaryBatch**:
-Time-aligned flags that mark starts, ends, and true terminals within sampled sequences.
+Time-aligned flags that mark starts and episode ends within sampled sequences.
 _Avoid_: done flags, reset flags, terminal dict
 
 **Review Automation**:
