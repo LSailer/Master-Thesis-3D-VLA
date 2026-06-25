@@ -6,7 +6,7 @@ budget eviction). Step 7 adds ``JAXVGGTFeatureExtractor`` as a drop-in
 replacement for the PyTorch extractor.
 """
 
-from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
+from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor, VGGTExtractOutput
 from src.vggt.jax.weight_transfer import (
     load_checkpoint,
     load_pytorch_weights,
@@ -15,6 +15,7 @@ from src.vggt.jax.weight_transfer import (
 
 __all__ = [
     "JAXVGGTFeatureExtractor",
+    "VGGTExtractOutput",
     "V1_EXCLUDE_PREFIXES",
     "load_checkpoint",
     "load_pytorch_weights",

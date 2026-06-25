@@ -6,9 +6,9 @@ with only the fields _compute_reward() depends on.
 
 import pytest
 import numpy as np
-from src.shared.configs import DreamerConfig
 from src.environments.habitat import (
     GOAL_RADIUS,
+    HabitatEnvConfig,
     HabitatObjectNavEnv,
     _is_success_distance,
 )
@@ -17,7 +17,7 @@ from src.environments.habitat import (
 class _RewardTestEnv(HabitatObjectNavEnv):
     """Minimal stand-in to test _compute_reward logic in isolation."""
 
-    def __init__(self, cfg: DreamerConfig):
+    def __init__(self, cfg: HabitatEnvConfig):
         self._cfg = cfg
         self._prev_dist = 0.0
 
@@ -38,10 +38,16 @@ class _FakeSim:
         return _FakeAgentState(self._position)
 
 
+class _FakeEpisode:
+    scene_id = "fake_scene"
+    episode_id = "fake_episode"
+
+
 class _FakeHabitatEnv:
     def __init__(self, distance):
         self._distance = distance
         self.sim = _FakeSim([0.1, 0.0, 0.0])
+        self.current_episode = _FakeEpisode()
 
     def step(self, action):
         assert action == 1
@@ -53,7 +59,7 @@ class _FakeHabitatEnv:
 
 def _make_step_test_env(distance: float) -> HabitatObjectNavEnv:
     env = object.__new__(HabitatObjectNavEnv)
-    env._cfg = DreamerConfig(
+    env._cfg = HabitatEnvConfig(
         obs_shape=(3, 1, 1),
         max_episode_steps=10,
         reward_type="geodesic_delta",
@@ -73,14 +79,14 @@ def _make_step_test_env(distance: float) -> HabitatObjectNavEnv:
 
 
 def test_config_defaults():
-    cfg = DreamerConfig()
+    cfg = HabitatEnvConfig()
     assert cfg.step_penalty == -0.01
     assert cfg.success_bonus == 10.0
 
 
 def test_geodesic_delta_closer():
     """Moving closer gives positive delta + step penalty."""
-    cfg = DreamerConfig(reward_type="geodesic_delta")
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta")
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     reward = env._compute_reward(4.75)  # 0.25m closer
@@ -89,7 +95,7 @@ def test_geodesic_delta_closer():
 
 def test_geodesic_delta_further():
     """Moving further gives negative delta + step penalty."""
-    cfg = DreamerConfig(reward_type="geodesic_delta")
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta")
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     reward = env._compute_reward(5.25)  # 0.25m further
@@ -98,7 +104,7 @@ def test_geodesic_delta_further():
 
 def test_geodesic_delta_no_movement():
     """No movement gives zero delta + step penalty."""
-    cfg = DreamerConfig(reward_type="geodesic_delta")
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta")
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     reward = env._compute_reward(5.0)
@@ -107,7 +113,7 @@ def test_geodesic_delta_no_movement():
 
 def test_geodesic_delta_success():
     """Reaching goal gives delta + success_bonus + step penalty."""
-    cfg = DreamerConfig(reward_type="geodesic_delta", success_bonus=10.0)
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta", success_bonus=10.0)
     env = _RewardTestEnv(cfg)
     env._prev_dist = 0.3
     dist = 0.1  # within GOAL_RADIUS
@@ -118,7 +124,7 @@ def test_geodesic_delta_success():
 
 def test_custom_success_bonus():
     """Custom success_bonus is used instead of hardcoded 10.0."""
-    cfg = DreamerConfig(reward_type="geodesic_delta", success_bonus=5.0)
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta", success_bonus=5.0)
     env = _RewardTestEnv(cfg)
     env._prev_dist = 0.3
     dist = 0.1
@@ -129,7 +135,7 @@ def test_custom_success_bonus():
 
 def test_custom_step_penalty():
     """Custom step_penalty value is applied."""
-    cfg = DreamerConfig(reward_type="geodesic_delta", step_penalty=-0.05)
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta", step_penalty=-0.05)
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     reward = env._compute_reward(5.0)  # no movement
@@ -138,7 +144,7 @@ def test_custom_step_penalty():
 
 def test_zero_step_penalty():
     """step_penalty=0 recovers original behavior (no penalty)."""
-    cfg = DreamerConfig(reward_type="geodesic_delta", step_penalty=0.0)
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta", step_penalty=0.0)
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     reward = env._compute_reward(4.75)
@@ -147,7 +153,7 @@ def test_zero_step_penalty():
 
 def test_sparse_reward_uses_success_bonus():
     """Sparse mode uses configurable success_bonus."""
-    cfg = DreamerConfig(reward_type="sparse", success_bonus=15.0)
+    cfg = HabitatEnvConfig(reward_type="sparse", success_bonus=15.0)
     env = _RewardTestEnv(cfg)
     reward = env._compute_reward(0.1)  # within GOAL_RADIUS
     assert reward == pytest.approx(15.0 + cfg.step_penalty)
@@ -155,7 +161,7 @@ def test_sparse_reward_uses_success_bonus():
 
 def test_sparse_reward_failure():
     """Sparse mode returns only step penalty on failure."""
-    cfg = DreamerConfig(reward_type="sparse", success_bonus=10.0)
+    cfg = HabitatEnvConfig(reward_type="sparse", success_bonus=10.0)
     env = _RewardTestEnv(cfg)
     reward = env._compute_reward(5.0)  # far from goal
     assert reward == pytest.approx(cfg.step_penalty)
@@ -175,14 +181,14 @@ def test_success_boundary_is_strictly_inside_goal_radius(dist, expected):
 
 @pytest.mark.parametrize("dist", [None, float("nan"), float("inf"), -0.01])
 def test_invalid_goal_distances_raise_clear_error(dist):
-    cfg = DreamerConfig(reward_type="geodesic_delta")
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta")
     env = _RewardTestEnv(cfg)
     with pytest.raises(ValueError, match="distance_to_goal"):
         env._compute_reward(dist)
 
 
 def test_invalid_distance_does_not_update_prev_dist():
-    cfg = DreamerConfig(reward_type="geodesic_delta")
+    cfg = HabitatEnvConfig(reward_type="geodesic_delta")
     env = _RewardTestEnv(cfg)
     env._prev_dist = 5.0
     with pytest.raises(ValueError):
@@ -191,7 +197,7 @@ def test_invalid_distance_does_not_update_prev_dist():
 
 
 def test_unknown_reward_type_raises_explicit_error():
-    cfg = DreamerConfig(reward_type="dense-but-misspelled")
+    cfg = HabitatEnvConfig(reward_type="dense-but-misspelled")
     env = _RewardTestEnv(cfg)
     with pytest.raises(ValueError, match="Unknown reward_type"):
         env._compute_reward(5.0)

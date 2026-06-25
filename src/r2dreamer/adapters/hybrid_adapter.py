@@ -9,6 +9,7 @@ import numpy as np
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_preparation.vggt_readouts import (
+    VGGTOutputLike,
     flatten_world_points_camera_pose,
     full_aggregator_tokens,
 )
@@ -77,7 +78,7 @@ class HybridObsAdapter(ObsAdapter):
         self._extractor = extractor
 
     def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
-        out = self._extractor.extract(env_obs.image)  # image is 518 CHW uint8
+        out = self._extractor.extract(env_obs)  # image is 518 CHW uint8
         wp_cp = flatten_world_points_camera_pose(out)  # jnp (4116,)
         img64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         replay = {
@@ -110,11 +111,11 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
         )
         self._extractor = extractor
 
-    def _tokens_from_output(self, out: dict) -> jnp.ndarray:
+    def _tokens_from_output(self, out: VGGTOutputLike) -> jnp.ndarray:
         raise NotImplementedError
 
-    def _extract_tokens(self, image: np.ndarray) -> np.ndarray:
-        tokens = self._tokens_from_output(self._extractor.extract(image))
+    def _extract_tokens(self, obs: ObservationFrame) -> np.ndarray:
+        tokens = self._tokens_from_output(self._extractor.extract(obs))
         if tuple(tokens.shape) != self.token_shape:
             raise ValueError(
                 f"expected VGGT {self.token_name} shape {self.token_shape}, got {tokens.shape}"
@@ -123,7 +124,7 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
 
     def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
-        tokens = self._extract_tokens(env_obs.image)
+        tokens = self._extract_tokens(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,
             self.token_key: tokens.astype(np.float16),
@@ -142,7 +143,7 @@ class VGGTHouseFullTokenObsAdapter(_RGBLiveTokenObsAdapter):
     token_shape = FULL_TOKEN_SHAPE
     token_name = "full tokens"
 
-    def _tokens_from_output(self, out: dict) -> jnp.ndarray:
+    def _tokens_from_output(self, out: VGGTOutputLike) -> jnp.ndarray:
         return full_aggregator_tokens(out, self.token_shape)
 
 
@@ -153,8 +154,8 @@ class VGGTHouseGlobalTokenObsAdapter(_RGBLiveTokenObsAdapter):
     token_shape = GLOBAL_TOKEN_SHAPE
     token_name = "global tokens"
 
-    def _tokens_from_output(self, out: dict) -> jnp.ndarray:
-        return out["aggregator_features"]
+    def _tokens_from_output(self, out: VGGTOutputLike) -> jnp.ndarray:
+        return out.global_tokens
 
 
 class VGGTHouseContextObsAdapter(ObsAdapter):
@@ -210,8 +211,8 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             )
         return context
 
-    def _extract_context(self, image: np.ndarray) -> np.ndarray:
-        out = self._extractor.extract(image)
+    def _extract_context(self, obs: ObservationFrame) -> np.ndarray:
+        out = self._extractor.extract(obs)
         tokens = full_aggregator_tokens(out, FULL_TOKEN_SHAPE)
         context = self._project_context(tokens)
         self._context = context
@@ -219,7 +220,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
 
     def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
-        context = self._extract_context(env_obs.image)
+        context = self._extract_context(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,
             HOUSE_CONTEXT_KEY: context.astype(np.float32),

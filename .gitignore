@@ -36,6 +36,10 @@ uv.lock
 .agent_loop/
 .agent/
 
+# Scratchpad workspace and local policy logs
+scratchpad/
+.pi/policy-guard.log
+
 # Manim partial movie files
 media/videos/*/partial_movie_files/
 media/texts/*
@@ -46,6 +50,9 @@ archiv/
 # Scratch planning notes
 Baseline
 Goal Condition
+
+# Zed runtime/debug state
+.zed/debug-state/
 
 # Personal documents
 antrag_masterarbeit_*.pdf
@@ -58,3 +65,8 @@ logs/
 artifacts/
 .cache/
 worktrees/
+src/prototyp
+src/prototype_helpers
+scripts/dev
+.zed
+.pi

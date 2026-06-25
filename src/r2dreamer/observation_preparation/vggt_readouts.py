@@ -1,8 +1,8 @@
 """Internal VGGT readout implementations.
 
 This module groups the VGGT-specific extraction/readout rules behind one small
-``prepare(extractor, image, is_first=...)`` interface. The public adapter only
-wires a readout and delegates to it; shape validation, token pooling, flattening,
+``prepare(extractor, obs)`` interface. The public adapter only wires a readout
+and delegates to it; shape validation, token pooling, flattening,
 and replay dtype conversion stay local here.
 """
 
@@ -10,51 +10,110 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt import (
     VGGT_AGGREGATOR_PATCH_START_IDX,
+    VGGT_DEFAULT_WP_POOL_SIZE,
+    VGGT_IMAGE_SIZE,
     VGGTFeatureKind,
     contract_world_points_hwc_shape,
     head_readout_spec,
 )
 
 
-def flatten_world_points_camera_pose(out: dict) -> jnp.ndarray:
-    """Flatten structured VGGT world-points + camera-pose for MLP encoders."""
-    wp = out[WORLD_POINTS_KEY].reshape(-1)
-    cp = out[CAMERA_POSE_KEY].reshape(-1)
+class VGGTOutputLike(Protocol):
+    """Raw structured VGGT output fields consumed by readout adapters."""
+
+    world_points: jnp.ndarray | None
+    camera_pose: jnp.ndarray | None
+    frame_tokens: jnp.ndarray
+    global_tokens: jnp.ndarray
+
+
+def _require_output_field(
+    out: VGGTOutputLike,
+    field_name: str,
+    value: jnp.ndarray | None,
+) -> jnp.ndarray:
+    """Return a required raw extractor field or fail with a contract error."""
+    if value is None:
+        raise ValueError(f"VGGT output field {field_name!r} is required")
+    return value
+
+
+def flatten_world_points_camera_pose(out: VGGTOutputLike) -> jnp.ndarray:
+    """Flatten default 37x37 world-points + camera-pose for MLP encoders."""
+    features = _structured_world_points_camera_pose(
+        out,
+        expected_hwc_shape=(VGGT_DEFAULT_WP_POOL_SIZE, VGGT_DEFAULT_WP_POOL_SIZE, 3),
+        include_camera_pose=True,
+    )
+    wp = features[WORLD_POINTS_KEY].reshape(-1)
+    cp = features[CAMERA_POSE_KEY].reshape(-1)
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
+def _pool_world_points_hwc(
+    world_points: jnp.ndarray,
+    expected_hwc_shape: tuple[int, int, int],
+) -> jnp.ndarray:
+    """Project raw full-resolution VGGT points to the readout HWC contract."""
+    if tuple(world_points.shape) == expected_hwc_shape:
+        return world_points
+    if tuple(world_points.shape) != (VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE, 3):
+        raise ValueError(
+            f"expected raw world_points shape {(VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE, 3)} "
+            f"or readout shape {expected_hwc_shape}, got {tuple(world_points.shape)}"
+        )
+    height, width, channels = expected_hwc_shape
+    if height != width or channels != 3:
+        raise ValueError(f"expected HWC point-map shape, got {expected_hwc_shape}")
+    batched = world_points[None]
+    if VGGT_IMAGE_SIZE % height == 0:
+        factor = VGGT_IMAGE_SIZE // height
+        return batched.reshape(1, height, factor, width, factor, channels).mean(
+            axis=(2, 4)
+        )[0]
+    return jax.image.resize(
+        batched,
+        (1, height, width, channels),
+        method="linear",
+        antialias=True,
+    )[0]
+
+
 def _structured_world_points_camera_pose(
-    out: dict,
+    out: VGGTOutputLike,
     *,
     expected_hwc_shape: tuple[int, int, int],
-    world_points_key: str = "world_points",
+    include_camera_pose: bool,
 ) -> dict[str, jnp.ndarray]:
-    """Return VGGT world points and camera pose as explicit fields."""
-    world_points = out[world_points_key]
-    if tuple(world_points.shape) != expected_hwc_shape:
-        raise ValueError(
-            f"expected {world_points_key} shape {expected_hwc_shape}, "
-            f"got {tuple(world_points.shape)}"
-        )
-    return {
+    """Transform raw extractor points into legacy structured readout fields."""
+    raw_world_points = _require_output_field(
+        out, "world_points", out.world_points
+    )
+    world_points = _pool_world_points_hwc(raw_world_points, expected_hwc_shape)
+    features = {
         WORLD_POINTS_KEY: jnp.transpose(world_points, (2, 0, 1)).astype(jnp.float32),
-        CAMERA_POSE_KEY: out["camera_pose"].astype(jnp.float32),
     }
+    if include_camera_pose:
+        camera_pose = _require_output_field(out, "camera_pose", out.camera_pose)
+        features[CAMERA_POSE_KEY] = camera_pose.astype(jnp.float32)
+    return features
 
 
 def _checked_feature(
-    out: dict, key: str, expected_shape: tuple[int, ...]
+    out: VGGTOutputLike, key: str, expected_shape: tuple[int, ...]
 ) -> jnp.ndarray:
     """Return a float32 VGGT readout after validating its contract shape."""
-    features = out[key]
+    features = getattr(out, key)
     if tuple(features.shape) != expected_shape:
         raise ValueError(f"expected {key} shape {expected_shape}, got {features.shape}")
     return features.astype(jnp.float32)
@@ -87,9 +146,18 @@ def _flatten_full_aggregator_tokens(features: jnp.ndarray) -> jnp.ndarray:
     return features.reshape(-1)
 
 
-def full_aggregator_tokens(out: dict, expected_shape: tuple[int, ...]) -> jnp.ndarray:
+def full_aggregator_tokens(
+    out: VGGTOutputLike, expected_shape: tuple[int, ...]
+) -> jnp.ndarray:
     """Return full-width VGGT aggregator tokens for live context paths."""
-    return _checked_feature(out, "aggregator_full_tokens", expected_shape)
+    frame_tokens = out.frame_tokens
+    global_tokens = out.global_tokens
+    features = jnp.concatenate([frame_tokens, global_tokens], axis=-1)
+    if tuple(features.shape) != expected_shape:
+        raise ValueError(
+            f"expected full tokens shape {expected_shape}, got {features.shape}"
+        )
+    return features.astype(jnp.float32)
 
 
 AggregatorProjection = Callable[[jnp.ndarray], jnp.ndarray]
@@ -108,36 +176,30 @@ class VGGTHeadReadout:
 
     expected_hwc_shape: tuple[int, int, int]
     replay_dtype: dict[str, str]
-    world_points_key: str = "world_points"
-    return_dense: bool = False
+    include_camera_pose: bool
 
     def prepare(
         self,
         extractor: Any,
-        image: np.ndarray,
-        *,
-        is_first: bool,
+        obs: ObservationFrame,
     ) -> tuple[dict[str, np.ndarray], dict]:
         """Extract and format head outputs for replay and acting."""
-        out = (
-            extractor.extract(image, return_dense=True)
-            if self.return_dense
-            else extractor.extract(image)
-        )
+        out = extractor.extract(obs)
         features = _structured_world_points_camera_pose(
             out,
             expected_hwc_shape=self.expected_hwc_shape,
-            world_points_key=self.world_points_key,
+            include_camera_pose=self.include_camera_pose,
         )
+        replay_keys = tuple(features.keys())
         replay = {
             key: np.asarray(features[key], dtype=np.dtype(self.replay_dtype[key]))
-            for key in (WORLD_POINTS_KEY, CAMERA_POSE_KEY)
+            for key in replay_keys
         }
         agent_obs = {
-            WORLD_POINTS_KEY: features[WORLD_POINTS_KEY].astype(jnp.float16),
-            CAMERA_POSE_KEY: features[CAMERA_POSE_KEY].astype(jnp.float16),
-            "is_first": is_first,
+            key: features[key].astype(jnp.float16)
+            for key in replay_keys
         }
+        agent_obs["is_first"] = obs.is_first
         return replay, agent_obs
 
 
@@ -152,18 +214,16 @@ class VGGTAggregatorReadout:
     def prepare(
         self,
         extractor: Any,
-        image: np.ndarray,
-        *,
-        is_first: bool,
+        obs: ObservationFrame,
     ) -> tuple[np.ndarray, dict]:
         """Extract and format aggregator outputs for replay and acting."""
-        out = extractor.extract(image)
-        features = _checked_feature(out, "aggregator_features", self.expected_shape)
+        out = extractor.extract(obs)
+        features = _checked_feature(out, "global_tokens", self.expected_shape)
         readout = self.project(features).astype(jnp.float32)
         replay = np.asarray(readout, dtype=np.dtype(self.replay_dtype))
         agent_obs = {
             "features": readout.astype(jnp.float32),
-            "is_first": is_first,
+            "is_first": obs.is_first,
         }
         return replay, agent_obs
 
@@ -182,10 +242,7 @@ def make_vggt_readout(
         return VGGTHeadReadout(
             expected_hwc_shape=contract_world_points_hwc_shape(contract),
             replay_dtype=replay_dtype,
-            world_points_key=(
-                "dense_world_points" if spec.wp_side == "dense" else "world_points"
-            ),
-            return_dense=spec.wp_side == "dense",
+            include_camera_pose=spec.include_camera_pose,
         )
     if feature_kind in AGGREGATOR_PROJECTIONS:
         if isinstance(replay_dtype, dict):

@@ -28,6 +28,7 @@ import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
+from src.environments.observation import ObservationFrame  # noqa: E402
 from src.vggt.jax.aggregator import (  # noqa: E402
     Aggregator,
     _calculate_dynamic_budgets,
@@ -38,7 +39,6 @@ from src.vggt.jax.weight_transfer import (  # noqa: E402
     load_checkpoint,
     load_pytorch_weights,
 )
-
 
 # Image and patch grid are fixed at 518 / 14 = 37 patches per side.
 _IMG_SIZE = 518
@@ -51,7 +51,24 @@ ParamTree = dict[str, Any]
 CacheEntry = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
 CompactCacheEntry = tuple[jnp.ndarray, jnp.ndarray]
 PhaseTimes = dict[str, list[float]]
-ExtractOutput = dict[str, jnp.ndarray]
+
+
+@dataclass(frozen=True)
+class VGGTExtractOutput:
+    """Structured VGGT output for one streamed observation frame.
+
+    ``world_points`` is the full-resolution point map when heads are enabled.
+    ``camera_pose`` is the final camera-head pose encoding. ``frame_tokens`` and
+    ``global_tokens`` are the two halves of the final full-width aggregator tokens.
+    """
+
+    world_points: jnp.ndarray
+    camera_pose: jnp.ndarray
+    frame_tokens: jnp.ndarray
+    global_tokens: jnp.ndarray
+
+
+ExtractOutput = VGGTExtractOutput
 
 
 @dataclass(frozen=True)
@@ -65,11 +82,10 @@ class ExtractorParams:
 
 @dataclass(frozen=True)
 class HeadOutputs:
-    """Post-processed camera/point-head outputs for one streamed frame."""
+    """Post-processed head outputs for one streamed frame."""
 
     world_points: jnp.ndarray
     camera_pose: jnp.ndarray
-    dense_world_points: jnp.ndarray | None
 
 
 def select_jax_device(device: str) -> Any:
@@ -182,11 +198,6 @@ def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarra
         method="linear",
         antialias=True,
     )
-
-
-def _adaptive_avg_pool_518_to_37(pts_nhwc: jnp.ndarray) -> jnp.ndarray:
-    """Average-pool ``(N, 518, 518, C)`` to exact 37x37 patch-grid cells."""
-    return _pool_dense_world_points(pts_nhwc, _PATCH_GRID)
 
 
 class JAXVGGTFeatureExtractor:
@@ -386,7 +397,7 @@ class JAXVGGTFeatureExtractor:
         out0[0][-1].block_until_ready()
 
         # Frame 1: reuse returned cache to compile the "is_first_frame=False" graph.
-        _, _, past1, last1 = out0
+        out_list0, patch_start_idx0, past1, last1 = out0
         # Keep same budget (same last_scores pre-eviction) so shapes match.
         out1 = self._aggregator_apply(
             self._agg_params,
@@ -400,11 +411,24 @@ class JAXVGGTFeatureExtractor:
         )
         out1[0][-1].block_until_ready()
 
+        if not self._compute_heads:
+            return
+
         # Camera-head warmup: single graph covers all frames since the padded
         # cache keeps shapes stable regardless of valid_len.
         past_cam0 = [self._new_padded_camera_entry() for _ in range(self._cam_depth)]
-        pose_list_w, _ = self._camera_head_apply(self._cam_params, out0[0], past_cam0)
+        pose_list_w, _ = self._camera_head_apply(self._cam_params, out_list0, past_cam0)
         pose_list_w[-1].block_until_ready()
+
+        # Point-head warmup: unlike the aggregator and camera head, this was not
+        # exercised above, so the first real extract() paid the DPT JIT cost.
+        pts3d_w, _ = self._point_head_apply(
+            self._pt_params,
+            out_list0,
+            dummy,
+            int(np.asarray(patch_start_idx0)),
+        )
+        pts3d_w.block_until_ready()
 
     # ------------------------------------------------------------------
     # Public cache view (_past_kvs property).
@@ -467,6 +491,16 @@ class JAXVGGTFeatureExtractor:
         self._last_scores: jnp.ndarray | None = None
         self._past_kvs_camera: list[CacheEntry] | None = None
         self._frame_idx: int = 0
+
+    def _image_from_extract_input(
+        self, source: np.ndarray | ObservationFrame
+    ) -> np.ndarray:
+        """Resolve either a raw CHW frame or an ObservationFrame to image input."""
+        if isinstance(source, ObservationFrame):
+            if source.is_first:
+                self.reset()
+            return source.image
+        return source
 
     def _prepare_input_image(self, rgb: np.ndarray) -> jnp.ndarray:
         """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
@@ -566,18 +600,11 @@ class JAXVGGTFeatureExtractor:
         self,
         pts3d: jnp.ndarray,
         camera_pose: jnp.ndarray,
-        return_dense: bool,
     ) -> HeadOutputs:
-        """Pool dense point maps and unwrap the single-frame camera pose."""
-        world_points = _pool_dense_world_points(pts3d, self._wp_pool_size)
-        world_points_out = world_points[0].astype(jnp.float32)
-        camera_pose_out = camera_pose[0].astype(jnp.float32)
-        # Pre-pool dense map (N, 518, 518, 3) -> (518, 518, 3); 3D-48.
-        dense_world_points_out = pts3d[0].astype(jnp.float32) if return_dense else None
+        """Unwrap full-resolution single-frame head outputs."""
         return HeadOutputs(
-            world_points=world_points_out,
-            camera_pose=camera_pose_out,
-            dense_world_points=dense_world_points_out,
+            world_points=pts3d[0].astype(jnp.float32),
+            camera_pose=camera_pose[0].astype(jnp.float32),
         )
 
     def _aggregator_full_tokens(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
@@ -585,23 +612,12 @@ class JAXVGGTFeatureExtractor:
         final_tokens = out_list[-1]
         return final_tokens[0, 0].astype(jnp.float32)
 
-    def _aggregator_features(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
-        """Expose the final global-stream tokens used by VGGT encoder variants."""
-        # Final pre-head aggregator tokens for encoder ablations. The JAX port
-        # stores frame/local and global/contextual streams concatenated as
-        # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
-        # by Variant 1 before camera/point heads transform it into WP+CP. Keep
-        # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
-        final_tokens = self._aggregator_full_tokens(out_list)
-        return final_tokens[..., final_tokens.shape[-1] // 2 :]
-
     def _run_optional_heads(
         self,
         out_list: list[jnp.ndarray],
         images: jnp.ndarray,
         patch_start_idx: jnp.ndarray,
         *,
-        return_dense: bool,
         phase_times: PhaseTimes | None,
         forward_start: float,
     ) -> HeadOutputs | None:
@@ -616,7 +632,7 @@ class JAXVGGTFeatureExtractor:
             camera_pose,
             phase_times,
         )
-        head_outputs = self._pool_head_outputs(pts3d, camera_pose, return_dense)
+        head_outputs = self._pool_head_outputs(pts3d, camera_pose)
         self._record_head_profile(phase_times, forward_start, wrapper_start)
         return head_outputs
 
@@ -661,47 +677,48 @@ class JAXVGGTFeatureExtractor:
     def _build_extract_output(
         self,
         *,
-        aggregator_full_tokens: jnp.ndarray,
-        aggregator_features: jnp.ndarray,
+        frame_tokens: jnp.ndarray,
+        global_tokens: jnp.ndarray,
         head_outputs: HeadOutputs | None,
-        return_dense: bool,
     ) -> ExtractOutput:
-        """Build the public output dict without changing legacy key names."""
+        """Build the public structured output."""
         if self._compute_heads:
             if head_outputs is None:
                 raise RuntimeError("head outputs missing while compute_heads=True")
-            out = {
-                "world_points": head_outputs.world_points,
-                "camera_pose": head_outputs.camera_pose,
-                "aggregator_features": aggregator_features,
-                "aggregator_full_tokens": aggregator_full_tokens,
-            }
-            if return_dense:
-                if head_outputs.dense_world_points is None:
-                    raise RuntimeError("dense world points missing")
-                out["dense_world_points"] = head_outputs.dense_world_points
-            return out
-        return {
-            "aggregator_features": aggregator_features,
-            "aggregator_full_tokens": aggregator_full_tokens,
-        }
+            return VGGTExtractOutput(
+                world_points=head_outputs.world_points,
+                camera_pose=head_outputs.camera_pose,
+                frame_tokens=frame_tokens,
+                global_tokens=global_tokens,
+            )
+        return VGGTExtractOutput(
+            world_points=None,
+            camera_pose=None,
+            frame_tokens=frame_tokens,
+            global_tokens=global_tokens,
+        )
 
     def extract(
         self,
-        rgb: np.ndarray,
+        source: np.ndarray | ObservationFrame,
         phase_times: PhaseTimes | None = None,
         return_dense: bool = False,
     ) -> ExtractOutput:
-        """Single-frame streaming inference.
+        """Single-frame streaming inference from an ObservationFrame or CHW image.
 
-        When ``return_dense`` is True the result dict additionally carries
-        ``dense_world_points`` — the pre-pool DPT point map at full
-        518x518x3 resolution (one 3D point per pixel, the paper's
-        "pixel-as-point" map). Diagnostic only (see issue 3D-48); the
-        default path is unaffected and does not materialize it.
+        Passing an ``ObservationFrame`` is the preferred high-level path: the
+        extractor resets its stream when ``source.is_first`` is true and then
+        consumes ``source.image``. Passing a raw ``(3, 518, 518)`` uint8 array is
+        still the low-level path for profiling and fixtures.
+
+        The returned ``world_points`` field is the full 518x518x3 point map
+        when heads are enabled. ``return_dense`` is accepted for call-site
+        compatibility and no longer changes the output contract.
         """
         forward_start = time.perf_counter() if phase_times is not None else 0.0
+        del return_dense
 
+        rgb = self._image_from_extract_input(source)
         images = self._prepare_input_image(rgb)
         self._ensure_aggregator_cache()
         budgets_static = self._resolve_static_budgets()
@@ -711,18 +728,16 @@ class JAXVGGTFeatureExtractor:
             out_list,
             images,
             patch_start_idx,
-            return_dense=return_dense,
             phase_times=phase_times,
             forward_start=forward_start,
         )
         aggregator_full_tokens = self._aggregator_full_tokens(out_list)
-        aggregator_features = aggregator_full_tokens[
-            ..., aggregator_full_tokens.shape[-1] // 2 :
-        ]
+        token_split = aggregator_full_tokens.shape[-1] // 2
+        frame_tokens = aggregator_full_tokens[..., :token_split]
+        global_tokens = aggregator_full_tokens[..., token_split:]
         self._frame_idx += 1
         return self._build_extract_output(
-            aggregator_full_tokens=aggregator_full_tokens,
-            aggregator_features=aggregator_features,
+            frame_tokens=frame_tokens,
+            global_tokens=global_tokens,
             head_outputs=head_outputs,
-            return_dense=return_dense,
         )

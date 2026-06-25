@@ -59,8 +59,4 @@ class VGGTObsAdapter(ObsAdapter):
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
-        return self._readout.prepare(
-            self._extractor,
-            env_obs.image,
-            is_first=env_obs.is_first,
-        )
+        return self._readout.prepare(self._extractor, env_obs)

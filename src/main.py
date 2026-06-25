@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ],
     )
     train_parser.add_argument("--curriculum", default=None)
+    train_parser.add_argument("--curriculum_path", default=None)
 
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate a trained agent.")
     eval_parser.add_argument("--env", default="habitat", choices=["habitat"])
@@ -49,16 +50,25 @@ def _build_parser() -> argparse.ArgumentParser:
         ],
     )
     eval_parser.add_argument("--curriculum", default=None)
+    eval_parser.add_argument("--curriculum_path", default=None)
     eval_parser.add_argument("--checkpoint", default=None)
     eval_parser.add_argument("--output_dir", default=None)
 
     return parser
 
 
+def _with_curriculum_path_arg(args, rest: list[str]) -> list[str]:
+    """Forward main-level curriculum path to the workflow parser."""
+    if args.curriculum_path is None:
+        return rest
+    return [*rest, "--curriculum_path", args.curriculum_path]
+
+
 def main(argv: Sequence[str] | None = None) -> object:
     """Dispatch to train/evaluate while forwarding workflow-specific flags."""
     parser = _build_parser()
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
+    rest = _with_curriculum_path_arg(args, rest)
 
     if args.command == "train":
         return train(

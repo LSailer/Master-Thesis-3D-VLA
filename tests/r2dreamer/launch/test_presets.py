@@ -20,15 +20,17 @@ PRESETS = [
 def test_preset_resolves(env_name, encoder_name, curriculum_name):
     """Every (env, encoder, curriculum) combo from active sbatch files must
     resolve through registries + curricula without raising."""
+    from src.environments.habitat import HABITAT_CURRICULA
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.launch.curricula import CURRICULA
 
     assert env_name in env_registry, f"{env_name!r} not in env_registry"
     assert encoder_name in encoder_registry, f"{encoder_name!r} not in encoder_registry"
     if curriculum_name is not None:
-        assert curriculum_name in CURRICULA, f"{curriculum_name!r} not in CURRICULA"
-        assert CURRICULA[curriculum_name].exists(), (
-            f"Curriculum file missing: {CURRICULA[curriculum_name]}"
+        assert curriculum_name in HABITAT_CURRICULA, (
+            f"{curriculum_name!r} not in HABITAT_CURRICULA"
+        )
+        assert HABITAT_CURRICULA[curriculum_name].exists(), (
+            f"Curriculum file missing: {HABITAT_CURRICULA[curriculum_name]}"
         )
 
 

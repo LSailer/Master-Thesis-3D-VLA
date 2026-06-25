@@ -12,10 +12,11 @@ import numpy as np
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
+from src.baselines.random_agent import RandomAgent
+from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
-from src.r2dreamer.launch._helpers import resolve_curriculum_path
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import ObservationPacker
@@ -98,10 +99,7 @@ def _init_eval_wandb(args):
     return wandb
 
 
-def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
-    from src.shared.configs import DreamerConfig
-    from src.environments.habitat import HabitatObjectNavEnv
-
+def _make_eval_env(*, args, curriculum: str | None, eff_encoder: str):
     # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
     # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
     # driven off the EncoderSpec below.
@@ -112,17 +110,21 @@ def _make_eval_env(*, args, curriculum_path: str | None, eff_encoder: str):
         if args.render_resolution is not None
         else default_resolution
     )
-    hab_config = DreamerConfig(
+    effective_curriculum = (
+        args.curriculum if args.curriculum is not None else curriculum
+    )
+    hab_config = HabitatEnvConfig(
         obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
         split=args.split,
         reward_type="geodesic_delta",
+        curriculum=effective_curriculum,
+        curriculum_path=args.curriculum_path,
+        curriculum_mode="eval",
     )
     env_instance = HabitatObjectNavEnv(
         hab_config,
         semantic=args.semantic,
-        curriculum_path=curriculum_path,
-        curriculum_mode="eval",
         seed=args.seed,
     )
     return env_instance, needs_hires, render_resolution
@@ -218,10 +220,15 @@ def _agent_config_kwargs(encoder_spec, *, args, eff_checkpoint: str | None) -> d
     return agent_config_kwargs
 
 
-def _make_eval_agent(args, eff_checkpoint: str | None, agent_config_kwargs: dict):
+def _make_eval_agent(
+    args,
+    eff_checkpoint: str | None,
+    agent_config_kwargs: dict,
+    env_instance: HabitatObjectNavEnv,
+):
     if args.random:
         print("Using random agent")
-        return None
+        return RandomAgent(env=env_instance, num_actions=4, seed=args.seed)
     if eff_checkpoint is None:
         raise ValueError("checkpoint is required unless --random is set")
     agent = R2DreamerAgent.from_checkpoint(
@@ -361,18 +368,18 @@ def _run_eval_episode(
         goal_positions,
         record_video,
     )
-    act_state = agent.initial_act_state() if agent is not None else None
+    act_state = None if isinstance(agent, RandomAgent) else agent.initial_act_state()
 
     for _step in range(500):
-        if agent is not None:
+        if isinstance(agent, RandomAgent):
+            action = agent.sample_action()
+            next_obs = agent.act(action)
+        else:
             rng_key, act_key = jax.random.split(rng_key)
             action, act_state = agent.act_with_state(
                 encoder_obs, is_first, act_state, act_key, training=False
             )
-        else:
-            action = np.random.randint(0, config.num_actions)
-
-        next_obs = env_instance.step(action)
+            next_obs = env_instance.step(action)
         next_prepared = adapter.prepare_env_step(next_obs, packer)
         next_encoder_obs = next_prepared.encoder_obs
         next_is_first = next_prepared.is_first
@@ -464,8 +471,6 @@ def evaluate(
             f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}"
         )
 
-    # --- Resolve curriculum path (shared with train via launch._helpers) ---
-    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
     os.makedirs(eff_output_dir, exist_ok=True)
     output_path = os.path.join(eff_output_dir, "eval_results.json")
 
@@ -479,7 +484,7 @@ def evaluate(
             raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
         env_instance, needs_hires, render_resolution = _make_eval_env(
             args=args,
-            curriculum_path=curriculum_path,
+            curriculum=curriculum,
             eff_encoder=eff_encoder,
         )
 
@@ -500,8 +505,10 @@ def evaluate(
         config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
         rng_key = jax.random.PRNGKey(args.seed)
 
-        agent = _make_eval_agent(args, eff_checkpoint, agent_config_kwargs)
-        if agent is not None:
+        agent = _make_eval_agent(
+            args, eff_checkpoint, agent_config_kwargs, env_instance
+        )
+        if not isinstance(agent, RandomAgent):
             # Match the rng_key split the inline init_key used to consume so the
             # downstream act_key chain stays identical.
             rng_key, _ = jax.random.split(rng_key)
@@ -526,7 +533,7 @@ def evaluate(
 
         meta = {"agent": "random" if args.random else eff_checkpoint}
         output = {"meta": meta, "results": results}
-        with open(output_path, "w") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2)
         print(f"Results saved to {output_path}")
         return output

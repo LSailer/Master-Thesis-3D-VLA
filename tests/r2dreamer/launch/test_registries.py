@@ -3,9 +3,13 @@
 import inspect
 import pytest
 
+from src.environments.habitat import (
+    HABITAT_CURRICULA,
+    HabitatEnvConfig,
+    resolve_habitat_curriculum_path,
+)
 from src.r2dreamer.encoders import Encoder, HybridEncoder
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
-from src.r2dreamer.launch.curricula import CURRICULA
 
 
 class TestEncoderRegistry:
@@ -49,10 +53,21 @@ class TestEnvRegistry:
         assert "crafter" in env_registry
 
 
-class TestCurricula:
+class TestHabitatCurricula:
     def test_all_curriculum_paths_exist(self):
-        for name, path in CURRICULA.items():
+        for name, path in HABITAT_CURRICULA.items():
             assert path.exists(), f"Curriculum {name!r} path does not exist: {path}"
 
     def test_expected_keys(self):
-        assert set(CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
+        assert set(HABITAT_CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
+
+    def test_config_resolves_named_curriculum(self):
+        config = HabitatEnvConfig(curriculum="L1")
+
+        assert resolve_habitat_curriculum_path(config) == HABITAT_CURRICULA["L1"]
+
+    def test_config_curriculum_path_overrides_name(self, tmp_path):
+        override = tmp_path / "curriculum.json"
+        config = HabitatEnvConfig(curriculum="L1", curriculum_path=override)
+
+        assert resolve_habitat_curriculum_path(config) == override

@@ -43,7 +43,6 @@ from src.shared.profiling import (
 )
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.launch.curricula import CURRICULA
 from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.obs_batch import ObservationPacker
@@ -73,7 +72,7 @@ def setup(args):
     print(f"Agent overrides: {spec.agent_overrides}", flush=True)
 
     env = make_habitat_env(
-        curriculum_path=str(CURRICULA["L1"]),
+        curriculum="L1",
         curriculum_mode="train",
         seed=42,
         render_resolution=spec.env_render_resolution,

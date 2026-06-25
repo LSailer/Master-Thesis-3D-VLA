@@ -18,12 +18,17 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated tags (appended to shim defaults)",
     )
-    # escape hatch: override the shim-hardcoded curriculum path
+    p.add_argument(
+        "--curriculum",
+        type=str,
+        default=None,
+        help="Habitat curriculum level name (L1..L4).",
+    )
     p.add_argument(
         "--curriculum_path",
         type=str,
         default=None,
-        help="Override shim curriculum path (escape hatch)",
+        help="Explicit Habitat curriculum JSON path.",
     )
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument(
@@ -345,12 +350,17 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         "--output_dir", type=str, default=None, help="Directory to write results JSON"
     )
     p.add_argument("--seed", type=int, default=42)
-    # escape hatch: override shim-hardcoded curriculum
+    p.add_argument(
+        "--curriculum",
+        type=str,
+        default=None,
+        help="Habitat curriculum level name (L1..L4).",
+    )
     p.add_argument(
         "--curriculum_path",
         type=str,
         default=None,
-        help="Override shim curriculum path (escape hatch)",
+        help="Explicit Habitat curriculum JSON path.",
     )
     p.add_argument(
         "--render_resolution",

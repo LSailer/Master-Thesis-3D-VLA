@@ -21,7 +21,7 @@ class ObservationFrame:
     softspl: float = 0.0
     dtg: float = 0.0
     collision_rate: float = 0.0
-    scene_id: str | None = None
+    scene_id: str = ""
     episode_id: str | None = None
     step: int | None = None
     invalid_goal_distance: float = 0.0
