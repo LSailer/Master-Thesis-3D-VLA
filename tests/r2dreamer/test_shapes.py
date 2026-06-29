@@ -192,7 +192,7 @@ class TestR2RSSM:
         assert feat.shape == (B, cfg.stoch_size + cfg.deter_size)
 
 
-from src.r2dreamer.world_model.encoders import ConvEncoder
+from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.representation.barlow import Projector
 from src.r2dreamer.behavior.return_ema import ReturnEMA
 

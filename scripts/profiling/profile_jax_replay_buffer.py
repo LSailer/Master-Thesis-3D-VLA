@@ -488,7 +488,7 @@ def _make_inputs(args: argparse.Namespace) -> ExperimentInputs:
 
 def _measure_replay(args: argparse.Namespace, inputs: ExperimentInputs) -> dict[str, object]:
     """Run replay timing and optional tiny train-step check."""
-    numpy_buffer = ReplayBuffer(capacity=inputs.config.capacity)
+    numpy_buffer = ReplayBuffer(capacity=inputs.config.capacity, num_actions=4)
     jax_buffer = JaxRefReplayBuffer(inputs.config)
     runs: dict[str, dict[str, object]] = {
         "numpy_replay": {

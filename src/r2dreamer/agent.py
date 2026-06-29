@@ -23,45 +23,45 @@ import jax.numpy as jnp
 import optax
 
 from src.configs.config import R2DreamerConfig
+from src.shared.optim import agc, laprop
+
+from .behavior.imagination import _imagine, _lambda_return
+from .behavior.loss import behavior_loss
+from .behavior.return_ema import ReturnEMA
 from .checkpointing import load_checkpoint
 from .learning_types import AgentLossAux, WorldModelForward
-from .observation_preparation.contracts import (
-    normalize_encoder_module_kwargs,
-    recover_encoder_input_contract,
-)
-from .world_model.rssm import R2RSSM
-from .world_model.encoders import (
-    ConvEncoder,
-    WP64CNNCPMLPEncoder,
-    ConvDecoder,
-    HybridEncoder as WMHybridEncoder,
-    RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
-    RGBGlobalTokenTransformerEncoder as WMRGBGlobalTokenTransformerEncoder,
-    VGGTEncoder as WMVGGTEncoder,
-    VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
-    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
-    HYBRID_RGB_DIM,
-)
 from .obs_batch import (
     CAMERA_POSE_KEY,
+    FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
-)
-from .world_model.heads import R2MLP, R2TwoHotDist
-from .world_model.loss import world_model_loss, kl_loss as _kl_loss
-from .behavior.return_ema import ReturnEMA
-from .behavior.imagination import _imagine, _lambda_return
-from .behavior.loss import behavior_loss
-from .representation.barlow import Projector
-from .representation.loss import representation_loss
-from .obs_batch import (
     compute_jnp_dtype,
     decoder_rgb_target,
     encoder_obs_from_batch,
     obs_leading_shape,
 )
-from src.shared.optim import laprop, agc
+from .observation_preparation.contracts import (
+    normalize_encoder_module_kwargs,
+    recover_encoder_input_contract,
+)
+from .representation.barlow import Projector
+from .representation.loss import representation_loss
+from .encoders.cnn import ConvEncoder
+from .encoders.constants import HYBRID_RGB_DIM
+from .encoders.decoder import ConvDecoder
+from .encoders.mlp import (
+    HybridEncoder as WMHybridEncoder,
+    MLPEncoder as WMMLPEncoder,
+    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
+    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from .encoders.transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
+from .world_model.heads import R2MLP, R2TwoHotDist
+from .world_model.loss import kl_loss as _kl_loss
+from .world_model.loss import world_model_loss
+from .world_model.rssm import R2RSSM
 
 
 class ActState(NamedTuple):
@@ -125,16 +125,17 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
     if cls is None:
         cls = {
             "cnn": ConvEncoder,
-            "vggt": WMVGGTEncoder,
-            "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
+            "vggt": WMMLPEncoder,
+            "vggt_wp_cp_64": WMMLPEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
-            "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
+            "vggt_agg_raw": WMVGGTAggRawMLPEncoder,
+            "vggt_agg_token_transformer": WMTokenTransformerEncoder,
             "vggt_wp_dense_cnn": ConvEncoder,
             "vggt_wp64_cnn_cp_mlp": WP64CNNCPMLPEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
-            "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
-            "vggt_house_global_tokens_nogate": WMRGBGlobalTokenTransformerEncoder,
+            "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
+            "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -244,32 +245,48 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     )
 
 
-def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
-    return cls(
+def _make_rgb_token_encoder(cfg: R2DreamerConfig):
+    token_key = FULL_TOKENS_KEY
+    singleton_tokens = False
+    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
+        token_key = GLOBAL_TOKENS_KEY
+        singleton_tokens = True
+    return WMTokenTransformerEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        model_dim=None,
+        layers=cfg.vggt_token_transformer_layers,
+        heads=cfg.vggt_token_transformer_heads,
+        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        dropout=cfg.vggt_token_transformer_dropout,
+        readout="mean",
+        norm_kind="layer",
+        activation="gelu",
+        token_key=token_key,
+        image_key=HYBRID_IMAGE_KEY,
+        singleton_tokens=singleton_tokens,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
         cnn_mults=cfg.encoder_mults,
-        context_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        transformer_layers=cfg.vggt_token_transformer_layers,
-        transformer_heads=cfg.vggt_token_transformer_heads,
-        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        transformer_dropout=cfg.vggt_token_transformer_dropout,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
     )
 
 
 def _make_token_transformer_encoder(cfg: R2DreamerConfig):
-    return WMVGGTAggTokenTransformerEncoder(
+    return WMTokenTransformerEncoder(
         embed_dim=cfg.vggt_embed_dim,
         token_dim=cfg.vggt_token_dim,
         num_tokens=cfg.vggt_token_count,
-        projection_dim=cfg.vggt_token_projection_dim,
+        model_dim=cfg.vggt_token_projection_dim,
         layers=cfg.vggt_token_transformer_layers,
         heads=cfg.vggt_token_transformer_heads,
         mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        readout="camera_register_patch",
+        norm_kind="rms",
+        activation="silu",
         keep_register_tokens=cfg.vggt_keep_register_tokens,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
     )
 
 
@@ -284,10 +301,10 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp64_cnn_cp_mlp_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
-    if cls is WMVGGTAggTokenTransformerEncoder:
-        return _make_token_transformer_encoder(cfg)
-    if cls in (WMRGBFullTokenTransformerEncoder, WMRGBGlobalTokenTransformerEncoder):
-        return _make_rgb_token_encoder(cfg, cls)
+    if cls is WMTokenTransformerEncoder:
+        if cfg.encoder_type == "vggt_agg_token_transformer":
+            return _make_token_transformer_encoder(cfg)
+        return _make_rgb_token_encoder(cfg)
     return _make_mlp_encoder(cfg, cls)
 
 
@@ -295,7 +312,7 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt_house_full_tokens_nogate":
         return {
             HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
-            "full_tokens": jnp.zeros(
+            FULL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
@@ -679,25 +696,12 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        action_int, self._act_state = self.act_with_state(
-            encoder_obs, is_first, self._act_state, rng_key, training
-        )
-        return action_int
-
-    def act_with_state(
-        self,
-        encoder_obs: Any,
-        is_first: bool,
-        state: ActState,
-        rng_key: jnp.ndarray,
-        training: bool = True,
-    ) -> tuple[int, ActState]:
-        """Select an action and return the next functional acting state."""
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
-        action_int, new_state = self._jit_act_with_state.__call__(
-            self.params, encoder_obs, state, reset, rng_key, training
+        action_int, self._act_state = self._jit_act_with_state.__call__(
+            self.params, encoder_obs, self._act_state, reset, rng_key, training
         )
-        return int(action_int), new_state
+
+        return action_int
 
     def act_with_state_pure(
         self, params, obs, state: ActState, is_first, rng_key, training
@@ -750,7 +754,7 @@ class R2DreamerAgent:
     # Decoder reconstruction probe (visual verification; only when cfg.decoder)
     # ------------------------------------------------------------------
 
-    def reconstruct(self, batch: Dict[str, jnp.ndarray]):
+    def reconstruct(self, batch: Any):
         """Decode RGB reconstructions for a batch (encoder -> RSSM -> decoder).
 
         Returns ``(target, recon)`` as JAX arrays ``(B*T, 3, 64, 64)`` in
@@ -797,7 +801,7 @@ class R2DreamerAgent:
     # ------------------------------------------------------------------
 
     def train_step(
-        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
+        self, batch: Any, rng_key: jnp.ndarray
     ) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
         self.train_state, metrics = self._jitted_train_step.__call__(
@@ -808,7 +812,7 @@ class R2DreamerAgent:
         return {k: float(v) for k, v in metrics.items()}
 
     def eval_loss(
-        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
+        self, batch: Any, rng_key: jnp.ndarray
     ) -> Dict[str, float]:
         """Evaluate the current objective on a batch without updating state."""
         _total_loss, aux = self._loss_fn(

@@ -25,6 +25,7 @@ from src.buffer.replay_buffer import (
     ReplayBatch,
     ReplayBuffer,
     ReplayTransition,
+    ReplayTransitionBatch,
 )
 from src.environments.observation import ObservationFrame
 from src.shared.video_utils import (
@@ -40,7 +41,7 @@ from src.r2dreamer.checkpointing import (
 )
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
-from src.r2dreamer.obs_batch import ObservationPacker
+from src.r2dreamer.obs_batch import ObservationPacker, compute_jnp_dtype
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +73,7 @@ class R2DreamerAgentLike(Protocol):
     ema_state: Any
 
     def train_step(
-        self, batch: dict[str, jnp.ndarray], rng_key: jnp.ndarray
+        self, batch: Any, rng_key: jnp.ndarray
     ) -> dict[str, float]: ...
 
     def act(
@@ -84,7 +85,7 @@ class R2DreamerAgentLike(Protocol):
     ) -> int: ...
 
     def reconstruct(
-        self, batch: dict[str, jnp.ndarray]
+        self, batch: Any
     ) -> tuple[np.ndarray, np.ndarray] | None: ...
 
 
@@ -160,7 +161,9 @@ def _stack_mapping_observations(
     }
 
 
-def _stack_replay_observations(batch: ReplayBatch) -> jax.Array | dict[str, jax.Array]:
+def _stack_replay_observations(
+    batch: ReplayTransitionBatch,
+) -> jax.Array | dict[str, jax.Array]:
     """Stack transition observations into the raw replay-batch observation form."""
     obs_grid = [
         [_transition_observation(transition) for transition in sequence]
@@ -174,7 +177,9 @@ def _stack_replay_observations(batch: ReplayBatch) -> jax.Array | dict[str, jax.
     return _stack_array_grid(cast(list[list[ArrayObservation]], obs_grid))
 
 
-def replay_batch_to_arrays(batch: ReplayBatch) -> ReplayArrayBatch:
+def replay_batch_to_arrays(
+    batch: ReplayBatch | ReplayTransitionBatch,
+) -> ReplayArrayBatch:
     """Pack transition-object replay windows into arrays with ``(B, T)`` prefix.
 
     Args:
@@ -185,6 +190,15 @@ def replay_batch_to_arrays(batch: ReplayBatch) -> ReplayArrayBatch:
         ``is_first``, and ``is_episode_end``. Observation leaves preserve their
         stored dtype and have shape ``(batch_size, seq_len, *obs_shape)``.
     """
+    if isinstance(batch, ReplayBatch):
+        return {
+            "obs": batch.obs,
+            "actions": batch.actions,
+            "rewards": batch.rewards,
+            "is_first": batch.is_first,
+            "is_episode_end": batch.is_episode_end,
+        }
+
     if not batch:
         raise ValueError("cannot convert an empty replay batch")
     seq_len = len(batch[0])
@@ -225,26 +239,51 @@ def replay_batch_to_arrays(batch: ReplayBatch) -> ReplayArrayBatch:
     }
 
 
-def convert_batch(batch: ReplayBatch | ReplayArrayBatch, num_actions: int) -> dict[str, Any]:
-    """Convert replay output to agent training format.
+def convert_batch(
+    batch: ReplayBatch | ReplayTransitionBatch | ReplayArrayBatch,
+    num_actions: int,
+    *,
+    compute_dtype: str = "float32",
+) -> ReplayBatch | dict[str, Any]:
+    """Convert legacy replay outputs to frame-aligned training format.
 
-    Replay stores transitions as ``obs_t, action_t, reward_{t+1}``. The RSSM
-    posterior for ``obs_t`` must receive the previous action/labels, so shift
-    transition fields right by one step inside each sampled window.
+    New replay-buffer samples are already ``ReplayBatch`` objects. Legacy raw
+    transition windows or raw-array dictionaries are converted without temporal
+    shifting because replay stores the observation returned by ``env.step``
+    together with that frame's action, reward, and end flag.
+
+    Args:
+        batch: Replay output as a ``ReplayBatch``, transition windows, or raw
+            stacked arrays.
+        num_actions: Number of discrete actions for one-hot encoding legacy
+            integer action arrays.
+        compute_dtype: Floating dtype name used for agent-side action, reward,
+            and mask tensors. Raw action ids remain ``int32`` until one-hotting.
     """
+    float_dtype = compute_jnp_dtype(compute_dtype)
+    if isinstance(batch, ReplayBatch):
+        return ReplayBatch(
+            obs=batch.obs,
+            actions=jnp.asarray(batch.actions, dtype=float_dtype),
+            rewards=jnp.asarray(batch.rewards, dtype=float_dtype),
+            is_first=jnp.asarray(batch.is_first, dtype=float_dtype),
+            is_episode_end=jnp.asarray(batch.is_episode_end, dtype=float_dtype),
+        )
+
     replay_arrays = replay_batch_to_arrays(batch) if isinstance(batch, list) else batch
-    actions = jax.nn.one_hot(cast(jax.Array, replay_arrays["actions"]), num_actions)
-    rewards = jnp.asarray(replay_arrays["rewards"], dtype=jnp.float32)
-    episode_end = jnp.asarray(replay_arrays["is_episode_end"], dtype=jnp.float32)
-    zero_action = jnp.zeros_like(actions[:, :1])
-    zero_scalar = jnp.zeros_like(rewards[:, :1])
+    raw_actions = jnp.asarray(replay_arrays["actions"])
+    if raw_actions.ndim == 3:
+        actions = raw_actions.astype(float_dtype)
+    else:
+        actions = jax.nn.one_hot(raw_actions, num_actions, dtype=float_dtype)
+
     return {
         "obs": replay_arrays["obs"],
-        "actions": jnp.concatenate([zero_action, actions[:, :-1]], axis=1),
-        "rewards": jnp.concatenate([zero_scalar, rewards[:, :-1]], axis=1),
-        "is_first": jnp.asarray(replay_arrays["is_first"], dtype=jnp.float32),
-        "is_episode_end": jnp.concatenate(
-            [zero_scalar, episode_end[:, :-1]], axis=1
+        "actions": actions,
+        "rewards": jnp.asarray(replay_arrays["rewards"], dtype=float_dtype),
+        "is_first": jnp.asarray(replay_arrays["is_first"], dtype=float_dtype),
+        "is_episode_end": jnp.asarray(
+            replay_arrays["is_episode_end"], dtype=float_dtype
         ),
     }
 
@@ -364,7 +403,11 @@ class Trainer:
 
         # Replay shape and dtype are inferred lazily from the first prepared
         # observation; normalization belongs to Observation Preparation.
-        self.buffer = ReplayBuffer(capacity=agent_config.buffer_capacity)
+        self.buffer = ReplayBuffer(
+            capacity=agent_config.buffer_capacity,
+            num_actions=agent_config.num_actions,
+            float_dtype=compute_jnp_dtype(agent_config.compute_dtype),
+        )
 
         # Resume from checkpoint (overwrite freshly-initialised agent state).
         self._resume_step = 0
@@ -477,10 +520,9 @@ class Trainer:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
-        obs = self.env.reset()
+        self.env.reset()
         if self.obs_adapter.on_episode_reset:
             self.obs_adapter.on_episode_reset()
-        buffer_obs, _, _ = self._prepare_observation(self.obs_adapter, obs)
 
         for _ in range(tcfg.prefill_steps):
             rng_key, action_key = jax.random.split(rng_key)
@@ -491,19 +533,15 @@ class Trainer:
             )
 
             self._record_train_transition(
-                buffer_obs=buffer_obs,
+                buffer_obs=next_buffer_obs,
                 action=action,
                 next_obs=next_obs,
             )
 
             if next_obs.done:
-                obs = self.env.reset()
+                self.env.reset()
                 if self.obs_adapter.on_episode_reset:
                     self.obs_adapter.on_episode_reset()
-                buffer_obs, _, _ = self._prepare_observation(self.obs_adapter, obs)
-            else:
-                obs = next_obs
-                buffer_obs = next_buffer_obs
         return rng_key
 
     # ------------------------------------------------------------------
@@ -602,7 +640,7 @@ class Trainer:
 
         start_step = self._resume_step
         print(f"Training from step {start_step} to {tcfg.total_steps}...")
-        obs, buffer_obs, encoder_obs, is_first = self._reset_train_episode()
+        obs, _buffer_obs, encoder_obs, is_first = self._reset_train_episode()
         episode_reward, episode_steps, action_counts = (
             0.0,
             0,
@@ -629,7 +667,7 @@ class Trainer:
             )
 
             self._record_train_transition(
-                buffer_obs=buffer_obs,
+                buffer_obs=next_buffer_obs,
                 action=action,
                 next_obs=next_obs,
             )
@@ -642,7 +680,7 @@ class Trainer:
             if next_obs.done:
                 (
                     obs,
-                    buffer_obs,
+                    _buffer_obs,
                     encoder_obs,
                     is_first,
                     episode_reward,
@@ -663,7 +701,6 @@ class Trainer:
                 )
             else:
                 obs = next_obs
-                buffer_obs = next_buffer_obs
                 encoder_obs = next_encoder_obs
                 is_first = next_is_first
 
@@ -672,11 +709,8 @@ class Trainer:
                 train_credit += acfg.train_ratio / batch_steps
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
-                    batch_raw = replay_batch_to_arrays(
-                        self.buffer.sample(acfg.batch_size, acfg.seq_len)
-                    )
-                    batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
-                    batch = convert_batch(batch_raw, acfg.num_actions)
+                    batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
+                    batch = self.obs_adapter.augment_replay_batch(batch)
                     metrics = self.agent.train_step(batch, train_key)
                     train_credit -= 1.0
 
@@ -763,11 +797,8 @@ class Trainer:
             )
 
         # Sample once, freeze, reuse.
-        batch_raw = replay_batch_to_arrays(
-            self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
-        )
-        batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
-        batch = convert_batch(batch_raw, self.acfg.num_actions)
+        batch = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch = self.obs_adapter.augment_replay_batch(batch)
         print(
             f"Overfit mode: cached batch "
             f"B={tcfg.overfit_batch_size} T={tcfg.overfit_seq_len}; "

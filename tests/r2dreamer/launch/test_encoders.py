@@ -41,7 +41,14 @@ from src.r2dreamer.encoders import (
     VGGTWPCP64Encoder,
 )
 from src.r2dreamer.encoders import VGGT_VARIANTS
-from src.r2dreamer.world_model import encoders as wm_encoders
+from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.r2dreamer.encoders.mlp import (
+    HybridEncoder as ModelHybridEncoder,
+    MLPEncoder,
+    VGGTAggregatorMLPEncoder as ModelVGGTAggregatorMLPEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.shared.video_utils import resize_chw_uint8
 
 
@@ -67,7 +74,7 @@ class TestCNNEncoder:
         assert spec.encoder_type == "cnn"
         assert spec.obs_shape == (3, 64, 64)
         assert spec.env_render_resolution == 64
-        assert spec.module_cls is wm_encoders.ConvEncoder
+        assert spec.module_cls is ConvEncoder
         assert spec.agent_overrides == {}
         assert spec.contract_snapshot["encoder_type"] == "cnn"
         json.dumps(spec.contract_snapshot)
@@ -98,7 +105,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTEncoder()
@@ -123,7 +130,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTEncoder(resolution=518)
@@ -150,7 +157,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTAggregatorMLPEncoder(resolution=256)
@@ -185,7 +192,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTAggTokenTransformerEncoder(resolution=256)
@@ -197,7 +204,7 @@ class TestVGGTEncoderConfiguration:
         assert spec.obs_shape == (10 * 4,)
         assert spec.env_render_resolution == 256
         assert spec.encoder_type == "vggt_agg_token_transformer"
-        assert spec.module_cls is wm_encoders.VGGTAggTokenTransformerEncoder
+        assert spec.module_cls is TokenTransformerEncoder
         assert enc.vggt_compute_heads is False
         assert spec.agent_overrides == {
             "buffer_capacity": 5_000,
@@ -219,7 +226,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTDenseWPEncoder(resolution=518)
@@ -290,7 +297,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTWPCP64Encoder(resolution=518)
@@ -313,7 +320,7 @@ class TestVGGTEncoderConfiguration:
         assert spec.obs_shape == (12297,)
         assert spec.encoder_type == "vggt_wp_cp_64"
         # Same MLP module + 1M buffer as the 37x37 WP+CP run -> resolution-only ablation.
-        assert spec.module_cls is wm_encoders.VGGTEncoder
+        assert spec.module_cls is MLPEncoder
         assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
 
     def test_pool_dense_world_points(self):
@@ -379,7 +386,7 @@ class TestVGGTEncoderConfiguration:
             FakeExtractor(),
             feature_kind="wp64_cp",
             encoder_type="vggt_wp64_cnn_cp_mlp",
-            encoder_module_cls=wm_encoders.WP64CNNCPMLPEncoder,
+            encoder_module_cls=WP64CNNCPMLPEncoder,
         )
 
         assert adapter.buffer_shape == {
@@ -411,7 +418,7 @@ class TestVGGTEncoderConfiguration:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTWP64CNNCPMLPEncoder(resolution=518)
@@ -426,7 +433,7 @@ class TestVGGTEncoderConfiguration:
         assert adapter.contract.encoder_input.buffer_shape() == expected_shape
         assert spec.obs_shape == expected_shape
         assert spec.encoder_type == "vggt_wp64_cnn_cp_mlp"
-        assert spec.module_cls is wm_encoders.WP64CNNCPMLPEncoder
+        assert spec.module_cls is WP64CNNCPMLPEncoder
         assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
 
     def test_vggt_launcher_variants_are_centralized(self):
@@ -517,7 +524,7 @@ class TestHybridEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = HybridEncoder()
@@ -530,7 +537,7 @@ class TestHybridEncoder:
         assert spec.encoder_type == "hybrid"
         assert spec.obs_shape == (16404,)
         assert spec.env_render_resolution == 518
-        assert spec.module_cls is wm_encoders.HybridEncoder
+        assert spec.module_cls is ModelHybridEncoder
 
     def test_hybrid_adapter_builds_rgb_wp_cp_layout(self):
         # Fake VGGT extractor: extract() -> world_points (37,37,3) + camera_pose (9,)
@@ -603,7 +610,7 @@ class TestVGGTHouseContextEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseContextEncoder()
@@ -618,7 +625,7 @@ class TestVGGTHouseContextEncoder:
         }
         assert spec.obs_shape == (13312,)
         assert spec.env_render_resolution == 518
-        assert spec.module_cls is wm_encoders.HybridEncoder
+        assert spec.module_cls is ModelHybridEncoder
         assert spec.agent_overrides["buffer_capacity"] == 1_000_000
         assert spec.agent_overrides["vggt_feature_dim"] == 1024
         assert spec.agent_overrides["vggt_token_dim"] == 2048
@@ -700,7 +707,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseFullTokenNoGateEncoder()
@@ -717,7 +724,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
             HYBRID_IMAGE_KEY: (3, 64, 64),
             FULL_TOKENS_KEY: (1374, 2048),
         }
-        assert spec.module_cls is wm_encoders.RGBFullTokenTransformerEncoder
+        assert spec.module_cls is TokenTransformerEncoder
         assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 2048
         assert spec.agent_overrides["vggt_token_count"] == 1374
@@ -782,7 +789,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
                 pass
 
         monkeypatch.setattr(
-            "src.r2dreamer.encoders.VGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
         )
 
         enc = VGGTHouseGlobalTokenNoGateEncoder()
@@ -799,7 +806,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
             HYBRID_IMAGE_KEY: (3, 64, 64),
             GLOBAL_TOKENS_KEY: (1374, 1024),
         }
-        assert spec.module_cls is wm_encoders.RGBGlobalTokenTransformerEncoder
+        assert spec.module_cls is TokenTransformerEncoder
         assert spec.agent_overrides["buffer_capacity"] == 5_000
         assert spec.agent_overrides["vggt_token_dim"] == 1024
         assert spec.agent_overrides["vggt_token_count"] == 1374

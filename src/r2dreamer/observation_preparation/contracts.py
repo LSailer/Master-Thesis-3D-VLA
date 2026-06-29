@@ -17,6 +17,7 @@ import flax.linen as nn
 import numpy as np
 
 from src.configs.config import ObservationRunConfig
+from src.r2dreamer.obs_batch import FULL_TOKENS_KEY, GLOBAL_TOKENS_KEY, HYBRID_IMAGE_KEY
 
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]
@@ -82,6 +83,44 @@ def encoder_module_kwargs_from_config(
             "vggt_embed_dim": int(config.vggt_embed_dim),
             "mlp_hidden": int(config.mlp_vggt_hidden),
             "mlp_layers": int(config.mlp_vggt_layers),
+            "vggt_dim": int(config.vggt_feature_dim),
+        }
+    if class_name == "TokenTransformerEncoder":
+        common = {
+            "embed_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_tokens": int(config.vggt_token_count),
+            "layers": int(config.vggt_token_transformer_layers),
+            "heads": int(config.vggt_token_transformer_heads),
+            "mlp_ratio": int(config.vggt_token_transformer_mlp_ratio),
+            "dropout": float(config.vggt_token_transformer_dropout),
+        }
+        if getattr(config, "encoder_type", None) == "vggt_agg_token_transformer":
+            return {
+                **common,
+                "model_dim": int(config.vggt_token_projection_dim),
+                "readout": "camera_register_patch",
+                "norm_kind": "rms",
+                "activation": "silu",
+                "keep_register_tokens": bool(config.vggt_keep_register_tokens),
+            }
+        token_key = FULL_TOKENS_KEY
+        singleton_tokens = False
+        if getattr(config, "encoder_type", None) == "vggt_house_global_tokens_nogate":
+            token_key = GLOBAL_TOKENS_KEY
+            singleton_tokens = True
+        return {
+            **common,
+            "model_dim": None,
+            "readout": "mean",
+            "norm_kind": "layer",
+            "activation": "gelu",
+            "token_key": token_key,
+            "image_key": HYBRID_IMAGE_KEY,
+            "singleton_tokens": singleton_tokens,
+            "cnn_depth": int(config.encoder_depth),
+            "cnn_kernel": int(config.encoder_kernel),
+            "cnn_mults": _tuple_value(config, "encoder_mults"),
         }
     return {
         "embed_dim": int(config.vggt_embed_dim),

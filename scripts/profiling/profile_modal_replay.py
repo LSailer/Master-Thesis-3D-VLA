@@ -70,7 +70,7 @@ def _frame(action: int = 0, reward: float = 0.0, done: bool = False):
 def _make_buffer(kind: str, capacity: int, rng: np.random.Generator):
     from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 
-    buffer = ReplayBuffer(capacity=capacity)
+    buffer = ReplayBuffer(capacity=capacity, num_actions=4)
     actions = rng.integers(0, 4, size=capacity, dtype=np.int32)
     rewards = rng.standard_normal(capacity).astype(np.float32)
 
@@ -109,7 +109,7 @@ def _make_agent(kind: str, seed: int):
 
     from src.r2dreamer.agent import R2DreamerAgent
     from src.configs.config import R2DreamerConfig
-    from src.r2dreamer.world_model.encoders import HybridEncoder, VGGTEncoder
+    from src.r2dreamer.encoders.mlp import HybridEncoder, MLPEncoder
 
     common = dict(
         num_actions=4,
@@ -123,7 +123,7 @@ def _make_agent(kind: str, seed: int):
     if kind == "wpcp_mlp3":
         cfg = R2DreamerConfig(
             encoder_type="vggt",
-            encoder_module_cls=VGGTEncoder,
+            encoder_module_cls=MLPEncoder,
             obs_shape=(4116,),
             vggt_mlp_layers=3,
             **common,

@@ -211,27 +211,35 @@ class TestConvertBatch:
             "is_first": jnp.zeros((B, T)),
         }
 
-    def test_actions_become_onehot(self, replay_batch):
+    def test_actions_become_onehot_without_shift(self, replay_batch):
         replay_batch["actions"] = jnp.array([[1, 2, 3, 4, 5, 0, 1, 2]] * 4)
         out = convert_batch(replay_batch, num_actions=6)
         assert out["actions"].shape == (4, 8, 6)
         assert out["actions"].dtype == jnp.float32
-        assert jnp.allclose(out["actions"][:, 0].sum(axis=-1), 0.0)
-        assert jnp.allclose(out["actions"][:, 1:].sum(axis=-1), 1.0)
-        np.testing.assert_allclose(np.asarray(out["actions"][0, 1]), np.eye(6)[1])
+        assert jnp.allclose(out["actions"].sum(axis=-1), 1.0)
+        np.testing.assert_allclose(np.asarray(out["actions"][0, 0]), np.eye(6)[1])
 
-    def test_episode_end_is_shifted_to_training_alignment(self, replay_batch):
+    def test_episode_end_is_not_shifted(self, replay_batch):
         replay_batch["is_episode_end"] = jnp.ones((4, 8))
         out = convert_batch(replay_batch, num_actions=6)
         assert "is_episode_end" in out
-        assert jnp.allclose(out["is_episode_end"][:, 0], 0.0)
-        assert jnp.allclose(out["is_episode_end"][:, 1:], 1.0)
+        assert jnp.allclose(out["is_episode_end"], 1.0)
+
+    def test_float_outputs_use_configured_compute_dtype(self, replay_batch):
+        out = convert_batch(
+            replay_batch,
+            num_actions=6,
+            compute_dtype="bfloat16",
+        )
+        assert out["actions"].dtype == jnp.bfloat16
+        assert out["rewards"].dtype == jnp.bfloat16
+        assert out["is_first"].dtype == jnp.bfloat16
+        assert out["is_episode_end"].dtype == jnp.bfloat16
 
     def test_obs_and_rewards_pass_through(self, replay_batch):
         out = convert_batch(replay_batch, num_actions=6)
         assert jnp.allclose(out["obs"], replay_batch["obs"])
-        assert jnp.allclose(out["rewards"][:, 0], 0.0)
-        assert jnp.allclose(out["rewards"][:, 1:], replay_batch["rewards"][:, :-1])
+        assert jnp.allclose(out["rewards"], replay_batch["rewards"])
         assert jnp.allclose(out["is_first"], replay_batch["is_first"])
 
     def test_output_keys(self, replay_batch):
@@ -298,7 +306,7 @@ class TestCheckpoint:
             data = load_checkpoint(path)
 
         snapshot = data["encoder_input_contract"]
-        assert snapshot["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert snapshot["encoder_module"] == "src.r2dreamer.encoders.cnn.ConvEncoder"
         assert snapshot["encoder_module_kwargs"] == {
             "depth": 16,
             "kernel_size": 5,
@@ -358,7 +366,7 @@ class TestConfigSnapshot:
 
         snapshot = config_snapshot(cfg)
 
-        assert snapshot["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert snapshot["encoder_module"] == "src.r2dreamer.encoders.cnn.ConvEncoder"
         assert "encoder_module_cls" not in snapshot
         assert snapshot["encoder_input_contract"]["encoder_type"] == "cnn"
         assert snapshot["encoder_input_contract"]["encoder_module_kwargs"] == {

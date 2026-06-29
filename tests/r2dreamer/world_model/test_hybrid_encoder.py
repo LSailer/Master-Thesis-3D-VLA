@@ -8,12 +8,10 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from src.r2dreamer.world_model.encoders import (
-    ConvDecoder,
-    HybridEncoder,
-    HYBRID_RGB_DIM,
-    HYBRID_VGGT_DIM,
-)
+from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
+from src.r2dreamer.encoders.decoder import ConvDecoder
+from src.r2dreamer.encoders.mlp import HybridEncoder
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 
 @pytest.fixture
@@ -91,18 +89,19 @@ class TestHybridEncoder:
 
 class TestRGBGlobalTokenTransformerEncoder:
     def test_singleton_global_tokens_are_encoded_once_and_broadcast(self, rng):
-        from src.r2dreamer.world_model.encoders import RGBGlobalTokenTransformerEncoder
-
-        enc = RGBGlobalTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
             cnn_depth=2,
             cnn_kernel=3,
             cnn_mults=(1, 1),
-            context_dim=8,
+            embed_dim=8,
             token_dim=8,
             num_tokens=6,
-            transformer_layers=1,
-            transformer_heads=2,
-            transformer_mlp_ratio=2,
+            layers=1,
+            heads=2,
+            mlp_ratio=2,
+            token_key="global_tokens",
+            image_key="image",
+            singleton_tokens=True,
         )
         obs = {
             "image": jnp.zeros((3, 3, 64, 64), dtype=jnp.float32),
@@ -121,18 +120,19 @@ class TestRGBGlobalTokenTransformerEncoder:
         assert "gate" not in params["params"]
 
     def test_global_token_branch_is_not_zero_gated_at_init(self, rng):
-        from src.r2dreamer.world_model.encoders import RGBGlobalTokenTransformerEncoder
-
-        enc = RGBGlobalTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
             cnn_depth=2,
             cnn_kernel=3,
             cnn_mults=(1, 1),
-            context_dim=8,
+            embed_dim=8,
             token_dim=8,
             num_tokens=6,
-            transformer_layers=1,
-            transformer_heads=2,
-            transformer_mlp_ratio=2,
+            layers=1,
+            heads=2,
+            mlp_ratio=2,
+            token_key="global_tokens",
+            image_key="image",
+            singleton_tokens=True,
         )
         image = jnp.zeros((2, 3, 64, 64), dtype=jnp.float32)
         obs_a = {

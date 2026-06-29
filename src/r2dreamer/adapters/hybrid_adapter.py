@@ -33,10 +33,8 @@ from src.r2dreamer.observation_preparation.vggt import (
     wp_cp_dim,
 )
 from src.shared.video_utils import resize_chw_uint8
-from src.r2dreamer.world_model.encoders import (
-    HOUSE_CONTEXT_DIM,
-    VGGTFullTokenContextTransformer,
-)
+from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_DIM
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 
 HYBRID_FEATURE_DIM = HYBRID_RGB_DIM + wp_cp_dim()
@@ -178,7 +176,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self,
         extractor,
         *,
-        context_transformer: VGGTFullTokenContextTransformer | None = None,
+        context_transformer: TokenTransformerEncoder | None = None,
         rng_seed: int = 0,
     ):
         super().__init__(
@@ -191,8 +189,14 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             on_episode_reset=None,
         )
         self._extractor = extractor
-        self._context_transformer = (
-            context_transformer or VGGTFullTokenContextTransformer()
+        self._context_transformer = context_transformer or TokenTransformerEncoder(
+            embed_dim=HOUSE_CONTEXT_DIM,
+            token_dim=VGGT_FULL_TOKEN_EMBED_DIM,
+            num_tokens=VGGT_AGGREGATOR_TOKEN_COUNT,
+            model_dim=None,
+            readout="mean",
+            norm_kind="layer",
+            activation="gelu",
         )
         self._context_params = None
         self._rng = jax.random.PRNGKey(rng_seed)

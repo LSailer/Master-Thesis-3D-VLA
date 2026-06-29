@@ -65,7 +65,7 @@ class RunResult:
 def _build_cnn(
     seed: int, curriculum_path: str | None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
-    from src.r2dreamer.world_model.encoders import ConvEncoder
+    from src.r2dreamer.encoders.cnn import ConvEncoder
     agent_cfg = R2DreamerConfig(
         encoder_type="cnn",
         encoder_module_cls=ConvEncoder,
@@ -81,7 +81,10 @@ def _build_cnn(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    buffer = ReplayBuffer(capacity=agent_cfg.buffer_capacity)
+    buffer = ReplayBuffer(
+        capacity=agent_cfg.buffer_capacity,
+        num_actions=agent_cfg.num_actions,
+    )
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     obs_adapter = ObsAdapter()
@@ -108,11 +111,11 @@ def _build_vggt(
     raw VGGTFeatureExtractor (needed by the loop for instrumented extract calls).
     """
     from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
-    from src.r2dreamer.world_model.encoders import VGGTEncoder as VGGTEncoderModule
+    from src.r2dreamer.encoders.mlp import MLPEncoder
 
     agent_cfg = R2DreamerConfig(
         encoder_type="vggt",
-        encoder_module_cls=VGGTEncoderModule,
+        encoder_module_cls=MLPEncoder,
         obs_shape=(VGGT_FEATURE_DIM,),
         num_actions=4,
         batch_size=16,
@@ -139,7 +142,10 @@ def _build_vggt(
         normalize_on_sample=False,
         on_episode_reset=extractor.reset,
     )
-    buffer = ReplayBuffer(capacity=agent_cfg.buffer_capacity)
+    buffer = ReplayBuffer(
+        capacity=agent_cfg.buffer_capacity,
+        num_actions=agent_cfg.num_actions,
+    )
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     return env, agent, buffer, obs_adapter, agent_cfg, extractor

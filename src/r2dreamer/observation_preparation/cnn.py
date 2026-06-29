@@ -18,7 +18,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     PreparedObservation,
     replay_observation_form,
 )
-from src.r2dreamer.world_model import encoders as wm_encoders
+from src.r2dreamer.encoders.cnn import ConvEncoder
 
 
 CNN_OBSERVATION_CONFIG = ObservationRunConfig(
@@ -37,7 +37,7 @@ def _cnn_contract(
         observation_preparation_type="cnn",
         encoder_type="cnn",
         env_render_resolution=config.dims.render_size,
-        encoder_module_cls=wm_encoders.ConvEncoder,
+        encoder_module_cls=ConvEncoder,
         env_observation=ObservationFormContract(
             {
                 "image": image_uint8,

@@ -123,7 +123,7 @@ def setup(args):
         cfg.train_ratio = args.train_ratio
     rng = jax.random.PRNGKey(args.seed)
     agent = R2DreamerAgent(cfg, rng)
-    buffer = ReplayBuffer(capacity=cfg.buffer_capacity)
+    buffer = ReplayBuffer(capacity=cfg.buffer_capacity, num_actions=cfg.num_actions)
     return enc, adapter, env, cfg, agent, buffer, rng
 
 

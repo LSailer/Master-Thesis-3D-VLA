@@ -30,7 +30,7 @@ from networks import ConvEncoder as PT_ConvEncoder, MLPHead as PT_MLPHead
 
 # -- JAX imports --
 from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear, R2RSSM
-from src.r2dreamer.world_model.encoders import ConvEncoder
+from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.world_model.heads import R2MLP, onehot_mode_st
 from src.r2dreamer.world_model.loss import kl_loss
 from src.r2dreamer.behavior.imagination import _lambda_return

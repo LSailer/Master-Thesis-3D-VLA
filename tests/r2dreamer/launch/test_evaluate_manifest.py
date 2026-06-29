@@ -10,7 +10,7 @@ from src.r2dreamer.launch.evaluate import (
 )
 from src.r2dreamer.observation_preparation import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import PreparedObservation
-from src.r2dreamer.world_model import encoders as wm_encoders
+from src.r2dreamer.encoders.cnn import ConvEncoder
 
 
 def test_find_manifest_next_to_checkpoint(tmp_path):
@@ -49,7 +49,7 @@ def test_load_arch_overrides_recovers_encoder_input_contract_from_manifest(tmp_p
 
     assert overrides["obs_shape"] == (3, 64, 64)
     assert overrides["encoder_type"] == "cnn"
-    assert overrides["encoder_module_cls"] is wm_encoders.ConvEncoder
+    assert overrides["encoder_module_cls"] is ConvEncoder
     assert overrides["encoder_input_contract"]["encoder_module_kwargs"] == {}
 
 

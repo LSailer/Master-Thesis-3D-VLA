@@ -66,6 +66,6 @@ class ObsAdapter:
             is_first=bool(step_obs["is_first"]),
         )
 
-    def augment_replay_batch(self, batch: dict[str, Any]) -> dict[str, Any]:
+    def augment_replay_batch(self, batch: Any) -> Any:
         """Optionally add live adapter context to a sampled replay batch."""
         return batch

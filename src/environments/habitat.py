@@ -287,6 +287,11 @@ class HabitatObjectNavEnv:
         self.reset()
 
     @property
+    def num_actions(self) -> int:
+        """Number of discrete actions exposed by this environment."""
+        return len(ACTIONS)
+
+    @property
     def current_episode(self) -> Any:
         """Current Habitat episode exposed without leaking the wrapped env."""
         return getattr(self._env, "current_episode", None)

@@ -95,7 +95,7 @@ def setup(args):
     agent = R2DreamerAgent(cfg, rng)
     rng, _ = jax.random.split(rng)
 
-    buffer = ReplayBuffer(capacity=cfg.buffer_capacity)
+    buffer = ReplayBuffer(capacity=cfg.buffer_capacity, num_actions=cfg.num_actions)
     return enc, adapter, env, cfg, agent, buffer, rng
 
 

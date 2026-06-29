@@ -25,7 +25,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     recover_encoder_input_contract,
 )
 from src.r2dreamer.observation_preparation.vggt import VGGT_DREAMER_SPECS
-from src.r2dreamer.world_model.encoders import HYBRID_RGB_DIM
+from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
 from src.r2dreamer.world_model.rssm import R2RSSM
 
 
