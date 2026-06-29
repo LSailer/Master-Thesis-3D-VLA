@@ -41,7 +41,7 @@ def benchmark_jax_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
     import jax
     import jax.numpy as jnp
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
+    from src.configs.config import R2DreamerConfig
 
     print(f"JAX devices: {jax.devices()}")
     print(f"JAX backend: {jax.default_backend()}")

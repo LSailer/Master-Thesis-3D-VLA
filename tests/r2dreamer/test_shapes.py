@@ -1,5 +1,5 @@
 import pytest
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 
 
 class TestR2DreamerConfig:
@@ -9,9 +9,11 @@ class TestR2DreamerConfig:
         assert cfg.feat_size == 2048 + 512  # 2560
         assert cfg.deter_size == 2048
         assert cfg.compute_dtype == "bfloat16"
+        assert cfg.step_penalty == -0.01
+        assert cfg.success_bonus == 10.0
 
-    def test_size25m(self):
-        cfg = R2DreamerConfig.size25M()
+    def test_size_25m(self):
+        cfg = R2DreamerConfig.size_25m()
         assert cfg.deter_size == 3072
         assert cfg.hidden_size == 384
 

@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.obs_batch import ObservationPacker, encoder_obs_from_batch
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM

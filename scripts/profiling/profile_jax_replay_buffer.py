@@ -22,7 +22,7 @@ import numpy as np
 
 from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.trainer import convert_batch
 
 ObsShape: TypeAlias = tuple[int, ...] | Mapping[str, tuple[int, ...]]

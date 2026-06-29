@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 import jax.numpy as jnp
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY
 from src.r2dreamer.observation_preparation.cnn import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import (

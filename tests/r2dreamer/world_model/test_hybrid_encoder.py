@@ -156,7 +156,7 @@ class TestDecoderGuard:
     """decoder=True requires an RGB modality (cnn or hybrid); else fail fast."""
 
     def _cfg(self, encoder_type, obs_shape):
-        from src.r2dreamer.config import R2DreamerConfig
+        from src.configs.config import R2DreamerConfig
         return R2DreamerConfig(
             encoder_type=encoder_type, obs_shape=obs_shape, decoder=True,
             deter_size=64, stoch_classes=4, stoch_discrete=4, hidden_size=32,

@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.trainer import replay_batch_to_arrays
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,

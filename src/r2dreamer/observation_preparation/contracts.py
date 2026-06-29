@@ -16,7 +16,7 @@ from typing import Any
 import flax.linen as nn
 import numpy as np
 
-from src.r2dreamer.config import ObservationRunConfig
+from src.configs.config import ObservationRunConfig
 
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]

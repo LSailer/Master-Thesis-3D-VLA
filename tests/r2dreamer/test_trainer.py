@@ -11,7 +11,7 @@ import pytest
 
 from src.buffer.replay_buffer import ReplayTransition
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
+from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.observation_preparation import (
@@ -31,6 +31,8 @@ from src.r2dreamer.trainer import (
 def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
     cfg = TrainerConfig(output_dir="/tmp/r2dreamer-test")
 
+    assert cfg.total_steps == 10_000_000
+    assert cfg.seed == 0
     assert cfg.val_every == 0
     assert cfg.video_log_every == 0
     assert cfg.val_video_episodes == 0

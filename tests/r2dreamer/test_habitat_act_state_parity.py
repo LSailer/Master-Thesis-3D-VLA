@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from src.environments.habitat import build_habitat_env
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders import CNNEncoder
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.obs_batch import ObservationPacker

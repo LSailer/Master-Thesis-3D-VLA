@@ -108,7 +108,7 @@ def _make_agent(kind: str, seed: int):
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
+    from src.configs.config import R2DreamerConfig
     from src.r2dreamer.world_model.encoders import HybridEncoder, VGGTEncoder
 
     common = dict(

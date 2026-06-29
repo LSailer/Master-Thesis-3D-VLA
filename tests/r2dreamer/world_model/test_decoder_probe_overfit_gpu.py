@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 
 
 pytestmark = pytest.mark.gpu

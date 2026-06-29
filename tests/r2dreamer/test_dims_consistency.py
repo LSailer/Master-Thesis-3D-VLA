@@ -20,7 +20,7 @@ import dataclasses
 
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.world_model.encoders import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
 
 

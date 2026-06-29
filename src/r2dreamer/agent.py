@@ -22,7 +22,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from .config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from .checkpointing import load_checkpoint
 from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import (

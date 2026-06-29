@@ -3,7 +3,7 @@
 Provides Trainer (training loop), convert_batch (buffer→agent format),
 save/load_checkpoint, ObsAdapter (env→buffer/agent bridge), and
 habitat_defaults (pre-configured Habitat+CNN settings). Loop/orchestration
-knobs live in ``TrainerConfig`` (``src.r2dreamer.config``).
+knobs live in ``TrainerConfig`` (``src.configs.config``).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from src.r2dreamer.checkpointing import (
     load_checkpoint,
     save_checkpoint,
 )
-from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
+from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 from src.r2dreamer.obs_batch import ObservationPacker
 

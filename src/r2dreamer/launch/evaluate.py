@@ -18,7 +18,7 @@ from src.environments.observation import ObservationFrame
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (

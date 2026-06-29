@@ -29,7 +29,7 @@ from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _flatten_full_aggregator_tokens,
 )
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders import VGGTAggTokenTransformerEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.obs_batch import ObservationPacker

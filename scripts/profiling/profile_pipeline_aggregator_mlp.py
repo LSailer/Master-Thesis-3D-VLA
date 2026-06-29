@@ -42,7 +42,7 @@ from src.shared.profiling import (
     write_json,
 )
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.obs_batch import ObservationPacker

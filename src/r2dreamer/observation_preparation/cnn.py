@@ -6,7 +6,7 @@ import numpy as np
 
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     ReplayObservationConfig,

@@ -8,7 +8,7 @@ from typing import Literal, Any, cast
 
 import flax.linen as nn
 
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     ReplayObservationConfig,

@@ -31,7 +31,7 @@ from src.shared.profiling import (
 from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch

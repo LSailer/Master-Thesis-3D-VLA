@@ -305,7 +305,7 @@ def train(
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
+    from src.configs.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
     from src.r2dreamer.trainer import Trainer, habitat_defaults

@@ -6,7 +6,7 @@ import json
 import numpy as np
 
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     R2DreamerConfig,

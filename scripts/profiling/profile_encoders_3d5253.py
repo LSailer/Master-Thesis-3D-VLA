@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import jax
 import jax.numpy as jnp
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.shared.profiling import make_synthetic_rgb_frame, measure_ms
 

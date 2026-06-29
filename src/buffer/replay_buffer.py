@@ -8,8 +8,10 @@ observations, actions, rewards, and flags.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import TypeAlias
 
 import jax.numpy as jnp  # noqa: E402
 import numpy as np
@@ -34,7 +36,10 @@ class HybridObservation:
     wp_cp: jnp.ndarray
 
 
-ObservationInput = jnp.ndarray | HybridObservation
+ObservationLeaf: TypeAlias = jnp.ndarray | np.ndarray
+ObservationInput: TypeAlias = (
+    ObservationLeaf | HybridObservation | Mapping[str, ObservationLeaf]
+)
 
 
 @struct.dataclass
