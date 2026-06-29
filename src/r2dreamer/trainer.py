@@ -12,14 +12,20 @@ import csv
 import os
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import (
+    HybridObservation,
+    ReplayBatch,
+    ReplayBuffer,
+    ReplayTransition,
+)
 from src.environments.observation import ObservationFrame
 from src.shared.video_utils import (
     compose_frame,
@@ -86,24 +92,157 @@ class R2DreamerAgentLike(Protocol):
 # convert_batch
 # ---------------------------------------------------------------------------
 
+ArrayObservation: TypeAlias = np.ndarray | jax.Array
+ReplayObservation: TypeAlias = (
+    ArrayObservation | Mapping[str, ArrayObservation] | HybridObservation
+)
+ReplayArrayBatch: TypeAlias = dict[str, Any]
 
-def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
-    """Convert replay buffer output to agent training format.
+
+def _stack_array_grid(values: list[list[ArrayObservation]]) -> jax.Array:
+    """Stack ``(B, T)`` replay observation arrays into one JAX array."""
+    return jnp.stack(
+        [jnp.stack([jnp.asarray(value) for value in sequence]) for sequence in values]
+    )
+
+
+def _transition_observation(transition: ReplayTransition) -> ReplayObservation:
+    """Return a transition observation, including structured adapter mappings."""
+    return cast(ReplayObservation, transition.obs)
+
+
+def _stack_hybrid_observations(
+    obs_grid: list[list[ReplayObservation]],
+) -> dict[str, jax.Array]:
+    """Stack replay-domain hybrid observations as explicit replay fields."""
+    images: list[list[ArrayObservation]] = []
+    wp_cp_values: list[list[ArrayObservation]] = []
+    for sequence in obs_grid:
+        image_sequence: list[ArrayObservation] = []
+        wp_cp_sequence: list[ArrayObservation] = []
+        for obs in sequence:
+            if not isinstance(obs, HybridObservation):
+                raise TypeError("cannot mix hybrid and non-hybrid replay observations")
+            image_sequence.append(obs.image)
+            wp_cp_sequence.append(obs.wp_cp)
+        images.append(image_sequence)
+        wp_cp_values.append(wp_cp_sequence)
+    return {
+        "image": _stack_array_grid(images),
+        "wp_cp": _stack_array_grid(wp_cp_values),
+    }
+
+
+def _stack_mapping_observations(
+    obs_grid: list[list[ReplayObservation]],
+    first_obs: Mapping[str, ArrayObservation],
+) -> dict[str, jax.Array]:
+    """Stack structured replay mappings after checking each window has same keys."""
+    keys = tuple(first_obs.keys())
+    expected_keys = set(keys)
+    for sequence in obs_grid:
+        for obs in sequence:
+            if not isinstance(obs, Mapping):
+                raise TypeError("cannot mix mapping and non-mapping replay observations")
+            if set(obs.keys()) != expected_keys:
+                raise KeyError(
+                    "replay observation keys changed inside sampled batch: "
+                    f"expected={sorted(expected_keys)}, got={sorted(obs.keys())}"
+                )
+    return {
+        key: _stack_array_grid(
+            [
+                [cast(Mapping[str, ArrayObservation], obs)[key] for obs in sequence]
+                for sequence in obs_grid
+            ]
+        )
+        for key in keys
+    }
+
+
+def _stack_replay_observations(batch: ReplayBatch) -> jax.Array | dict[str, jax.Array]:
+    """Stack transition observations into the raw replay-batch observation form."""
+    obs_grid = [
+        [_transition_observation(transition) for transition in sequence]
+        for sequence in batch
+    ]
+    first_obs = obs_grid[0][0]
+    if isinstance(first_obs, HybridObservation):
+        return _stack_hybrid_observations(obs_grid)
+    if isinstance(first_obs, Mapping):
+        return _stack_mapping_observations(obs_grid, first_obs)
+    return _stack_array_grid(cast(list[list[ArrayObservation]], obs_grid))
+
+
+def replay_batch_to_arrays(batch: ReplayBatch) -> ReplayArrayBatch:
+    """Pack transition-object replay windows into arrays with ``(B, T)`` prefix.
+
+    Args:
+        batch: Non-empty sampled replay windows returned by ``ReplayBuffer.sample``.
+
+    Returns:
+        Raw replay arrays keyed by ``obs``, ``actions``, ``rewards``,
+        ``is_first``, and ``is_episode_end``. Observation leaves preserve their
+        stored dtype and have shape ``(batch_size, seq_len, *obs_shape)``.
+    """
+    if not batch:
+        raise ValueError("cannot convert an empty replay batch")
+    seq_len = len(batch[0])
+    if seq_len == 0:
+        raise ValueError("cannot convert replay sequences with length zero")
+    if any(len(sequence) != seq_len for sequence in batch):
+        raise ValueError("all replay sequences must have the same length")
+
+    episode_ends = [
+        [bool(transition.is_episode_end) for transition in sequence]
+        for sequence in batch
+    ]
+    is_first = [
+        [
+            offset == 0
+            or bool(transition.is_first)
+            or (offset > 0 and episode_ends[batch_index][offset - 1])
+            for offset, transition in enumerate(sequence)
+        ]
+        for batch_index, sequence in enumerate(batch)
+    ]
+
+    return {
+        "obs": _stack_replay_observations(batch),
+        "actions": jnp.asarray(
+            [[int(transition.action) for transition in sequence] for sequence in batch],
+            dtype=jnp.int32,
+        ),
+        "rewards": jnp.asarray(
+            [
+                [float(transition.reward) for transition in sequence]
+                for sequence in batch
+            ],
+            dtype=jnp.float32,
+        ),
+        "is_first": jnp.asarray(is_first, dtype=jnp.bool_),
+        "is_episode_end": jnp.asarray(episode_ends, dtype=jnp.bool_),
+    }
+
+
+def convert_batch(batch: ReplayBatch | ReplayArrayBatch, num_actions: int) -> dict[str, Any]:
+    """Convert replay output to agent training format.
 
     Replay stores transitions as ``obs_t, action_t, reward_{t+1}``. The RSSM
     posterior for ``obs_t`` must receive the previous action/labels, so shift
     transition fields right by one step inside each sampled window.
     """
-    actions = jax.nn.one_hot(batch["actions"], num_actions)
-    rewards = jnp.asarray(batch["rewards"], dtype=jnp.float32)
-    episode_end = jnp.asarray(batch["is_episode_end"], dtype=jnp.float32)
+    replay_arrays = replay_batch_to_arrays(batch) if isinstance(batch, list) else batch
+    actions = jax.nn.one_hot(cast(jax.Array, replay_arrays["actions"]), num_actions)
+    rewards = jnp.asarray(replay_arrays["rewards"], dtype=jnp.float32)
+    episode_end = jnp.asarray(replay_arrays["is_episode_end"], dtype=jnp.float32)
     zero_action = jnp.zeros_like(actions[:, :1])
     zero_scalar = jnp.zeros_like(rewards[:, :1])
     return {
-        "obs": batch["obs"],
+        "obs": replay_arrays["obs"],
         "actions": jnp.concatenate([zero_action, actions[:, :-1]], axis=1),
         "rewards": jnp.concatenate([zero_scalar, rewards[:, :-1]], axis=1),
-        "is_first": jnp.asarray(batch["is_first"], dtype=jnp.float32),
+        "is_first": jnp.asarray(replay_arrays["is_first"], dtype=jnp.float32),
         "is_episode_end": jnp.concatenate(
             [zero_scalar, episode_end[:, :-1]], axis=1
         ),
@@ -394,7 +533,7 @@ class Trainer:
                 "ObservationFrame.previous_action does not match recorded action: "
                 f"expected {action}, got {next_obs.previous_action}"
             )
-        self.buffer.add(buffer_obs, next_obs)
+        self.buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
 
     def _finish_train_episode(
         self,
@@ -533,9 +672,11 @@ class Trainer:
                 train_credit += acfg.train_ratio / batch_steps
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
-                    batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
-                    batch = self.obs_adapter.augment_replay_batch(batch)
-                    batch = convert_batch(batch, acfg.num_actions)
+                    batch_raw = replay_batch_to_arrays(
+                        self.buffer.sample(acfg.batch_size, acfg.seq_len)
+                    )
+                    batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
+                    batch = convert_batch(batch_raw, acfg.num_actions)
                     metrics = self.agent.train_step(batch, train_key)
                     train_credit -= 1.0
 
@@ -622,7 +763,9 @@ class Trainer:
             )
 
         # Sample once, freeze, reuse.
-        batch_raw = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch_raw = replay_batch_to_arrays(
+            self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        )
         batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
         batch = convert_batch(batch_raw, self.acfg.num_actions)
         print(

@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _flatten_full_aggregator_tokens,
 )
@@ -176,7 +176,7 @@ def run_phase(label, n_steps, adapter, env, cfg, agent, buffer, rng, buffer_obs,
         next_buffer_obs, next_agent_obs = transform_timed(adapter, next_obs, accum)
 
         with timed(accum, "buffer_add"):
-            buffer.add(buffer_obs, next_obs)
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
 
         if next_obs["done"]:
             obs = env.reset()
@@ -221,7 +221,7 @@ def run_profile(args, adapter, env, cfg, agent, buffer, rng):
         next_buffer_obs, next_agent_obs = transform_timed(adapter, next_obs, prefill_accum)
 
         with timed(prefill_accum, "buffer_add"):
-            buffer.add(buffer_obs, next_obs)
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
 
         if next_obs["done"]:
             obs = env.reset()

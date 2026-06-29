@@ -372,8 +372,12 @@ def _run_eval_episode(
 
     for _step in range(500):
         if isinstance(agent, RandomAgent):
-            action = agent.sample_action()
-            next_obs = agent.act(action)
+            next_obs = agent.act()
+            action = next_obs.previous_action
+            if action is None:
+                raise RuntimeError(
+                    "random-agent step observation is missing previous_action"
+                )
         else:
             rng_key, act_key = jax.random.split(rng_key)
             action, act_state = agent.act_with_state(

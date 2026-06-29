@@ -82,7 +82,9 @@ inside `scratchpad/`; the user manually copies accepted code into production.
 ## Commands
 
 - Run commands directly; do not hide output with `tail`/pipes.
-- Do not run Pylint/Pyright after every edit.
+- Do not run Pylint/Pyright or pytest after every edit. During iterative edits,
+  prefer inspection, search, and small syntax checks. Run lint/tests only when
+  explicitly requested or before committing.
 - Before committing non-doc code changes, run the narrowest relevant checks:
   - `python -m pylint <changed paths>`
   - configured Pylance/Pyright diagnostics when available

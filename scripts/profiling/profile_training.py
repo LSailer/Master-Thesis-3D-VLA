@@ -28,7 +28,7 @@ from src.shared.profiling import (
     timed,
     write_json,
 )
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
@@ -222,7 +222,7 @@ def run_loop(
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(buffer_obs, next_obs)
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
         total_steps += 1
         total_reward += next_obs["reward"]
 
@@ -251,7 +251,7 @@ def run_loop(
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(buffer_obs, next_obs)
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
         total_steps += 1
         total_reward += next_obs["reward"]
 

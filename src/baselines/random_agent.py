@@ -10,17 +10,11 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import NamedTuple
 
 import numpy as np
 
 from src.environments.habitat import ACTIONS, HabitatObjectNavEnv, build_habitat_env
 from src.environments.observation import ObservationFrame
-
-
-class ActionObservation(NamedTuple):
-    action: int
-    observation: ObservationFrame
 
 
 class RandomAgent:
@@ -42,10 +36,9 @@ class RandomAgent:
         """Sample one action uniformly from ``[0, num_actions)``."""
         return int(self._rng.integers(0, self.num_actions))
 
-    def act(self) -> ActionObservation:
-        """Apply the provided action directly to the environment."""
-        action = self.sample_action()
-        return ActionObservation(action, self.env.step(action))
+    def act(self) -> ObservationFrame:
+        """Sample and apply one action, returning the resulting observation."""
+        return self.env.step(self.sample_action())
 
 
 @dataclass(frozen=True)
@@ -149,8 +142,10 @@ def _run_episode(
     total_reward = 0.0
     steps = 0
     for _ in range(max_episode_steps):
-        action = agent.sample_action()
-        obs = agent.act(action)
+        obs = agent.act()
+        action = obs.previous_action
+        if action is None:
+            raise RuntimeError("random-agent step observation is missing previous_action")
         action_counts[action] += 1
         total_reward += obs.reward
         steps += 1

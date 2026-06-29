@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.config import R2DreamerConfig
 from src.r2dreamer.trainer import convert_batch
@@ -356,7 +356,9 @@ def _fill_numpy_buffer(
             done=episode_ends[idx],
         )
         t0 = time.perf_counter()
-        buffer.add(_to_numpy_obs(_tree_index(obs, idx)), frame)
+        buffer.add(
+            ReplayTransition.from_frame(_to_numpy_obs(_tree_index(obs, idx)), frame)
+        )
         times.append((time.perf_counter() - t0) * 1000.0)
     return _summ(times)
 

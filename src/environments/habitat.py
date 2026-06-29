@@ -289,7 +289,7 @@ class HabitatObjectNavEnv:
     @property
     def current_episode(self) -> Any:
         """Current Habitat episode exposed without leaking the wrapped env."""
-        return self._env.current_episode
+        return getattr(self._env, "current_episode", None)
 
     @property
     def episode_count(self) -> int:

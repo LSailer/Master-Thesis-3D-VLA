@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from src.buffer.replay_buffer import ReplayTransition
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.agent import R2DreamerAgent
@@ -22,6 +23,7 @@ from src.r2dreamer.trainer import (
     config_snapshot,
     convert_batch,
     load_checkpoint,
+    replay_batch_to_arrays,
     save_checkpoint,
 )
 
@@ -154,6 +156,43 @@ def _tree_any_changed(before, after, *, atol=1e-7):
         not np.allclose(np.asarray(a), np.asarray(b), atol=atol)
         for a, b in zip(before, jax.tree.leaves(after))
     )
+
+
+class TestReplayBatchToArrays:
+    """Replay transition windows become raw training-aligned arrays."""
+
+    def test_marks_is_first_after_episode_end(self):
+        batch = replay_batch_to_arrays(
+            [
+                [
+                    ReplayTransition(
+                        obs=np.array([0.0], dtype=np.float32),
+                        action=0,
+                        reward=0.0,
+                        is_first=False,
+                        is_episode_end=False,
+                    ),
+                    ReplayTransition(
+                        obs=np.array([1.0], dtype=np.float32),
+                        action=1,
+                        reward=1.0,
+                        is_first=False,
+                        is_episode_end=True,
+                    ),
+                    ReplayTransition(
+                        obs=np.array([2.0], dtype=np.float32),
+                        action=2,
+                        reward=2.0,
+                        is_first=False,
+                        is_episode_end=False,
+                    ),
+                ]
+            ]
+        )
+
+        np.testing.assert_array_equal(
+            np.asarray(batch["is_first"]), np.array([[True, False, True]])
+        )
 
 
 class TestConvertBatch:
@@ -488,9 +527,11 @@ class TestTrainerMappingReplay:
         )
 
         assert trainer.buffer.size == 1
-        batch = trainer.buffer.sample(batch_size=1, seq_len=1)
-        assert set(batch["obs"]) == {"image", "wp_cp"}
-        assert batch["obs"]["image"].shape == (1, 1, 3, 64, 64)
-        assert batch["obs"]["image"].dtype == jnp.uint8
-        assert batch["obs"]["wp_cp"].shape == (1, 1, 4116)
-        assert batch["obs"]["wp_cp"].dtype == jnp.float32
+        batch = replay_batch_to_arrays(trainer.buffer.sample(batch_size=1, seq_len=1))
+        obs_batch = batch["obs"]
+        assert isinstance(obs_batch, dict)
+        assert set(obs_batch) == {"image", "wp_cp"}
+        assert obs_batch["image"].shape == (1, 1, 3, 64, 64)
+        assert obs_batch["image"].dtype == jnp.uint8
+        assert obs_batch["wp_cp"].shape == (1, 1, 4116)
+        assert obs_batch["wp_cp"].dtype == jnp.float32

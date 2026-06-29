@@ -47,7 +47,7 @@ from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 
 
 def block_tree(x):
@@ -140,7 +140,7 @@ def run_prefill(adapter, env, buffer, num_actions, n_steps):
         action = int(np.random.randint(0, num_actions))
         next_obs = env.step(action)
         next_buffer_obs, _, _ = transform_timed(adapter, next_obs)
-        buffer.add(buffer_obs, next_obs)
+        buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
         if next_obs["done"]:
             obs = env.reset()
             if adapter.on_episode_reset:
@@ -185,7 +185,7 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
 
         # buffer.add
         with timed(accum, "buffer_add"):
-            buffer.add(buffer_obs, next_obs)
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
 
         if next_obs["done"]:
             obs = env.reset()

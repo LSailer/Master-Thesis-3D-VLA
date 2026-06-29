@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from src.r2dreamer.config import R2DreamerConfig
+from src.r2dreamer.trainer import replay_batch_to_arrays
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
     WORLD_POINTS_KEY,
@@ -22,13 +23,24 @@ from src.r2dreamer.world_model.encoders import (
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
-from src.buffer.replay_buffer import ReplayBuffer
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.environments.observation import ObservationFrame
 
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
 POOL_DIM = 1024
 POOLED_FEATURE_DIM = 3 * POOL_DIM  # [cam | mean_patches | max_patches]
+
+
+class _FullTokenOutput:
+    """Minimal VGGT-output object for full-token readout tests."""
+
+    world_points = None
+    camera_pose = None
+
+    def __init__(self, frame_tokens: jax.Array, global_tokens: jax.Array) -> None:
+        self.frame_tokens = frame_tokens
+        self.global_tokens = global_tokens
 
 
 class TestVGGTAggTokenTransformerEncoder:
@@ -83,9 +95,11 @@ class TestVGGTFullTokenContextTransformer:
     """Shape tests for the 3D-77 full-token context Transformer."""
 
     def test_full_token_source_shape(self):
-        tokens = jnp.zeros((1374, 2048), dtype=jnp.float32)
         out = full_aggregator_tokens(
-            {"aggregator_full_tokens": tokens},
+            _FullTokenOutput(
+                frame_tokens=jnp.zeros((1374, 1024), dtype=jnp.float32),
+                global_tokens=jnp.zeros((1374, 1024), dtype=jnp.float32),
+            ),
             expected_shape=(1374, 2048),
         )
         assert out.shape == (1374, 2048)
@@ -399,10 +413,14 @@ class TestVGGTFeatureReplayBuffer:
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(200):
             features = np.random.randn(FEATURE_DIM).astype(np.float32)
-            buf.add(features, _transition_frame(i % 4, 0.1, i % 50 == 49))
+            buf.add(
+                ReplayTransition.from_frame(
+                    features, _transition_frame(i % 4, 0.1, i % 50 == 49)
+                )
+            )
         assert buf.size == 200
 
-        batch = buf.sample(batch_size=4, seq_len=16)
+        batch = replay_batch_to_arrays(buf.sample(batch_size=4, seq_len=16))
         assert batch["obs"].shape == (4, 16, FEATURE_DIM)
         assert batch["obs"].dtype == jnp.float32
         assert batch["actions"].shape == (4, 16)
@@ -413,12 +431,16 @@ class TestVGGTFeatureReplayBuffer:
         """VGGT features should NOT be divided by 255."""
         buf = _vggt_replay_buffer(capacity=100)
         features = np.ones(FEATURE_DIM, dtype=np.float32) * 500.0
-        buf.add(features, _transition_frame(0, 0.0, False))
+        buf.add(ReplayTransition.from_frame(features, _transition_frame(0, 0.0, False)))
         # Add enough for sampling
         for _ in range(63):
-            buf.add(features, _transition_frame(0, 0.0, False))
+            buf.add(
+                ReplayTransition.from_frame(
+                    features, _transition_frame(0, 0.0, False)
+                )
+            )
 
-        batch = buf.sample(batch_size=1, seq_len=16)
+        batch = replay_batch_to_arrays(buf.sample(batch_size=1, seq_len=16))
         # Values should be 500.0, not 500/255
         assert float(batch["obs"][0, 0, 0]) == pytest.approx(500.0)
 
@@ -426,9 +448,13 @@ class TestVGGTFeatureReplayBuffer:
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(100):
             features = np.zeros(FEATURE_DIM, dtype=np.float32)
-            buf.add(features, _transition_frame(0, 0.0, i % 20 == 19))
+            buf.add(
+                ReplayTransition.from_frame(
+                    features, _transition_frame(0, 0.0, i % 20 == 19)
+                )
+            )
 
-        batch = buf.sample(batch_size=8, seq_len=16)
+        batch = replay_batch_to_arrays(buf.sample(batch_size=8, seq_len=16))
         # is_first should be 1.0 at t=0 of every sequence
         assert (batch["is_first"][:, 0] == 1.0).all()
 

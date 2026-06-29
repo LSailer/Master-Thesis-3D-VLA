@@ -8,7 +8,7 @@ and replay dtype conversion stay local here.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -37,8 +37,19 @@ class VGGTOutputLike(Protocol):
     global_tokens: jnp.ndarray
 
 
+def _output_field(out: VGGTOutputLike, field_name: str) -> jnp.ndarray | None:
+    """Return one extractor output field from object or legacy mapping outputs."""
+    if isinstance(out, Mapping):
+        value = out.get(field_name)
+        if value is None and field_name == "world_points":
+            value = out.get("dense_world_points")
+        if value is None and field_name == "global_tokens":
+            value = out.get("aggregator_features")
+        return None if value is None else jnp.asarray(value)
+    return getattr(out, field_name)
+
+
 def _require_output_field(
-    out: VGGTOutputLike,
     field_name: str,
     value: jnp.ndarray | None,
 ) -> jnp.ndarray:
@@ -49,15 +60,17 @@ def _require_output_field(
 
 
 def flatten_world_points_camera_pose(out: VGGTOutputLike) -> jnp.ndarray:
-    """Flatten default 37x37 world-points + camera-pose for MLP encoders."""
-    features = _structured_world_points_camera_pose(
-        out,
-        expected_hwc_shape=(VGGT_DEFAULT_WP_POOL_SIZE, VGGT_DEFAULT_WP_POOL_SIZE, 3),
-        include_camera_pose=True,
+    """Flatten HWC world-points followed by camera-pose for MLP encoders."""
+    world_points = _pool_world_points_hwc(
+        _require_output_field("world_points", _output_field(out, "world_points")),
+        (VGGT_DEFAULT_WP_POOL_SIZE, VGGT_DEFAULT_WP_POOL_SIZE, 3),
     )
-    wp = features[WORLD_POINTS_KEY].reshape(-1)
-    cp = features[CAMERA_POSE_KEY].reshape(-1)
-    return jnp.concatenate([wp, cp]).astype(jnp.float32)
+    camera_pose = _require_output_field(
+        "camera_pose", _output_field(out, "camera_pose")
+    )
+    return jnp.concatenate(
+        [world_points.reshape(-1), camera_pose.reshape(-1)]
+    ).astype(jnp.float32)
 
 
 def _pool_world_points_hwc(
@@ -97,14 +110,16 @@ def _structured_world_points_camera_pose(
 ) -> dict[str, jnp.ndarray]:
     """Transform raw extractor points into legacy structured readout fields."""
     raw_world_points = _require_output_field(
-        out, "world_points", out.world_points
+        "world_points", _output_field(out, "world_points")
     )
     world_points = _pool_world_points_hwc(raw_world_points, expected_hwc_shape)
     features = {
         WORLD_POINTS_KEY: jnp.transpose(world_points, (2, 0, 1)).astype(jnp.float32),
     }
     if include_camera_pose:
-        camera_pose = _require_output_field(out, "camera_pose", out.camera_pose)
+        camera_pose = _require_output_field(
+            "camera_pose", _output_field(out, "camera_pose")
+        )
         features[CAMERA_POSE_KEY] = camera_pose.astype(jnp.float32)
     return features
 
@@ -113,7 +128,7 @@ def _checked_feature(
     out: VGGTOutputLike, key: str, expected_shape: tuple[int, ...]
 ) -> jnp.ndarray:
     """Return a float32 VGGT readout after validating its contract shape."""
-    features = getattr(out, key)
+    features = _require_output_field(key, _output_field(out, key))
     if tuple(features.shape) != expected_shape:
         raise ValueError(f"expected {key} shape {expected_shape}, got {features.shape}")
     return features.astype(jnp.float32)
@@ -150,9 +165,16 @@ def full_aggregator_tokens(
     out: VGGTOutputLike, expected_shape: tuple[int, ...]
 ) -> jnp.ndarray:
     """Return full-width VGGT aggregator tokens for live context paths."""
-    frame_tokens = out.frame_tokens
-    global_tokens = out.global_tokens
-    features = jnp.concatenate([frame_tokens, global_tokens], axis=-1)
+    if isinstance(out, Mapping) and "aggregator_full_tokens" in out:
+        features = jnp.asarray(out["aggregator_full_tokens"])
+    else:
+        frame_tokens = _require_output_field(
+            "frame_tokens", _output_field(out, "frame_tokens")
+        )
+        global_tokens = _require_output_field(
+            "global_tokens", _output_field(out, "global_tokens")
+        )
+        features = jnp.concatenate([frame_tokens, global_tokens], axis=-1)
     if tuple(features.shape) != expected_shape:
         raise ValueError(
             f"expected full tokens shape {expected_shape}, got {features.shape}"
@@ -177,6 +199,7 @@ class VGGTHeadReadout:
     expected_hwc_shape: tuple[int, int, int]
     replay_dtype: dict[str, str]
     include_camera_pose: bool
+    request_dense: bool = False
 
     def prepare(
         self,
@@ -184,7 +207,11 @@ class VGGTHeadReadout:
         obs: ObservationFrame,
     ) -> tuple[dict[str, np.ndarray], dict]:
         """Extract and format head outputs for replay and acting."""
-        out = extractor.extract(obs)
+        out = (
+            extractor.extract(obs, return_dense=True)
+            if self.request_dense
+            else extractor.extract(obs)
+        )
         features = _structured_world_points_camera_pose(
             out,
             expected_hwc_shape=self.expected_hwc_shape,
@@ -243,6 +270,7 @@ def make_vggt_readout(
             expected_hwc_shape=contract_world_points_hwc_shape(contract),
             replay_dtype=replay_dtype,
             include_camera_pose=spec.include_camera_pose,
+            request_dense=spec.wp_side == "dense",
         )
     if feature_kind in AGGREGATOR_PROJECTIONS:
         if isinstance(replay_dtype, dict):

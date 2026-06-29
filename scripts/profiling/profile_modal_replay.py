@@ -55,14 +55,6 @@ def _block_tree(tree: Any) -> None:
             pass
 
 
-def _fill_common(buffer, capacity: int, rng: np.random.Generator) -> None:
-    buffer.actions[:] = rng.integers(0, 4, size=capacity, dtype=np.int32)
-    buffer.rewards[:] = rng.standard_normal(capacity).astype(np.float32)
-    buffer.episode_ends[:] = False
-    buffer.size = capacity
-    buffer.idx = 0
-
-
 def _frame(action: int = 0, reward: float = 0.0, done: bool = False):
     from src.environments.observation import ObservationFrame
 
@@ -75,54 +67,40 @@ def _frame(action: int = 0, reward: float = 0.0, done: bool = False):
     )
 
 
-def _array_storage(buffer: Any) -> np.ndarray:
-    if not isinstance(buffer.obs, np.ndarray):
-        raise TypeError("expected single-array replay storage")
-    return buffer.obs
-
-
-def _mapping_storage(buffer: Any) -> dict[str, np.ndarray]:
-    if not isinstance(buffer.obs, dict):
-        raise TypeError("expected mapping replay storage")
-    return buffer.obs
-
-
 def _make_buffer(kind: str, capacity: int, rng: np.random.Generator):
-    from src.buffer.replay_buffer import ReplayBuffer
+    from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+
+    buffer = ReplayBuffer(capacity=capacity)
+    actions = rng.integers(0, 4, size=capacity, dtype=np.int32)
+    rewards = rng.standard_normal(capacity).astype(np.float32)
+
+    def add_transition(index: int, obs: Any) -> None:
+        buffer.add(
+            ReplayTransition.from_frame(
+                obs,
+                _frame(action=int(actions[index]), reward=float(rewards[index])),
+            )
+        )
 
     if kind == "wpcp":
-        buffer = ReplayBuffer(capacity=capacity)
-        buffer.add(np.zeros((4116,), dtype=np.float32), _frame())
-        _array_storage(buffer)[:] = rng.standard_normal(
-            (capacity, 4116), dtype=np.float32
-        )
+        features = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        for idx, obs in enumerate(features):
+            add_transition(idx, obs)
     elif kind == "flat_hybrid":
-        buffer = ReplayBuffer(capacity=capacity)
-        buffer.add(np.zeros((16404,), dtype=np.float32), _frame())
         image = rng.integers(0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8)
         wp_cp = rng.standard_normal((capacity, 4116), dtype=np.float32)
         rgb = image.astype(np.float32).reshape(capacity, -1) / 255.0
-        _array_storage(buffer)[:] = np.concatenate([rgb, wp_cp], axis=-1).astype(
-            np.float32
-        )
+        flat = np.concatenate([rgb, wp_cp], axis=-1).astype(np.float32)
+        for idx, obs in enumerate(flat):
+            add_transition(idx, obs)
     elif kind == "modal_hybrid":
-        buffer = ReplayBuffer(capacity=capacity)
-        buffer.add(
-            {
-                "image": np.zeros((3, 64, 64), dtype=np.uint8),
-                "wp_cp": np.zeros((4116,), dtype=np.float32),
-            },
-            _frame(),
-        )
-        storage = _mapping_storage(buffer)
-        storage["image"][:] = rng.integers(
-            0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8
-        )
-        storage["wp_cp"][:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        image = rng.integers(0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8)
+        wp_cp = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        for idx in range(capacity):
+            add_transition(idx, {"image": image[idx], "wp_cp": wp_cp[idx]})
     else:
         raise ValueError(kind)
 
-    _fill_common(buffer, capacity, rng)
     return buffer
 
 

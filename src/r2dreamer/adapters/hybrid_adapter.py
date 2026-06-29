@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import jax.numpy as jnp
 import jax
 import numpy as np
@@ -155,6 +157,11 @@ class VGGTHouseGlobalTokenObsAdapter(_RGBLiveTokenObsAdapter):
     token_name = "global tokens"
 
     def _tokens_from_output(self, out: VGGTOutputLike) -> jnp.ndarray:
+        if isinstance(out, Mapping):
+            tokens = out.get(GLOBAL_TOKENS_KEY, out.get("aggregator_features"))
+            if tokens is None:
+                raise ValueError("VGGT output field 'global_tokens' is required")
+            return jnp.asarray(tokens)
         return out.global_tokens
 
 

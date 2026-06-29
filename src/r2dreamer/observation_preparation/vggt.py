@@ -195,7 +195,7 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
     ),
     "vggt_wp_dense_cnn": VGGTDreamerSpec(
         name="vggt_wp_dense_cnn",
-        readout=HeadReadout("dense", include_camera_pose=False),
+        readout=HeadReadout("dense"),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
         dreamer=DreamerEncoderSpec("cnn", wm_encoders.ConvEncoder, "world_points"),
         agent_overrides=_SMALL_REPLAY_OVERRIDES,
