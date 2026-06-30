@@ -11,10 +11,12 @@ import nbformat as nbf
 
 
 def md(text: str):
+    """Create a Markdown notebook cell from text with surrounding newlines stripped."""
     return nbf.v4.new_markdown_cell(text.strip("\n"))
 
 
 def code(text: str):
+    """Create a code notebook cell from text with surrounding newlines stripped."""
     return nbf.v4.new_code_cell(text.strip("\n"))
 
 
@@ -40,7 +42,7 @@ from plotly.subplots import make_subplots
 from IPython.display import Image, display
 
 REPO = Path.cwd()
-while REPO.name and not (REPO / "CLAUDE.md").exists():
+while REPO.name and not (REPO / "AGENTS.md").exists():
     REPO = REPO.parent
 NOTEBOOK_DIR = REPO / "output/methods/debug_viz/l1/notebook"
 SIMILARITY_DIR = REPO / "output/methods/debug_viz/l1/similarity"
@@ -258,6 +260,7 @@ _plot_recon_pair(ep1, "ep1 (near-miss)")
 
 
 def main() -> None:
+    """Write the debug visualization notebook from the static cell list."""
     nb = nbf.v4.new_notebook()
     nb["cells"] = CELLS
     nb["metadata"] = {
