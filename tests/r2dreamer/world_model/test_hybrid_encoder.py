@@ -10,8 +10,9 @@ import pytest
 
 from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
 from src.r2dreamer.encoders.decoder import ConvDecoder
-from src.r2dreamer.encoders.mlp import HybridEncoder
+from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder, HybridEncoder
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
 
 
 @pytest.fixture
@@ -85,6 +86,31 @@ class TestHybridEncoder:
         assert cnn_e.shape == (2, 1024)
         assert vggt_e.shape == (2, 1024)
         assert fused.shape == (2, 2048)
+
+
+class TestHousePointsCameraEncoder:
+    def test_singleton_house_points_broadcast_over_camera_poses(self, rng):
+        enc = HousePointsCameraEncoder(
+            embed_dim=8,
+            camera_hidden=8,
+            camera_layers=1,
+            point_hidden=8,
+            point_layers=1,
+        )
+        obs = {
+            CAMERA_POSE_KEY: jnp.zeros((3, 9), dtype=jnp.float16),
+            HOUSE_CONTEXT_KEY: jnp.ones((1, 5, 6), dtype=jnp.float16),
+        }
+
+        params = enc.init(rng, obs)
+        fused = enc.apply(params, obs)
+        camera_embed, house_embed = enc.apply(params, obs, method=enc.branches)
+
+        assert camera_embed.shape == (3, 8)
+        assert house_embed.shape == (3, 8)
+        assert fused.shape == (3, 16)
+        assert jnp.allclose(house_embed[0], house_embed[1])
+        assert jnp.allclose(house_embed[0], house_embed[2])
 
 
 class TestRGBGlobalTokenTransformerEncoder:

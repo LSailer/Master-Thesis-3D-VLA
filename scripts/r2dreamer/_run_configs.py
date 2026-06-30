@@ -123,6 +123,19 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "3d-77", "jax", "3d-encoder",
         ],
     ),
+    # L1 static house points + current VGGT camera pose.
+    "habitat-l1-vggt-house-points-pose": dict(
+        env="habitat",
+        encoder="vggt_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose",
+        wandb_name="l1_static_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "static-sidecar", "camera-pose-replay",
+            "point-mlp", "jax", "3d-encoder",
+        ],
+    ),
     # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
     "habitat-l1-vggt-house-full-tokens-nogate": dict(
         env="habitat",

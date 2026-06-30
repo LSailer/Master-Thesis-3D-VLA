@@ -15,6 +15,7 @@ from src.r2dreamer.encoders.constants import (
 )
 from src.r2dreamer.encoders.decoder import ConvDecoder
 from src.r2dreamer.encoders.mlp import (
+    HousePointsCameraEncoder,
     HybridEncoder,
     MLPEncoder,
     VGGTAggRawMLPEncoder,
@@ -32,6 +33,7 @@ __all__ = [
     "HYBRID_VGGT_DIM",
     "ConvDecoder",
     "ConvEncoder",
+    "HousePointsCameraEncoder",
     "HybridEncoder",
     "MLPEncoder",
     "TokenTransformerEncoder",

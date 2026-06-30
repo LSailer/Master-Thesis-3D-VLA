@@ -21,6 +21,7 @@ from src.r2dreamer.obs_batch import (
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
+    CAMERA_POSE_KEY,
 )
 from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_IMAGE_SHAPE as IMAGE_SHAPE,
@@ -32,6 +33,10 @@ from src.r2dreamer.observation_preparation.vggt import (
     build_hybrid_contract,
     wp_cp_dim,
 )
+from src.r2dreamer.observation_preparation.static_house_context import (
+    encode_static_house_context,
+    load_ascii_ply_xyzrgb,
+)
 from src.shared.video_utils import resize_chw_uint8
 from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_DIM
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
@@ -41,6 +46,7 @@ HYBRID_FEATURE_DIM = HYBRID_RGB_DIM + wp_cp_dim()
 HOUSE_CONTEXT_FEATURE_DIM = HYBRID_RGB_DIM + HOUSE_CONTEXT_DIM
 FULL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_FULL_TOKEN_EMBED_DIM)
 GLOBAL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_AGGREGATOR_EMBED_DIM)
+CAMERA_POSE_SHAPE = (9,)
 
 
 class HybridObsAdapter(ObsAdapter):
@@ -178,9 +184,15 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         *,
         context_transformer: TokenTransformerEncoder | None = None,
         rng_seed: int = 0,
+        static_house_context_path: str | None = None,
+        static_house_context: np.ndarray | None = None,
     ):
+        if static_house_context_path is not None and static_house_context is not None:
+            raise ValueError(
+                "set only one of static_house_context_path or static_house_context"
+            )
         super().__init__(
-            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", HOUSE_CONTEXT_KEY: "float32"},
+            buffer_dtype={HYBRID_IMAGE_KEY: "uint8", HOUSE_CONTEXT_KEY: "float16"},
             buffer_shape={
                 HYBRID_IMAGE_KEY: IMAGE_SHAPE,
                 HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_DIM,),
@@ -189,6 +201,10 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             on_episode_reset=None,
         )
         self._extractor = extractor
+        self._static_context = self._resolve_static_context(
+            static_house_context_path,
+            static_house_context,
+        )
         self._context_transformer = context_transformer or TokenTransformerEncoder(
             embed_dim=HOUSE_CONTEXT_DIM,
             token_dim=VGGT_FULL_TOKEN_EMBED_DIM,
@@ -202,6 +218,17 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self._rng = jax.random.PRNGKey(rng_seed)
         self._context: np.ndarray | None = None
         self.agent_obs_shape = (HOUSE_CONTEXT_FEATURE_DIM,)
+
+    @staticmethod
+    def _resolve_static_context(
+        path: str | None,
+        context: np.ndarray | None,
+    ) -> np.ndarray | None:
+        if context is not None:
+            return np.asarray(context, dtype=np.float16)
+        if path is not None:
+            return encode_static_house_context(load_ascii_ply_xyzrgb(path))
+        return None
 
     def _ensure_context_params(self, tokens: jnp.ndarray):
         if self._context_params is None:
@@ -223,6 +250,9 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         return context
 
     def _extract_context(self, obs: ObservationFrame) -> np.ndarray:
+        if self._static_context is not None:
+            self._context = self._static_context
+            return self._static_context
         out = self._extractor.extract(obs)
         tokens = full_aggregator_tokens(out, FULL_TOKEN_SHAPE)
         context = self._project_context(tokens)
@@ -234,7 +264,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         context = self._extract_context(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,
-            HOUSE_CONTEXT_KEY: context.astype(np.float32),
+            HOUSE_CONTEXT_KEY: context.astype(np.float16),
         }
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,
@@ -242,3 +272,72 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             "is_first": env_obs.is_first,
         }
         return replay, agent_obs
+
+
+def _normalise_house_points(points_xyzrgb: np.ndarray) -> np.ndarray:
+    points = np.asarray(points_xyzrgb, dtype=np.float32).copy()
+    rgb = points[:, 3:6]
+    if float(np.max(rgb)) > 1.0:
+        rgb = rgb / 255.0
+    points[:, 3:6] = np.clip(rgb, 0.0, 1.0)
+    return points.astype(np.float16)
+
+
+def _camera_pose_from_output(out: VGGTOutputLike) -> np.ndarray:
+    if isinstance(out, Mapping):
+        camera_pose = out.get(CAMERA_POSE_KEY, out.get("camera_pose"))
+    else:
+        camera_pose = out.camera_pose
+    if camera_pose is None:
+        raise ValueError("VGGT output field 'camera_pose' is required")
+    return np.asarray(camera_pose, dtype=np.float16).reshape(CAMERA_POSE_SHAPE)
+
+
+class VGGTHousePointsPoseObsAdapter(ObsAdapter):
+    """Replay current camera pose and attach one static house point cloud.
+
+    Replay stores only ``camera_pose`` per step. The complete house points live
+    once on the adapter and are added to sampled batches via
+    ``augment_replay_batch``.
+    """
+
+    def __init__(self, extractor, *, house_points_path: str):
+        self._house_points = _normalise_house_points(
+            load_ascii_ply_xyzrgb(house_points_path)
+        )
+        super().__init__(
+            buffer_dtype={CAMERA_POSE_KEY: "float16"},
+            buffer_shape={CAMERA_POSE_KEY: CAMERA_POSE_SHAPE},
+            normalize_on_sample={CAMERA_POSE_KEY: False},
+            agent_obs_shape={
+                CAMERA_POSE_KEY: CAMERA_POSE_SHAPE,
+                HOUSE_CONTEXT_KEY: tuple(self._house_points.shape),
+            },
+            on_episode_reset=None,
+        )
+        self._extractor = extractor
+
+    def _extract_camera_pose(self, env_obs: ObservationFrame) -> np.ndarray:
+        return _camera_pose_from_output(self._extractor.extract(env_obs))
+
+    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+        camera_pose = self._extract_camera_pose(env_obs)
+        replay = {CAMERA_POSE_KEY: camera_pose}
+        agent_obs = {
+            CAMERA_POSE_KEY: jnp.asarray(camera_pose, dtype=jnp.float16),
+            HOUSE_CONTEXT_KEY: jnp.asarray(self._house_points, dtype=jnp.float16),
+            "is_first": env_obs.is_first,
+        }
+        return replay, agent_obs
+
+    def augment_replay_batch(self, batch):
+        house_points = jnp.asarray(self._house_points, dtype=jnp.float16)
+        if hasattr(batch, "obs") and hasattr(batch, "replace"):
+            obs = dict(batch.obs)
+            obs[HOUSE_CONTEXT_KEY] = house_points
+            return batch.replace(obs=obs)
+        augmented = dict(batch)
+        obs = dict(augmented["obs"])
+        obs[HOUSE_CONTEXT_KEY] = house_points
+        augmented["obs"] = obs
+        return augmented

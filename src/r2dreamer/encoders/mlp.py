@@ -9,7 +9,7 @@ from src.r2dreamer.encoders.constants import (
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
 )
-from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.world_model.heads import R2MLP
 from src.r2dreamer.world_model.rssm import RMSNorm
 
@@ -77,6 +77,86 @@ class WP64CNNCPMLPEncoder(nn.Module):
         camera_pose_embed = nn.Dense(self.cp_hidden, name="cp_proj")(camera_pose_embed)
         fused = jnp.concatenate([world_points_embed, camera_pose_embed], axis=-1)
         return nn.Dense(self.embed_dim, name="proj")(fused)
+
+
+class HousePointsCameraEncoder(nn.Module):
+    """Encode current camera pose against one static house point cloud.
+
+    ``camera_pose`` is per replay step with shape ``(B*T, 9)``. ``house_points``
+    is a singleton static sidecar with shape ``(1, N, 6)`` or ``(N, 6)`` and is
+    broadcast across all camera poses after the house branch is pooled.
+    """
+
+    embed_dim: int = 1024
+    camera_hidden: int = 1024
+    camera_layers: int = 1
+    point_hidden: int = 256
+    point_layers: int = 2
+    camera_pose_dim: int = 9
+    house_point_dim: int = 6
+
+    def _camera_embedding(self, camera_pose: jnp.ndarray) -> jnp.ndarray:
+        if camera_pose.ndim != 2 or camera_pose.shape[-1] != self.camera_pose_dim:
+            raise ValueError(
+                f"camera_pose must have shape (B, {self.camera_pose_dim}), "
+                f"got {camera_pose.shape}"
+            )
+        x = camera_pose.astype(jnp.float32)
+        for i in range(self.camera_layers):
+            x = nn.Dense(self.camera_hidden, name=f"camera_hidden{i}")(x)
+            x = RMSNorm(name=f"camera_norm{i}")(x)
+            x = nn.silu(x)
+        return nn.Dense(self.embed_dim, name="camera_proj")(x)
+
+    def _house_embedding(
+        self, house_points: jnp.ndarray, batch_size: int
+    ) -> jnp.ndarray:
+        if house_points.ndim == 2:
+            house_points = house_points[None]
+        if house_points.ndim != 3 or house_points.shape[-1] != self.house_point_dim:
+            raise ValueError(
+                "house_points must have shape (N, 6) or (S, N, 6), "
+                f"got {house_points.shape}"
+            )
+        x = house_points.astype(jnp.float32)
+        for i in range(self.point_layers):
+            x = nn.Dense(self.point_hidden, name=f"point_hidden{i}")(x)
+            x = RMSNorm(name=f"point_norm{i}")(x)
+            x = nn.silu(x)
+        pooled = jnp.concatenate([jnp.mean(x, axis=1), jnp.max(x, axis=1)], axis=-1)
+        house_embed = nn.Dense(self.embed_dim, name="house_proj")(pooled)
+        if house_embed.shape[0] == 1 and batch_size != 1:
+            house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))
+        elif house_embed.shape[0] != batch_size:
+            raise ValueError(
+                "house_points batch must be singleton or match camera batch: "
+                f"house={house_embed.shape[0]}, camera={batch_size}"
+            )
+        return house_embed
+
+    def _branches(
+        self, obs: dict[str, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        if not isinstance(obs, dict):
+            raise TypeError("HousePointsCameraEncoder expects structured obs")
+        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY])
+        camera_embed = self._camera_embedding(camera_pose)
+        house_embed = self._house_embedding(
+            jnp.asarray(obs[HOUSE_CONTEXT_KEY]),
+            batch_size=camera_pose.shape[0],
+        )
+        return camera_embed, house_embed
+
+    @nn.compact
+    def __call__(self, obs: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        """Return fused ``[camera_pose_embedding | house_points_embedding]``."""
+        camera_embed, house_embed = self._branches(obs)
+        return jnp.concatenate([camera_embed, house_embed], axis=-1)
+
+    @nn.compact
+    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Diagnostic split: ``(camera_pose_embedding, house_points_embedding)``."""
+        return self._branches(obs)
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):

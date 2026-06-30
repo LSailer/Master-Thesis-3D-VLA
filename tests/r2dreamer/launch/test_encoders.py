@@ -16,6 +16,7 @@ from src.r2dreamer.adapters.hybrid_adapter import (
     HybridObsAdapter,
     VGGTHouseContextObsAdapter,
     VGGTHouseFullTokenObsAdapter,
+    VGGTHousePointsPoseObsAdapter,
 )
 from src.r2dreamer.obs_batch import (
     CAMERA_POSE_KEY,
@@ -34,6 +35,7 @@ from src.r2dreamer.encoders import (
     VGGTAggTokenTransformerEncoder,
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
+    VGGTHousePointsPoseEncoder,
     VGGTEncoder,
     VGGTWP64CNNCPMLPEncoder,
     VGGTAggregatorMLPEncoder,
@@ -45,7 +47,6 @@ from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.encoders.mlp import (
     HybridEncoder as ModelHybridEncoder,
     MLPEncoder,
-    VGGTAggregatorMLPEncoder as ModelVGGTAggregatorMLPEncoder,
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
@@ -54,6 +55,24 @@ from src.shared.video_utils import resize_chw_uint8
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _write_minimal_static_house_ply(path: Path) -> None:
+    path.write_text(
+        "ply\n"
+        "format ascii 1.0\n"
+        "element vertex 2\n"
+        "property float x\n"
+        "property float y\n"
+        "property float z\n"
+        "property uchar red\n"
+        "property uchar green\n"
+        "property uchar blue\n"
+        "end_header\n"
+        "0.0 0.0 0.0 255 0 0\n"
+        "1.0 1.0 1.0 0 0 255\n",
+        encoding="ascii",
+    )
 
 
 def test_encoder_specs_module_was_folded_into_package_init():
@@ -599,6 +618,37 @@ class TestHybridEncoder:
 
 
 class TestVGGTHouseContextEncoder:
+    def test_house_context_encoder_static_path_skips_vggt_extractor(
+        self, monkeypatch, tmp_path
+    ):
+        class FailingExtractor:
+            def __init__(self, **kwargs):
+                raise AssertionError("static context path should not build VGGT")
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FailingExtractor
+        )
+        ply_path = tmp_path / "house.ply"
+        _write_minimal_static_house_ply(ply_path)
+
+        enc = VGGTHouseContextEncoder(static_house_context_path=str(ply_path))
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+        image = np.random.default_rng(1).integers(
+            0, 256, size=(3, 518, 518), dtype=np.uint8
+        )
+
+        replay, agent_obs = adapter.transform(
+            ObservationFrame(image=image, is_first=True)
+        )
+
+        assert isinstance(adapter, VGGTHouseContextObsAdapter)
+        assert spec.obs_shape == (13312,)
+        assert "static RGB point-cloud" in spec.design_notes
+        assert replay[HOUSE_CONTEXT_KEY].shape == (1024,)
+        assert replay[HOUSE_CONTEXT_KEY].dtype == np.float16
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
+
     def test_house_context_encoder_exposes_rgb_replay_spec(self, monkeypatch):
         class FakeExtractor:
             aggregator_feature_shape = (1374, 1024)
@@ -670,14 +720,14 @@ class TestVGGTHouseContextEncoder:
         assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
         assert replay[HOUSE_CONTEXT_KEY].shape == (1024,)
-        assert replay[HOUSE_CONTEXT_KEY].dtype == np.float32
+        assert replay[HOUSE_CONTEXT_KEY].dtype == np.float16
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
         assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
 
         batch = {
             "obs": {
                 HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
-                HOUSE_CONTEXT_KEY: np.zeros((2, 3, 1024), dtype=np.float32),
+                HOUSE_CONTEXT_KEY: np.zeros((2, 3, 1024), dtype=np.float16),
             },
             "actions": np.zeros((2, 3), dtype=np.int32),
             "rewards": np.zeros((2, 3), dtype=np.float32),
@@ -693,6 +743,59 @@ class TestVGGTHouseContextEncoder:
         np.testing.assert_allclose(
             np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context
         )
+
+
+class TestVGGTHousePointsPoseEncoder:
+    def test_house_points_pose_adapter_replays_only_camera_pose(
+        self, monkeypatch, tmp_path
+    ):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def extract(self, image):
+                del image
+                return {CAMERA_POSE_KEY: np.arange(9, dtype=np.float32)}
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+        )
+        ply_path = tmp_path / "house.ply"
+        _write_minimal_static_house_ply(ply_path)
+
+        enc = VGGTHousePointsPoseEncoder(house_points_path=str(ply_path))
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+        image = np.random.default_rng(2).integers(
+            0, 256, size=(3, 518, 518), dtype=np.uint8
+        )
+
+        replay, agent_obs = adapter.transform(
+            ObservationFrame(image=image, is_first=False)
+        )
+
+        assert isinstance(adapter, VGGTHousePointsPoseObsAdapter)
+        assert spec.encoder_type == "vggt_house_points_pose"
+        assert spec.obs_shape == {CAMERA_POSE_KEY: (9,), HOUSE_CONTEXT_KEY: (2, 6)}
+        assert replay.keys() == {CAMERA_POSE_KEY}
+        assert replay[CAMERA_POSE_KEY].dtype == np.float16
+        assert set(agent_obs) == {CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (2, 6)
+
+        batch = {
+            "obs": {CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16)},
+            "actions": np.zeros((1, 2), dtype=np.int32),
+            "rewards": np.zeros((1, 2), dtype=np.float32),
+            "is_episode_end": np.zeros((1, 2), dtype=bool),
+            "is_first": np.zeros((1, 2), dtype=np.float32),
+        }
+        augmented = adapter.augment_replay_batch(batch)
+
+        assert set(augmented["obs"]) == {CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY}
+        assert augmented["obs"][CAMERA_POSE_KEY].shape == (1, 2, 9)
+        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 6)
 
 
 class TestVGGTHouseFullTokenNoGateEncoder:

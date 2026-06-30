@@ -34,6 +34,7 @@ from .obs_batch import (
     CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
+    HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
     compute_jnp_dtype,
@@ -51,6 +52,7 @@ from .encoders.cnn import ConvEncoder
 from .encoders.constants import HYBRID_RGB_DIM
 from .encoders.decoder import ConvDecoder
 from .encoders.mlp import (
+    HousePointsCameraEncoder,
     HybridEncoder as WMHybridEncoder,
     MLPEncoder as WMMLPEncoder,
     VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
@@ -134,6 +136,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_wp64_cnn_cp_mlp": WP64CNNCPMLPEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
+            "vggt_house_points_pose": HousePointsCameraEncoder,
             "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
             "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
         }.get(cfg.encoder_type)
@@ -233,6 +236,19 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     )
 
 
+def _make_house_points_camera_encoder(cfg: R2DreamerConfig):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return HousePointsCameraEncoder(**kwargs)
+    return HousePointsCameraEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        camera_hidden=cfg.mlp_vggt_hidden,
+        camera_layers=cfg.mlp_vggt_layers,
+        point_hidden=cfg.mlp_vggt_hidden,
+        point_layers=cfg.mlp_vggt_layers,
+    )
+
+
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
     kwargs = _contract_encoder_kwargs(cfg)
@@ -301,6 +317,8 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp64_cnn_cp_mlp_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
+    if cls is HousePointsCameraEncoder:
+        return _make_house_points_camera_encoder(cfg)
     if cls is WMTokenTransformerEncoder:
         if cfg.encoder_type == "vggt_agg_token_transformer":
             return _make_token_transformer_encoder(cfg)
@@ -329,6 +347,13 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         return {
             WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
+        }
+    if cfg.encoder_type == "vggt_house_points_pose":
+        return {
+            CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
+            HOUSE_CONTEXT_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[HOUSE_CONTEXT_KEY]), dtype=jnp.float32
+            ),
         }
     return jnp.zeros((1, *cfg.obs_shape))
 
@@ -765,7 +790,8 @@ class R2DreamerAgent:
         if not self.cfg.decoder or self.decoder_mod is None:
             return None
         params = self.params
-        B, T = obs_leading_shape(batch["obs"])
+        replay_shape = obs_leading_shape(batch["obs"])
+        B, T = replay_shape.batch_size, replay_shape.seq_len
         obs_flat = encoder_obs_from_batch(batch, self.cfg)
         embed = cast(
             jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
@@ -900,7 +926,8 @@ class R2DreamerAgent:
         `barlow_stop_grad` toggle would no longer mean what it claims.
         """
         cfg = self.cfg
-        B, T = obs_leading_shape(batch["obs"])
+        replay_shape = obs_leading_shape(batch["obs"])
+        B, T = replay_shape.batch_size, replay_shape.seq_len
 
         obs_flat = encoder_obs_from_batch(batch, cfg)
         embed = cast(
@@ -967,7 +994,8 @@ class R2DreamerAgent:
             returns used for the post-step `ReturnEMA` update.
         """
         cfg = self.cfg
-        B, T = obs_leading_shape(batch["obs"])
+        replay_shape = obs_leading_shape(batch["obs"])
+        B, T = replay_shape.batch_size, replay_shape.seq_len
 
         rng_key, k_fwd = jax.random.split(rng_key)
         forward = self._world_model_forward(params, batch, k_fwd)

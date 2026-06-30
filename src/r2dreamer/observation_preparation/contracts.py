@@ -85,6 +85,14 @@ def encoder_module_kwargs_from_config(
             "mlp_layers": int(config.mlp_vggt_layers),
             "vggt_dim": int(config.vggt_feature_dim),
         }
+    if class_name == "HousePointsCameraEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+            "point_hidden": int(config.mlp_vggt_hidden),
+            "point_layers": int(config.mlp_vggt_layers),
+        }
     if class_name == "TokenTransformerEncoder":
         common = {
             "embed_dim": int(config.vggt_embed_dim),

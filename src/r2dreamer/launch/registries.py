@@ -1,7 +1,10 @@
+"""Launch-time registries for R2Dreamer encoders and environments."""
+
 from __future__ import annotations
 
 from typing import Callable
 
+from src.environments.crafter import CrafterEnv
 from src.r2dreamer.encoders import (
     Encoder,
     CNNEncoder,
@@ -15,14 +18,13 @@ from src.r2dreamer.encoders import (
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
     VGGTHouseGlobalTokenNoGateEncoder,
+    VGGTHousePointsPoseEncoder,
 )
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 
 
-def make_crafter_env(*, seed: int = 0, **kwargs):
+def make_crafter_env(*, seed: int = 0, **_kwargs):
     """Thin wrapper so crafter follows the same factory signature as habitat."""
-    from src.environments.crafter import CrafterEnv
-
     return CrafterEnv(size=(64, 64), seed=seed)
 
 
@@ -36,6 +38,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "vggt_wp64_cnn_cp_mlp": VGGTWP64CNNCPMLPEncoder,
     "hybrid": HybridEncoder,
     "vggt_house_context": VGGTHouseContextEncoder,
+    "vggt_house_points_pose": VGGTHousePointsPoseEncoder,
     "vggt_house_full_tokens_nogate": VGGTHouseFullTokenNoGateEncoder,
     "vggt_house_global_tokens_nogate": VGGTHouseGlobalTokenNoGateEncoder,
 }

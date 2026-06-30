@@ -42,7 +42,8 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     """
     params = agent.params
     forward = agent._world_model_forward(params, batch, rng_key)
-    B, T = obs_leading_shape(batch["obs"])
+    replay_shape = obs_leading_shape(batch["obs"])
+    B, T = replay_shape.batch_size, replay_shape.seq_len
     feat = forward.feat
     rew_logits = (
         agent._modules["reward"]

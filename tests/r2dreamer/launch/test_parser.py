@@ -1,4 +1,5 @@
 """Parser behavior tests for r2dreamer train launch flags."""
+# pylint: disable=missing-function-docstring
 
 from types import SimpleNamespace
 
@@ -63,3 +64,23 @@ def test_compute_dtype_override_reaches_agent_config():
     overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
 
     assert overrides["compute_dtype"] == "bfloat16"
+
+
+def test_static_house_context_path_accepts_hyphen_and_underscore_aliases():
+    parser = _build_parser_train()
+
+    hyphen = parser.parse_args(["--static-house-context-path", "house.ply"])
+    underscore = parser.parse_args(["--static_house_context_path", "other.ply"])
+
+    assert hyphen.static_house_context_path == "house.ply"
+    assert underscore.static_house_context_path == "other.ply"
+
+
+def test_static_house_points_path_accepts_hyphen_and_underscore_aliases():
+    parser = _build_parser_train()
+
+    hyphen = parser.parse_args(["--static-house-points-path", "house.ply"])
+    underscore = parser.parse_args(["--static_house_points_path", "other.ply"])
+
+    assert hyphen.static_house_points_path == "house.ply"
+    assert underscore.static_house_points_path == "other.ply"

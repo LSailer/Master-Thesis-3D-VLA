@@ -25,6 +25,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     recover_encoder_input_contract,
 )
 from src.r2dreamer.observation_preparation.vggt import VGGT_DREAMER_SPECS
+from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder
 from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
 from src.r2dreamer.world_model.rssm import R2RSSM
 
@@ -61,6 +62,8 @@ def _encoder_module_cls_from_config(cfg: R2DreamerConfig):
         return cfg.encoder_module_cls
     if cfg.encoder_type == "cnn":
         return CNNObservationPreparation().contract.encoder_module_cls
+    if cfg.encoder_type == "vggt_house_points_pose":
+        return HousePointsCameraEncoder
     spec = VGGT_DREAMER_SPECS.get(cfg.encoder_type)
     if spec is not None:
         return spec.module_cls

@@ -7,6 +7,7 @@ import pytest
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.obs_batch import ObservationPacker, encoder_obs_from_batch
+from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 
@@ -99,6 +100,32 @@ def make_small_decoder_cfg(*, decoder=False):
         warmup_steps=0,
         decoder=decoder,
     )
+
+
+def make_tiny_train_cfg(**overrides):
+    params = {
+        "num_actions": 4,
+        "deter_size": 32,
+        "hidden_size": 16,
+        "stoch_classes": 4,
+        "stoch_discrete": 4,
+        "blocks": 4,
+        "vggt_embed_dim": 8,
+        "mlp_vggt_hidden": 8,
+        "mlp_vggt_layers": 1,
+        "mlp_units": 16,
+        "mlp_layers_reward": 1,
+        "mlp_layers_cont": 1,
+        "mlp_layers_actor": 1,
+        "mlp_layers_critic": 1,
+        "twohot_bins": 21,
+        "imagination_horizon": 2,
+        "horizon": 10,
+        "lr": 1e-3,
+        "warmup_steps": 0,
+    }
+    params.update(overrides)
+    return R2DreamerConfig(**params)
 
 
 def make_small_hybrid_cfg():
@@ -267,6 +294,33 @@ class TestR2DreamerAgent:
 
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/vggt_frac" in metrics
+
+    def test_train_step_accepts_static_house_points_with_camera_pose(self):
+        cfg = make_tiny_train_cfg(
+            encoder_type="vggt_house_points_pose",
+            obs_shape={CAMERA_POSE_KEY: (9,), HOUSE_CONTEXT_KEY: (5, 6)},
+        )
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        batch = {
+            "obs": {
+                CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
+                HOUSE_CONTEXT_KEY: jnp.ones((5, 6), dtype=jnp.float16),
+            },
+            "actions": jax.nn.one_hot(
+                jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
+            ),
+            "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
+            "is_first": jnp.ones((1, 2), dtype=jnp.float32),
+            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
+        }
+
+        encoder_obs = encoder_obs_from_batch(batch, cfg)
+        assert encoder_obs[CAMERA_POSE_KEY].shape == (2, 9)
+        assert encoder_obs[HOUSE_CONTEXT_KEY].shape == (1, 5, 6)
+
+        metrics = agent.train_step(batch, jax.random.PRNGKey(1))
+
+        assert np.isfinite(metrics["total_loss"])
 
     @pytest.mark.parametrize(
         "encoder_type, token_key, token_shape",

@@ -36,6 +36,7 @@ class TestEncoderRegistry:
         assert "vggt_wp64_cnn_cp_mlp" in encoder_registry
         assert "hybrid" in encoder_registry
         assert "vggt_house_context" in encoder_registry
+        assert "vggt_house_points_pose" in encoder_registry
         assert "vggt_house_full_tokens_nogate" in encoder_registry
         assert "vggt_house_global_tokens_nogate" in encoder_registry
 

@@ -2,6 +2,8 @@
 
 import argparse
 
+from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
+
 
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
@@ -308,6 +310,25 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_house_context_train_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--static_house_context_path",
+        "--static-house-context-path",
+        type=str,
+        default=None,
+        help="ASCII XYZRGB PLY path for deterministic static vggt_house_context "
+        "prototype. Default keeps the live VGGT house-context readout.",
+    )
+    p.add_argument(
+        "--static_house_points_path",
+        "--static-house-points-path",
+        type=str,
+        default=None,
+        help="ASCII XYZRGB PLY path for vggt_house_points_pose. Replay stores "
+        "only camera_pose; the complete point cloud stays as a static sidecar.",
+    )
+
+
 def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
@@ -318,6 +339,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)
     _add_token_transformer_train_args(p)
+    _add_house_context_train_args(p)
     return p
 
 
@@ -329,18 +351,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         "--encoder",
         type=str,
         default=None,
-        choices=[
-            "cnn",
-            "vggt",
-            "vggt_aggregator_mlp",
-            "vggt_agg_token_transformer",
-            "vggt_wp_dense_cnn",
-            "vggt_wp_cp_64",
-            "hybrid",
-            "vggt_house_context",
-            "vggt_house_full_tokens_nogate",
-            "vggt_house_global_tokens_nogate",
-        ],
+        choices=EVAL_ENCODER_TYPES,
     )
     p.add_argument(
         "--random", action="store_true", help="Use random agent instead of a checkpoint"
