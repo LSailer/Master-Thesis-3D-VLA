@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, Any, cast
+from typing import Any, Literal, cast
 
 import flax.linen as nn
 
@@ -12,18 +12,6 @@ from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     ReplayObservationConfig,
-)
-from src.r2dreamer.obs_batch import (
-    CAMERA_POSE_KEY,
-    HYBRID_IMAGE_KEY,
-    HYBRID_WP_CP_KEY,
-    WORLD_POINTS_KEY,
-)
-from src.r2dreamer.observation_preparation.contracts import (
-    EncoderInputContract,
-    ObservationField,
-    ObservationFormContract,
-    replay_observation_form,
 )
 from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.encoders.constants import AGG_TOKEN_TOKENS, HOUSE_CONTEXT_DIM
@@ -35,7 +23,18 @@ from src.r2dreamer.encoders.mlp import (
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
-
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
+    HYBRID_IMAGE_KEY,
+    HYBRID_WP_CP_KEY,
+    WORLD_POINTS_KEY,
+)
+from src.r2dreamer.observation_preparation.contracts import (
+    EncoderInputContract,
+    ObservationField,
+    ObservationFormContract,
+    replay_observation_form,
+)
 
 VGGTFeatureKind = Literal[
     "wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"
@@ -163,7 +162,9 @@ class VGGTDreamerSpec:
     @property
     def wp_pool_size(self) -> int:
         """World-point pooling side passed to the VGGT extractor."""
-        if isinstance(self.readout, HeadReadout) and isinstance(self.readout.wp_side, int):
+        if isinstance(self.readout, HeadReadout) and isinstance(
+            self.readout.wp_side, int
+        ):
             return self.readout.wp_side
         return VGGT_DEFAULT_WP_POOL_SIZE
 
@@ -230,7 +231,9 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt_agg_token_transformer",
         readout=TokenReadout("global"),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec("transformer", TokenTransformerEncoder, "flat_features"),
+        dreamer=DreamerEncoderSpec(
+            "transformer", TokenTransformerEncoder, "flat_features"
+        ),
         agent_overrides={
             "buffer_capacity": 5_000,
             "batch_size": 1,
@@ -268,7 +271,9 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt_house_full_tokens_nogate",
         readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
         storage=StorageSpec(replay_rgb=True, replay_readout=True),
-        dreamer=DreamerEncoderSpec("transformer", TokenTransformerEncoder, "rgb_plus_tokens"),
+        dreamer=DreamerEncoderSpec(
+            "transformer", TokenTransformerEncoder, "rgb_plus_tokens"
+        ),
         agent_overrides={
             **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
@@ -280,7 +285,9 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt_house_global_tokens_nogate",
         readout=TokenReadout("global"),
         storage=StorageSpec(replay_rgb=True, replay_readout=True),
-        dreamer=DreamerEncoderSpec("transformer", TokenTransformerEncoder, "rgb_plus_tokens"),
+        dreamer=DreamerEncoderSpec(
+            "transformer", TokenTransformerEncoder, "rgb_plus_tokens"
+        ),
         agent_overrides={
             **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
@@ -402,9 +409,7 @@ def _spec_for_feature_kind(
     wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE,
 ) -> VGGTDreamerSpec:
     if feature_kind == "wp_cp":
-        return VGGT_DREAMER_SPECS[
-            "vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"
-        ]
+        return VGGT_DREAMER_SPECS["vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"]
     return {
         "wp64_cp": VGGT_DREAMER_SPECS["vggt_wp64_cnn_cp_mlp"],
         "wp_dense": VGGT_DREAMER_SPECS["vggt_wp_dense_cnn"],
@@ -476,7 +481,9 @@ def _head_replay_config(
         encoder=spec.encoder_type,
         dims=dims,
         replay=ReplayObservationConfig(
-            components=("image", "wp_cp") if spec.storage.replay_rgb else ("world_points",),
+            components=("image", "wp_cp")
+            if spec.storage.replay_rgb
+            else ("world_points",),
             feature_dtype=spec.storage.readout_dtype,
             normalize_image=False,
         ),
@@ -551,9 +558,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
         )
         encoder_input_by_layout = {
             "flat_wp_cp": ObservationFormContract(
-                ObservationField(
-                    dims.wp_cp_shape, "float32", normalize_on_sample=False
-                )
+                ObservationField(dims.wp_cp_shape, "float32", normalize_on_sample=False)
             ),
             "structured_wp_cp": ObservationFormContract(encoder_fields),
             "world_points": ObservationFormContract(

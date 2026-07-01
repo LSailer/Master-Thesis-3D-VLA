@@ -1,10 +1,17 @@
 """Convolutional observation encoders."""
 
+from collections.abc import Mapping
 from typing import Literal
 
 import flax.linen as nn
 import jax.numpy as jnp
 
+from src.r2dreamer.encoders.shape_utils import (
+    flatten_event,
+    normalize_image_obs,
+    restore_leading,
+)
+from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.world_model.rssm import RMSNorm
 
 
@@ -36,11 +43,21 @@ class ConvEncoder(nn.Module):
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
-        """Encode ``(B, C, H, W)`` observations into flat embeddings."""
+        """Encode ``(..., C, H, W)`` observations, preserving leading dims."""
+        if isinstance(obs, Mapping):
+            if self.input_kind == "world_points":
+                obs = (
+                    obs[WORLD_POINTS_KEY]
+                    if WORLD_POINTS_KEY in obs
+                    else obs["features"]
+                )
+            else:
+                obs = obs[HYBRID_IMAGE_KEY]
+        x, leading_shape = flatten_event(obs, event_ndims=3)
         if self.input_kind == "rgb":
-            x = obs - 0.5
+            x = normalize_image_obs(x) - 0.5
         elif self.input_kind == "world_points":
-            x = _symlog(obs)
+            x = _symlog(x.astype(jnp.float32))
         else:
             raise ValueError(
                 f"input_kind must be 'rgb' or 'world_points', got {self.input_kind!r}"
@@ -62,7 +79,7 @@ class ConvEncoder(nn.Module):
         x = x.reshape(x.shape[0], -1)
         if self.embed_dim is not None:
             x = nn.Dense(self.embed_dim, name="proj")(x)
-        return x
+        return restore_leading(x, leading_shape)
 
 
 def make_rgb_conv_encoder(

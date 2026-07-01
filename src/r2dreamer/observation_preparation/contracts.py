@@ -17,8 +17,11 @@ import flax.linen as nn
 import numpy as np
 
 from src.configs.config import ObservationRunConfig
-from src.r2dreamer.obs_batch import FULL_TOKENS_KEY, GLOBAL_TOKENS_KEY, HYBRID_IMAGE_KEY
-
+from src.r2dreamer.observation_keys import (
+    FULL_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
+    HYBRID_IMAGE_KEY,
+)
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]
 ContractSnapshot = dict[str, Any]

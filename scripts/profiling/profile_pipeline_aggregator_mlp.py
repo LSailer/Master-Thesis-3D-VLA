@@ -16,6 +16,7 @@ Phases:
   buffer_sample     numpy index + jnp.array upload       host→device per train step
   train_step        agent.train_step(batch, key)         encoder + WM + actor + critic + opt
 """
+
 from __future__ import annotations
 
 import argparse
@@ -28,26 +29,25 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import numpy as np
 import jax
 import jax.numpy as jnp
+import numpy as np
 
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+from src.configs.config import R2DreamerConfig
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
+from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _pool_aggregator_tokens,
 )
+from src.r2dreamer.trainer import convert_batch
 from src.shared.profiling import (
     block_until_ready_tree,
     summarize_values_ms,
     timed,
     write_json,
 )
-from src.r2dreamer.agent import R2DreamerAgent
-from src.configs.config import R2DreamerConfig
-from src.r2dreamer.encoders import VGGTAggregatorMLPEncoder
-from src.r2dreamer.launch.habitat_setup import make_habitat_env
-from src.r2dreamer.obs_batch import ObservationPacker
-from src.r2dreamer.trainer import convert_batch
-from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 
 
 def block_tree(x):
@@ -67,8 +67,14 @@ def setup(args):
     enc = VGGTAggregatorMLPEncoder.from_train_args(_Args())
     adapter = enc.make_adapter()
     spec = enc.spec()
-    print(f"Encoder spec: obs_shape={spec.obs_shape}, encoder_type={spec.encoder_type}", flush=True)
-    print(f"Adapter: buffer_shape={adapter.buffer_shape}, buffer_dtype={adapter.buffer_dtype}", flush=True)
+    print(
+        f"Encoder spec: obs_shape={spec.obs_shape}, encoder_type={spec.encoder_type}",
+        flush=True,
+    )
+    print(
+        f"Adapter: buffer_shape={adapter.buffer_shape}, buffer_dtype={adapter.buffer_dtype}",
+        flush=True,
+    )
     print(f"Agent overrides: {spec.agent_overrides}", flush=True)
 
     env = make_habitat_env(
@@ -119,7 +125,10 @@ def transform_timed(adapter, obs_dict):
     block_tree(agent_features)
     t_post_ms = (time.perf_counter() - t_p0) * 1000
 
-    agent_obs = {"features": agent_features, "is_first": obs_dict.get("is_first", False)}
+    agent_obs = {
+        "features": agent_features,
+        "is_first": obs_dict.get("is_first", False),
+    }
     timings = {
         "vggt_extract_total": t_extract_ms,
         "adapter_post": t_post_ms,
@@ -149,13 +158,17 @@ def run_prefill(adapter, env, buffer, num_actions, n_steps):
         else:
             buffer_obs = next_buffer_obs
         if (i + 1) % 50 == 0:
-            print(f"  prefill {i + 1}/{n_steps} elapsed={time.time() - t0:.1f}s", flush=True)
+            print(
+                f"  prefill {i + 1}/{n_steps} elapsed={time.time() - t0:.1f}s",
+                flush=True,
+            )
     print(f"  prefill done in {time.time() - t0:.1f}s", flush=True)
 
 
-def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_steps, accum):
+def run_measured(
+    label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_steps, accum
+):
     print(f"--- {label} {n_steps} steps ---", flush=True)
-    packer = ObservationPacker(cfg)
     obs = env.reset()
     if adapter.on_episode_reset:
         adapter.on_episode_reset()
@@ -168,8 +181,7 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
         # act
         rng, act_key = jax.random.split(rng)
         with timed(accum, "act"):
-            encoder_obs = packer.from_step(agent_obs)
-            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
+            action = agent.act(agent_obs, agent_obs["is_first"], act_key)
             block_tree(action)
 
         # env step
@@ -216,20 +228,28 @@ def run_measured(label, adapter, env, agent, cfg, buffer, rng, n_steps, batch_st
         if (i + 1) % 20 == 0:
             elapsed = time.perf_counter() - loop_t0
             fps = (i + 1) / elapsed
-            print(f"  {label} {i + 1}/{n_steps} elapsed={elapsed:.1f}s fps={fps:.2f}", flush=True)
+            print(
+                f"  {label} {i + 1}/{n_steps} elapsed={elapsed:.1f}s fps={fps:.2f}",
+                flush=True,
+            )
     return rng
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--prefill", type=int, default=200,
-                   help="Buffer prefill steps (untimed)")
-    p.add_argument("--warmup", type=int, default=20,
-                   help="Timed warmup steps (reported separately, captures JIT compile)")
-    p.add_argument("--measure", type=int, default=80,
-                   help="Timed steady-state steps")
-    p.add_argument("--out", type=str,
-                   default="output/profiling/pipeline_aggregator_mlp.json")
+    p.add_argument(
+        "--prefill", type=int, default=200, help="Buffer prefill steps (untimed)"
+    )
+    p.add_argument(
+        "--warmup",
+        type=int,
+        default=20,
+        help="Timed warmup steps (reported separately, captures JIT compile)",
+    )
+    p.add_argument("--measure", type=int, default=80, help="Timed steady-state steps")
+    p.add_argument(
+        "--out", type=str, default="output/profiling/pipeline_aggregator_mlp.json"
+    )
     args = p.parse_args()
 
     overall_t0 = time.time()
@@ -238,28 +258,69 @@ def main():
 
     run_prefill(adapter, env, buffer, cfg.num_actions, args.prefill)
 
-    warmup_accum = {k: [] for k in (
-        "act", "env_step", "vggt_extract_total", "vggt_forward_internal",
-        "vggt_wrapper_internal", "adapter_post", "buffer_add",
-        "buffer_sample", "train_step", "total_step",
-    )}
+    warmup_accum = {
+        k: []
+        for k in (
+            "act",
+            "env_step",
+            "vggt_extract_total",
+            "vggt_forward_internal",
+            "vggt_wrapper_internal",
+            "adapter_post",
+            "buffer_add",
+            "buffer_sample",
+            "train_step",
+            "total_step",
+        )
+    }
     steady_accum = {k: [] for k in warmup_accum}
 
-    rng = run_measured("WARMUP", adapter, env, agent, cfg, buffer, rng,
-                       args.warmup, batch_steps, warmup_accum)
-    rng = run_measured("MEASURE", adapter, env, agent, cfg, buffer, rng,
-                       args.measure, batch_steps, steady_accum)
+    rng = run_measured(
+        "WARMUP",
+        adapter,
+        env,
+        agent,
+        cfg,
+        buffer,
+        rng,
+        args.warmup,
+        batch_steps,
+        warmup_accum,
+    )
+    rng = run_measured(
+        "MEASURE",
+        adapter,
+        env,
+        agent,
+        cfg,
+        buffer,
+        rng,
+        args.measure,
+        batch_steps,
+        steady_accum,
+    )
 
     # --- Summary ---
     print("\n=========================================================", flush=True)
     print(" Steady-state per-phase breakdown (after warmup)", flush=True)
     print("=========================================================", flush=True)
-    print(f"{'Phase':<26} {'n':>4} {'mean_ms':>9} {'p50_ms':>8} {'p95_ms':>8} {'total_s':>9}", flush=True)
+    print(
+        f"{'Phase':<26} {'n':>4} {'mean_ms':>9} {'p50_ms':>8} {'p95_ms':>8} {'total_s':>9}",
+        flush=True,
+    )
     print("-" * 70, flush=True)
-    for k in ["act", "env_step", "vggt_extract_total",
-              "vggt_forward_internal", "vggt_wrapper_internal",
-              "adapter_post", "buffer_add", "buffer_sample",
-              "train_step", "total_step"]:
+    for k in [
+        "act",
+        "env_step",
+        "vggt_extract_total",
+        "vggt_forward_internal",
+        "vggt_wrapper_internal",
+        "adapter_post",
+        "buffer_add",
+        "buffer_sample",
+        "train_step",
+        "total_step",
+    ]:
         s = stats(steady_accum[k])
         if s["n"] == 0:
             continue
@@ -272,7 +333,10 @@ def main():
     total_steady = stats(steady_accum["total_step"])
     if total_steady["n"] > 0:
         fps = 1000.0 / total_steady["mean_ms"]
-        print(f"\nSteady-state mean fps: {fps:.2f} (1000/{total_steady['mean_ms']:.1f} ms)", flush=True)
+        print(
+            f"\nSteady-state mean fps: {fps:.2f} (1000/{total_steady['mean_ms']:.1f} ms)",
+            flush=True,
+        )
 
     out_path = ROOT / args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)

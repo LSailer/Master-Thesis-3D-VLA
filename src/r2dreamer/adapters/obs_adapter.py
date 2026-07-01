@@ -13,7 +13,6 @@ from src.environments.observation import ObservationFrame
 
 if TYPE_CHECKING:
     from src.r2dreamer.observation_preparation.contracts import PreparedObservation
-    from src.r2dreamer.obs_batch import ObservationPacker
 
 
 BufferShape = tuple[int, ...] | Mapping[str, tuple[int, ...]]
@@ -25,8 +24,8 @@ BufferNormalize = bool | Mapping[str, bool]
 class ObsAdapter:
     """Bridges env observations to agent/buffer, called once per step.
 
-    Default: extracts the image for buffer (uint8), then the trainer packs the
-    live image/is_first step observation into Encoder Module input.
+    Default: extracts the image for replay and passes the live image directly to
+    the Encoder Module.
     """
 
     buffer_dtype: BufferDType = "uint8"
@@ -52,9 +51,7 @@ class ObsAdapter:
         """Returns (buffer_obs, live step observation dict)."""
         return env_obs.image, {"image": env_obs.image, "is_first": env_obs.is_first}
 
-    def prepare_env_step(
-        self, env_obs: ObservationFrame, packer: "ObservationPacker"
-    ) -> "PreparedObservation":
+    def prepare_env_step(self, env_obs: ObservationFrame) -> "PreparedObservation":
         """Return the explicit replay/encoder observation pair."""
         prepared_observation_cls = import_module(
             "src.r2dreamer.observation_preparation.contracts"
@@ -62,7 +59,7 @@ class ObsAdapter:
         replay_obs, step_obs = self.transform(env_obs)
         return prepared_observation_cls(
             replay_obs=replay_obs,
-            encoder_obs=packer.from_step(step_obs),
+            encoder_obs={k: v for k, v in step_obs.items() if k != "is_first"},
             is_first=bool(step_obs["is_first"]),
         )
 

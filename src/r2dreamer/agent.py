@@ -15,6 +15,7 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -23,43 +24,50 @@ import jax.numpy as jnp
 import optax
 
 from src.configs.config import R2DreamerConfig
-from src.shared.optim import agc, laprop
-
-from .behavior.imagination import _imagine, _lambda_return
-from .behavior.loss import behavior_loss
-from .behavior.return_ema import ReturnEMA
-from .checkpointing import load_checkpoint
-from .learning_types import AgentLossAux, WorldModelForward
-from .obs_batch import (
+from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
+from src.r2dreamer.encoders.shape_utils import batch_live_observation
+from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
-    compute_jnp_dtype,
-    decoder_rgb_target,
-    encoder_obs_from_batch,
-    obs_leading_shape,
 )
+from src.shared.dtypes import compute_jnp_dtype
+from src.shared.optim import agc, laprop
+
+from .behavior.imagination import _imagine, _lambda_return
+from .behavior.loss import behavior_loss
+from .behavior.return_ema import ReturnEMA
+from .checkpointing import load_checkpoint
+from .encoders.cnn import ConvEncoder
+from .encoders.constants import HYBRID_RGB_DIM
+from .encoders.decoder import ConvDecoder
+from .encoders.mlp import (
+    HousePointsCameraEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from .encoders.mlp import (
+    HybridEncoder as WMHybridEncoder,
+)
+from .encoders.mlp import (
+    MLPEncoder as WMMLPEncoder,
+)
+from .encoders.mlp import (
+    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
+)
+from .encoders.mlp import (
+    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
+)
+from .encoders.transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
+from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import (
     normalize_encoder_module_kwargs,
     recover_encoder_input_contract,
 )
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
-from .encoders.cnn import ConvEncoder
-from .encoders.constants import HYBRID_RGB_DIM
-from .encoders.decoder import ConvDecoder
-from .encoders.mlp import (
-    HousePointsCameraEncoder,
-    HybridEncoder as WMHybridEncoder,
-    MLPEncoder as WMMLPEncoder,
-    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
-    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
-    WP64CNNCPMLPEncoder,
-)
-from .encoders.transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import kl_loss as _kl_loss
 from .world_model.loss import world_model_loss
@@ -206,9 +214,7 @@ def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
 
 def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-    # Guard the packed encoder-layout contract: replay may store modalities in
-    # separate fields, but obs_batch packs them into this flat shape before the
-    # Flax encoder and decoder see them.
+    # HybridEncoder now owns structured replay/live layout handling.
     expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
     if not isinstance(cfg.obs_shape, tuple):
         raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
@@ -349,6 +355,8 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
         }
     if cfg.encoder_type == "vggt_house_points_pose":
+        if not isinstance(cfg.obs_shape, Mapping):
+            raise TypeError("vggt_house_points_pose expects structured obs_shape")
         return {
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
             HOUSE_CONTEXT_KEY: jnp.zeros(
@@ -712,8 +720,8 @@ class R2DreamerAgent:
         """Select an action for a single prepared environment step.
 
         Args:
-            encoder_obs: batched one-step Encoder Module input from
-                ``ObservationPacker.from_step``.
+            encoder_obs: one live observation in the layout consumed by the encoder.
+                The agent adds the single-env batch dimension internally.
             is_first: whether the step starts an episode and should reset RSSM state.
             rng_key: PRNG key.
             training: if False, use argmax (greedy).
@@ -722,11 +730,27 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
+        batched_obs = batch_live_observation(encoder_obs)
         action_int, self._act_state = self._jit_act_with_state.__call__(
-            self.params, encoder_obs, self._act_state, reset, rng_key, training
+            self.params, batched_obs, self._act_state, reset, rng_key, training
         )
 
         return action_int
+
+    def act_with_state(
+        self,
+        encoder_obs: Any,
+        is_first: bool,
+        state: ActState,
+        rng_key: jnp.ndarray,
+        training: bool = True,
+    ) -> tuple[int, ActState]:
+        """Functional acting wrapper for one raw live encoder observation."""
+        reset = jnp.asarray(is_first, dtype=jnp.bool_)
+        batched_obs = batch_live_observation(encoder_obs)
+        return self._jit_act_with_state.__call__(
+            self.params, batched_obs, state, reset, rng_key, training
+        )
 
     def act_with_state_pure(
         self, params, obs, state: ActState, is_first, rng_key, training
@@ -790,12 +814,14 @@ class R2DreamerAgent:
         if not self.cfg.decoder or self.decoder_mod is None:
             return None
         params = self.params
-        replay_shape = obs_leading_shape(batch["obs"])
-        B, T = replay_shape.batch_size, replay_shape.seq_len
-        obs_flat = encoder_obs_from_batch(batch, self.cfg)
+        B, T = replay_batch_shape(batch)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
-        ).reshape(B, T, -1)
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch["obs"])
+        )
+        if embed.shape[:2] != (B, T):
+            raise ValueError(
+                f"encoder must preserve replay leading dims {(B, T)}, got {embed.shape}"
+            )
         stoch0, deter0 = cast(
             tuple[jnp.ndarray, jnp.ndarray],
             self.rssm_mod.apply(params["rssm"], B, method=self.rssm_mod.initial_state),
@@ -819,16 +845,14 @@ class R2DreamerAgent:
             ),
         )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        target = decoder_rgb_target(batch, self.cfg)
+        target = decoder_rgb_target(batch, self.cfg.encoder_type)
         return target, recon
 
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
 
-    def train_step(
-        self, batch: Any, rng_key: jnp.ndarray
-    ) -> Dict[str, float]:
+    def train_step(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
         self.train_state, metrics = self._jitted_train_step.__call__(
             self.train_state,
@@ -837,9 +861,7 @@ class R2DreamerAgent:
         )
         return {k: float(v) for k, v in metrics.items()}
 
-    def eval_loss(
-        self, batch: Any, rng_key: jnp.ndarray
-    ) -> Dict[str, float]:
+    def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
         """Evaluate the current objective on a batch without updating state."""
         _total_loss, aux = self._loss_fn(
             self.params,
@@ -926,13 +948,15 @@ class R2DreamerAgent:
         `barlow_stop_grad` toggle would no longer mean what it claims.
         """
         cfg = self.cfg
-        replay_shape = obs_leading_shape(batch["obs"])
-        B, T = replay_shape.batch_size, replay_shape.seq_len
+        B, T = replay_batch_shape(batch)
 
-        obs_flat = encoder_obs_from_batch(batch, cfg)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
-        ).reshape(B, T, -1)
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch["obs"])
+        )
+        if embed.shape[:2] != (B, T):
+            raise ValueError(
+                f"encoder must preserve replay leading dims {(B, T)}, got {embed.shape}"
+            )
 
         stoch0, deter0 = cast(
             tuple[jnp.ndarray, jnp.ndarray],
@@ -994,8 +1018,7 @@ class R2DreamerAgent:
             returns used for the post-step `ReturnEMA` update.
         """
         cfg = self.cfg
-        replay_shape = obs_leading_shape(batch["obs"])
-        B, T = replay_shape.batch_size, replay_shape.seq_len
+        B, T = replay_batch_shape(batch)
 
         rng_key, k_fwd = jax.random.split(rng_key)
         forward = self._world_model_forward(params, batch, k_fwd)

@@ -5,13 +5,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.obs_batch import (
-    CAMERA_POSE_KEY,
-    WORLD_POINTS_KEY,
-    ObservationPacker,
-    encoder_obs_from_batch,
-)
+from src.environments.observation import ObservationFrame
 from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.encoders.mlp import (
     MLPEncoder,
@@ -19,10 +15,8 @@ from src.r2dreamer.encoders.mlp import (
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
-from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
-from src.environments.observation import ObservationFrame
-
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
 POOL_DIM = 1024
@@ -228,21 +222,34 @@ class TestVGGTAggregatorMLPEncoder:
 
         assert out.shape == (2, 32)
         assert set(params["params"].keys()) == {
-            "norm_cam", "norm_mean", "norm_max", "hidden0", "norm0", "proj",
+            "norm_cam",
+            "norm_mean",
+            "norm_max",
+            "hidden0",
+            "norm0",
+            "proj",
         }
 
     def test_num_layers_stacks_blocks(self):
         # num_layers=3 -> hidden0/1/2 + norm0/1/2 + per-pool norms + proj.
-        enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16, num_layers=3)
+        enc = VGGTAggregatorMLPEncoder(
+            embed_dim=32, pool_dim=8, hidden=16, num_layers=3
+        )
         rng = jax.random.PRNGKey(0)
         dummy = jnp.zeros((2, 24), dtype=jnp.float32)
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (2, 32)
         assert set(params["params"].keys()) == {
-            "norm_cam", "norm_mean", "norm_max",
-            "hidden0", "hidden1", "hidden2",
-            "norm0", "norm1", "norm2",
+            "norm_cam",
+            "norm_mean",
+            "norm_max",
+            "hidden0",
+            "hidden1",
+            "hidden2",
+            "norm0",
+            "norm1",
+            "norm2",
             "proj",
         }
 
@@ -287,7 +294,13 @@ class TestMLPEncoder:
         out = enc.apply(params, jnp.zeros((2, FEATURE_DIM)))
         assert out.shape == (2, 64)
         assert set(params["params"].keys()) == {
-            "hidden0", "hidden1", "hidden2", "norm0", "norm1", "norm2", "proj",
+            "hidden0",
+            "hidden1",
+            "hidden2",
+            "norm0",
+            "norm1",
+            "norm2",
+            "proj",
         }
 
     def test_num_layers_zero_is_bare_linear(self):
@@ -298,58 +311,40 @@ class TestMLPEncoder:
 
 
 class TestWP64CNNCPMLPObservationBatch:
-    def test_batch_and_agent_obs_keep_structured_fields(self):
-        cfg = R2DreamerConfig(
-            encoder_type="vggt_wp64_cnn_cp_mlp",
-            obs_shape={WORLD_POINTS_KEY: (3, 64, 64), CAMERA_POSE_KEY: (9,)},
+    def test_encoder_preserves_replay_leading_dims_for_structured_fields(self):
+        enc = WP64CNNCPMLPEncoder(
+            embed_dim=16,
+            conv_depth=2,
+            conv_kernel=3,
+            conv_mults=(1, 1),
+            cp_hidden=8,
+            cp_layers=1,
         )
-        batch = {
-            "obs": {
-                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
-            }
+        obs = {
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
+            CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = ObservationPacker(cfg).from_step(
-            {
-                WORLD_POINTS_KEY: jnp.ones((3, 64, 64), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            }
-        )
+        params = enc.init(jax.random.PRNGKey(0), obs)
+        out = enc.apply(params, obs)
 
-        assert enc_obs[WORLD_POINTS_KEY].shape == (6, 3, 64, 64)
-        assert enc_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
-        assert enc_obs[CAMERA_POSE_KEY].shape == (6, 9)
-        assert enc_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
-        assert act_obs[WORLD_POINTS_KEY].shape == (1, 3, 64, 64)
-        assert act_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
-        assert act_obs[CAMERA_POSE_KEY].shape == (1, 9)
-        assert act_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
+        assert out.shape == (2, 3, 16)
+        assert jnp.isfinite(out).all()
 
 
 class TestVGGTObservationBatchDType:
-    def test_flat_vggt_training_obs_uses_configured_compute_dtype(self):
-        cfg = R2DreamerConfig(encoder_type="vggt", obs_shape=(FEATURE_DIM,))
-        batch = {
-            "obs": {
-                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 37, 37), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
-            }
+    def test_flat_vggt_encoder_flattens_structured_wp_cp_internally(self):
+        enc = MLPEncoder(embed_dim=16, hidden=16, num_layers=1)
+        obs = {
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 37, 37), dtype=jnp.float16),
+            CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = ObservationPacker(cfg).from_step(
-            {
-                WORLD_POINTS_KEY: jnp.ones((3, 37, 37), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            }
-        )
+        params = enc.init(jax.random.PRNGKey(0), obs)
+        out = enc.apply(params, obs)
 
-        assert enc_obs.shape == (6, FEATURE_DIM)
-        assert enc_obs.dtype == jnp.bfloat16
-        assert act_obs.shape == (1, FEATURE_DIM)
-        assert act_obs.dtype == jnp.bfloat16
+        assert out.shape == (2, 3, 16)
+        assert jnp.isfinite(out).all()
 
 
 class TestWP64CNNCPMLPEncoder:
@@ -445,9 +440,7 @@ class TestVGGTFeatureReplayBuffer:
         # Add enough for sampling
         for _ in range(63):
             buf.add(
-                ReplayTransition.from_frame(
-                    features, _transition_frame(0, 0.0, False)
-                )
+                ReplayTransition.from_frame(features, _transition_frame(0, 0.0, False))
             )
 
         batch = buf.sample(batch_size=1, seq_len=16)
@@ -502,8 +495,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_aggregator_mlp(self):
@@ -522,8 +514,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_agg_token_transformer_reduced_shape(self):
@@ -549,8 +540,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_wp64_cnn_cp_mlp(self):
@@ -575,8 +565,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_wp_dense(self):
@@ -598,8 +587,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_mlp_layers_rejected_by_conv_encoders(self):

@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from src.r2dreamer.obs_batch import decoder_rgb_target
+from src.r2dreamer.decoder_targets import decoder_rgb_target
 from src.r2dreamer.learning_types import LossResult, WorldModelForward
 
 
@@ -106,7 +106,7 @@ def world_model_loss(
         recon = modules["decoder"].apply(
             params["decoder"], decoder_feat
         )  # (BT,3,64,64)
-        rgb_target = decoder_rgb_target(batch, cfg)
+        rgb_target = decoder_rgb_target(batch, cfg.encoder_type)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]
 

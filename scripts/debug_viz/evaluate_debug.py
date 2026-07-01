@@ -36,26 +36,34 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.r2dreamer.launch.registries import encoder_registry
+from src.configs.config import R2DreamerConfig
+from src.environments.habitat import build_habitat_env
 from src.r2dreamer.adapters import VGGT_FEATURE_DIM
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.launch.registries import encoder_registry
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     flatten_world_points_camera_pose,
 )
-from src.r2dreamer.agent import R2DreamerAgent
-from src.configs.config import R2DreamerConfig
-from src.r2dreamer.obs_batch import ObservationPacker
-from src.environments.habitat import build_habitat_env
 
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument("--random", action="store_true",
-                   help="Use random agent instead of a checkpoint")
-    p.add_argument("--episodes", type=int, default=12,
-                   help="Roll episodes 0..N-1 sequentially with --seed")
-    p.add_argument("--dump_episodes", type=str, default=None,
-                   help="CSV of episode indices to dump npz for; default = all")
+    p.add_argument(
+        "--random", action="store_true", help="Use random agent instead of a checkpoint"
+    )
+    p.add_argument(
+        "--episodes",
+        type=int,
+        default=12,
+        help="Roll episodes 0..N-1 sequentially with --seed",
+    )
+    p.add_argument(
+        "--dump_episodes",
+        type=str,
+        default=None,
+        help="CSV of episode indices to dump npz for; default = all",
+    )
     p.add_argument("--output_dir", type=str, required=True)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--curriculum_path", type=str, default=None)
@@ -145,8 +153,6 @@ def main(argv: list[str] | None = None) -> dict:
         agent.params = jax.tree.map(jnp.array, ckpt["params"])
         agent.slow_critic_params = jax.tree.map(jnp.array, ckpt["slow_critic_params"])
 
-    packer = ObservationPacker(config)
-
     # --- eval loop ---
     ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
     results = []
@@ -188,12 +194,14 @@ def main(argv: list[str] | None = None) -> dict:
                 for vp in goal.view_points:
                     pos = vp.agent_state.position
                     goal_positions.append(
-                        pos.tolist() if hasattr(pos, "tolist") else list(pos))
+                        pos.tolist() if hasattr(pos, "tolist") else list(pos)
+                    )
                     break
             else:
                 pos = goal.position
                 goal_positions.append(
-                    pos.tolist() if hasattr(pos, "tolist") else list(pos))
+                    pos.tolist() if hasattr(pos, "tolist") else list(pos)
+                )
         scene_id = env_instance._env.current_episode.scene_id
         object_category = env_instance._env.current_episode.object_category
 
@@ -206,9 +214,8 @@ def main(argv: list[str] | None = None) -> dict:
             # --- act ---
             if agent is not None:
                 rng_key, act_key = jax.random.split(rng_key)
-                encoder_obs = packer.from_step(agent_obs)
                 action = agent.act(
-                    encoder_obs, agent_obs["is_first"], act_key, training=False
+                    agent_obs, agent_obs["is_first"], act_key, training=False
                 )
                 # Capture RSSM latents AFTER act() — they're updated in-place.
                 act_state = agent.snapshot_act_state()
@@ -216,7 +223,9 @@ def main(argv: list[str] | None = None) -> dict:
                 deter = np.asarray(act_state.deter[0]).astype(np.float32)
             else:
                 action = int(np.random.randint(0, config.num_actions))
-                stoch = np.zeros((config.stoch_classes, config.stoch_discrete), dtype=np.float32)
+                stoch = np.zeros(
+                    (config.stoch_classes, config.stoch_discrete), dtype=np.float32
+                )
                 deter = np.zeros((config.deter_size,), dtype=np.float32)
             feat = np.concatenate([stoch.reshape(-1), deter]).astype(np.float32)
 
@@ -352,8 +361,10 @@ def main(argv: list[str] | None = None) -> dict:
     # Side-by-side eval_results.json (keeps shape parity with evaluate.py).
     with open(output_dir / "eval_results.json", "w") as f:
         json.dump(
-            {"meta": {"agent": args.checkpoint if not args.random else "random"},
-             "results": results},
+            {
+                "meta": {"agent": args.checkpoint if not args.random else "random"},
+                "results": results,
+            },
             f,
             indent=2,
         )
@@ -364,8 +375,10 @@ def main(argv: list[str] | None = None) -> dict:
     print(f"Mean reward: {manifest['summary_metrics']['reward_mean']:.2f}")
     print(f"Mean steps: {manifest['summary_metrics']['steps_mean']:.0f}")
     print(f"Dumped {total_dump_steps} steps over {len(dump_set)} episode(s)")
-    print(f"Total dump bytes: {total_dump_bytes / 1e6:.1f} MB "
-          f"({bytes_per_step_avg / 1024:.1f} KB/step avg)")
+    print(
+        f"Total dump bytes: {total_dump_bytes / 1e6:.1f} MB "
+        f"({bytes_per_step_avg / 1024:.1f} KB/step avg)"
+    )
     print(f"Manifest: {output_dir / 'MANIFEST.json'}")
 
     env_instance.close()

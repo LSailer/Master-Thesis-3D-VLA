@@ -26,17 +26,15 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+from src.configs.config import R2DreamerConfig
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.encoders import VGGTAggTokenTransformerEncoder
+from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _flatten_full_aggregator_tokens,
 )
-from src.configs.config import R2DreamerConfig
-from src.r2dreamer.encoders import VGGTAggTokenTransformerEncoder
-from src.r2dreamer.launch.habitat_setup import make_habitat_env
-from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.trainer import convert_batch
-from src.r2dreamer.agent import R2DreamerAgent
 from src.shared.profiling import timed
-
 
 TARGET_STEPS = 2_000_000
 TOKEN_COUNT = 1374
@@ -72,10 +70,12 @@ def block_tree(x):
 
 
 def gib(n_bytes: int | float) -> float:
-    return float(n_bytes) / (1024 ** 3)
+    return float(n_bytes) / (1024**3)
 
 
-def storage_preflight(path: Path, capacity: int, min_free_gb: float) -> dict[str, float | bool | str]:
+def storage_preflight(
+    path: Path, capacity: int, min_free_gb: float
+) -> dict[str, float | bool | str]:
     usage = shutil.disk_usage(path)
     capacity_bytes = capacity * REPLAY_BYTES_PER_STEP
     slots100k_bytes = 100_000 * REPLAY_BYTES_PER_STEP
@@ -98,8 +98,14 @@ def setup(args):
     enc = VGGTAggTokenTransformerEncoder.from_train_args(_Args())
     adapter = enc.make_adapter()
     spec = enc.spec()
-    print(f"Encoder spec: obs_shape={spec.obs_shape}, encoder_type={spec.encoder_type}", flush=True)
-    print(f"Adapter: buffer_shape={adapter.buffer_shape}, buffer_dtype={adapter.buffer_dtype}", flush=True)
+    print(
+        f"Encoder spec: obs_shape={spec.obs_shape}, encoder_type={spec.encoder_type}",
+        flush=True,
+    )
+    print(
+        f"Adapter: buffer_shape={adapter.buffer_shape}, buffer_dtype={adapter.buffer_dtype}",
+        flush=True,
+    )
     print(f"Agent overrides: {spec.agent_overrides}", flush=True)
 
     env = make_habitat_env(
@@ -144,14 +150,24 @@ def transform_timed(adapter, obs_dict, accum):
     agent_features = features_jax.astype(jnp.float32)
     block_tree(agent_features)
     accum["adapter_post"].append((time.perf_counter() - t1) * 1000.0)
-    agent_obs = {"features": agent_features, "is_first": obs_dict.get("is_first", False)}
+    agent_obs = {
+        "features": agent_features,
+        "is_first": obs_dict.get("is_first", False),
+    }
     return replay_features, agent_obs
 
 
 PHASES = (
-    "act", "env_step", "vggt_extract_total", "vggt_forward_internal",
-    "vggt_wrapper_internal", "adapter_post", "buffer_add", "buffer_sample",
-    "train_step", "total_step",
+    "act",
+    "env_step",
+    "vggt_extract_total",
+    "vggt_forward_internal",
+    "vggt_wrapper_internal",
+    "adapter_post",
+    "buffer_add",
+    "buffer_sample",
+    "train_step",
+    "total_step",
 )
 
 
@@ -159,17 +175,17 @@ def init_accum() -> dict[str, list[float]]:
     return {k: [] for k in PHASES}
 
 
-def run_phase(label, n_steps, adapter, env, cfg, agent, buffer, rng, buffer_obs, agent_obs):
+def run_phase(
+    label, n_steps, adapter, env, cfg, agent, buffer, rng, buffer_obs, agent_obs
+):
     accum = init_accum()
-    packer = ObservationPacker(cfg)
     batch_steps = cfg.batch_size * cfg.seq_len
     train_credit = 0.0
     for i in range(n_steps):
         step_t0 = time.perf_counter()
         rng, act_key = jax.random.split(rng)
         with timed(accum, "act"):
-            encoder_obs = packer.from_step(agent_obs)
-            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
+            action = agent.act(agent_obs, agent_obs["is_first"], act_key)
 
         with timed(accum, "env_step"):
             next_obs = env.step(int(action))
@@ -218,7 +234,9 @@ def run_profile(args, adapter, env, cfg, agent, buffer, rng):
         action = int(np.random.randint(0, cfg.num_actions))
         with timed(prefill_accum, "env_step"):
             next_obs = env.step(action)
-        next_buffer_obs, next_agent_obs = transform_timed(adapter, next_obs, prefill_accum)
+        next_buffer_obs, next_agent_obs = transform_timed(
+            adapter, next_obs, prefill_accum
+        )
 
         with timed(prefill_accum, "buffer_add"):
             buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
@@ -234,11 +252,29 @@ def run_profile(args, adapter, env, cfg, agent, buffer, rng):
 
     if args.warmup > 0:
         warmup_accum, rng, buffer_obs, agent_obs = run_phase(
-            "warmup", args.warmup, adapter, env, cfg, agent, buffer, rng, buffer_obs, agent_obs,
+            "warmup",
+            args.warmup,
+            adapter,
+            env,
+            cfg,
+            agent,
+            buffer,
+            rng,
+            buffer_obs,
+            agent_obs,
         )
     if args.measure > 0:
         steady_accum, rng, buffer_obs, agent_obs = run_phase(
-            "measure", args.measure, adapter, env, cfg, agent, buffer, rng, buffer_obs, agent_obs,
+            "measure",
+            args.measure,
+            adapter,
+            env,
+            cfg,
+            agent,
+            buffer,
+            rng,
+            buffer_obs,
+            agent_obs,
         )
     return {"prefill": prefill_accum, "warmup": warmup_accum, "steady": steady_accum}
 
@@ -249,7 +285,11 @@ def summarize(accum, cfg, storage, target_steps: int, max_hours: float):
     env_sps = 1000.0 / mean_step_ms if mean_step_ms > 0 else 0.0
     estimated_hours = (target_steps / env_sps) / 3600.0 if env_sps > 0 else float("inf")
     train_step = stats(accum["train_step"])
-    train_sps = 1000.0 / float(train_step.get("mean_ms", 0.0)) if train_step.get("n", 0) else 0.0
+    train_sps = (
+        1000.0 / float(train_step.get("mean_ms", 0.0))
+        if train_step.get("n", 0)
+        else 0.0
+    )
     feasible = (
         bool(storage["passes_min_free_gate"])
         and env_sps > 0
@@ -297,7 +337,9 @@ def main():
     p.add_argument("--max-feasible-hours", type=float, default=42.0)
     p.add_argument("--min-free-gb", type=float, default=300.0)
     p.add_argument("--storage-path", type=Path, default=Path("output"))
-    p.add_argument("--out", type=Path, default=Path("output/profiling/agg_token_transformer.json"))
+    p.add_argument(
+        "--out", type=Path, default=Path("output/profiling/agg_token_transformer.json")
+    )
     p.add_argument("--batch-size", type=int, default=None)
     p.add_argument("--seq-len", type=int, default=None)
     p.add_argument("--train-ratio", type=int, default=None)
@@ -305,7 +347,9 @@ def main():
 
     args.storage_path.mkdir(parents=True, exist_ok=True)
     enc, adapter, env, cfg, agent, buffer, rng = setup(args)
-    storage = storage_preflight(args.storage_path, cfg.buffer_capacity, args.min_free_gb)
+    storage = storage_preflight(
+        args.storage_path, cfg.buffer_capacity, args.min_free_gb
+    )
     print("Storage preflight:", json.dumps(storage, indent=2), flush=True)
 
     profile = run_profile(args, adapter, env, cfg, agent, buffer, rng)
@@ -316,19 +360,27 @@ def main():
     for name in accum:
         s = stats(accum[name])
         if s["n"]:
-            print(f"{name:24s} n={s['n']:>3} mean_ms={s['mean_ms']:.3f} p95_ms={s['p95_ms']:.3f}", flush=True)
+            print(
+                f"{name:24s} n={s['n']:>3} mean_ms={s['mean_ms']:.3f} p95_ms={s['p95_ms']:.3f}",
+                flush=True,
+            )
     print("\nFeasibility:", json.dumps(summary, indent=2), flush=True)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps({
-        "storage": storage,
-        "phases": {
-            phase: {k: stats(v) for k, v in phase_accum.items()}
-            for phase, phase_accum in profile.items()
-        },
-        "summary": summary,
-        "devices": [str(d) for d in jax.devices()],
-    }, indent=2))
+    args.out.write_text(
+        json.dumps(
+            {
+                "storage": storage,
+                "phases": {
+                    phase: {k: stats(v) for k, v in phase_accum.items()}
+                    for phase, phase_accum in profile.items()
+                },
+                "summary": summary,
+                "devices": [str(d) for d in jax.devices()],
+            },
+            indent=2,
+        )
+    )
     print(f"Saved {args.out}", flush=True)
 
 

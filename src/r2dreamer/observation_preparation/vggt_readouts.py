@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, WORLD_POINTS_KEY
+from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt import (
     VGGT_AGGREGATOR_PATCH_START_IDX,
     VGGT_DEFAULT_WP_POOL_SIZE,
@@ -68,9 +68,9 @@ def flatten_world_points_camera_pose(out: VGGTOutputLike) -> jnp.ndarray:
     camera_pose = _require_output_field(
         "camera_pose", _output_field(out, "camera_pose")
     )
-    return jnp.concatenate(
-        [world_points.reshape(-1), camera_pose.reshape(-1)]
-    ).astype(jnp.float32)
+    return jnp.concatenate([world_points.reshape(-1), camera_pose.reshape(-1)]).astype(
+        jnp.float32
+    )
 
 
 def _pool_world_points_hwc(
@@ -222,10 +222,7 @@ class VGGTHeadReadout:
             key: np.asarray(features[key], dtype=np.dtype(self.replay_dtype[key]))
             for key in replay_keys
         }
-        agent_obs = {
-            key: features[key].astype(jnp.float16)
-            for key in replay_keys
-        }
+        agent_obs = {key: features[key].astype(jnp.float16) for key in replay_keys}
         agent_obs["is_first"] = obs.is_first
         return replay, agent_obs
 

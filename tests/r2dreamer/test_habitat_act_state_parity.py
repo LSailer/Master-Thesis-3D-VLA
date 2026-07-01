@@ -15,12 +15,10 @@ import jax
 import numpy as np
 import pytest
 
-from src.environments.habitat import build_habitat_env
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.encoders import CNNEncoder
+from src.environments.habitat import build_habitat_env
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.obs_batch import ObservationPacker
-
+from src.r2dreamer.encoders import CNNEncoder
 
 HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
 RUN_PARITY = os.environ.get("RUN_HABITAT_ACT_STATE_PARITY") == "1"
@@ -76,11 +74,10 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
 
         adapter = CNNEncoder().make_adapter()
         cfg = _small_agent_config()
-        packer = ObservationPacker(cfg)
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
         state = agent.initial_act_state()
         obs = env.reset()
-        prepared = adapter.prepare_env_step(obs, packer)
+        prepared = adapter.prepare_env_step(obs)
         encoder_obs = prepared.encoder_obs
         is_first = prepared.is_first
         rng = jax.random.PRNGKey(11)
@@ -108,7 +105,7 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
             obs = env.step(mutable_action)
             if obs.done:
                 break
-            prepared = adapter.prepare_env_step(obs, packer)
+            prepared = adapter.prepare_env_step(obs)
             encoder_obs = prepared.encoder_obs
             is_first = prepared.is_first
 

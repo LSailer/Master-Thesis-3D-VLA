@@ -13,13 +13,12 @@ from PIL import Image
 from scipy.spatial.transform import Rotation
 
 from src.baselines.random_agent import RandomAgent
+from src.configs.config import R2DreamerConfig
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
+from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import env_registry
-from src.r2dreamer.agent import R2DreamerAgent
-from src.configs.config import R2DreamerConfig
-from src.r2dreamer.obs_batch import ObservationPacker
 from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (
     compose_frame,
@@ -241,11 +240,11 @@ def _make_eval_agent(
     return agent
 
 
-def _start_eval_episode(env_instance, adapter, packer: ObservationPacker):
+def _start_eval_episode(env_instance, adapter):
     obs = env_instance.reset()
     if adapter.on_episode_reset:
         adapter.on_episode_reset()
-    prepared = adapter.prepare_env_step(obs, packer)
+    prepared = adapter.prepare_env_step(obs)
     encoder_obs = prepared.encoder_obs
     is_first = prepared.is_first
 
@@ -346,7 +345,6 @@ def _run_eval_episode(
     wandb_module,
     output_dir: str,
 ) -> tuple[dict, jax.Array]:
-    packer = ObservationPacker(config)
     (
         obs,
         encoder_obs,
@@ -357,7 +355,7 @@ def _run_eval_episode(
         object_category,
         trajectory,
         headings,
-    ) = _start_eval_episode(env_instance, adapter, packer)
+    ) = _start_eval_episode(env_instance, adapter)
     actions_taken = []
     rewards = []
     record_video = wandb_module is not None and ep_idx < args.log_video_episodes
@@ -384,7 +382,7 @@ def _run_eval_episode(
                 encoder_obs, is_first, act_state, act_key, training=False
             )
             next_obs = env_instance.step(action)
-        next_prepared = adapter.prepare_env_step(next_obs, packer)
+        next_prepared = adapter.prepare_env_step(next_obs)
         next_encoder_obs = next_prepared.encoder_obs
         next_is_first = next_prepared.is_first
         actions_taken.append(int(action))

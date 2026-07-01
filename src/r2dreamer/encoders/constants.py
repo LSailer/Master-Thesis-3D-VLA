@@ -1,8 +1,7 @@
 """Shared dimensions for R2Dreamer encoder modules."""
 
-# Hybrid encoder input layout. Replay stores the modalities under explicit
-# fields (see HybridObsAdapter); src.r2dreamer.obs_batch packs them into this
-# flat tensor right before the Flax encoder boundary.
+# Hybrid encoder legacy packed input layout. Current replay/live paths keep
+# modalities under explicit fields and HybridEncoder owns any packing needed.
 HYBRID_RGB_DIM = 3 * 64 * 64  # 12288 — the CNN branch's 64x64 RGB, flattened
 HYBRID_VGGT_DIM = 4116  # WP/CP width: world_points 37*37*3 + camera_pose 9
 

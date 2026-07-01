@@ -18,7 +18,31 @@ from src.r2dreamer.adapters.hybrid_adapter import (
     VGGTHouseFullTokenObsAdapter,
     VGGTHousePointsPoseObsAdapter,
 )
-from src.r2dreamer.obs_batch import (
+from src.r2dreamer.encoders import (
+    VGGT_VARIANTS,
+    CNNEncoder,
+    EncoderSpec,
+    HybridEncoder,
+    VGGTAggregatorMLPEncoder,
+    VGGTAggTokenTransformerEncoder,
+    VGGTDenseWPEncoder,
+    VGGTEncoder,
+    VGGTHouseContextEncoder,
+    VGGTHouseFullTokenNoGateEncoder,
+    VGGTHousePointsPoseEncoder,
+    VGGTWP64CNNCPMLPEncoder,
+    VGGTWPCP64Encoder,
+)
+from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.r2dreamer.encoders.mlp import (
+    HybridEncoder as ModelHybridEncoder,
+)
+from src.r2dreamer.encoders.mlp import (
+    MLPEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
@@ -27,31 +51,11 @@ from src.r2dreamer.obs_batch import (
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
 )
-from src.r2dreamer.observation_preparation import CNNObservationPreparation, EncoderInputContract
-from src.r2dreamer.encoders import (
-    CNNEncoder,
-    EncoderSpec,
-    HybridEncoder,
-    VGGTAggTokenTransformerEncoder,
-    VGGTHouseContextEncoder,
-    VGGTHouseFullTokenNoGateEncoder,
-    VGGTHousePointsPoseEncoder,
-    VGGTEncoder,
-    VGGTWP64CNNCPMLPEncoder,
-    VGGTAggregatorMLPEncoder,
-    VGGTDenseWPEncoder,
-    VGGTWPCP64Encoder,
+from src.r2dreamer.observation_preparation import (
+    CNNObservationPreparation,
+    EncoderInputContract,
 )
-from src.r2dreamer.encoders import VGGT_VARIANTS
-from src.r2dreamer.encoders.cnn import ConvEncoder
-from src.r2dreamer.encoders.mlp import (
-    HybridEncoder as ModelHybridEncoder,
-    MLPEncoder,
-    WP64CNNCPMLPEncoder,
-)
-from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.shared.video_utils import resize_chw_uint8
-
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -158,14 +162,20 @@ class TestVGGTEncoderConfiguration:
 
         assert isinstance(adapter.contract, EncoderInputContract)
         assert adapter.contract.encoder_input.shape == (4116,)
-        assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 37, 37)
+        assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (
+            3,
+            37,
+            37,
+        )
         assert adapter.contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert spec.encoder_type == "vggt"
         assert spec.obs_shape == (4116,)
         assert spec.env_render_resolution == 518
         assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
 
-    def test_aggregator_encoder_spec_uses_pooled_extractor_feature_dim(self, monkeypatch):
+    def test_aggregator_encoder_spec_uses_pooled_extractor_feature_dim(
+        self, monkeypatch
+    ):
         class FakeExtractor:
             aggregator_feature_shape = (86, 128)
 
@@ -254,7 +264,10 @@ class TestVGGTEncoderConfiguration:
 
         assert isinstance(adapter.contract, EncoderInputContract)
         assert adapter.contract.encoder_type == "vggt_wp_dense_cnn"
-        assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].dtype == "float16"
+        assert (
+            adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].dtype
+            == "float16"
+        )
         # Dense WP is stored channel-first as a (3, 518, 518) float16 image plus pose.
         assert adapter.buffer_shape == {
             WORLD_POINTS_KEY: (3, 518, 518),
@@ -287,19 +300,27 @@ class TestVGGTEncoderConfiguration:
 
             def extract(self, image, return_dense=False):
                 import jax.numpy as jnp
+
                 assert return_dense is True, "wp_dense must request the dense map"
                 dense = jnp.arange(4 * 4 * 3, dtype=jnp.float32).reshape(4, 4, 3)
-                return {"dense_world_points": dense, "camera_pose": jnp.arange(9, dtype=jnp.float32)}
+                return {
+                    "dense_world_points": dense,
+                    "camera_pose": jnp.arange(9, dtype=jnp.float32),
+                }
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_dense")
         replay_features, agent_obs = adapter.transform(
             ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
 
-        expected = np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
+        expected = (
+            np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
+        )
         assert replay_features[WORLD_POINTS_KEY].shape == (3, 4, 4)
         assert replay_features[WORLD_POINTS_KEY].dtype == np.float16
-        np.testing.assert_allclose(replay_features[WORLD_POINTS_KEY], expected.astype(np.float16))
+        np.testing.assert_allclose(
+            replay_features[WORLD_POINTS_KEY], expected.astype(np.float16)
+        )
         assert replay_features[CAMERA_POSE_KEY].shape == (9,)
         assert agent_obs[WORLD_POINTS_KEY].shape == (3, 4, 4)
         assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
@@ -345,6 +366,7 @@ class TestVGGTEncoderConfiguration:
     def test_pool_dense_world_points(self):
         # 37 divides 518 (exact 14x14 block mean); 64 does not (antialiased resize).
         import jax.numpy as jnp
+
         from src.vggt.jax.feature_extractor import _pool_dense_world_points
 
         x = jnp.arange(518 * 518 * 3, dtype=jnp.float32).reshape(1, 518, 518, 3)
@@ -354,7 +376,9 @@ class TestVGGTEncoderConfiguration:
         assert p64.shape == (1, 64, 64, 3)
         # 37 path must equal an exact 14x14 block average.
         exact = x.reshape(1, 37, 14, 37, 14, 3).mean(axis=(2, 4))
-        np.testing.assert_allclose(np.asarray(p37), np.asarray(exact), rtol=1e-5, atol=1e-3)
+        np.testing.assert_allclose(
+            np.asarray(p37), np.asarray(exact), rtol=1e-5, atol=1e-3
+        )
         assert np.isfinite(np.asarray(p64)).all()
 
     def test_wp_cp_64_adapter_flattens_world_points_plus_pose(self):
@@ -458,9 +482,10 @@ class TestVGGTEncoderConfiguration:
     def test_vggt_launcher_variants_are_centralized(self):
         assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
         assert VGGTAggregatorMLPEncoder.variant is VGGT_VARIANTS["vggt_aggregator_mlp"]
-        assert VGGTAggTokenTransformerEncoder.variant is VGGT_VARIANTS[
-            "vggt_agg_token_transformer"
-        ]
+        assert (
+            VGGTAggTokenTransformerEncoder.variant
+            is VGGT_VARIANTS["vggt_agg_token_transformer"]
+        )
         assert VGGTDenseWPEncoder.variant is VGGT_VARIANTS["vggt_wp_dense_cnn"]
         assert VGGTWPCP64Encoder.variant is VGGT_VARIANTS["vggt_wp_cp_64"]
         assert VGGTWP64CNNCPMLPEncoder.variant is VGGT_VARIANTS["vggt_wp64_cnn_cp_mlp"]
@@ -481,7 +506,12 @@ class TestVGGTEncoderConfiguration:
 
             def extract(self, image):
                 import jax.numpy as jnp
-                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
+
+                return {
+                    "aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(
+                        10, 4
+                    )
+                }
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform(
@@ -509,7 +539,12 @@ class TestVGGTEncoderConfiguration:
 
             def extract(self, image):
                 import jax.numpy as jnp
-                return {"aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)}
+
+                return {
+                    "aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(
+                        10, 4
+                    )
+                }
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="agg_tokens")
         replay_features, agent_obs = adapter.transform(
@@ -570,6 +605,7 @@ class TestHybridEncoder:
 
             def extract(self, image):
                 import jax.numpy as jnp
+
                 return {
                     "world_points": jnp.asarray(world_points),
                     "camera_pose": jnp.asarray(camera_pose),
@@ -608,9 +644,9 @@ class TestHybridEncoder:
         np.testing.assert_array_equal(replay[HYBRID_IMAGE_KEY], img64)
 
         # WP/CP field: flattened world_points then camera_pose.
-        expected_wp_cp = np.concatenate(
-            [world_points.reshape(-1), camera_pose]
-        ).astype(np.float32)
+        expected_wp_cp = np.concatenate([world_points.reshape(-1), camera_pose]).astype(
+            np.float32
+        )
         np.testing.assert_allclose(replay[HYBRID_WP_CP_KEY], expected_wp_cp)
 
         assert agent_obs[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
@@ -693,6 +729,7 @@ class TestVGGTHouseContextEncoder:
         class FakeExtractor:
             def extract(self, image):
                 import jax.numpy as jnp
+
                 return {"aggregator_full_tokens": jnp.asarray(full_tokens)}
 
         class FakeContextTransformer:
@@ -703,6 +740,7 @@ class TestVGGTHouseContextEncoder:
             def apply(self, params, tokens, *, train=False):
                 assert tokens.shape == (1374, 2048)
                 import jax.numpy as jnp
+
                 return jnp.asarray(context)
 
         adapter = VGGTHouseContextObsAdapter(
@@ -740,9 +778,7 @@ class TestVGGTHouseContextEncoder:
         assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
         assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
 
-        np.testing.assert_allclose(
-            np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context
-        )
+        np.testing.assert_allclose(np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context)
 
 
 class TestVGGTHousePointsPoseEncoder:
@@ -799,7 +835,9 @@ class TestVGGTHousePointsPoseEncoder:
 
 
 class TestVGGTHouseFullTokenNoGateEncoder:
-    def test_full_token_nogate_encoder_exposes_image_replay_and_token_obs(self, monkeypatch):
+    def test_full_token_nogate_encoder_exposes_image_replay_and_token_obs(
+        self, monkeypatch
+    ):
         class FakeExtractor:
             aggregator_feature_shape = (1374, 1024)
 
@@ -841,6 +879,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         class FakeExtractor:
             def extract(self, image):
                 import jax.numpy as jnp
+
                 return {"aggregator_full_tokens": jnp.asarray(full_tokens)}
 
         adapter = VGGTHouseFullTokenObsAdapter(FakeExtractor())
@@ -878,7 +917,9 @@ class TestVGGTHouseFullTokenNoGateEncoder:
 
 
 class TestVGGTHouseGlobalTokenNoGateEncoder:
-    def test_global_token_nogate_encoder_exposes_rgb_replay_and_token_obs(self, monkeypatch):
+    def test_global_token_nogate_encoder_exposes_rgb_replay_and_token_obs(
+        self, monkeypatch
+    ):
         from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
         from src.r2dreamer.encoders import VGGTHouseGlobalTokenNoGateEncoder
 
@@ -929,6 +970,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
             def extract(self, image):
                 self.calls += 1
                 import jax.numpy as jnp
+
                 return {"aggregator_features": jnp.asarray(global_tokens)}
 
         extractor = FakeExtractor()
@@ -986,7 +1028,7 @@ class TestVGGTEncoder:
         # frames: (10, 3, 518, 518) uint8 CHW — matches VGGTFeatureExtractor.extract() input
         frames = frames_data["frames"]
         world_points = outputs_data["world_points"]  # (10, 37, 37, 3)
-        camera_pose = outputs_data["camera_pose"]    # (10, 9)
+        camera_pose = outputs_data["camera_pose"]  # (10, 9)
 
         # Reset KV-cache before the sequence
         adapter._extractor.reset()
@@ -1005,13 +1047,17 @@ class TestVGGTEncoder:
             assert features[CAMERA_POSE_KEY].dtype == np.float16
 
             np.testing.assert_allclose(
-                features[WORLD_POINTS_KEY], expected_wp.astype(np.float16),
-                atol=2e-2, rtol=1e-2,
+                features[WORLD_POINTS_KEY],
+                expected_wp.astype(np.float16),
+                atol=2e-2,
+                rtol=1e-2,
                 err_msg=f"World-points mismatch at frame {i}",
             )
             np.testing.assert_allclose(
-                features[CAMERA_POSE_KEY], expected_cp.astype(np.float16),
-                atol=2e-2, rtol=1e-2,
+                features[CAMERA_POSE_KEY],
+                expected_cp.astype(np.float16),
+                atol=2e-2,
+                rtol=1e-2,
                 err_msg=f"Camera-pose mismatch at frame {i}",
             )
 

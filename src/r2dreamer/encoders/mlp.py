@@ -1,5 +1,7 @@
 """MLP-based encoder modules for flat and hybrid observations."""
 
+from collections.abc import Mapping
+
 import flax.linen as nn
 import jax.numpy as jnp
 
@@ -9,7 +11,14 @@ from src.r2dreamer.encoders.constants import (
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
 )
-from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY, WORLD_POINTS_KEY
+from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
+    HOUSE_CONTEXT_KEY,
+    HYBRID_IMAGE_KEY,
+    HYBRID_WP_CP_KEY,
+    WORLD_POINTS_KEY,
+)
 from src.r2dreamer.world_model.heads import R2MLP
 from src.r2dreamer.world_model.rssm import RMSNorm
 
@@ -34,8 +43,19 @@ class MLPEncoder(nn.Module):
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
-        """Encode flat observations into RSSM embeddings."""
-        x = obs
+        """Encode flat or structured WP/CP observations into RSSM embeddings."""
+        if isinstance(obs, Mapping):
+            if "features" in obs:
+                x = obs["features"]
+            else:
+                world_points = jnp.asarray(obs[WORLD_POINTS_KEY])
+                camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY])
+                world_points = world_points.reshape(*world_points.shape[:-3], -1)
+                camera_pose = camera_pose.reshape(*camera_pose.shape[:-1], -1)
+                x = jnp.concatenate([world_points, camera_pose], axis=-1)
+        else:
+            x = obs
+        x = jnp.asarray(x)
         for i in range(self.num_layers):
             x = nn.Dense(self.hidden, name=f"hidden{i}")(x)
             x = RMSNorm(name=f"norm{i}")(x)
@@ -96,9 +116,9 @@ class HousePointsCameraEncoder(nn.Module):
     house_point_dim: int = 6
 
     def _camera_embedding(self, camera_pose: jnp.ndarray) -> jnp.ndarray:
-        if camera_pose.ndim != 2 or camera_pose.shape[-1] != self.camera_pose_dim:
+        if camera_pose.ndim < 1 or camera_pose.shape[-1] != self.camera_pose_dim:
             raise ValueError(
-                f"camera_pose must have shape (B, {self.camera_pose_dim}), "
+                f"camera_pose must have shape (..., {self.camera_pose_dim}), "
                 f"got {camera_pose.shape}"
             )
         x = camera_pose.astype(jnp.float32)
@@ -134,18 +154,18 @@ class HousePointsCameraEncoder(nn.Module):
             )
         return house_embed
 
-    def _branches(
-        self, obs: dict[str, jnp.ndarray]
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
         if not isinstance(obs, dict):
             raise TypeError("HousePointsCameraEncoder expects structured obs")
-        camera_pose = jnp.asarray(obs[CAMERA_POSE_KEY])
+        camera_pose, leading_shape = flatten_event(obs[CAMERA_POSE_KEY], event_ndims=1)
         camera_embed = self._camera_embedding(camera_pose)
         house_embed = self._house_embedding(
             jnp.asarray(obs[HOUSE_CONTEXT_KEY]),
             batch_size=camera_pose.shape[0],
         )
-        return camera_embed, house_embed
+        return restore_leading(camera_embed, leading_shape), restore_leading(
+            house_embed, leading_shape
+        )
 
     @nn.compact
     def __call__(self, obs: dict[str, jnp.ndarray]) -> jnp.ndarray:
@@ -175,9 +195,12 @@ class VGGTAggregatorMLPEncoder(nn.Module):
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
         """Encode pooled token features into an RSSM embedding."""
-        if obs.ndim != 2 or obs.shape[-1] != 3 * self.pool_dim:
+        if isinstance(obs, Mapping):
+            obs = obs["features"]
+        obs = jnp.asarray(obs)
+        if obs.ndim < 1 or obs.shape[-1] != 3 * self.pool_dim:
             raise ValueError(
-                f"expected (B, {3 * self.pool_dim}) pooled features, got {obs.shape}"
+                f"expected (..., {3 * self.pool_dim}) pooled features, got {obs.shape}"
             )
         camera, mean_patches, max_patches = jnp.split(obs, 3, axis=-1)
         camera = RMSNorm(name="norm_cam")(camera)
@@ -206,9 +229,12 @@ class VGGTAggRawMLPEncoder(nn.Module):
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
         """Encode flattened raw token features into an RSSM embedding."""
-        if obs.ndim != 2 or obs.shape[-1] != AGG_RAW_DIM:
+        if isinstance(obs, Mapping):
+            obs = obs["features"]
+        obs = jnp.asarray(obs)
+        if obs.ndim < 1 or obs.shape[-1] != AGG_RAW_DIM:
             raise ValueError(
-                f"VGGTAggRawMLPEncoder expects (B, {AGG_RAW_DIM}), got {obs.shape}"
+                f"VGGTAggRawMLPEncoder expects (..., {AGG_RAW_DIM}), got {obs.shape}"
             )
         x = obs.astype(jnp.float32)
         for i in range(self.num_layers):
@@ -221,10 +247,9 @@ class VGGTAggRawMLPEncoder(nn.Module):
 class HybridEncoder(nn.Module):
     """Hybrid CNN + gated MLP encoder feeding both modalities to the latent.
 
-    Input is the packed vector ``[rgb64_flat | flat_features]``. The RGB slice is
-    reshaped to ``(B, 3, 64, 64)`` and run through ``ConvEncoder``; the feature
-    slice is run through an MLP branch multiplied by a learnable scalar gate
-    initialized at zero.
+    Input may be a structured ``{"image": ..., "wp_cp": ...}`` observation or
+    the legacy packed vector ``[rgb64_flat | flat_features]``. Leading dimensions
+    such as replay ``(B, T)`` are preserved.
     """
 
     cnn_depth: int = 16
@@ -237,16 +262,28 @@ class HybridEncoder(nn.Module):
     vggt_dim: int = HYBRID_VGGT_DIM
 
     def _branches(
-        self, obs: jnp.ndarray
+        self, obs: jnp.ndarray | Mapping[str, jnp.ndarray]
     ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        """Return ``(cnn_embed, gated_feature_embed, gate)`` from packed obs."""
-        if obs.ndim != 2 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
-            raise ValueError(
-                f"expected (B, {self.rgb_dim + self.vggt_dim}) hybrid features, "
-                f"got {obs.shape}"
+        """Return ``(cnn_embed, gated_feature_embed, gate)`` from hybrid obs."""
+        if isinstance(obs, Mapping):
+            rgb = jnp.asarray(obs[HYBRID_IMAGE_KEY])
+            context_key = (
+                HYBRID_WP_CP_KEY if HYBRID_WP_CP_KEY in obs else HOUSE_CONTEXT_KEY
             )
-        rgb = obs[..., : self.rgb_dim].reshape(obs.shape[0], 3, 64, 64)
-        features = obs[..., self.rgb_dim :]
+            features = jnp.asarray(obs[context_key])
+            if features.shape[-1] != self.vggt_dim:
+                raise ValueError(
+                    f"expected hybrid context width {self.vggt_dim}, got {features.shape}"
+                )
+        else:
+            obs = jnp.asarray(obs)
+            if obs.ndim < 1 or obs.shape[-1] != self.rgb_dim + self.vggt_dim:
+                raise ValueError(
+                    f"expected (..., {self.rgb_dim + self.vggt_dim}) hybrid features, "
+                    f"got {obs.shape}"
+                )
+            rgb = obs[..., : self.rgb_dim].reshape(*obs.shape[:-1], 3, 64, 64)
+            features = obs[..., self.rgb_dim :]
         cnn_embed = make_rgb_conv_encoder(
             depth=self.cnn_depth,
             kernel_size=self.cnn_kernel,
@@ -270,6 +307,8 @@ class HybridEncoder(nn.Module):
         return jnp.concatenate([cnn_embed, feature_embed], axis=-1)
 
     @nn.compact
-    def branches(self, obs: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def branches(
+        self, obs: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Diagnostic split: ``(cnn_embed, gated_feature_embed, gate_scalar)``."""
         return self._branches(obs)

@@ -27,22 +27,21 @@ from src.buffer.replay_buffer import (
     ReplayTransition,
     ReplayTransitionBatch,
 )
+from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
-from src.shared.video_utils import (
-    compose_frame,
-    log_episode_video,
-    render_topdown_frame,
-)
 from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
     save_checkpoint,
 )
-from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
-from src.r2dreamer.obs_batch import ObservationPacker, compute_jnp_dtype
-
+from src.shared.dtypes import compute_jnp_dtype
+from src.shared.video_utils import (
+    compose_frame,
+    log_episode_video,
+    render_topdown_frame,
+)
 
 # ---------------------------------------------------------------------------
 # Protocols
@@ -72,9 +71,7 @@ class R2DreamerAgentLike(Protocol):
     slow_critic_params: Any
     ema_state: Any
 
-    def train_step(
-        self, batch: Any, rng_key: jnp.ndarray
-    ) -> dict[str, float]: ...
+    def train_step(self, batch: Any, rng_key: jnp.ndarray) -> dict[str, float]: ...
 
     def act(
         self,
@@ -84,9 +81,7 @@ class R2DreamerAgentLike(Protocol):
         training: bool = True,
     ) -> int: ...
 
-    def reconstruct(
-        self, batch: Any
-    ) -> tuple[np.ndarray, np.ndarray] | None: ...
+    def reconstruct(self, batch: Any) -> tuple[np.ndarray, np.ndarray] | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +139,9 @@ def _stack_mapping_observations(
     for sequence in obs_grid:
         for obs in sequence:
             if not isinstance(obs, Mapping):
-                raise TypeError("cannot mix mapping and non-mapping replay observations")
+                raise TypeError(
+                    "cannot mix mapping and non-mapping replay observations"
+                )
             if set(obs.keys()) != expected_keys:
                 raise KeyError(
                     "replay observation keys changed inside sampled batch: "
@@ -393,7 +390,6 @@ class Trainer:
         self.acfg = agent_config
         self.tcfg = trainer_config
         self.obs_adapter = obs_adapter or ObsAdapter()
-        self.obs_packer = ObservationPacker(agent_config)
         self.episode_metrics_fn = episode_metrics_fn
         # Val-Episode-Loop wiring (3D-36). All three must be non-None for the
         # loop to run; the launcher constructs them together when val is on.
@@ -513,7 +509,7 @@ class Trainer:
     def _prepare_observation(
         self, adapter: ObsAdapter, obs: ObservationFrame
     ) -> tuple[Any, Any, bool]:
-        prepared = adapter.prepare_env_step(obs, self.obs_packer)
+        prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.encoder_obs, prepared.is_first
 
     def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
@@ -661,9 +657,11 @@ class Trainer:
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(encoder_obs, is_first, act_key)
             next_obs = self.env.step(action)
-            next_buffer_obs, next_encoder_obs, next_is_first = self._prepare_observation(
-                self.obs_adapter,
-                next_obs,
+            next_buffer_obs, next_encoder_obs, next_is_first = (
+                self._prepare_observation(
+                    self.obs_adapter,
+                    next_obs,
+                )
             )
 
             self._record_train_transition(

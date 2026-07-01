@@ -14,7 +14,9 @@ from collections.abc import Mapping
 import jax.numpy as jnp
 
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.obs_batch import HYBRID_IMAGE_KEY
+from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
+from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder
+from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 from src.r2dreamer.observation_preparation.cnn import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
@@ -25,10 +27,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     recover_encoder_input_contract,
 )
 from src.r2dreamer.observation_preparation.vggt import VGGT_DREAMER_SPECS
-from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder
-from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
 from src.r2dreamer.world_model.rssm import R2RSSM
-
 
 _DECODER_RGB_ENCODERS = frozenset(
     {
@@ -88,7 +87,10 @@ def _form_from_shape(
 
 def _legacy_env_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
     image_shape = (3, 64, 64)
-    if cfg.encoder_type.startswith("vggt") and cfg.encoder_type not in _DECODER_RGB_ENCODERS:
+    if (
+        cfg.encoder_type.startswith("vggt")
+        and cfg.encoder_type not in _DECODER_RGB_ENCODERS
+    ):
         image_shape = (3, 518, 518)
     return ObservationFormContract(
         {
@@ -189,7 +191,10 @@ def _validate_encoder_module_config(
     contract: EncoderInputContract,
 ) -> None:
     class_name = contract.encoder_module_cls.__name__
-    if class_name in {"ConvEncoder", "WP64CNNCPMLPEncoder"} and cfg.vggt_mlp_layers != 1:
+    if (
+        class_name in {"ConvEncoder", "WP64CNNCPMLPEncoder"}
+        and cfg.vggt_mlp_layers != 1
+    ):
         raise ValueError(
             f"vggt_mlp_layers={cfg.vggt_mlp_layers} has no effect on "
             f"{class_name} (a conv encoder, no MLP blocks). Only the 'vggt' and "

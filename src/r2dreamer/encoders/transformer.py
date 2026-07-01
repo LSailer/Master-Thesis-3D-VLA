@@ -10,6 +10,7 @@ from jax.typing import DTypeLike
 
 from src.r2dreamer.encoders.cnn import make_rgb_conv_encoder
 from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS, AGG_TOKEN_TOKENS
+from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
 from src.r2dreamer.world_model.rssm import RMSNorm
 
 EncoderObs = jax.Array | Mapping[str, jax.Array]
@@ -182,7 +183,9 @@ class TokenTransformerEncoder(nn.Module):
                 "register_tokens must leave at least one camera token and one patch token"
             )
         if self.readout == "camera_register_patch" and not self.keep_register_tokens:
-            raise ValueError("camera_register_patch readout requires kept register tokens")
+            raise ValueError(
+                "camera_register_patch readout requires kept register tokens"
+            )
         if self.readout not in ("mean", "camera_patch", "camera_register_patch"):
             raise ValueError(f"unknown readout {self.readout!r}")
         if self.norm_kind not in ("rms", "layer"):
@@ -196,34 +199,40 @@ class TokenTransformerEncoder(nn.Module):
         """Resolve image and token tensors from either a dict or direct tensor input."""
         if self.token_key is None:
             if isinstance(obs, Mapping):
-                raise TypeError("token_key=None expects obs to be the token tensor")
+                if "features" not in obs:
+                    raise TypeError(
+                        "token_key=None expects obs to be a token tensor or contain 'features'"
+                    )
+                return None, obs["features"]
             return None, obs
         if not isinstance(obs, Mapping):
             raise TypeError("token_key requires obs to be a mapping")
         image = None if self.image_key is None else obs[self.image_key]
         return image, obs[self.token_key]
 
-    def _reshape_tokens(self, tokens: jax.Array) -> tuple[jax.Array, bool]:
-        """Convert supported token layouts to ``(B, num_tokens, token_dim)``."""
+    def _reshape_tokens(self, tokens: jax.Array) -> tuple[jax.Array, tuple[int, ...]]:
+        """Convert supported token layouts to ``(N, num_tokens, token_dim)``."""
         tokens = jnp.asarray(tokens, dtype=self.compute_dtype)
-        squeeze = False
-        if tokens.ndim == 2 and tokens.shape == (self.num_tokens, self.token_dim):
-            tokens = tokens[None]
-            squeeze = True
-        elif tokens.ndim == 2 and tokens.shape[-1] == self.num_tokens * self.token_dim:
-            tokens = tokens.reshape(tokens.shape[0], self.num_tokens, self.token_dim)
-        elif tokens.ndim != 3 or tokens.shape[-2:] != (self.num_tokens, self.token_dim):
+        if tokens.ndim >= 2 and tokens.shape[-2:] == (self.num_tokens, self.token_dim):
+            tokens, leading_shape = flatten_event(tokens, event_ndims=2)
+        elif tokens.ndim >= 1 and tokens.shape[-1] == self.num_tokens * self.token_dim:
+            leading_shape = tokens.shape[:-1]
+            if not leading_shape:
+                tokens = tokens.reshape(1, self.num_tokens, self.token_dim)
+                leading_shape = ()
+            else:
+                tokens = tokens.reshape(-1, self.num_tokens, self.token_dim)
+        else:
             raise ValueError(
                 "expected tokens with shape "
-                f"(B, {self.num_tokens}, {self.token_dim}), "
-                f"({self.num_tokens}, {self.token_dim}), or "
-                f"(B, {self.num_tokens * self.token_dim}); got {tokens.shape}"
+                f"(..., {self.num_tokens}, {self.token_dim}) or "
+                f"(..., {self.num_tokens * self.token_dim}); got {tokens.shape}"
             )
         if self.singleton_tokens and tokens.shape[0] != 1:
             raise ValueError(
                 f"singleton_tokens expects one token context, got batch {tokens.shape[0]}"
             )
-        return tokens, squeeze
+        return tokens, leading_shape
 
     def _drop_or_keep_registers(self, tokens: jax.Array) -> tuple[jax.Array, int]:
         """Apply the register-token policy and return the patch-token start index."""
@@ -250,11 +259,13 @@ class TokenTransformerEncoder(nn.Module):
     def _encode_tokens(self, tokens: jax.Array, *, train: bool = False) -> jax.Array:
         """Encode only the token branch into ``(B, embed_dim)`` or ``(embed_dim,)``."""
         self._validate_config()
-        tokens, squeeze = self._reshape_tokens(tokens)
+        tokens, leading_shape = self._reshape_tokens(tokens)
         tokens, patch_start = self._drop_or_keep_registers(tokens)
         x = tokens
         if self.model_dim is not None:
-            x = nn.Dense(self._model_dim(), dtype=self.compute_dtype, name="token_proj")(x)
+            x = nn.Dense(
+                self._model_dim(), dtype=self.compute_dtype, name="token_proj"
+            )(x)
 
         pos_embed = self.param(
             "pos_embed",
@@ -276,13 +287,17 @@ class TokenTransformerEncoder(nn.Module):
             )(x, train=train)
 
         readout = self._readout(x, patch_start)
-        readout = _make_norm(self.norm_kind, self.compute_dtype, "readout_norm")(readout)
-        encoded = nn.Dense(self.embed_dim, dtype=self.compute_dtype, name="proj")(readout)
-        if squeeze:
-            return encoded[0]
-        return encoded
+        readout = _make_norm(self.norm_kind, self.compute_dtype, "readout_norm")(
+            readout
+        )
+        encoded = nn.Dense(self.embed_dim, dtype=self.compute_dtype, name="proj")(
+            readout
+        )
+        return restore_leading(encoded, leading_shape)
 
-    def _branches(self, obs: EncoderObs, *, train: bool = False) -> tuple[jax.Array, jax.Array]:
+    def _branches(
+        self, obs: EncoderObs, *, train: bool = False
+    ) -> tuple[jax.Array, jax.Array]:
         """Return ``(cnn_embed, token_embed)`` for RGB+token configurations."""
         image, tokens = self._extract_image_and_tokens(obs)
         if image is None:
@@ -295,11 +310,13 @@ class TokenTransformerEncoder(nn.Module):
         )(image)
         token_embed = self._encode_tokens(tokens, train=train)
         if self.singleton_tokens:
-            token_embed = jnp.broadcast_to(token_embed, (cnn_embed.shape[0], self.embed_dim))
-        elif token_embed.shape[0] != cnn_embed.shape[0]:
+            token_embed = jnp.broadcast_to(
+                token_embed, (*cnn_embed.shape[:-1], self.embed_dim)
+            )
+        elif token_embed.shape[:-1] != cnn_embed.shape[:-1]:
             raise ValueError(
-                "token batch must match image batch unless singleton_tokens=True: "
-                f"token batch {token_embed.shape[0]}, image batch {cnn_embed.shape[0]}"
+                "token leading dims must match image leading dims unless singleton_tokens=True: "
+                f"token {token_embed.shape[:-1]}, image {cnn_embed.shape[:-1]}"
             )
         return cnn_embed, token_embed
 
@@ -313,6 +330,8 @@ class TokenTransformerEncoder(nn.Module):
         return jnp.concatenate([cnn_embed, token_embed], axis=-1)
 
     @nn.compact
-    def branches(self, obs: EncoderObs, *, train: bool = False) -> tuple[jax.Array, jax.Array]:
+    def branches(
+        self, obs: EncoderObs, *, train: bool = False
+    ) -> tuple[jax.Array, jax.Array]:
         """Diagnostic split for RGB+token observations."""
         return self._branches(obs, train=train)

@@ -1,6 +1,6 @@
 # UI Prototype
 
-Generate **several radically different UI variations** on a single route, switchable from a floating bottom bar. The user flips between variants in the browser, picks one (or steals bits from each), then throws the rest away.
+Generate **several radically different UI variations** in a scratchpad-only prototype, switchable from a floating bottom bar. The user flips between variants, picks one (or steals bits from each), then throws the rest away.
 
 If the question is about logic/state rather than what something looks like — wrong branch. Use [LOGIC.md](LOGIC.md).
 
@@ -11,25 +11,23 @@ If the question is about logic/state rather than what something looks like — w
 - "Try a different layout for the settings screen."
 - Any time the user would otherwise spend a day picking between three vague mockups in their head.
 
-## Two sub-shapes — strongly prefer sub-shape A
+## Scratchpad-only shape
 
-A UI prototype is much easier to judge when it's **butting up against the rest of the app** — real header, real sidebar, real data, real density. A throwaway route on its own is a vacuum: every variant looks fine in isolation. Default to sub-shape A whenever there's a plausible existing page to host the variants. Only reach for sub-shape B if the prototype genuinely has no nearby home.
+UI prototypes live under `scratchpad/prototypes/<prototype-slug>/` or an active `scratchpad/experiments/<experiment-slug>/prototype/`. Read the existing page/component for context, but do not edit it during prototype work.
 
-### Sub-shape A — adjustment to an existing page (preferred)
+### Shape A — mirror an existing page or section (preferred)
 
-The route already exists. Variants are rendered **on the same route**, gated by a `?variant=` URL search param. The existing data fetching, params, and auth all stay — only the rendering swaps. This is the default; pick it unless there's a specific reason not to.
+Use this when the design would eventually live inside an existing route or component. Create a scratchpad prototype that mirrors the relevant page density, data shape, and constraints. Import read-only helpers/components only when that is simple and safe; otherwise copy minimal mock data and state the assumptions in the prototype `README.md`.
 
-If the prototype is for something that doesn't yet have a page but *would naturally live inside one* (a new section of the dashboard, a new card on the settings screen, a new step in an existing flow) — that's still sub-shape A. Mount the variants inside the host page.
+This is preferred over editing the real route because it preserves prototype freedom while keeping the design grounded in real context.
 
-### Sub-shape B — a new page (last resort)
+### Shape B — standalone scratchpad surface
 
-Only use this when the thing being prototyped genuinely has no existing page to live inside — e.g. an entirely new top-level surface, or a flow that can't be embedded anywhere sensible.
+Use this only when the thing being prototyped has no existing page to mirror. Create a standalone scratchpad app, HTML file, notebook, or script following the project's available runtime. Name the folder so it is obviously a prototype.
 
-Create a **throwaway route** following whatever routing convention the project already uses — don't invent a new top-level structure. Name it so it's obviously a prototype (e.g. include the word `prototype` in the path or filename). Same `?variant=` pattern.
+Before choosing Shape B, sanity-check: is there really no existing page or workflow this should mirror? An empty standalone surface hides design problems that a populated one would expose.
 
-Before committing to sub-shape B, sanity-check: is there really no existing page this could be embedded in? An empty route hides design problems that a populated one would expose.
-
-In both sub-shapes the floating bottom bar is identical.
+In both shapes the floating switcher is scratchpad-local.
 
 ## Process
 
@@ -37,9 +35,9 @@ In both sub-shapes the floating bottom bar is identical.
 
 Default to **3 variants**. More than 5 stops being radically different and starts being noise — cap there.
 
-Write down the plan in one line, in the prototype's location or a top-of-file comment:
+Write down the plan in the prototype `README.md`:
 
-> "Three variants of the settings page, switchable via `?variant=`, on the existing `/settings` route."
+> "Three scratchpad variants of the settings page, switchable via `?variant=`, mirroring the existing `/settings` route without editing production files."
 
 This works whether the user is here to push back or not.
 
@@ -48,17 +46,17 @@ This works whether the user is here to push back or not.
 Draft each variant. Hold each one to:
 
 - The page's purpose and the data it has access to.
-- The project's component library / styling system (TailwindCSS, shadcn, MUI, plain CSS, whatever).
-- A clear exported component name, e.g. `VariantA`, `VariantB`, `VariantC`.
+- The project's component library / styling system where practical.
+- A clear exported component/function name, e.g. `VariantA`, `VariantB`, `VariantC`.
 
 Variants must be **structurally different** — different layout, different information hierarchy, different primary affordance, not just different colours. Three slightly-tweaked card grids isn't a UI prototype, it's wallpaper. If two drafts come out too similar, redo one with explicit "do not use a card grid" guidance.
 
 ### 3. Wire them together
 
-Create a single switcher component on the route:
+Create a scratchpad-local switcher entrypoint:
 
 ```tsx
-// pseudo-code — adapt to the project's framework
+// pseudo-code — adapt to the scratchpad runtime
 const variant = searchParams.get('variant') ?? 'A';
 return (
   <>
@@ -70,9 +68,9 @@ return (
 );
 ```
 
-For sub-shape A (existing page): keep all the existing data fetching above the switcher; only the rendered subtree changes per variant.
+For Shape A: mirror the existing route's data and layout constraints in scratchpad; only the rendered prototype subtree changes per variant.
 
-For sub-shape B (new page): the throwaway route under `/prototype/<name>` mounts the same switcher.
+For Shape B: the scratchpad prototype owns its own minimal mock data and route/file.
 
 ### 4. Build the floating switcher
 
@@ -84,23 +82,22 @@ A small fixed-position bar at the bottom-centre of the screen with three pieces:
 
 Behaviour:
 
-- Clicking an arrow updates the URL search param (use the framework's router — `router.replace` on Next, `navigate` on React Router, etc) so the variant is shareable and reload-stable.
+- Clicking an arrow updates the scratchpad URL/search param or local state so the variant is reload-stable when the runtime supports it.
 - Keyboard: `←` and `→` arrow keys also cycle. Don't intercept arrow keys when an `<input>`, `<textarea>`, or `[contenteditable]` is focused.
 - Visually distinct from the page (e.g. high-contrast pill, subtle shadow) so it's obviously not part of the design being evaluated.
-- Hidden in production builds — gate on `process.env.NODE_ENV !== 'production'` or an equivalent check, so a stray prototype merge can't ship the bar to users.
-
-Put the switcher in a single shared component so both sub-shapes can reuse it. Locate it wherever shared UI lives in the project.
+- Keep it inside the scratchpad prototype. If the winning design is later folded into production, do not include the switcher unless the user explicitly wants a production feature flag.
 
 ### 5. Hand it over
 
-Surface the URL (and the `?variant=` keys). The user will flip through whenever they get to it. The interesting feedback is usually **"I want the header from B with the sidebar from C"** — that's the actual design they want.
+Surface the run command and the `?variant=` keys if supported. The user will flip through whenever they get to it. The interesting feedback is usually **"I want the header from B with the sidebar from C"** — that's the actual design they want.
 
 ### 6. Capture the answer and clean up
 
-Once a variant has won, write down which one and why (commit message, ADR, issue, or a `NOTES.md` next to the prototype if running AFK and the user hasn't responded yet). Then:
+Once a variant has won, write down which one and why in the scratchpad `NOTES.md`, an issue comment, an ADR, or the eventual production commit message. Then:
 
-- **Sub-shape A** — delete the losing variants and the switcher; fold the winner into the existing page.
-- **Sub-shape B** — promote the winning variant to a real route, delete the throwaway route and the switcher.
+- Delete losing scratchpad variants when they are no longer useful.
+- Propose the winning design as a separate production patch/snippet, or ask for explicit production-edit approval.
+- Delete the scratchpad switcher when the prototype is absorbed.
 
 Don't leave variant components or the switcher lying around. They rot fast and confuse the next reader.
 
@@ -109,4 +106,5 @@ Don't leave variant components or the switcher lying around. They rot fast and c
 - **Variants that differ only in colour or copy.** That's a tweak, not a prototype. Real variants disagree about structure.
 - **Sharing too much code between variants.** A shared `<Header>` is fine; a shared `<Layout>` defeats the point. Each variant should be free to throw out the layout.
 - **Wiring variants to real mutations.** Read-only prototypes are fine. If a variant needs to mutate, point it at a stub — the question is "what should this look like", not "does the backend work".
+- **Editing production routes for prototype work.** The prototype skill is scratchpad-only. Production integration is a separate approved change.
 - **Promoting the prototype directly to production.** The variant code was written under prototype constraints (no tests, minimal error handling). Rewrite it properly when you fold it in.

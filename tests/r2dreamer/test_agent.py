@@ -1,15 +1,15 @@
 """Smoke tests for R2DreamerAgent."""
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.obs_batch import ObservationPacker, encoder_obs_from_batch
-from src.r2dreamer.obs_batch import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
 
 
 @pytest.fixture
@@ -25,8 +25,11 @@ def agent(cfg):
 def make_batch(cfg, B=4, T=16):
     return {
         "obs": jnp.array(np.random.rand(B, T, *cfg.obs_shape).astype(np.float32)),
-        "actions": jnp.array(np.eye(cfg.num_actions, dtype=np.float32)[
-            np.random.randint(0, cfg.num_actions, (B, T))]),
+        "actions": jnp.array(
+            np.eye(cfg.num_actions, dtype=np.float32)[
+                np.random.randint(0, cfg.num_actions, (B, T))
+            ]
+        ),
         "rewards": jnp.array(np.random.randn(B, T).astype(np.float32)),
         "is_first": jnp.zeros((B, T)),
         "is_episode_end": jnp.zeros((B, T)),
@@ -183,7 +186,9 @@ def tree_allclose(left, right, *, atol=1e-6):
 
 def tree_any_changed(before, after, *, atol=1e-7):
     pairs = zip(jax.tree_util.tree_leaves(before), jax.tree_util.tree_leaves(after))
-    return any(not np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in pairs)
+    return any(
+        not np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in pairs
+    )
 
 
 class TestR2DreamerAgent:
@@ -195,17 +200,16 @@ class TestR2DreamerAgent:
             "image": np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8),
             "is_first": True,
         }
-        encoder_obs = ObservationPacker(cfg).from_step(obs)
-        action = agent.act(encoder_obs, obs["is_first"], jax.random.PRNGKey(0))
+        action = agent.act(
+            {"image": obs["image"]}, obs["is_first"], jax.random.PRNGKey(0)
+        )
         assert 0 <= action < cfg.num_actions
 
     def test_act_with_state_matches_mutable_act_and_jits(self, agent, cfg):
         state = agent.initial_act_state()
-        packer = ObservationPacker(cfg)
         image = np.random.randint(0, 256, cfg.obs_shape, dtype=np.uint8)
         for step, is_first in enumerate((True, False, True, False)):
-            obs = {"image": image, "is_first": is_first}
-            encoder_obs = packer.from_step(obs)
+            encoder_obs = {"image": image}
             key = jax.random.PRNGKey(step)
             mutable_action = agent.act(encoder_obs, is_first, key, training=False)
             state_action, state = agent.act_with_state(
@@ -214,11 +218,10 @@ class TestR2DreamerAgent:
             assert state_action == mutable_action
             assert tree_allclose(state, agent.snapshot_act_state())
 
-        obs = {"image": image, "is_first": True}
         compiled = jax.jit(agent.act_with_state_pure)
         action, _state = compiled.__call__(
             agent.params,
-            packer.from_step(obs),
+            {"image": image[None]},
             agent.initial_act_state(),
             jnp.asarray(True),
             jax.random.PRNGKey(99),
@@ -314,10 +317,6 @@ class TestR2DreamerAgent:
             "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
         }
 
-        encoder_obs = encoder_obs_from_batch(batch, cfg)
-        assert encoder_obs[CAMERA_POSE_KEY].shape == (2, 9)
-        assert encoder_obs[HOUSE_CONTEXT_KEY].shape == (1, 5, 6)
-
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))
 
         assert np.isfinite(metrics["total_loss"])
@@ -382,12 +381,12 @@ class TestR2DreamerAgent:
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/gate" not in metrics
         assert "gate" not in after["params"]
-        assert "token_transformer" in after["params"]
+        assert "block0" in after["params"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
                 lambda a, b: jnp.allclose(a, b),
-                before["params"]["token_transformer"],
-                after["params"]["token_transformer"],
+                before["params"],
+                after["params"],
             )
         )
 
@@ -415,14 +414,12 @@ class TestR2DreamerAgent:
             }
         }
 
-        encoder_obs = encoder_obs_from_batch(batch, cfg)
         _, token_e = agent.encoder_mod.apply(
             {"params": agent.params["encoder"]["params"]},
-            encoder_obs,
+            batch["obs"],
             method=agent.encoder_mod.branches,
         )
 
-        assert encoder_obs["full_tokens"].dtype == jnp.bfloat16
         assert token_e.dtype == jnp.bfloat16
 
     def test_train_step_is_deterministic_updates_params_and_composes_total_loss(self):
@@ -444,7 +441,8 @@ class TestR2DreamerAgent:
 
         assert metrics_a["nan_skipped"] == 0.0
         changed_subtrees = [
-            name for name, params in agent_a.params.items()
+            name
+            for name, params in agent_a.params.items()
             if tree_any_changed(before[name], params)
         ]
         assert changed_subtrees
@@ -500,9 +498,12 @@ class TestR2DreamerAgent:
             + dec_cfg.scale_value * decoder_metrics["loss/value"]
             + dec_cfg.scale_repval * decoder_metrics["loss/repval"]
         )
-        assert decoder_metrics["total_loss"] == pytest.approx(expected_agent_loss, rel=1e-6)
+        assert decoder_metrics["total_loss"] == pytest.approx(
+            expected_agent_loss, rel=1e-6
+        )
         assert decoder_metrics["opt_loss"] == pytest.approx(
-            expected_agent_loss + dec_cfg.scale_decoder * decoder_metrics["loss/decoder"],
+            expected_agent_loss
+            + dec_cfg.scale_decoder * decoder_metrics["loss/decoder"],
             rel=1e-6,
         )
         assert tree_any_changed(before_decoder_params, with_decoder.params["decoder"])

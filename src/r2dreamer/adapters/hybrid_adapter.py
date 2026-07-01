@@ -4,28 +4,33 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
 import numpy as np
 
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.observation_preparation.vggt_readouts import (
-    VGGTOutputLike,
-    flatten_world_points_camera_pose,
-    full_aggregator_tokens,
-)
-from src.r2dreamer.obs_batch import (
+from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_DIM
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
-    CAMERA_POSE_KEY,
+)
+from src.r2dreamer.observation_preparation.static_house_context import (
+    encode_static_house_context,
+    load_ascii_ply_xyzrgb,
 )
 from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_IMAGE_SHAPE as IMAGE_SHAPE,
+)
+from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_IMAGE_SIZE as IMAGE_SIZE,
+)
+from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_RGB_DIM,
     VGGT_AGGREGATOR_EMBED_DIM,
     VGGT_AGGREGATOR_TOKEN_COUNT,
@@ -33,14 +38,12 @@ from src.r2dreamer.observation_preparation.vggt import (
     build_hybrid_contract,
     wp_cp_dim,
 )
-from src.r2dreamer.observation_preparation.static_house_context import (
-    encode_static_house_context,
-    load_ascii_ply_xyzrgb,
+from src.r2dreamer.observation_preparation.vggt_readouts import (
+    VGGTOutputLike,
+    flatten_world_points_camera_pose,
+    full_aggregator_tokens,
 )
 from src.shared.video_utils import resize_chw_uint8
-from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_DIM
-from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
-
 
 HYBRID_FEATURE_DIM = HYBRID_RGB_DIM + wp_cp_dim()
 HOUSE_CONTEXT_FEATURE_DIM = HYBRID_RGB_DIM + HOUSE_CONTEXT_DIM
@@ -83,7 +86,9 @@ class HybridObsAdapter(ObsAdapter):
         )
         self._extractor = extractor
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+    def transform(
+        self, env_obs: ObservationFrame
+    ) -> tuple[dict[str, np.ndarray], dict]:
         out = self._extractor.extract(env_obs)  # image is 518 CHW uint8
         wp_cp = flatten_world_points_camera_pose(out)  # jnp (4116,)
         img64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
@@ -107,7 +112,10 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
     def __init__(self, extractor):
         super().__init__(
             buffer_dtype={HYBRID_IMAGE_KEY: "uint8", self.token_key: "float16"},
-            buffer_shape={HYBRID_IMAGE_KEY: IMAGE_SHAPE, self.token_key: self.token_shape},
+            buffer_shape={
+                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
+                self.token_key: self.token_shape,
+            },
             normalize_on_sample={HYBRID_IMAGE_KEY: True, self.token_key: False},
             agent_obs_shape={
                 HYBRID_IMAGE_KEY: IMAGE_SHAPE,
@@ -128,7 +136,9 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
             )
         return np.asarray(tokens, dtype=np.float32)
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+    def transform(
+        self, env_obs: ObservationFrame
+    ) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         tokens = self._extract_tokens(env_obs)
         replay = {
@@ -259,7 +269,9 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         self._context = context
         return context
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+    def transform(
+        self, env_obs: ObservationFrame
+    ) -> tuple[dict[str, np.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         context = self._extract_context(env_obs)
         replay = {
@@ -320,7 +332,9 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
     def _extract_camera_pose(self, env_obs: ObservationFrame) -> np.ndarray:
         return _camera_pose_from_output(self._extractor.extract(env_obs))
 
-    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
+    def transform(
+        self, env_obs: ObservationFrame
+    ) -> tuple[dict[str, np.ndarray], dict]:
         camera_pose = self._extract_camera_pose(env_obs)
         replay = {CAMERA_POSE_KEY: camera_pose}
         agent_obs = {
