@@ -52,6 +52,7 @@ class TestReplayBufferUnitBehavior:
         source_obs[0] = 99.0
 
         stored = buffer.sample_transitions(batch_size=1, seq_len=1)[0][0]
+        assert isinstance(stored.obs, np.ndarray)
         assert stored.obs[0] == 1.0
 
     def test_sample_transitions_returns_deepcopy_not_storage_reference(self) -> None:
@@ -60,9 +61,11 @@ class TestReplayBufferUnitBehavior:
         buffer.add(_transition(1))
 
         sampled = buffer.sample_transitions(batch_size=1, seq_len=1)[0][0]
+        assert isinstance(sampled.obs, np.ndarray)
         sampled.obs[0] = 99.0
 
         sampled_again = buffer.sample_transitions(batch_size=1, seq_len=1)[0][0]
+        assert isinstance(sampled_again.obs, np.ndarray)
         assert sampled_again.obs[0] == 1.0
 
     def test_hybrid_observation_is_deepcopied(self) -> None:

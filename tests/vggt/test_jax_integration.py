@@ -55,6 +55,18 @@ def _real_habitat_frame(index: int = 0) -> np.ndarray:
     return np.load(fixture)["frames"][index]
 
 
+def _aggregator_features(out) -> np.ndarray:
+    """Reconstruct the full aggregator token tensor from a ``VGGTExtractOutput``.
+
+    The extractor splits the ``(1374, 1024)`` aggregator tokens into equal
+    ``frame_tokens`` / ``global_tokens`` halves; concatenating them recovers the
+    ``aggregator_features`` map the dict-based API used to expose directly.
+    """
+    return np.concatenate(
+        [np.asarray(out.frame_tokens), np.asarray(out.global_tokens)], axis=-1
+    )
+
+
 @gpu_jax
 class TestJAXFeatureExtractorContract:
     """API-contract tests for the JAX extractor — mirrors PyTorch suite."""
@@ -68,23 +80,24 @@ class TestJAXFeatureExtractorContract:
     def test_single_frame_shapes(self, extractor):
         extractor.reset()
         out = extractor.extract(_real_habitat_frame(index=0))
-        assert out["world_points"].shape == (37, 37, 3)
-        assert out["camera_pose"].shape == (9,)
-        assert out["aggregator_features"].shape == (1374, 1024)
-        assert out["world_points"].dtype == np.float32
-        assert out["camera_pose"].dtype == np.float32
-        assert out["aggregator_features"].dtype == np.float32
-        assert not np.any(np.isnan(out["aggregator_features"]))
+        aggregator = _aggregator_features(out)
+        assert out.world_points.shape == (37, 37, 3)
+        assert out.camera_pose.shape == (9,)
+        assert aggregator.shape == (1374, 1024)
+        assert out.world_points.dtype == np.float32
+        assert out.camera_pose.dtype == np.float32
+        assert aggregator.dtype == np.float32
+        assert not np.any(np.isnan(aggregator))
 
     def test_streaming_multiple_frames(self, extractor):
         """Five streaming frames produce NaN-free outputs of the right shape."""
         extractor.reset()
         for i in range(5):
             out = extractor.extract(_make_frame(seed=i))
-            assert out["world_points"].shape == (37, 37, 3)
-            assert out["camera_pose"].shape == (9,)
-            assert not np.any(np.isnan(out["world_points"])), f"NaN at frame {i}"
-            assert not np.any(np.isnan(out["camera_pose"])), f"NaN at frame {i}"
+            assert out.world_points.shape == (37, 37, 3)
+            assert out.camera_pose.shape == (9,)
+            assert not np.any(np.isnan(out.world_points)), f"NaN at frame {i}"
+            assert not np.any(np.isnan(out.camera_pose)), f"NaN at frame {i}"
 
     def test_reset_reproduces_first_frame(self, extractor):
         """reset() must fully clear cache + last_scores + frame counter."""
@@ -97,14 +110,14 @@ class TestJAXFeatureExtractorContract:
         out_again = extractor.extract(frame0)
 
         np.testing.assert_allclose(
-            out_first["world_points"],
-            out_again["world_points"],
+            out_first.world_points,
+            out_again.world_points,
             atol=1e-4,
             err_msg="world_points differ after reset",
         )
         np.testing.assert_allclose(
-            out_first["camera_pose"],
-            out_again["camera_pose"],
+            out_first.camera_pose,
+            out_again.camera_pose,
             atol=1e-4,
             err_msg="camera_pose differs after reset",
         )
@@ -113,7 +126,7 @@ class TestJAXFeatureExtractorContract:
         extractor.reset()
         extractor.extract(_make_frame(seed=10))
         out2 = extractor.extract(_make_frame(seed=11))
-        assert not np.allclose(out2["camera_pose"], 0.0, atol=1e-6)
+        assert not np.allclose(out2.camera_pose, 0.0, atol=1e-6)
 
     def test_camera_cache_overflow_raises(self):
         """Extracting past max_camera_frames must raise, not silently corrupt.
@@ -138,10 +151,12 @@ class TestJAXFeatureExtractorContract:
         ext = JAXVGGTFeatureExtractor(device="cuda", compute_heads=False)
         ext.reset()
         out = ext.extract(_make_frame(seed=7))
-        assert set(out.keys()) == {"aggregator_features"}
-        assert out["aggregator_features"].shape == (1374, 1024)
-        assert out["aggregator_features"].dtype == np.float32
-        assert not np.any(np.isnan(out["aggregator_features"]))
+        aggregator = _aggregator_features(out)
+        assert out.world_points is None
+        assert out.camera_pose is None
+        assert aggregator.shape == (1374, 1024)
+        assert aggregator.dtype == np.float32
+        assert not np.any(np.isnan(aggregator))
 
     def test_compute_heads_false_aggregator_matches_full(self, extractor):
         """Skipping heads must not change the aggregator output values."""
@@ -154,8 +169,8 @@ class TestJAXFeatureExtractorContract:
         ext_skip.reset()
         out_skip = ext_skip.extract(frame)
         np.testing.assert_allclose(
-            np.asarray(out_full["aggregator_features"]),
-            np.asarray(out_skip["aggregator_features"]),
+            _aggregator_features(out_full),
+            _aggregator_features(out_skip),
             atol=1e-5,
             err_msg="aggregator_features changed when heads were skipped",
         )
@@ -216,8 +231,8 @@ class TestJAXvsPyTorchExtractor:
         pt_outs = [pt_ext.extract(f) for f in frames]
 
         for i, (jx, pt) in enumerate(zip(jax_outs, pt_outs)):
-            wp_err = np.max(np.abs(jx["world_points"] - pt["world_points"]))
-            cp_err = np.max(np.abs(jx["camera_pose"] - pt["camera_pose"]))
+            wp_err = np.max(np.abs(jx.world_points - pt["world_points"]))
+            cp_err = np.max(np.abs(jx.camera_pose - pt["camera_pose"]))
             assert wp_err <= self.ROLLOUT_ATOL, (
                 f"frame {i} world_points err={wp_err:.3e} "
                 f"> {self.ROLLOUT_ATOL:.0e}"

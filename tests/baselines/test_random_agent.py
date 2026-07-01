@@ -1,8 +1,11 @@
 """Tests for random-agent observation-action plumbing."""
 
+from typing import cast
+
 import numpy as np
 
 from src.baselines.random_agent import RandomAgent
+from src.environments.habitat import HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
 
 
@@ -32,7 +35,7 @@ class _DummyEnv:
 def test_random_agent_returns_observation_with_previous_action() -> None:
     """RandomAgent.act returns ObservationFrame, not an action wrapper."""
     env = _DummyEnv()
-    agent = RandomAgent(env, num_actions=4, seed=0)
+    agent = RandomAgent(cast(HabitatObjectNavEnv, env), num_actions=4, seed=0)
 
     obs = agent.act()
 

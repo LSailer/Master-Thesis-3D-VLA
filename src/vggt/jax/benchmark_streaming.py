@@ -120,14 +120,14 @@ def bench_jax(
     for i in range(WARMUP_FRAMES):
         out = ext.extract(make_synthetic_rgb_frame(i))
         # block until ready without host transfer
-        _ = out["world_points"].block_until_ready()
+        _ = out.world_points.block_until_ready()
 
     ext.reset()
     latencies = []
     for i in range(n_frames):
         t0 = time.perf_counter()
         out = ext.extract(make_synthetic_rgb_frame(1000 + i))
-        out["world_points"].block_until_ready()
+        out.world_points.block_until_ready()
         latencies.append((time.perf_counter() - t0) * 1000.0)
 
     # JAX doesn't expose a simple peak-memory counter here; fall back to 0.

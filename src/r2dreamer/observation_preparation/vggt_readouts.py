@@ -222,7 +222,9 @@ class VGGTHeadReadout:
             key: np.asarray(features[key], dtype=np.dtype(self.replay_dtype[key]))
             for key in replay_keys
         }
-        agent_obs = {key: features[key].astype(jnp.float16) for key in replay_keys}
+        agent_obs: dict[str, Any] = {
+            key: features[key].astype(jnp.float16) for key in replay_keys
+        }
         agent_obs["is_first"] = obs.is_first
         return replay, agent_obs
 

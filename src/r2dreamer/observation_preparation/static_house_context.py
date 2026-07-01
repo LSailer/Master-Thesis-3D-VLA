@@ -139,7 +139,9 @@ def _voxel_indices(xyz: np.ndarray, grid_shape: tuple[int, int, int]) -> np.ndar
     grid = np.asarray(grid_shape, dtype=np.int64)
     coords = np.floor(normalised * grid).astype(np.int64)
     coords = np.clip(coords, 0, grid - 1)
-    return np.ravel_multi_index((coords[:, 0], coords[:, 1], coords[:, 2]), grid_shape)
+    return np.asarray(
+        np.ravel_multi_index((coords[:, 0], coords[:, 1], coords[:, 2]), grid_shape)
+    )
 
 
 def encode_static_house_context(

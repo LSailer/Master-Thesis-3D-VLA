@@ -10,6 +10,7 @@ rewards, and flags.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import dataclasses
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, TypeAlias, cast
@@ -246,7 +247,7 @@ class ReplayBuffer:
             ring_index = (oldest_index + start + offset) % self.capacity
             transition = deepcopy(self._transition_at(ring_index))
             if offset == 0:
-                transition = transition.replace(is_first=True)
+                transition = dataclasses.replace(transition, is_first=True)
             sequence.append(transition)
         return sequence
 

@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 ReplayComponent = Literal["image", "world_points", "wp_cp", "tokens", "features"]
-_ALLOWED_REPLAY_COMPONENTS = {"image", "world_points", "wp_cp", "tokens", "features"}
+_ALLOWED_REPLAY_COMPONENTS: set[ReplayComponent] = {
+    "image",
+    "world_points",
+    "wp_cp",
+    "tokens",
+    "features",
+}
 
 
 @dataclass(frozen=True)

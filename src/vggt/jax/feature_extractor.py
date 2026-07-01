@@ -691,9 +691,11 @@ class JAXVGGTFeatureExtractor:
                 frame_tokens=frame_tokens,
                 global_tokens=global_tokens,
             )
+        # Heads disabled: no point map / camera pose for this frame. The dataclass
+        # fields stay non-optional so head-enabled consumers need no None guards.
         return VGGTExtractOutput(
-            world_points=None,
-            camera_pose=None,
+            world_points=None,  # type: ignore[arg-type]
+            camera_pose=None,  # type: ignore[arg-type]
             frame_tokens=frame_tokens,
             global_tokens=global_tokens,
         )
