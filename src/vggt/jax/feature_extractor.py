@@ -58,11 +58,15 @@ class VGGTExtractOutput:
     """Structured VGGT output for one streamed observation frame.
 
     ``world_points`` is the full-resolution point map when heads are enabled.
-    ``camera_pose`` is the final camera-head pose encoding. ``frame_tokens`` and
-    ``global_tokens`` are the two halves of the final full-width aggregator tokens.
+    ``confidence`` is the point head's per-pixel confidence for that map (the
+    ``expp1`` activation, so values are ``>= 1``); it shares ``world_points``'
+    spatial layout so the two flatten in lockstep. ``camera_pose`` is the final
+    camera-head pose encoding. ``frame_tokens`` and ``global_tokens`` are the two
+    halves of the final full-width aggregator tokens.
     """
 
     world_points: jnp.ndarray
+    confidence: jnp.ndarray
     camera_pose: jnp.ndarray
     frame_tokens: jnp.ndarray
     global_tokens: jnp.ndarray
@@ -85,6 +89,7 @@ class HeadOutputs:
     """Post-processed head outputs for one streamed frame."""
 
     world_points: jnp.ndarray
+    confidence: jnp.ndarray
     camera_pose: jnp.ndarray
 
 
@@ -576,7 +581,7 @@ class JAXVGGTFeatureExtractor:
         out_list: list[jnp.ndarray],
         images: jnp.ndarray,
         patch_start_idx: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         self._ensure_camera_cache()
         self._check_camera_cache_capacity()
         pose_list, self._past_kvs_camera = self._camera_head_apply(
@@ -588,22 +593,24 @@ class JAXVGGTFeatureExtractor:
 
         # patch_start_idx is always 1 + num_register_tokens = 5; cast to Python
         # int so it can be used as a static JIT arg (JIT returns JAX scalars).
-        pts3d, _ = self._point_head_apply(
+        pts3d, conf = self._point_head_apply(
             self._pt_params,
             out_list,
             images,
             int(np.asarray(patch_start_idx)),
         )
-        return pts3d[:, 0], camera_pose
+        return pts3d[:, 0], conf[:, 0], camera_pose
 
     def _pool_head_outputs(
         self,
         pts3d: jnp.ndarray,
+        conf: jnp.ndarray,
         camera_pose: jnp.ndarray,
     ) -> HeadOutputs:
         """Unwrap full-resolution single-frame head outputs."""
         return HeadOutputs(
             world_points=pts3d[0].astype(jnp.float32),
+            confidence=conf[0].astype(jnp.float32),
             camera_pose=camera_pose[0].astype(jnp.float32),
         )
 
@@ -626,19 +633,21 @@ class JAXVGGTFeatureExtractor:
             self._record_aggregator_only_profile(phase_times, forward_start)
             return None
 
-        pts3d, camera_pose = self._run_heads(out_list, images, patch_start_idx)
+        pts3d, conf, camera_pose = self._run_heads(out_list, images, patch_start_idx)
         wrapper_start = self._synchronize_heads_for_profile(
             pts3d,
+            conf,
             camera_pose,
             phase_times,
         )
-        head_outputs = self._pool_head_outputs(pts3d, camera_pose)
+        head_outputs = self._pool_head_outputs(pts3d, conf, camera_pose)
         self._record_head_profile(phase_times, forward_start, wrapper_start)
         return head_outputs
 
     def _synchronize_heads_for_profile(
         self,
         pts3d: jnp.ndarray,
+        conf: jnp.ndarray,
         camera_pose: jnp.ndarray,
         phase_times: PhaseTimes | None,
     ) -> float:
@@ -646,6 +655,7 @@ class JAXVGGTFeatureExtractor:
         if phase_times is None:
             return 0.0
         pts3d.block_until_ready()
+        conf.block_until_ready()
         camera_pose.block_until_ready()
         return time.perf_counter()
 
@@ -687,14 +697,17 @@ class JAXVGGTFeatureExtractor:
                 raise RuntimeError("head outputs missing while compute_heads=True")
             return VGGTExtractOutput(
                 world_points=head_outputs.world_points,
+                confidence=head_outputs.confidence,
                 camera_pose=head_outputs.camera_pose,
                 frame_tokens=frame_tokens,
                 global_tokens=global_tokens,
             )
-        # Heads disabled: no point map / camera pose for this frame. The dataclass
-        # fields stay non-optional so head-enabled consumers need no None guards.
+        # Heads disabled: no point map / confidence / camera pose for this frame.
+        # The dataclass fields stay non-optional so head-enabled consumers need no
+        # None guards.
         return VGGTExtractOutput(
             world_points=None,  # type: ignore[arg-type]
+            confidence=None,  # type: ignore[arg-type]
             camera_pose=None,  # type: ignore[arg-type]
             frame_tokens=frame_tokens,
             global_tokens=global_tokens,

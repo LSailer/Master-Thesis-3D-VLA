@@ -36,6 +36,14 @@ _Avoid_: raw batch, sampled batch, replay dict
 Agent-ready fixed-length sequences consumed by R2Dreamer training.
 _Avoid_: batch, train dict, agent dict
 
+## Engineering rules
+
+- Prefer `jax.Array`/`jax.numpy` for arrays that are part of the training data path.
+  Use NumPy only at explicit I/O or library-compatibility boundaries, preferably as
+  a documented fallback.
+- Prefer `bfloat16` over `float32` for training-path floating-point arrays unless
+  numerical precision or external-library contracts require another dtype.
+
 **ObservationBatch**:
 Time-aligned observation sequences for one sampled replay window.
 _Avoid_: obs dict, observation dict, input batch

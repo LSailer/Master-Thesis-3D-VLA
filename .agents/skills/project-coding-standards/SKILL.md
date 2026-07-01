@@ -16,7 +16,7 @@ Use these standards for code that should be kept, copied into production, or use
 
 ## Simplicity
 
-- Solve the current problem directly. Avoid clever patterns, speculative extension points, premature generalization, and YAGNI features.
+- Solve the current problem directly. 
 - Avoid trivial wrappers whose body is only an optional docstring and a single `return`, unless the wrapper creates a meaningful domain abstraction or isolates a volatile dependency.
 - Use SOLID as guidance where useful, but prioritize understandable, modifiable code over pattern compliance.
 - Remove dead code and resolve TODOs when in scope. If a TODO must remain, make it explicit, actionable, and justified.
