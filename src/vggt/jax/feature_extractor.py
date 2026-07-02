@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 # JAX compilation cache: re-use compiled graphs across runs / processes.
@@ -91,6 +92,38 @@ class HeadOutputs:
     world_points: jnp.ndarray
     confidence: jnp.ndarray
     camera_pose: jnp.ndarray
+
+
+class ResetMode(Enum):
+    """How the extractor handles cache state at an episode/scene boundary.
+
+    ``FULL`` wipes all streaming state every episode (the existing behaviour;
+    safe, re-anchors each episode). ``PERSIST_SCENE`` saves the current cache
+    keyed by ``scene_id`` and restores it when the same scene is seen again, so
+    the VGGT attention stream resumes across episodes of one house instead of
+    re-deriving geometry from scratch. The aggregator cache self-bounds via
+    eviction, but the camera-head cache does not — see ``HANDOFF.md`` §2/§4.2
+    before enabling ``PERSIST_SCENE`` for long runs.
+    """
+
+    FULL = "full"
+    PERSIST_SCENE = "scene"
+
+
+@dataclass(frozen=True)
+class AggregatorCacheSnapshot:
+    """Immutable snapshot of the four streaming-state fields.
+
+    JAX arrays are immutable, so holding references is a true snapshot — the
+    extractor reassigns these fields each frame (functional updates), it never
+    mutates the arrays in place. ``save_cache``/``load_cache`` move these
+    references in and out of the per-scene store without copying device memory.
+    """
+
+    past_kvs_padded: tuple[CacheEntry, ...] | None
+    last_scores: jnp.ndarray | None
+    past_kvs_camera: tuple[CacheEntry, ...] | None
+    frame_idx: int
 
 
 def select_jax_device(device: str) -> Any:
@@ -224,6 +257,7 @@ class JAXVGGTFeatureExtractor:
         budgets_static: tuple[int, ...] | None = None,
         compute_heads: bool = True,
         wp_pool_size: int = _PATCH_GRID,
+        reset_mode: ResetMode = ResetMode.FULL,
     ) -> None:
         """Initialize weights, cache dimensions, JIT callables, and warmup graphs."""
         self._configure_runtime_options(compute_heads, wp_pool_size, budgets_static)
@@ -231,6 +265,12 @@ class JAXVGGTFeatureExtractor:
         self._compile = compile  # reserved
         self._total_budget = total_budget
         self._dtype = dtype
+        self._reset_mode = reset_mode
+        # Per-scene save/restore store for ResetMode.PERSIST_SCENE. Maps
+        # scene_id -> snapshot of the streaming state at the last frame of that
+        # scene. Only populated under PERSIST_SCENE; empty under FULL.
+        self._scene_cache_store: dict[str, AggregatorCacheSnapshot] = {}
+        self._current_scene_id: str | None = None
 
         params = load_params_on_device(self._device)
         self._agg_params = params.aggregator
@@ -496,6 +536,72 @@ class JAXVGGTFeatureExtractor:
         self._last_scores: jnp.ndarray | None = None
         self._past_kvs_camera: list[CacheEntry] | None = None
         self._frame_idx: int = 0
+
+    def save_cache(self) -> AggregatorCacheSnapshot:
+        """Snapshot the current streaming state (the four cache fields).
+
+        Returns an :class:`AggregatorCacheSnapshot` holding references to the
+        live arrays — no device-memory copy. Safe because JAX arrays are
+        immutable and the extractor reassigns these fields each frame rather
+        than mutating them. Use to persist the VGGT attention stream across
+        episodes/agents of one scene (HANDOFF.md §4.3).
+        """
+        return AggregatorCacheSnapshot(
+            past_kvs_padded=(
+                tuple(self._past_kvs_padded) if self._past_kvs_padded is not None else None
+            ),
+            last_scores=self._last_scores,
+            past_kvs_camera=(
+                tuple(self._past_kvs_camera) if self._past_kvs_camera is not None else None
+            ),
+            frame_idx=self._frame_idx,
+        )
+
+    def load_cache(self, snapshot: AggregatorCacheSnapshot) -> None:
+        """Restore streaming state from a snapshot produced by ``save_cache``.
+
+        Restores the four fields verbatim. The caller is responsible for
+        ensuring the snapshot came from a compatible extractor (same
+        ``total_budget`` / ``max_camera_frames`` configuration), otherwise the
+        padded cache shapes will not match the compiled apply functions.
+        """
+        self._past_kvs_padded = (
+            list(snapshot.past_kvs_padded) if snapshot.past_kvs_padded is not None else None
+        )
+        self._last_scores = snapshot.last_scores
+        self._past_kvs_camera = (
+            list(snapshot.past_kvs_camera) if snapshot.past_kvs_camera is not None else None
+        )
+        self._frame_idx = snapshot.frame_idx
+
+    def reset_for_scene(self, scene_id: str) -> None:
+        """Mode-aware reset at an episode boundary.
+
+        Under ``ResetMode.FULL`` (default) this is identical to :meth:`reset` —
+        the streaming state is wiped every episode, matching the existing
+        training behaviour.
+
+        Under ``ResetMode.PERSIST_SCENE`` the current scene's state is saved
+        (keyed by ``scene_id``) and the incoming scene's saved state is
+        restored, or a fresh cache is started if the scene has not been seen
+        before. Same-scene episodes thus resume the VGGT attention stream
+        instead of re-anchoring. NB: the camera-head cache is not bounded by
+        eviction, so a long per-scene stream will still hit
+        ``_check_camera_cache_capacity`` at ``max_camera_frames`` — land camera
+        eviction (HANDOFF.md §4.2b) before relying on this for long runs.
+        """
+        if self._reset_mode is ResetMode.FULL:
+            self.reset()
+            return
+        # PERSIST_SCENE: stash the outgoing scene, restore or init the incoming one.
+        if self._current_scene_id is not None:
+            self._scene_cache_store[self._current_scene_id] = self.save_cache()
+        self._current_scene_id = scene_id
+        saved = self._scene_cache_store.get(scene_id)
+        if saved is not None:
+            self.load_cache(saved)
+        else:
+            self.reset()
 
     def _image_from_extract_input(
         self, source: np.ndarray | ObservationFrame
