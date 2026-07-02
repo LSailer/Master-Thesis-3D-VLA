@@ -66,3 +66,11 @@ class ObsAdapter:
     def augment_replay_batch(self, batch: Any) -> Any:
         """Optionally add live adapter context to a sampled replay batch."""
         return batch
+
+    def diagnostics(self) -> dict[str, float]:
+        """Return adapter health metrics for the end-of-run summary.
+
+        Called once when the run finishes, so implementations may synchronize
+        device scalars to host.
+        """
+        return {}

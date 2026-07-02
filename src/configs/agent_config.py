@@ -6,12 +6,57 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-# Latent-size ablation presets (3D-50). Each maps a ``--latent_preset`` name to
-# the RSSM-size field overrides it applies; explicit CLI flags still win over a
-# preset.
+# Model-size presets from the R2-Dreamer table. Each row scales the RSSM width,
+# stochastic latent shape, CNN encoder depth, and prediction-head MLP width.
 LATENT_PRESETS: dict[str, dict[str, int]] = {
-    "small": {"deter_size": 1024, "stoch_classes": 24, "stoch_discrete": 12},
-    "large": {"deter_size": 4096, "stoch_classes": 48, "stoch_discrete": 24},
+    "12m": {
+        "deter_size": 2048,
+        "hidden_size": 256,
+        "stoch_classes": 32,
+        "stoch_discrete": 16,
+        "encoder_depth": 16,
+        "mlp_units": 256,
+    },
+    "25m": {
+        "deter_size": 3072,
+        "hidden_size": 384,
+        "stoch_classes": 32,
+        "stoch_discrete": 24,
+        "encoder_depth": 24,
+        "mlp_units": 384,
+    },
+    "50m": {
+        "deter_size": 4096,
+        "hidden_size": 512,
+        "stoch_classes": 32,
+        "stoch_discrete": 32,
+        "encoder_depth": 32,
+        "mlp_units": 512,
+    },
+    "100m": {
+        "deter_size": 6144,
+        "hidden_size": 768,
+        "stoch_classes": 32,
+        "stoch_discrete": 48,
+        "encoder_depth": 48,
+        "mlp_units": 768,
+    },
+    "200m": {
+        "deter_size": 8192,
+        "hidden_size": 1024,
+        "stoch_classes": 32,
+        "stoch_discrete": 64,
+        "encoder_depth": 64,
+        "mlp_units": 1024,
+    },
+    "400m": {
+        "deter_size": 12288,
+        "hidden_size": 1536,
+        "stoch_classes": 32,
+        "stoch_discrete": 96,
+        "encoder_depth": 96,
+        "mlp_units": 1536,
+    },
 }
 
 
@@ -137,11 +182,5 @@ class R2DreamerConfig:
 
     @classmethod
     def size_25m(cls) -> "R2DreamerConfig":
-        """Return the historical 25M-parameter size preset."""
-        return cls(
-            deter_size=3072,
-            hidden_size=384,
-            stoch_discrete=24,
-            encoder_depth=24,
-            mlp_units=384,
-        )
+        """Return the 25M-parameter table preset."""
+        return cls(**LATENT_PRESETS["25m"])

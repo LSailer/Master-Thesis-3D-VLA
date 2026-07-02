@@ -31,6 +31,7 @@ from src.r2dreamer.observation_keys import (
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
 )
@@ -362,6 +363,7 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             HOUSE_CONTEXT_KEY: jnp.zeros(
                 (1, *cfg.obs_shape[HOUSE_CONTEXT_KEY]), dtype=jnp.float32
             ),
+            HOUSE_CONTEXT_SIZE_KEY: jnp.zeros((), dtype=jnp.int32),
         }
     return jnp.zeros((1, *cfg.obs_shape))
 
@@ -735,7 +737,11 @@ class R2DreamerAgent:
             self.params, batched_obs, self._act_state, reset, rng_key, training
         )
 
-        return action_int
+        # Honor the ``-> int`` contract: the jitted core returns a 0-d JAX array,
+        # but callers (env.step, action_counts indexing) need a host Python int.
+        # habitat's env.step only wraps int/np.integer into {"action": ...}; a
+        # raw JAX array slips through to string indexing and raises.
+        return int(action_int)
 
     def act_with_state(
         self,
@@ -748,9 +754,12 @@ class R2DreamerAgent:
         """Functional acting wrapper for one raw live encoder observation."""
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
         batched_obs = batch_live_observation(encoder_obs)
-        return self._jit_act_with_state.__call__(
+        action_int, new_state = self._jit_act_with_state.__call__(
             self.params, batched_obs, state, reset, rng_key, training
         )
+        # As in ``act``: return a host int action (state pytree passes through
+        # untouched so the next jitted call still sees stable shapes/dtypes).
+        return int(action_int), new_state
 
     def act_with_state_pure(
         self, params, obs, state: ActState, is_first, rng_key, training

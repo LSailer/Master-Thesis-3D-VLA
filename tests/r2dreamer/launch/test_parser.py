@@ -3,6 +3,7 @@
 
 from types import SimpleNamespace
 
+from src.configs.config import LATENT_PRESETS
 from src.r2dreamer.launch.parser import _build_parser_eval, _build_parser_train
 from src.r2dreamer.launch.train import _agent_overrides_from_args
 
@@ -26,6 +27,7 @@ def test_mlp_layers_help_matches_conv_encoder_guard():
 def test_train_parser_defaults_to_scalars_only_no_validation_or_video():
     args = _build_parser_train().parse_args([])
 
+    assert args.latent_preset == "12m"
     assert args.val_every == 0
     assert args.video_log_every == 0
     assert args.val_video_episodes == 0
@@ -64,6 +66,20 @@ def test_compute_dtype_override_reaches_agent_config():
     overrides = _agent_overrides_from_args(args, encoder_spec, latent_presets={})
 
     assert overrides["compute_dtype"] == "bfloat16"
+
+
+def test_table_model_size_preset_reaches_agent_config():
+    args = _build_parser_train().parse_args(["--latent_preset", "200m"])
+    encoder_spec = SimpleNamespace(agent_overrides={})
+
+    overrides = _agent_overrides_from_args(args, encoder_spec, LATENT_PRESETS)
+
+    assert overrides["deter_size"] == 8192
+    assert overrides["hidden_size"] == 1024
+    assert overrides["stoch_classes"] == 32
+    assert overrides["stoch_discrete"] == 64
+    assert overrides["encoder_depth"] == 64
+    assert overrides["mlp_units"] == 1024
 
 
 def test_static_house_context_path_accepts_hyphen_and_underscore_aliases():

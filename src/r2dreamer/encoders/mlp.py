@@ -15,6 +15,7 @@ from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
@@ -100,11 +101,13 @@ class WP64CNNCPMLPEncoder(nn.Module):
 
 
 class HousePointsCameraEncoder(nn.Module):
-    """Encode current camera pose against one static house point cloud.
+    """Encode current camera pose against one house point cloud.
 
     ``camera_pose`` is per replay step with shape ``(B*T, 9)``. ``house_points``
-    is a singleton static sidecar with shape ``(1, N, 6)`` or ``(N, 6)`` and is
-    broadcast across all camera poses after the house branch is pooled.
+    is a singleton snapshot with shape ``(1, N, 6)`` or ``(N, 6)`` and is
+    broadcast across all camera poses after the house branch is pooled. When
+    ``HOUSE_CONTEXT_SIZE_KEY`` is present in the obs, rows past that count are
+    treated as zero padding and masked out of the mean/max pooling.
     """
 
     embed_dim: int = 1024
@@ -129,7 +132,10 @@ class HousePointsCameraEncoder(nn.Module):
         return nn.Dense(self.embed_dim, name="camera_proj")(x)
 
     def _house_embedding(
-        self, house_points: jnp.ndarray, batch_size: int
+        self,
+        house_points: jnp.ndarray,
+        batch_size: int,
+        house_size: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         if house_points.ndim == 2:
             house_points = house_points[None]
@@ -143,7 +149,23 @@ class HousePointsCameraEncoder(nn.Module):
             x = nn.Dense(self.point_hidden, name=f"point_hidden{i}")(x)
             x = RMSNorm(name=f"point_norm{i}")(x)
             x = nn.silu(x)
-        pooled = jnp.concatenate([jnp.mean(x, axis=1), jnp.max(x, axis=1)], axis=-1)
+        if house_size is None:
+            pooled = jnp.concatenate(
+                [jnp.mean(x, axis=1), jnp.max(x, axis=1)], axis=-1
+            )
+        else:
+            # Rows >= house_size are zero padding from the fixed-shape snapshot;
+            # mask them so pooled statistics reflect only real points.
+            n_points = house_points.shape[1]
+            size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)
+            if size.shape[0] != house_points.shape[0]:
+                size = jnp.broadcast_to(size[:1], (house_points.shape[0],))
+            valid = (jnp.arange(n_points)[None, :] < size[:, None])[..., None]
+            denom = jnp.maximum(size, 1).astype(x.dtype)[:, None]
+            mean = (x * valid).sum(axis=1) / denom
+            maxp = jnp.where(valid, x, -jnp.inf).max(axis=1)
+            maxp = jnp.where((size > 0)[:, None], maxp, jnp.zeros_like(maxp))
+            pooled = jnp.concatenate([mean, maxp], axis=-1)
         house_embed = nn.Dense(self.embed_dim, name="house_proj")(pooled)
         if house_embed.shape[0] == 1 and batch_size != 1:
             house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))
@@ -159,9 +181,11 @@ class HousePointsCameraEncoder(nn.Module):
             raise TypeError("HousePointsCameraEncoder expects structured obs")
         camera_pose, leading_shape = flatten_event(obs[CAMERA_POSE_KEY], event_ndims=1)
         camera_embed = self._camera_embedding(camera_pose)
+        house_size = obs.get(HOUSE_CONTEXT_SIZE_KEY)
         house_embed = self._house_embedding(
             jnp.asarray(obs[HOUSE_CONTEXT_KEY]),
             batch_size=camera_pose.shape[0],
+            house_size=house_size,
         )
         return restore_leading(camera_embed, leading_shape), restore_leading(
             house_embed, leading_shape

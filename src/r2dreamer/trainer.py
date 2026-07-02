@@ -478,6 +478,7 @@ class Trainer:
                     rng_key = self._overfit_loop(rng_key, writer, f)
                 else:
                     rng_key = self._train_loop(rng_key, writer, f)
+                self._log_adapter_summary(writer, f)
 
             save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
             status = "completed"
@@ -882,6 +883,34 @@ class Trainer:
             f" steps={episode_steps}{sr_str}"
         )
         return ep_metrics
+
+    def _log_adapter_summary(self, writer: Any, f: Any) -> None:
+        """Write end-of-run adapter diagnostics and the buffer growth curve.
+
+        Growth rows are keyed by the adapter's own env-step counter (which
+        includes prefill), not the trainer step, and land in ``metrics.csv``
+        as ``house_buffer/points_growth``. Final stats also go to the W&B
+        run summary when W&B is active.
+        """
+        stats = self.obs_adapter.diagnostics()
+        if not stats:
+            return
+        final_step = self.tcfg.total_steps
+        for k, v in stats.items():
+            writer.writerow([final_step, k, v])
+        history = getattr(self.obs_adapter, "growth_history", [])
+        for env_step, points in history:
+            writer.writerow([env_step, "house_buffer/points_growth", points])
+        f.flush()
+        if self._wandb is not None:
+            self._wandb.summary.update(stats)
+        print("=== house buffer summary ===")
+        for k, v in stats.items():
+            print(f"  {k}: {v}")
+        if history:
+            print("  growth (env_step -> total_points):")
+            for env_step, points in history:
+                print(f"    {env_step:>9d} -> {points}")
 
     def _log_train_metrics(
         self,

@@ -9,7 +9,15 @@ from src.configs.config import R2DreamerConfig
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
+from src.r2dreamer.encoders.constants import (
+    HOUSE_CONTEXT_MAX_POINTS,
+    HOUSE_POINT_DIM,
+)
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
+    HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
+)
 
 
 @pytest.fixture
@@ -298,16 +306,23 @@ class TestR2DreamerAgent:
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/vggt_frac" in metrics
 
-    def test_train_step_accepts_static_house_points_with_camera_pose(self):
+    def test_train_step_accepts_live_house_points_with_camera_pose(self):
         cfg = make_tiny_train_cfg(
             encoder_type="vggt_house_points_pose",
-            obs_shape={CAMERA_POSE_KEY: (9,), HOUSE_CONTEXT_KEY: (5, 6)},
+            obs_shape={
+                CAMERA_POSE_KEY: (9,),
+                HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
+                HOUSE_CONTEXT_SIZE_KEY: (),
+            },
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         batch = {
             "obs": {
                 CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
-                HOUSE_CONTEXT_KEY: jnp.ones((5, 6), dtype=jnp.float16),
+                HOUSE_CONTEXT_KEY: jnp.ones(
+                    (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM), dtype=jnp.float16
+                ),
+                HOUSE_CONTEXT_SIZE_KEY: jnp.asarray(4, dtype=jnp.int32),
             },
             "actions": jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions

@@ -2,6 +2,7 @@
 
 import argparse
 
+from src.configs.config import LATENT_PRESETS
 from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
 
 
@@ -212,10 +213,11 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
     # --- Latent-size ablation (3D-50) ---
     p.add_argument(
         "--latent_preset",
-        choices=["small", "default", "large"],
-        default="default",
-        help="Latent-size ablation preset (3D-50). Explicit "
-        "--deter_size/--stoch_classes/--stoch_discrete win over it.",
+        choices=tuple(LATENT_PRESETS),
+        default="12m",
+        help="Model-size preset from the R2-Dreamer table. Scales RSSM shape, "
+        "CNN depth, and head MLP width. Explicit "
+        "--deter_size/--stoch_classes/--stoch_discrete override the RSSM shape.",
     )
     p.add_argument(
         "--deter_size",

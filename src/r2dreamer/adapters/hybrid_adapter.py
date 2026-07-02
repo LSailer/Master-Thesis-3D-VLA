@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import dataclasses
+import math
 from collections.abc import Mapping
+from types import SimpleNamespace
+from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_DIM
+from src.r2dreamer.encoders.constants import (
+    HOUSE_CONTEXT_DIM,
+    HOUSE_CONTEXT_MAX_POINTS,
+    HOUSE_POINT_DIM,
+)
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
 )
@@ -296,62 +306,253 @@ def _normalise_house_points(points_xyzrgb: np.ndarray) -> np.ndarray:
 
 
 def _camera_pose_from_output(out: VGGTOutputLike) -> np.ndarray:
-    if isinstance(out, Mapping):
-        camera_pose = out.get(CAMERA_POSE_KEY, out.get("camera_pose"))
-    else:
-        camera_pose = out.camera_pose
+    camera_pose = _vggt_output_field(out, "camera_pose")
     if camera_pose is None:
         raise ValueError("VGGT output field 'camera_pose' is required")
     return np.asarray(camera_pose, dtype=np.float16).reshape(CAMERA_POSE_SHAPE)
 
 
-class VGGTHousePointsPoseObsAdapter(ObsAdapter):
-    """Replay current camera pose and attach one static house point cloud.
+def _vggt_output_field(out: VGGTOutputLike, field_name: str) -> Any | None:
+    """Return one VGGT output field from object or legacy mapping outputs."""
+    if isinstance(out, Mapping):
+        value = out.get(field_name)
+        if value is None and field_name == "world_points":
+            value = out.get("dense_world_points")
+        if value is None and field_name == "camera_pose":
+            value = out.get(CAMERA_POSE_KEY)
+        return value
+    return getattr(out, field_name, None)
 
-    Replay stores only ``camera_pose`` per step. The complete house points live
-    once on the adapter and are added to sampled batches via
-    ``augment_replay_batch``.
+
+def _required_vggt_output_field(out: VGGTOutputLike, field_name: str) -> Any:
+    """Return a required VGGT output field or raise a contract error."""
+    value = _vggt_output_field(out, field_name)
+    if value is None:
+        raise ValueError(f"VGGT output field {field_name!r} is required")
+    return value
+
+
+class VGGTHousePointsPoseObsAdapter(ObsAdapter):
+    """Replay current camera pose plus a live, per-scene house point cloud.
+
+    Replay stores only ``camera_pose`` per step. House-context points are
+    accumulated live from VGGT world points into one
+    :class:`HouseContextPoseBuffer` per ``scene_id`` (mirroring
+    ``ScenePointCloudTracker.point_clouds`` in the ``live_vggt`` prototype).
+    Every step the adapter emits a fixed-size
+    ``(max_points, 6)`` snapshot zero-padded from the growing buffer, plus the
+    true valid-row count under ``HOUSE_CONTEXT_SIZE_KEY`` for masked pooling in
+    the encoder, so ``jax.jit`` sees a stable house-context shape and never
+    recompiles ``train_step``/``act`` as the cloud grows. Only if the buffer
+    outgrows ``max_points`` does the snapshot fall back to an even-stride
+    subsample.
+
+    An optional ``house_points_path`` warm-starts every new scene buffer from a
+    static ASCII XYZRGB PLY; live VGGT points then extend it. The extractor is
+    reset at each episode boundary via ``on_episode_reset`` so its streaming
+    KV-cache never leaks geometry across episodes, while the per-scene point
+    buffers deliberately persist across episodes of the same scene.
+
+    The full VGGT point map (518x518 ~ 268k points) is fed to the buffer every
+    step by default: voxel dedup runs as a fixed-shape JIT graph on device
+    (~2 ms/frame on H100 regardless of stored size), so no subsampling is
+    needed. Passing ``max_input_points > 0`` restores an even-stride subsample
+    as an opt-in bound for constrained setups.
+
+    Note (single-scene contract): ``augment_replay_batch`` injects the latest
+    scene's snapshot, and ``_house_embedding`` broadcasts that one cloud across
+    the whole camera batch — matching the model's global-house-context design
+    and the previous static-sidecar behaviour. For multi-scene training this is
+    an approximation (the sampled camera poses may come from another scene); the
+    L1 curriculum is single-house so it is exact there.
     """
 
-    def __init__(self, extractor, *, house_points_path: str):
-        self._house_points = _normalise_house_points(
-            load_ascii_ply_xyzrgb(house_points_path)
-        )
+    DEFAULT_CONFIDENCE_SCORE = 1.5
+    DEFAULT_VOXEL_SIZE_M = 0.01
+    DEFAULT_MAX_INPUT_POINTS = 0
+    # 1 cm voxels on full-res input reached ~210k points in 50 steps on one L1
+    # scene; a whole house is bounded by surface area (~500 m^2 -> ~5M voxels),
+    # so 2^23 (~293 MB device memory) covers any realistic scene outright.
+    BUFFER_CAPACITY = 1 << 23
+    BUFFER_HASH_TABLE_SIZE = 1 << 24
+
+    def __init__(
+        self,
+        extractor,
+        *,
+        house_points_path: str | None = None,
+        confidence_score: float = DEFAULT_CONFIDENCE_SCORE,
+        voxel_size_m: float = DEFAULT_VOXEL_SIZE_M,
+        max_points: int = HOUSE_CONTEXT_MAX_POINTS,
+        max_input_points: int = DEFAULT_MAX_INPUT_POINTS,
+    ):
+        self._confidence_score = float(confidence_score)
+        self._voxel_size_m = float(voxel_size_m)
+        self._max_points = int(max_points)
+        self._max_input_points = int(max_input_points)
+        self._seed_xyzrgb = self._load_seed(house_points_path)
+        self._buffers: dict[str, HouseContextPoseBuffer] = {}
+        self._latest_house_context = self._empty_house_context()
+        self._latest_house_context_size = jnp.zeros((), dtype=jnp.int32)
+        self._env_steps = 0
+        self._next_growth_sample = 1
+        self._growth_history: list[tuple[int, int]] = []
         super().__init__(
             buffer_dtype={CAMERA_POSE_KEY: "float16"},
             buffer_shape={CAMERA_POSE_KEY: CAMERA_POSE_SHAPE},
             normalize_on_sample={CAMERA_POSE_KEY: False},
             agent_obs_shape={
                 CAMERA_POSE_KEY: CAMERA_POSE_SHAPE,
-                HOUSE_CONTEXT_KEY: tuple(self._house_points.shape),
+                HOUSE_CONTEXT_KEY: (self._max_points, HOUSE_POINT_DIM),
+                HOUSE_CONTEXT_SIZE_KEY: (),
             },
-            on_episode_reset=None,
+            on_episode_reset=extractor.reset,
         )
         self._extractor = extractor
 
-    def _extract_camera_pose(self, env_obs: ObservationFrame) -> np.ndarray:
-        return _camera_pose_from_output(self._extractor.extract(env_obs))
+    @staticmethod
+    def _load_seed(house_points_path: str | None) -> jnp.ndarray | None:
+        """Load an optional static PLY as an ``(M, 6)`` [0, 1] warm-start seed."""
+        if house_points_path is None:
+            return None
+        seed = _normalise_house_points(load_ascii_ply_xyzrgb(house_points_path))
+        return jnp.asarray(seed, dtype=jnp.float32)
+
+    def _empty_house_context(self) -> jnp.ndarray:
+        """Return the fixed-shape all-zeros house context used before any add."""
+        return jnp.zeros((self._max_points, HOUSE_POINT_DIM), dtype=jnp.float16)
+
+    def _get_or_create_buffer(self, scene_id: str) -> HouseContextPoseBuffer:
+        """Return the buffer for ``scene_id``, creating and seeding it once."""
+        key = scene_id or "scene"
+        buffer = self._buffers.get(key)
+        if buffer is None:
+            buffer = HouseContextPoseBuffer(
+                confidence_score=self._confidence_score,
+                scene_id=key,
+                voxel_size_m=self._voxel_size_m,
+                capacity=self.BUFFER_CAPACITY,
+                hash_table_size=self.BUFFER_HASH_TABLE_SIZE,
+            )
+            if self._seed_xyzrgb is not None:
+                buffer.seed_xyzrgb(self._seed_xyzrgb)
+            self._buffers[key] = buffer
+        return buffer
+
+    def _house_context_snapshot(
+        self, buffer: HouseContextPoseBuffer
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Return a JIT-stable ``((max_points, 6) float16, () int32)`` snapshot.
+
+        The scalar is the valid-row count; rows beyond it are zero padding the
+        encoder masks out during pooling.
+        """
+        snapshot, count = buffer.house_context_array(self._max_points)
+        return jnp.asarray(snapshot, dtype=jnp.float16), count
+
+    def _input_stride(self, height: int, width: int) -> int:
+        """Return the even stride that caps a ``(height, width)`` map to ~budget."""
+        total = int(height) * int(width)
+        if self._max_input_points <= 0 or total <= self._max_input_points:
+            return 1
+        return max(1, int(math.ceil(math.sqrt(total / self._max_input_points))))
+
+    def _subsampled_buffer_input(
+        self, out: VGGTOutputLike, env_obs: ObservationFrame
+    ) -> tuple[Any, ObservationFrame]:
+        """Return ``(vggt_output, observation)`` strided to bound ``add`` cost.
+
+        Strides the ``(H, W, 3)`` world map, ``(H, W)`` confidence and
+        ``(3, H, W)`` image together so they stay pixel-aligned, then wraps them
+        in lightweight stand-ins that expose exactly the fields ``add`` reads.
+        """
+        world_points = _required_vggt_output_field(out, "world_points")
+        confidence = _required_vggt_output_field(out, "confidence")
+        stride = self._input_stride(world_points.shape[0], world_points.shape[1])
+        if stride == 1:
+            if not isinstance(out, Mapping):
+                return out, env_obs
+            shim_out = SimpleNamespace(world_points=world_points, confidence=confidence)
+            return shim_out, env_obs
+        strided_points = world_points[::stride, ::stride, :]
+        strided_conf = jnp.asarray(confidence)[::stride, ::stride]
+        strided_image = np.asarray(env_obs.image)[:, ::stride, ::stride]
+        shim_out = SimpleNamespace(
+            world_points=strided_points, confidence=strided_conf
+        )
+        return shim_out, dataclasses.replace(env_obs, image=strided_image)
 
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, np.ndarray], dict]:
-        camera_pose = self._extract_camera_pose(env_obs)
+        out = self._extractor.extract(env_obs)
+        camera_pose = _camera_pose_from_output(out)
+        buffer = self._get_or_create_buffer(env_obs.scene_id)
+        buffer_out, buffer_obs = self._subsampled_buffer_input(out, env_obs)
+        buffer.add(buffer_out, buffer_obs)
+        self._record_growth_sample()
+        house_context, house_size = self._house_context_snapshot(buffer)
+        self._latest_house_context = house_context
+        self._latest_house_context_size = house_size
         replay = {CAMERA_POSE_KEY: camera_pose}
         agent_obs = {
             CAMERA_POSE_KEY: jnp.asarray(camera_pose, dtype=jnp.float16),
-            HOUSE_CONTEXT_KEY: jnp.asarray(self._house_points, dtype=jnp.float16),
+            HOUSE_CONTEXT_KEY: house_context,
+            HOUSE_CONTEXT_SIZE_KEY: house_size,
             "is_first": env_obs.is_first,
         }
         return replay, agent_obs
 
+    def _record_growth_sample(self) -> None:
+        """Sample total stored points at log-spaced (doubling) env steps.
+
+        The host sync happens at steps 1, 2, 4, 8, ... only, so over a 2M-step
+        run the growth curve costs ~21 scalar reads in total.
+        """
+        self._env_steps += 1
+        if self._env_steps < self._next_growth_sample:
+            return
+        total = sum(buffer.point_count for buffer in self._buffers.values())
+        self._growth_history.append((self._env_steps, total))
+        self._next_growth_sample *= 2
+
+    @property
+    def growth_history(self) -> list[tuple[int, int]]:
+        """``(env_step, total_points)`` samples at doubling env steps."""
+        return list(self._growth_history)
+
+    def diagnostics(self) -> dict[str, float]:
+        """Per-scene house-buffer usage; syncs one scalar per buffer to host."""
+        stats: dict[str, float] = {}
+        total_points = 0
+        total_overflow = 0
+        total_failed = 0
+        max_fill = 0.0
+        for buffer in self._buffers.values():
+            points = buffer.point_count
+            total_points += points
+            total_overflow += buffer.overflow_count
+            total_failed += buffer.failed_insert_count
+            max_fill = max(max_fill, points / buffer.capacity)
+        if self._buffers:
+            stats["house_buffer/scenes"] = float(len(self._buffers))
+            stats["house_buffer/total_points"] = float(total_points)
+            stats["house_buffer/max_fill_fraction"] = max_fill
+            stats["house_buffer/overflow_count"] = float(total_overflow)
+            stats["house_buffer/failed_insert_count"] = float(total_failed)
+        return stats
+
     def augment_replay_batch(self, batch):
-        house_points = jnp.asarray(self._house_points, dtype=jnp.float16)
+        house_context = self._latest_house_context
+        house_size = self._latest_house_context_size
         if hasattr(batch, "obs") and hasattr(batch, "replace"):
             obs = dict(batch.obs)
-            obs[HOUSE_CONTEXT_KEY] = house_points
+            obs[HOUSE_CONTEXT_KEY] = house_context
+            obs[HOUSE_CONTEXT_SIZE_KEY] = house_size
             return batch.replace(obs=obs)
         augmented = dict(batch)
         obs = dict(augmented["obs"])
-        obs[HOUSE_CONTEXT_KEY] = house_points
+        obs[HOUSE_CONTEXT_KEY] = house_context
+        obs[HOUSE_CONTEXT_SIZE_KEY] = house_size
         augmented["obs"] = obs
         return augmented

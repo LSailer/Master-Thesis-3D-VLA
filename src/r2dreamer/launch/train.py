@@ -130,9 +130,9 @@ def _agent_overrides_from_args(
     if args.barlow_grad_to_encoder:
         agent_overrides["barlow_stop_grad"] = False
 
-    # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
-    # explicit flags win.
-    preset = getattr(args, "latent_preset", "default")
+    # Model-size ablation (3D-50): preset from the LATENT_PRESETS table, then
+    # explicit RSSM-shape flags win.
+    preset = getattr(args, "latent_preset", "12m")
     agent_overrides.update(latent_presets.get(preset, {}))
     for name in (
         "deter_size",

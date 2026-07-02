@@ -1,4 +1,4 @@
-"""Launcher-side encoder for static house points plus current camera pose."""
+"""Launcher-side encoder for live house points plus current camera pose."""
 
 from __future__ import annotations
 
@@ -16,7 +16,13 @@ from src.r2dreamer.encoders.mlp import (
 
 
 class VGGTHousePointsPoseEncoder(VGGTEncoder):
-    """Static complete house points plus current VGGT camera pose."""
+    """Live per-scene house points plus current VGGT camera pose.
+
+    House-context points are accumulated live from VGGT world points into one
+    buffer per scene; the encoder emits a fixed-size resampled snapshot each
+    step. ``house_points_path`` is an optional warm-start seed (static PLY) and
+    is no longer required.
+    """
 
     def __init__(
         self,
@@ -24,14 +30,12 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
         *,
         house_points_path: str | None = None,
     ):
-        if house_points_path is None:
-            raise ValueError("vggt_house_points_pose requires --static-house-points-path")
         self._house_points_path = house_points_path
         super().__init__(resolution)
 
     @classmethod
     def from_train_args(cls, args: Any) -> VGGTHousePointsPoseEncoder:
-        """Build static-house-points pose mode from parsed train args."""
+        """Build live house-points pose mode from parsed train args."""
         return cls(
             resolution=args.render_resolution,
             house_points_path=getattr(args, "static_house_points_path", None),
@@ -51,7 +55,10 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
 
     @property
     def design_notes(self) -> str:
-        return "Replay current camera pose plus sidecar static complete house points."
+        return (
+            "Replay current camera pose plus a live per-scene house point buffer "
+            "accumulated from VGGT world points (optional static PLY warm-start)."
+        )
 
     @property
     def vggt_compute_heads(self) -> bool:

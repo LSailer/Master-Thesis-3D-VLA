@@ -33,6 +33,10 @@ from src.r2dreamer.encoders import (
     VGGTWP64CNNCPMLPEncoder,
     VGGTWPCP64Encoder,
 )
+from src.r2dreamer.encoders.constants import (
+    HOUSE_CONTEXT_MAX_POINTS,
+    HOUSE_POINT_DIM,
+)
 from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.encoders.mlp import (
     HybridEncoder as ModelHybridEncoder,
@@ -47,6 +51,7 @@ from src.r2dreamer.observation_keys import (
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
@@ -781,22 +786,68 @@ class TestVGGTHouseContextEncoder:
         np.testing.assert_allclose(np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context)
 
 
+class _FakeHousePointsExtractor:
+    """Fake VGGT extractor returning aligned live world points / pose.
+
+    ``extract`` returns a small VGGT-like output whose ``world_points`` (H, W, 3)
+    and ``confidence`` (H, W) flatten in lockstep with an (3, H, W) frame image
+    (H = W = 8 -> flat length 64). Each call advances an internal RNG so distinct
+    world points are produced, letting growth/isolation tests add new voxels.
+    """
+
+    aggregator_feature_shape = (1374, 1024)
+
+    def __init__(self, seed: int = 0, **kwargs):
+        self.kwargs = kwargs
+        self._rng = np.random.default_rng(seed)
+        self.reset_calls = 0
+
+    def reset(self):
+        self.reset_calls += 1
+
+    def extract(self, image):
+        del image
+        # Spread points across a few metres so distinct voxels are created.
+        world_points = self._rng.uniform(-1.0, 1.0, size=(8, 8, 3)).astype(
+            np.float32
+        )
+        confidence = np.full((8, 8), 5.0, dtype=np.float32)
+        camera_pose = np.arange(9, dtype=np.float32)
+
+        class _Out:
+            pass
+
+        out = _Out()
+        out.world_points = world_points
+        out.confidence = confidence
+        out.camera_pose = camera_pose
+        return out
+
+
+class _MappingHousePointsExtractor(_FakeHousePointsExtractor):
+    """Legacy mapping-style fake output for adapter compatibility coverage."""
+
+    def extract(self, image):
+        out = super().extract(image)
+        return {
+            "dense_world_points": out.world_points,
+            "confidence": out.confidence,
+            CAMERA_POSE_KEY: out.camera_pose,
+        }
+
+
+def _house_frame(seed: int, *, is_first=False, scene_id="houseA"):
+    image = np.random.default_rng(seed).integers(0, 256, size=(3, 8, 8), dtype=np.uint8)
+    return ObservationFrame(image=image, is_first=is_first, scene_id=scene_id)
+
+
 class TestVGGTHousePointsPoseEncoder:
     def test_house_points_pose_adapter_replays_only_camera_pose(
         self, monkeypatch, tmp_path
     ):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def extract(self, image):
-                del image
-                return {CAMERA_POSE_KEY: np.arange(9, dtype=np.float32)}
-
         monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor",
+            _FakeHousePointsExtractor,
         )
         ply_path = tmp_path / "house.ply"
         _write_minimal_static_house_ply(ply_path)
@@ -804,21 +855,41 @@ class TestVGGTHousePointsPoseEncoder:
         enc = VGGTHousePointsPoseEncoder(house_points_path=str(ply_path))
         adapter = enc.make_adapter()
         spec = enc.spec()
-        image = np.random.default_rng(2).integers(
-            0, 256, size=(3, 518, 518), dtype=np.uint8
-        )
 
-        replay, agent_obs = adapter.transform(
-            ObservationFrame(image=image, is_first=False)
-        )
+        replay, agent_obs = adapter.transform(_house_frame(2))
 
         assert isinstance(adapter, VGGTHousePointsPoseObsAdapter)
         assert spec.encoder_type == "vggt_house_points_pose"
-        assert spec.obs_shape == {CAMERA_POSE_KEY: (9,), HOUSE_CONTEXT_KEY: (2, 6)}
+        assert spec.obs_shape == {
+            CAMERA_POSE_KEY: (9,),
+            HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
+            HOUSE_CONTEXT_SIZE_KEY: (),
+        }
         assert replay.keys() == {CAMERA_POSE_KEY}
         assert replay[CAMERA_POSE_KEY].dtype == np.float16
-        assert set(agent_obs) == {CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
-        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (2, 6)
+        assert set(agent_obs) == {
+            CAMERA_POSE_KEY,
+            HOUSE_CONTEXT_KEY,
+            HOUSE_CONTEXT_SIZE_KEY,
+            "is_first",
+        }
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (
+            HOUSE_CONTEXT_MAX_POINTS,
+            HOUSE_POINT_DIM,
+        )
+        assert agent_obs[HOUSE_CONTEXT_SIZE_KEY].shape == ()
+        assert agent_obs[HOUSE_CONTEXT_SIZE_KEY].dtype == np.int32
+        assert int(agent_obs[HOUSE_CONTEXT_SIZE_KEY]) > 0
+
+    def test_augment_replay_batch_injects_two_dim_house_context(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor",
+            _FakeHousePointsExtractor,
+        )
+        enc = VGGTHousePointsPoseEncoder()
+        adapter = enc.make_adapter()
+
+        adapter.transform(_house_frame(2))
 
         batch = {
             "obs": {CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16)},
@@ -829,9 +900,101 @@ class TestVGGTHousePointsPoseEncoder:
         }
         augmented = adapter.augment_replay_batch(batch)
 
-        assert set(augmented["obs"]) == {CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY}
+        assert set(augmented["obs"]) == {
+            CAMERA_POSE_KEY,
+            HOUSE_CONTEXT_KEY,
+            HOUSE_CONTEXT_SIZE_KEY,
+        }
         assert augmented["obs"][CAMERA_POSE_KEY].shape == (1, 2, 9)
-        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 6)
+        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (
+            HOUSE_CONTEXT_MAX_POINTS,
+            HOUSE_POINT_DIM,
+        )
+        assert augmented["obs"][HOUSE_CONTEXT_SIZE_KEY].shape == ()
+        assert augmented["obs"][HOUSE_CONTEXT_SIZE_KEY].dtype == np.int32
+
+    def test_mapping_vggt_output_is_supported(self):
+        adapter = VGGTHousePointsPoseObsAdapter(
+            _MappingHousePointsExtractor(seed=4),
+            confidence_score=1.0,
+            voxel_size_m=0.05,
+        )
+
+        replay, agent_obs = adapter.transform(_house_frame(5))
+
+        assert replay.keys() == {CAMERA_POSE_KEY}
+        assert replay[CAMERA_POSE_KEY].shape == (9,)
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (
+            HOUSE_CONTEXT_MAX_POINTS,
+            HOUSE_POINT_DIM,
+        )
+        assert int(agent_obs[HOUSE_CONTEXT_SIZE_KEY]) > 0
+
+    def test_max_input_points_stride_caps_subsampled_frame(self):
+        adapter = VGGTHousePointsPoseObsAdapter(
+            _FakeHousePointsExtractor(seed=9),
+            max_input_points=10,
+        )
+
+        stride = adapter._input_stride(height=8, width=8)
+
+        assert stride == 3
+        assert len(range(0, 8, stride)) ** 2 <= 10
+
+    def test_buffer_grows_across_steps_for_same_scene(self):
+        extractor = _FakeHousePointsExtractor(seed=7)
+        adapter = VGGTHousePointsPoseObsAdapter(
+            extractor, confidence_score=1.0, voxel_size_m=0.05
+        )
+
+        adapter.transform(_house_frame(10, scene_id="houseA"))
+        first = adapter._buffers["houseA"].points_xyz.shape[0]
+        adapter.transform(_house_frame(11, scene_id="houseA"))
+        second = adapter._buffers["houseA"].points_xyz.shape[0]
+
+        assert set(adapter._buffers) == {"houseA"}
+        assert second > first
+
+    def test_buffers_are_isolated_per_scene(self):
+        extractor = _FakeHousePointsExtractor(seed=3)
+        adapter = VGGTHousePointsPoseObsAdapter(
+            extractor, confidence_score=1.0, voxel_size_m=0.05
+        )
+
+        adapter.transform(_house_frame(20, scene_id="houseA"))
+        adapter.transform(_house_frame(21, scene_id="houseB"))
+
+        assert set(adapter._buffers) == {"houseA", "houseB"}
+        assert adapter._buffers["houseA"].points_xyz.shape[0] > 0
+        assert adapter._buffers["houseB"].points_xyz.shape[0] > 0
+        assert adapter._buffers["houseA"] is not adapter._buffers["houseB"]
+
+    def test_house_points_path_is_optional_seed(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor",
+            _FakeHousePointsExtractor,
+        )
+
+        # No path: encoder/adapter build and transform without any seed PLY.
+        enc = VGGTHousePointsPoseEncoder()
+        adapter = enc.make_adapter()
+        assert isinstance(adapter, VGGTHousePointsPoseObsAdapter)
+        replay, agent_obs = adapter.transform(_house_frame(2))
+        assert replay.keys() == {CAMERA_POSE_KEY}
+        assert agent_obs[HOUSE_CONTEXT_KEY].shape == (
+            HOUSE_CONTEXT_MAX_POINTS,
+            HOUSE_POINT_DIM,
+        )
+
+        # With a small static PLY warm-start seed: still valid.
+        ply_path = tmp_path / "house.ply"
+        _write_minimal_static_house_ply(ply_path)
+        seeded_enc = VGGTHousePointsPoseEncoder(house_points_path=str(ply_path))
+        seeded_adapter = seeded_enc.make_adapter()
+        assert isinstance(seeded_adapter, VGGTHousePointsPoseObsAdapter)
+        seeded_adapter.transform(_house_frame(2))
+        # The seed points are registered in the per-scene buffer.
+        assert seeded_adapter._buffers["houseA"].points_xyz.shape[0] > 0
 
 
 class TestVGGTHouseFullTokenNoGateEncoder:
