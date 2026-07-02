@@ -144,8 +144,13 @@ class CNNEncoder(Encoder):
 class VGGTEncoder(Encoder):
     """External feature extractor -> configured VGGT readout."""
 
-    VGGT_TOTAL_BUDGET = 200_000
-    VGGT_STATIC_BUDGETS = tuple([8333] * 24)
+    # Match the InfiniteVGGT default token space (streamvggt.py: total_budget=1_200_000)
+    # for a fair comparison against the reference extractor. Uniform split gives
+    # 50_000 tokens/block (24 blocks); per-frame tokens/block P=1374, so the
+    # streaming window is ~36 frames/block (vs ~6 at 200_000). Cost is ~6x
+    # aggregator KV memory — watch eviction stability over long horizons.
+    VGGT_TOTAL_BUDGET = 1_200_000
+    VGGT_STATIC_BUDGETS = tuple([50_000] * 24)
 
     variant_key = "vggt"
     variant = _VariantDescriptor()
