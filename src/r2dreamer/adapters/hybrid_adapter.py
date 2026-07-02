@@ -395,7 +395,6 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         self._latest_house_context = self._empty_house_context()
         self._latest_house_context_size = jnp.zeros((), dtype=jnp.int32)
         self._env_steps = 0
-        self._next_growth_sample = 1
         self._growth_history: list[tuple[int, int]] = []
         super().__init__(
             buffer_dtype={CAMERA_POSE_KEY: "float16"},
@@ -447,8 +446,7 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         The scalar is the valid-row count; rows beyond it are zero padding the
         encoder masks out during pooling.
         """
-        snapshot, count = buffer.house_context_array(self._max_points)
-        return jnp.asarray(snapshot, dtype=jnp.float16), count
+        return buffer.house_context_array(self._max_points, dtype=jnp.float16)
 
     def _input_stride(self, height: int, width: int) -> int:
         """Return the even stride that caps a ``(height, width)`` map to ~budget."""
@@ -510,11 +508,10 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         run the growth curve costs ~21 scalar reads in total.
         """
         self._env_steps += 1
-        if self._env_steps < self._next_growth_sample:
-            return
+        if self._env_steps & (self._env_steps - 1):
+            return  # sample only at powers of two
         total = sum(buffer.point_count for buffer in self._buffers.values())
         self._growth_history.append((self._env_steps, total))
-        self._next_growth_sample *= 2
 
     @property
     def growth_history(self) -> list[tuple[int, int]]:

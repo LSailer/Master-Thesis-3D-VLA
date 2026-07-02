@@ -898,7 +898,7 @@ class Trainer:
         final_step = self.tcfg.total_steps
         for k, v in stats.items():
             writer.writerow([final_step, k, v])
-        history = getattr(self.obs_adapter, "growth_history", [])
+        history = self.obs_adapter.growth_history
         for env_step, points in history:
             writer.writerow([env_step, "house_buffer/points_growth", points])
         f.flush()

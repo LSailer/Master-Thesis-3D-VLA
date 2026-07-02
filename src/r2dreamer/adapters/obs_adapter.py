@@ -74,3 +74,13 @@ class ObsAdapter:
         device scalars to host.
         """
         return {}
+
+    @property
+    def growth_history(self) -> list[tuple[int, int]]:
+        """``(env_step, value)`` time series for the end-of-run summary.
+
+        Companion to :meth:`diagnostics`: adapters that track a growth curve
+        (e.g. stored house points at doubling env steps) override this so the
+        trainer can persist the series alongside the final stats.
+        """
+        return []

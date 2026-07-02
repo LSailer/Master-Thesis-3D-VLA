@@ -149,23 +149,21 @@ class HousePointsCameraEncoder(nn.Module):
             x = nn.Dense(self.point_hidden, name=f"point_hidden{i}")(x)
             x = RMSNorm(name=f"point_norm{i}")(x)
             x = nn.silu(x)
+        # Rows >= house_size are zero padding from the fixed-shape snapshot;
+        # mask them so pooled statistics reflect only real points. The house
+        # cloud is a singleton broadcast across the batch, so a single size
+        # scalar governs every row; callers without the size key (legacy
+        # paths) get an all-valid mask, i.e. plain mean/max pooling.
+        n_points = house_points.shape[1]
         if house_size is None:
-            pooled = jnp.concatenate(
-                [jnp.mean(x, axis=1), jnp.max(x, axis=1)], axis=-1
-            )
-        else:
-            # Rows >= house_size are zero padding from the fixed-shape snapshot;
-            # mask them so pooled statistics reflect only real points.
-            n_points = house_points.shape[1]
-            size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)
-            if size.shape[0] != house_points.shape[0]:
-                size = jnp.broadcast_to(size[:1], (house_points.shape[0],))
-            valid = (jnp.arange(n_points)[None, :] < size[:, None])[..., None]
-            denom = jnp.maximum(size, 1).astype(x.dtype)[:, None]
-            mean = (x * valid).sum(axis=1) / denom
-            maxp = jnp.where(valid, x, -jnp.inf).max(axis=1)
-            maxp = jnp.where((size > 0)[:, None], maxp, jnp.zeros_like(maxp))
-            pooled = jnp.concatenate([mean, maxp], axis=-1)
+            house_size = n_points
+        size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)[:1]
+        valid = (jnp.arange(n_points)[None, :] < size[:, None])[..., None]
+        denom = jnp.maximum(size, 1).astype(x.dtype)[:, None]
+        mean = (x * valid).sum(axis=1) / denom
+        maxp = jnp.where(valid, x, -jnp.inf).max(axis=1)
+        maxp = jnp.where((size > 0)[:, None], maxp, jnp.zeros_like(maxp))
+        pooled = jnp.concatenate([mean, maxp], axis=-1)
         house_embed = nn.Dense(self.embed_dim, name="house_proj")(pooled)
         if house_embed.shape[0] == 1 and batch_size != 1:
             house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))

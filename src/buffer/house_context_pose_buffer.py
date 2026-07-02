@@ -101,13 +101,11 @@ def _unique_frame_voxels(
     hash_table_size: int,
 ) -> _UniqueFrameVoxels:
     """Sort rows by voxel key and keep the first valid input row per voxel."""
-    point_count = flat_xyz.shape[0]
-    input_order = jnp.arange(point_count, dtype=jnp.int32)
     invalid_key = jnp.iinfo(jnp.int32).max
     sort_keys = jnp.where(valid[:, None], voxel_keys, invalid_key)
-    sort_order = jnp.lexsort(
-        (input_order, sort_keys[:, 2], sort_keys[:, 1], sort_keys[:, 0])
-    )
+    # lexsort is stable, so equal keys keep input order and the first valid
+    # input row per voxel wins without an explicit tie-break key.
+    sort_order = jnp.lexsort((sort_keys[:, 2], sort_keys[:, 1], sort_keys[:, 0]))
     sorted_keys = voxel_keys[sort_order]
     sorted_valid = valid[sort_order]
     same_as_previous = jnp.concatenate(
@@ -253,12 +251,13 @@ def _add_frame_to_state(
     return _insert_unique_voxels(state, frame, config)
 
 
-@functools.partial(jax.jit, static_argnums=(1,))
+@functools.partial(jax.jit, static_argnums=(1, 2))
 def _house_context_snapshot(
     state: _VoxelContextState,
     max_points: int,
+    dtype: jnp.dtype = jnp.float32,
 ) -> tuple[jax.Array, jax.Array]:
-    """Return ``(max_points, 6)`` float32 XYZRGB rows plus the valid count.
+    """Return ``(max_points, 6)`` XYZRGB rows in ``dtype`` plus the valid count.
 
     Rows ``[0, count)`` carry stored points and rows beyond are zeros, so
     consumers can mask padding exactly (masked pooling in the encoder). While
@@ -277,11 +276,11 @@ def _house_context_snapshot(
     rows = jnp.arange(max_points, dtype=jnp.int32)
     indices = jnp.where(state.size > max_points, strided, rows)
     indices = jnp.clip(indices, jnp.int32(0), safe_size - jnp.int32(1))
-    xyz = state.store_xyz[indices].astype(jnp.float32)
-    rgb = state.store_rgb[indices].astype(jnp.float32) / jnp.float32(255.0)
+    xyz = state.store_xyz[indices].astype(dtype)
+    rgb = state.store_rgb[indices].astype(dtype) / jnp.asarray(255.0, dtype)
     snapshot = jnp.concatenate([xyz, rgb], axis=1)
     count = jnp.minimum(state.size, jnp.int32(max_points))
-    return jnp.where(rows[:, None] < count, snapshot, 0.0), count
+    return jnp.where(rows[:, None] < count, snapshot, jnp.asarray(0.0, dtype)), count
 
 
 class HouseContextPoseBuffer:
@@ -437,15 +436,17 @@ class HouseContextPoseBuffer:
         confidence = jnp.full((seed.shape[0],), self.confidence_score, dtype=jnp.float32)
         self._state = _add_frame_to_state(self._state, xyz, rgb, confidence, self._config)
 
-    def house_context_array(self, max_points: int) -> tuple[jax.Array, jax.Array]:
-        """Return a JIT-stable ``((max_points, 6) float32, () int32)`` snapshot.
+    def house_context_array(
+        self, max_points: int, dtype: jnp.dtype = jnp.float32
+    ) -> tuple[jax.Array, jax.Array]:
+        """Return a JIT-stable ``((max_points, 6) dtype, () int32)`` snapshot.
 
         The second element is the number of valid leading rows; rows beyond it
         are zero padding (see ``_house_context_snapshot``).
         """
         if max_points <= 0:
             raise ValueError(f"max_points must be positive, got {max_points}")
-        return _house_context_snapshot(self._state, int(max_points))
+        return _house_context_snapshot(self._state, int(max_points), dtype)
 
     @staticmethod
     def resample_xyzrgb(xyzrgb: jax.Array, max_points: int) -> jax.Array:

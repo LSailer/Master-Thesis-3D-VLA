@@ -29,11 +29,10 @@ import numpy as np
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
 from src.r2dreamer.adapters.hybrid_adapter import VGGTHousePointsPoseObsAdapter
+from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
-VGGT_TOTAL_BUDGET = 200_000
-VGGT_STATIC_BUDGETS = tuple([8333] * 24)
 RENDER_RESOLUTION = 518
 # Dense 1 cm voxels need headroom over the production 2^20 store: the June-30
 # full-res 1 cm run hit 380k points at conf>=5.0 and production admits at 1.5.
@@ -80,8 +79,8 @@ def main() -> None:
         curriculum=args.curriculum, render_resolution=RENDER_RESOLUTION, seed=args.seed
     )
     extractor = JAXVGGTFeatureExtractor(
-        total_budget=VGGT_TOTAL_BUDGET,
-        budgets_static=VGGT_STATIC_BUDGETS,
+        total_budget=VGGTEncoder.VGGT_TOTAL_BUDGET,
+        budgets_static=VGGTEncoder.VGGT_STATIC_BUDGETS,
         compute_heads=True,
     )
     # Adapter reused only for its production stride helper + confidence config;

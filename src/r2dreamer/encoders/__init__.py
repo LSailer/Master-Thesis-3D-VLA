@@ -19,12 +19,6 @@ from src.r2dreamer.encoders.base import (
 )
 from src.r2dreamer.encoders.constants import AGG_TOKEN_TOKENS, HOUSE_CONTEXT_DIM
 from src.r2dreamer.encoders.house_points_pose import VGGTHousePointsPoseEncoder
-from src.r2dreamer.encoders.pointnet2 import (
-    PointNet2BackboneOutput,
-    PointNet2Encoder,
-    PointNet2FeatureEncoder,
-    PointNet2PipelineSpec,
-)
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 if TYPE_CHECKING:

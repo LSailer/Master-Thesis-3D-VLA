@@ -39,11 +39,10 @@ import numpy as np
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
 from src.r2dreamer.adapters.hybrid_adapter import VGGTHousePointsPoseObsAdapter
+from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
-VGGT_TOTAL_BUDGET = 200_000
-VGGT_STATIC_BUDGETS = tuple([8333] * 24)
 RENDER_RESOLUTION = 518
 CAPACITY = 1 << 22
 HASH_TABLE_SIZE = 1 << 23
@@ -103,8 +102,7 @@ def subsample(xyz: np.ndarray, n: int, rng: np.random.Generator) -> np.ndarray:
 
 
 def episode_cloud(buffer: HouseContextPoseBuffer) -> np.ndarray:
-    n = buffer.point_count
-    return np.asarray(buffer._state.store_xyz[:n], dtype=np.float32)
+    return np.asarray(buffer.points_xyz, dtype=np.float32)
 
 
 def new_voxel_fraction(
@@ -144,8 +142,8 @@ def main() -> None:
         curriculum=args.curriculum, render_resolution=RENDER_RESOLUTION, seed=args.seed
     )
     extractor = JAXVGGTFeatureExtractor(
-        total_budget=VGGT_TOTAL_BUDGET,
-        budgets_static=VGGT_STATIC_BUDGETS,
+        total_budget=VGGTEncoder.VGGT_TOTAL_BUDGET,
+        budgets_static=VGGTEncoder.VGGT_STATIC_BUDGETS,
         compute_heads=True,
     )
     adapter = VGGTHousePointsPoseObsAdapter(extractor)
