@@ -68,3 +68,5 @@ worktrees/
 scripts/dev
 .zed
 .pi
+src/prototyp/
+tests/prototyp/
