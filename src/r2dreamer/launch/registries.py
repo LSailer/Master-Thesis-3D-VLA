@@ -22,6 +22,9 @@ from src.r2dreamer.encoders import (
 )
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 
+# Prototype wiring (throwaway) — remove together with src/prototyp/gnn_house_encoder.
+from src.prototyp.gnn_house_encoder.encoder import GnnHousePointsPoseEncoder
+
 
 def make_crafter_env(*, seed: int = 0, **_kwargs):
     """Thin wrapper so crafter follows the same factory signature as habitat."""
@@ -39,6 +42,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "hybrid": HybridEncoder,
     "vggt_house_context": VGGTHouseContextEncoder,
     "vggt_house_points_pose": VGGTHousePointsPoseEncoder,
+    "gnn_house_points_pose": GnnHousePointsPoseEncoder,  # prototype, throwaway
     "vggt_house_full_tokens_nogate": VGGTHouseFullTokenNoGateEncoder,
     "vggt_house_global_tokens_nogate": VGGTHouseGlobalTokenNoGateEncoder,
 }

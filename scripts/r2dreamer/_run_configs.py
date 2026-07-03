@@ -136,6 +136,19 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "point-mlp", "jax", "3d-encoder",
         ],
     ),
+    # L1 live house points + GNN house branch (prototype: src/prototyp/gnn_house_encoder).
+    "habitat-l1-gnn-house-points-pose": dict(
+        env="habitat",
+        encoder="gnn_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose",
+        wandb_name="l1_gnn_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "live-buffer", "camera-pose-replay",
+            "gnn", "knn-graph", "prototype", "jax", "3d-encoder",
+        ],
+    ),
     # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
     "habitat-l1-vggt-house-full-tokens-nogate": dict(
         env="habitat",
