@@ -1,6 +1,6 @@
 ---
 name: prototype
-description: Build a scratchpad-only throwaway prototype to answer a design question: a runnable terminal app for state/business-logic questions, or several radically different UI variations.
+description: "Build a scratchpad-only throwaway prototype to answer a design question: a runnable terminal app for state/business-logic questions, or several radically different UI variations."
 ---
 
 # Prototype

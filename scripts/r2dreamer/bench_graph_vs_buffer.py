@@ -31,10 +31,10 @@ import numpy as np
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
 from src.r2dreamer.encoders.constants import HOUSE_CONTEXT_MAX_POINTS
-from src.prototype_helpers.graph_gcn import RgbGcnAutoencoder
-from src.prototype_helpers.graph_ops import gumbel_topk_sample, local_variation_scores
-from src.prototype_helpers.knn_graph import build_knn_graph
-from src.prototype_helpers.ply_io import load_ply_xyzrgb
+from src.prototyp.graph_house_context.graph_gcn import RgbGcnAutoencoder
+from src.prototyp.graph_house_context.graph_ops import gumbel_topk_sample, local_variation_scores
+from src.prototyp.graph_house_context.knn_graph import build_knn_graph
+from src.prototyp.graph_house_context.ply_io import load_ply_xyzrgb
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PLY = (
