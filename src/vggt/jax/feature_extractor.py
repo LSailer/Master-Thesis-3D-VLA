@@ -670,17 +670,60 @@ class JAXVGGTFeatureExtractor:
             ]
 
     def _check_camera_cache_capacity(self) -> None:
-        """Fail before the next camera-head write would exceed the padded cache."""
-        # Guard against silent cache overflow: dynamic_update_slice_in_dim
-        # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
-        # produces undefined cuDNN behavior.  Fail loud here instead.
+        """Evict the oldest camera frame when the padded cache is full.
+
+        Sliding-window replacement for the former ``RuntimeError`` guard. The
+        camera head has no internal eviction (its trunk blocks run with
+        ``cache_budget=None``, unlike the aggregator), so without this the
+        padded buffer would overflow: ``dynamic_update_slice_in_dim`` clamps
+        out-of-range writes (silently corrupting the last slot) and
+        ``key_value_seq_lengths > _CAM_MAX`` gives undefined cuDNN behaviour.
+        Instead of raising, drop one frame per new frame once full, so the
+        camera head always attends over the most recent ``max_camera_frames``
+        frames — matching the reference extractor's
+        ``k[:, :, -max_camera_tokens:, :]`` sliding window
+        (``reference/feature_extractor.py:214``). Output is byte-identical to
+        the old behaviour for the first ``max_camera_frames`` frames; only
+        behaviour past that point changes (continue instead of crash).
+        """
         max_frames = self._CAM_MAX // self._cam_num_iters
         if self._frame_idx >= max_frames:
-            raise RuntimeError(
-                f"Camera-head padded cache overflow: cannot extract frame "
-                f"{self._frame_idx + 1}, max_camera_frames={max_frames}. "
-                f"Raise max_camera_frames at construction or call reset()."
+            self._evict_oldest_camera_frame()
+
+    def _evict_oldest_camera_frame(self) -> None:
+        """Slide the camera-head cache left by one frame to make room for the next.
+
+        Drops the oldest ``_cam_num_iters`` rows (one frame's worth, 4 pose
+        iterations) from each trunk block and pads the same number of zero
+        rows at the tail, setting ``valid_len = _CAM_MAX - _cam_num_iters`` so
+        the next camera-head apply appends the new frame at the freed end and
+        ``valid_len`` returns to ``_CAM_MAX``. Net: a sliding window of the
+        last ``max_camera_frames`` frames. Run only when the cache is full.
+
+        Cost (HANDOFF.md R5): once full, one concat per trunk block per frame
+        (``_cam_depth`` blocks x 2 (k,v)). At ``_CAM_MAX=4096`` this is
+        non-trivial device traffic — watch the wall-clock regression vs. the
+        158 ms/step baseline (EXPERIMENTS E2). A circular-buffer variant would
+        avoid the copy but needs rotated reads inside the attention block.
+        """
+        if self._past_kvs_camera is None:
+            return
+        n = self._cam_num_iters
+        shifted: list[CacheEntry] = []
+        for k_pad, v_pad, valid_len in self._past_kvs_camera:
+            vl = int(np.asarray(valid_len))
+            if vl < self._CAM_MAX:
+                # Not full yet — no eviction; the apply will append and grow valid_len.
+                shifted.append((k_pad, v_pad, valid_len))
+                continue
+            k_tail = jnp.zeros_like(k_pad[:, :, :n, :])
+            v_tail = jnp.zeros_like(v_pad[:, :, :n, :])
+            k_shift = jnp.concatenate([k_pad[:, :, n:, :], k_tail], axis=2)
+            v_shift = jnp.concatenate([v_pad[:, :, n:, :], v_tail], axis=2)
+            shifted.append(
+                (k_shift, v_shift, jnp.asarray(self._CAM_MAX - n, dtype=jnp.int32))
             )
+        self._past_kvs_camera = shifted
 
     def _run_heads(
         self,
