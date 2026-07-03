@@ -517,9 +517,17 @@ class Trainer:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
-        self.env.reset()
+        # Capture the reset frame so its scene_id reaches the scene-aware
+        # on_episode_reset callback (VGGT PERSIST_SCENE saves/restores per
+        # scene). Prefill discards the reset obs for replay purposes, but the
+        # extractor reset MUST still fire here — otherwise reset_for_scene
+        # never runs during prefill and the first train episode fresh-resets,
+        # orphaning the prefill frame (see PROTOCOL.md §2 / smoke 5738008).
+        _rst_obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
+            self.obs_adapter.on_episode_reset(
+                getattr(_rst_obs, "scene_id", None) or "scene"
+            )
 
         for _ in range(tcfg.prefill_steps):
             rng_key, action_key = jax.random.split(rng_key)
@@ -536,9 +544,11 @@ class Trainer:
             )
 
             if next_obs.done:
-                self.env.reset()
+                _rst_obs = self.env.reset()
                 if self.obs_adapter.on_episode_reset:
-                    self.obs_adapter.on_episode_reset()
+                    self.obs_adapter.on_episode_reset(
+                        getattr(_rst_obs, "scene_id", None) or "scene"
+                    )
         return rng_key
 
     # ------------------------------------------------------------------
@@ -550,7 +560,9 @@ class Trainer:
     ) -> tuple[ObservationFrame, np.ndarray | dict[str, np.ndarray], Any, bool]:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
+            self.obs_adapter.on_episode_reset(
+                getattr(obs, "scene_id", None) or "scene"
+            )
         buffer_obs, encoder_obs, is_first = self._prepare_observation(
             self.obs_adapter, obs
         )
@@ -991,7 +1003,9 @@ class Trainer:
 
         obs = val_env.reset()
         if val_adapter.on_episode_reset:
-            val_adapter.on_episode_reset()
+            val_adapter.on_episode_reset(
+                getattr(obs, "scene_id", None) or "scene"
+            )
         _, encoder_obs, is_first = self._prepare_observation(val_adapter, obs)
 
         episode_reward = 0.0

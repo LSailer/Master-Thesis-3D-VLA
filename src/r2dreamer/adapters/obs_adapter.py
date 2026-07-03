@@ -32,7 +32,16 @@ class ObsAdapter:
     buffer_shape: BufferShape = (3, 64, 64)
     normalize_on_sample: BufferNormalize = True
     agent_obs_shape: BufferShape | None = None
-    on_episode_reset: Callable[[], None] | None = None
+    # Scene-aware episode-boundary hook. The trainer calls it (when set) at
+    # every episode reset — prefill start, prefill episode-end, train reset,
+    # eval reset — passing the incoming reset frame's ``scene_id`` so a
+    # PERSIST-scene extractor can save the outgoing scene and restore the
+    # incoming one (see src/prototyp/live_house_context/PROTOCOL.md §2). A
+    # no-arg ``extractor.reset`` is no longer sufficient: the callback fires
+    # *before* the first frame's ``extract()``, where ``scene_id`` first
+    # becomes available, and the prefill loop discards reset frames entirely
+    # (so the in-extract ``is_first`` reset path never fires during prefill).
+    on_episode_reset: Callable[[str], None] | None = None
 
     @property
     def encoder_obs_shape(self) -> BufferShape:

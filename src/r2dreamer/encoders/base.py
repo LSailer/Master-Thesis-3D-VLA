@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import flax.linen as nn
 
 from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.vggt.jax.feature_extractor import ResetMode
 
 if TYPE_CHECKING:
     from src.r2dreamer.adapters.obs_adapter import ObsAdapter
@@ -151,6 +152,14 @@ class VGGTEncoder(Encoder):
     # aggregator KV memory — watch eviction stability over long horizons.
     VGGT_TOTAL_BUDGET = 1_200_000
     VGGT_STATIC_BUDGETS = tuple([50_000] * 24)
+    # VGGT streaming-cache reset policy at episode boundaries. ``FULL`` wipes
+    # every episode (default, re-anchors each episode into its own world frame).
+    # ``PERSIST_SCENE`` saves/restores the cache per ``scene_id`` so all episodes
+    # of one house share one world frame — required for the live per-scene house
+    # point buffer to accumulate geometrically-consistent points instead of
+    # re-anchoring each episode (which produces ghost copies; see
+    # docs/notes/visible-house-context-snapshot.md). Override on subclasses.
+    vggt_reset_mode: ResetMode = ResetMode.FULL
 
     variant_key = "vggt"
     variant = _VariantDescriptor()
@@ -206,6 +215,7 @@ class VGGTEncoder(Encoder):
             budgets_static=self.VGGT_STATIC_BUDGETS,
             compute_heads=self.vggt_compute_heads,
             wp_pool_size=self.wp_pool_size,
+            reset_mode=self.vggt_reset_mode,
         )
 
     def _build_adapter(self) -> ObsAdapter:

@@ -92,7 +92,7 @@ class HybridObsAdapter(ObsAdapter):
             buffer_shape=self.contract.replay_observation.buffer_shape(),
             normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
             agent_obs_shape=self.contract.encoder_input.shape,
-            on_episode_reset=extractor.reset,
+            on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(scene_id),
         )
         self._extractor = extractor
 
@@ -349,9 +349,11 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
 
     An optional ``house_points_path`` warm-starts every new scene buffer from a
     static ASCII XYZRGB PLY; live VGGT points then extend it. The extractor is
-    reset at each episode boundary via ``on_episode_reset`` so its streaming
-    KV-cache never leaks geometry across episodes, while the per-scene point
-    buffers deliberately persist across episodes of the same scene.
+    constructed with ``ResetMode.PERSIST_SCENE`` and resets scene-aware inside
+    ``extract`` on the first frame of each episode (``reset_for_scene``), so its
+    streaming KV-cache is saved/restored per scene rather than wiped — keeping
+    every episode of one house in a single world frame — while the per-scene
+    point buffers persist across episodes of the same scene.
 
     The full VGGT point map (518x518 ~ 268k points) is fed to the buffer every
     step by default: voxel dedup runs as a fixed-shape JIT graph on device
@@ -405,8 +407,24 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
                 HOUSE_CONTEXT_KEY: (self._max_points, HOUSE_POINT_DIM),
                 HOUSE_CONTEXT_SIZE_KEY: (),
             },
-            on_episode_reset=extractor.reset,
+            on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(scene_id),
         )
+        # Scene-aware episode reset. The trainer calls the callback above at
+        # every episode boundary — including the two prefill sites that discard
+        # the reset frame (so the in-extract ``is_first`` reset path never fires
+        # during prefill). Without this callback, ``reset_for_scene`` would not
+        # run during prefill, ``_current_scene_id`` would stay None, and the
+        # first train episode would fresh-``reset()`` (re-anchor), orphaning the
+        # prefill frame — the bug found in smoke 5738008 (3.77 M points, no
+        # saturation). See src/prototyp/live_house_context/PROTOCOL.md §2.
+        # The earlier ``on_episode_reset=None`` was set to avoid a FULL-wipe
+        # hazard, but that hazard only applied to a bare ``extractor.reset``
+        # callback; ``reset_for_scene`` saves the outgoing scene before
+        # restoring the incoming one, so there is no wipe. The in-extract
+        # ``is_first`` -> ``reset_for_scene`` (set in feature_extractor.py) stays
+        # as a redundant, idempotent safety net for paths that process the reset
+        # frame (the train loop). Only the point buffer persists across
+        # episodes; the VGGT cache is saved/restored per scene.
         self._extractor = extractor
 
     @staticmethod

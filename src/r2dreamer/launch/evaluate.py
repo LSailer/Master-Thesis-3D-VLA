@@ -243,7 +243,9 @@ def _make_eval_agent(
 def _start_eval_episode(env_instance, adapter):
     obs = env_instance.reset()
     if adapter.on_episode_reset:
-        adapter.on_episode_reset()
+        # Pass the reset frame's scene_id so PERSIST_SCENE adapters save/restore
+        # the right per-scene cache during evaluation (mirrors the trainer).
+        adapter.on_episode_reset(getattr(obs, "scene_id", None) or "scene")
     prepared = adapter.prepare_env_step(obs)
     encoder_obs = prepared.encoder_obs
     is_first = prepared.is_first

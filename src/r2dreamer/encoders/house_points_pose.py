@@ -13,6 +13,7 @@ from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
     HousePointsCameraEncoder as ModelHousePointsCameraEncoder,
 )
+from src.vggt.jax.feature_extractor import ResetMode
 
 
 class VGGTHousePointsPoseEncoder(VGGTEncoder):
@@ -22,7 +23,18 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
     buffer per scene; the encoder emits a fixed-size resampled snapshot each
     step. ``house_points_path`` is an optional warm-start seed (static PLY) and
     is no longer required.
+
+    The VGGT streaming cache persists per ``scene_id`` (``PERSIST_SCENE``) so
+    all episodes of one house share one world frame and the per-scene point
+    buffer accumulates geometrically-consistent points instead of ghost copies
+    across episodes (see docs/notes/visible-house-context-snapshot.md). The
+    scene-aware reset fires inside ``feature_extractor.extract`` on the first
+    frame of each episode; the adapter's ``on_episode_reset`` callback is
+    deliberately left unset so it cannot FULL-wipe the outgoing scene before
+    ``reset_for_scene`` saves it.
     """
+
+    vggt_reset_mode = ResetMode.PERSIST_SCENE
 
     def __init__(
         self,

@@ -585,15 +585,26 @@ class JAXVGGTFeatureExtractor:
         (keyed by ``scene_id``) and the incoming scene's saved state is
         restored, or a fresh cache is started if the scene has not been seen
         before. Same-scene episodes thus resume the VGGT attention stream
-        instead of re-anchoring. NB: the camera-head cache is not bounded by
-        eviction, so a long per-scene stream will still hit
-        ``_check_camera_cache_capacity`` at ``max_camera_frames`` — land camera
-        eviction (HANDOFF.md §4.2b) before relying on this for long runs.
+        instead of re-anchoring. The camera-head cache is bounded by a sliding
+        window (``_check_camera_cache_capacity`` -> ``_evict_oldest_camera_frame``,
+        commit 6977127), so long per-scene streams no longer raise; the remaining
+        cost is the per-frame eviction concat (HANDOFF.md R5) once
+        ``max_camera_frames`` fills — watch the step-time regression vs the FULL
+        baseline when enabling this for long runs.
+
+        Args:
+          scene_id: Identifier for the incoming scene. When it matches the
+            current scene the call is a no-op.
+
+        Returns:
+          None.
         """
         if self._reset_mode is ResetMode.FULL:
             self.reset()
             return
-        # PERSIST_SCENE: stash the outgoing scene, restore or init the incoming one.
+        # PERSIST_SCENE: only save/restore when the scene actually changes.
+        if self._current_scene_id == scene_id:
+            return
         if self._current_scene_id is not None:
             self._scene_cache_store[self._current_scene_id] = self.save_cache()
         self._current_scene_id = scene_id
@@ -609,7 +620,15 @@ class JAXVGGTFeatureExtractor:
         """Resolve either a raw CHW frame or an ObservationFrame to image input."""
         if isinstance(source, ObservationFrame):
             if source.is_first:
-                self.reset()
+                # Scene-aware episode reset. Under ``ResetMode.FULL`` this is
+                # identical to ``self.reset()``. Under ``PERSIST_SCENE`` it
+                # saves the outgoing scene's cache and restores the incoming
+                # one. The reset lives here (not in the trainer's
+                # ``on_episode_reset`` callback) because only the frame carries
+                # the incoming ``scene_id`` the restore needs.
+                self.reset_for_scene(
+                    getattr(source, "scene_id", None) or "scene"
+                )
             return source.image
         return source
 

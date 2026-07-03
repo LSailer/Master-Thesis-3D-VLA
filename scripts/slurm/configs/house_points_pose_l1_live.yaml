@@ -1,0 +1,33 @@
+extends: house_context_l1
+job_name: vggt-house-points-pose-l1-live
+output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose-live
+run_id: habitat-l1-vggt-house-points-pose
+setup:
+  - scripts/slurm/hooks/link_external.sh
+comments:
+  - "L1 LIVE per-scene house-points buffer (no static PLY sidecar): VGGT world points accumulate into a per-scene voxel buffer that persists across episodes of one house."
+  - "ResetMode.PERSIST_SCENE (set on VGGTHousePointsPoseEncoder) keeps every episode of one house in a single VGGT world frame, so the buffer builds one coherent map instead of ghost copies (fixes the 3.4M-points-in-1200-steps misalignment of job 5706115)."
+  - "Replay stores only current camera_pose; the encoder gets a fixed-shape (max_points,6) XYZRGB snapshot + HOUSE_CONTEXT_SIZE_KEY valid count for masked pooling. The trainer logs the per-scene buffer growth curve (house_buffer/points_growth) — the go/no-go for PERSIST is that it saturates rather than climbs linearly."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose-live/run-${SLURM_JOB_ID}
+  wandb_name: l1_live_house_points_pose-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,point-mlp,persist-scene,jax,3d-encoder
+smoke:
+  time: "00:30:00"
+  args:
+    # 1000 prefill + 2000 train = 3000 env steps -> ~20 min wall on H100 (the
+    # 600+600 smoke ran in ~8 min, ~0.4 s/step incl. compile). Longer smoke to
+    # exercise more episodes + deeper training within the 30-min gpu_h100_short
+    # cap (margin). Inspect house_buffer/points_growth in metrics.csv: under
+    # the fix it should stay well below the 3.4M FULL baseline (job 5706115,
+    # 1200 steps) and not accelerate across the prefill->train boundary.
+    steps: 2000
+    prefill: 1000
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 1000000
+    output_dir: output/smoke/vggt-house-points-pose-live-${TIMESTAMP}
+    wandb_name: vggt-house-points-pose-live-smoke-${TIMESTAMP}
+    wandb_tags: house-points,live-buffer,smoke,camera-pose-replay,point-mlp,persist-scene

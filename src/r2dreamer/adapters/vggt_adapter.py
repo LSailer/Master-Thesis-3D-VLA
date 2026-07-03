@@ -47,7 +47,7 @@ class VGGTObsAdapter(ObsAdapter):
             buffer_shape=self.contract.replay_observation.buffer_shape(),
             normalize_on_sample=self.contract.replay_observation.buffer_normalize(),
             agent_obs_shape=self.contract.encoder_input.buffer_shape(),
-            on_episode_reset=extractor.reset,
+            on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(scene_id),
         )
         self._extractor = extractor
         self._readout = make_vggt_readout(

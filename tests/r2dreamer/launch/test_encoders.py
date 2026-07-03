@@ -38,6 +38,7 @@ from src.r2dreamer.encoders.constants import (
     HOUSE_POINT_DIM,
 )
 from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.vggt.jax.feature_extractor import ResetMode
 from src.r2dreamer.encoders.mlp import (
     HybridEncoder as ModelHybridEncoder,
 )
@@ -141,11 +142,70 @@ class TestVGGTEncoderConfiguration:
 
         assert isinstance(adapter, VGGTObsAdapter)
         assert constructed_kwargs == {
-            "total_budget": 200_000,
-            "budgets_static": tuple([8333] * 24),
+            "total_budget": 1_200_000,
+            "budgets_static": tuple([50_000] * 24),
             "compute_heads": True,
             "wp_pool_size": 37,
+            "reset_mode": ResetMode.FULL,
         }
+
+    def test_house_points_pose_encoder_uses_persist_scene(self, monkeypatch):
+        """The live per-scene house-point path must persist the VGGT cache per
+        scene so episodes of one house share one world frame (no ghost copies).
+        """
+        constructed_kwargs = {}
+
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                constructed_kwargs.update(kwargs)
+
+            def reset(self):
+                pass
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHousePointsPoseEncoder()
+        enc.make_adapter()
+
+        assert constructed_kwargs["reset_mode"] is ResetMode.PERSIST_SCENE
+
+    def test_house_points_adapter_episode_reset_is_scene_aware(self, monkeypatch):
+        """The adapter's on_episode_reset must call reset_for_scene with the
+        incoming scene_id (and fall back to "scene" when called with no arg,
+        so standalone profiling scripts that call it no-arg still work). This
+        is the fix for the prefill-doesn't-fire-reset_for_scene gap.
+        """
+
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                pass
+
+            def reset(self):
+                pass
+
+            def reset_for_scene(self, scene_id):
+                self.last_scene_id = scene_id
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHousePointsPoseEncoder()
+        adapter = enc.make_adapter()
+        assert adapter.on_episode_reset is not None
+
+        adapter.on_episode_reset("house-7")
+        assert adapter._extractor.last_scene_id == "house-7"
+
+        # Backward-compatible no-arg call (profiling/debug scripts) -> "scene".
+        adapter.on_episode_reset()
+        assert adapter._extractor.last_scene_id == "scene"
 
     def test_vggt_encoder_exposes_wp_cp_spec(self, monkeypatch):
         class FakeExtractor:
