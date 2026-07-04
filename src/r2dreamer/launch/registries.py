@@ -19,6 +19,7 @@ from src.r2dreamer.encoders import (
     HybridEncoder,
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
+    VGGTHouseGlobalEmbeddingEncoder,
     VGGTHouseGlobalTokenNoGateEncoder,
     VGGTHousePointsPoseEncoder,
 )
@@ -45,6 +46,7 @@ encoder_registry: dict[str, type[Encoder]] = {
     "gnn_edge_house_points_pose": GnnEdgeHousePointsPoseEncoder,
     "vggt_house_full_tokens_nogate": VGGTHouseFullTokenNoGateEncoder,
     "vggt_house_global_tokens_nogate": VGGTHouseGlobalTokenNoGateEncoder,
+    "vggt_house_global_embedding": VGGTHouseGlobalEmbeddingEncoder,
 }
 
 env_registry: dict[str, Callable] = {

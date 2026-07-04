@@ -32,6 +32,7 @@ def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
         "vggt_house_context",
         "vggt_house_full_tokens_nogate",
         "vggt_house_global_tokens_nogate",
+        "vggt_house_global_embedding",
     ):
         if isinstance(obs, Mapping):
             image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])

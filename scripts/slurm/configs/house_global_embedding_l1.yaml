@@ -1,0 +1,30 @@
+extends: house_context_l1
+job_name: vggt-house-global-embedding-l1
+output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-global-embedding
+run_id: habitat-l1-vggt-house-global-embedding
+comments:
+  - "L1 house global embedding: replay stores RGB_64 + split VGGT global-half tokens (camera (1,1024) + patches (1369,1024)); a PointNet reducer max-pools the patches and keeps the camera token on its own side branch; extractor runs PERSIST_SCENE with heads off (src/prototyp/house_global_embedding/IDEA.md)"
+  - "Point-cloud PLY snapshots are diagnostics-only; the point head runs only on dump steps, never for training. pointcloud_dump_every=0 disables it."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-global-embedding/run-${SLURM_JOB_ID}
+  wandb_name: l1_rgb_replay_vggt_house_global_embedding-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-context,global-embedding,pointnet-reducer,rgb-replay,live-cache,persist-scene,heads-off,jax,3d-encoder
+  # Diagnostics-only PLY snapshots (0 = off). One extra snapshot is written at
+  # the end of the first episode.
+  pointcloud_dump_every: 0
+smoke:
+  time: "00:30:00"
+  args:
+    steps: 800
+    prefill: 200
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 10000
+    # Enable PLY dumps in smoke to exercise the point-head-on-dump-steps path
+    # and the end-of-first-episode snapshot.
+    pointcloud_dump_every: 300
+    output_dir: output/smoke/vggt-house-global-embedding-${TIMESTAMP}
+    wandb_name: vggt-house-global-embedding-smoke-${TIMESTAMP}
+    wandb_tags: house-context,global-embedding,pointnet-reducer,smoke,rgb-replay,live-cache,persist-scene,heads-off

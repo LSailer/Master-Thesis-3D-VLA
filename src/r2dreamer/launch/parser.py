@@ -329,6 +329,15 @@ def _add_house_context_train_args(p: argparse.ArgumentParser) -> None:
         help="ASCII XYZRGB PLY path for vggt_house_points_pose. Replay stores "
         "only camera_pose; the complete point cloud stays as a static sidecar.",
     )
+    p.add_argument(
+        "--pointcloud_dump_every",
+        type=int,
+        default=0,
+        help="For vggt_house_global_embedding: write a PLY point-cloud snapshot "
+        "every N env steps (diagnostics only; the point head runs only on dump "
+        "steps, never for training). 0 disables the feature. An extra snapshot "
+        "is written at the end of the first episode when N > 0.",
+    )
 
 
 def _build_parser_train() -> argparse.ArgumentParser:

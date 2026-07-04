@@ -17,6 +17,7 @@ from src.r2dreamer.adapters.hybrid_adapter import (
     HybridObsAdapter,
     VGGTHouseContextObsAdapter,
     VGGTHouseFullTokenObsAdapter,
+    VGGTHouseGlobalEmbeddingObsAdapter,
     VGGTHousePointsPoseObsAdapter,
 )
 from src.r2dreamer.encoders import (
@@ -30,6 +31,7 @@ from src.r2dreamer.encoders import (
     VGGTEncoder,
     VGGTHouseContextEncoder,
     VGGTHouseFullTokenNoGateEncoder,
+    VGGTHouseGlobalEmbeddingEncoder,
     VGGTHousePointsPoseEncoder,
     VGGTWP64CNNCPMLPEncoder,
     VGGTWPCP64Encoder,
@@ -44,13 +46,18 @@ from src.r2dreamer.encoders.mlp import (
     HybridEncoder as ModelHybridEncoder,
 )
 from src.r2dreamer.encoders.mlp import (
+    HouseGlobalEmbeddingEncoder as ModelHouseGlobalEmbeddingEncoder,
+)
+from src.r2dreamer.encoders.mlp import (
     MLPEncoder,
     WP64CNNCPMLPEncoder,
 )
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
+    CAMERA_TOKEN_GLOBAL_KEY,
     FULL_TOKENS_KEY,
+    GLOBAL_PATCH_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
@@ -1232,6 +1239,100 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         assert set(augmented.obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
         assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
         assert augmented.obs[GLOBAL_TOKENS_KEY].shape == (2, 3, 1374, 1024)
+
+
+class TestVGGTHouseGlobalEmbeddingEncoder:
+    def test_global_embedding_encoder_exposes_split_token_replay_spec(
+        self, monkeypatch
+    ):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.last_scene_id = None
+
+            def reset(self):
+                pass
+
+            def reset_for_scene(self, scene_id):
+                self.last_scene_id = scene_id
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHouseGlobalEmbeddingEncoder()
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        assert isinstance(adapter, VGGTHouseGlobalEmbeddingObsAdapter)
+        assert spec.encoder_type == "vggt_house_global_embedding"
+        assert enc.vggt_reset_mode is ResetMode.PERSIST_SCENE
+        assert enc.vggt_compute_heads is False
+        expected_shape = {
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+            CAMERA_TOKEN_GLOBAL_KEY: (1, 1024),
+            GLOBAL_PATCH_TOKENS_KEY: (1369, 1024),
+        }
+        assert adapter.buffer_shape == expected_shape
+        assert adapter.buffer_dtype == {
+            HYBRID_IMAGE_KEY: "uint8",
+            CAMERA_TOKEN_GLOBAL_KEY: "float16",
+            GLOBAL_PATCH_TOKENS_KEY: "float16",
+        }
+        assert spec.obs_shape == expected_shape
+        assert spec.module_cls is ModelHouseGlobalEmbeddingEncoder
+        assert spec.env_render_resolution == 518
+        assert spec.agent_overrides["buffer_capacity"] == 5_000
+        # Scene-aware reset fires during prefill (prefill-orphaning fix).
+        assert adapter.on_episode_reset is not None
+        adapter.on_episode_reset("house-7")
+        assert adapter._extractor.last_scene_id == "house-7"
+        # Point head is off by default (PERSIST_SCENE + heads off); dumps disabled.
+        assert adapter._dump_enabled is False
+
+    def test_global_embedding_adapter_dumps_when_knob_set(self, monkeypatch, tmp_path):
+        class FakeExtractor:
+            aggregator_feature_shape = (1374, 1024)
+
+            def __init__(self, **kwargs):
+                self.ply_dumps = []
+
+            def reset(self):
+                pass
+
+            def reset_for_scene(self, scene_id):
+                pass
+
+            def extract(self, obs):
+                import jax.numpy as jnp
+
+                return {
+                    "aggregator_features": jnp.zeros((1374, 1024), dtype=jnp.float32)
+                }
+
+            def write_point_cloud_ply(self, path):
+                self.ply_dumps.append(path)
+
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
+        )
+
+        enc = VGGTHouseGlobalEmbeddingEncoder(
+            pointcloud_dump_every=3, pointcloud_dump_dir=str(tmp_path)
+        )
+        adapter = enc.make_adapter()
+        assert adapter._dump_enabled is True
+        image = np.random.default_rng(0).integers(
+            0, 256, size=(3, 8, 8), dtype=np.uint8
+        )
+        for s in range(6):
+            adapter.transform(
+                ObservationFrame(image=image, is_first=(s == 0), scene_id="houseA")
+            )
+        # Dumps at env steps 3 and 6.
+        assert len(adapter._extractor.ply_dumps) == 2
 
 
 @pytest.mark.gpu

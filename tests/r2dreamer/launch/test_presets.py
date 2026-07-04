@@ -13,6 +13,7 @@ PRESETS = [
     ("habitat", "vggt_house_points_pose", "L1"),
     ("habitat", "vggt_house_full_tokens_nogate", "L1"),
     ("habitat", "vggt_house_global_tokens_nogate", "L1"),
+    ("habitat", "vggt_house_global_embedding", "L1"),
     ("crafter", "cnn",  None),
 ]
 

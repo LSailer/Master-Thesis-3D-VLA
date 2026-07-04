@@ -16,6 +16,8 @@ from src.r2dreamer.encoders.constants import (
 )
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
+    CAMERA_TOKEN_GLOBAL_KEY,
+    GLOBAL_PATCH_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
 )
@@ -398,6 +400,75 @@ class TestR2DreamerAgent:
         assert "hybrid/gate" not in metrics
         assert "gate" not in after["params"]
         assert "block0" in after["params"]
+        assert not jax.tree_util.tree_all(
+            jax.tree.map(
+                lambda a, b: jnp.allclose(a, b),
+                before["params"],
+                after["params"],
+            )
+        )
+
+    def test_train_step_accepts_split_global_tokens_pointnet_reducer(self):
+        # vggt_house_global_embedding: PointNet reducer over split global tokens.
+        # vggt_token_count=11 -> num_patch_tokens = 11 - (1 cam + 4 reg) = 6.
+        cfg = R2DreamerConfig(
+            encoder_type="vggt_house_global_embedding",
+            obs_shape={
+                "image": (3, 64, 64),
+                CAMERA_TOKEN_GLOBAL_KEY: (1, 8),
+                GLOBAL_PATCH_TOKENS_KEY: (6, 8),
+            },
+            num_actions=4,
+            deter_size=32,
+            hidden_size=16,
+            stoch_classes=4,
+            stoch_discrete=4,
+            blocks=4,
+            encoder_depth=2,
+            encoder_kernel=3,
+            encoder_mults=(1, 1),
+            vggt_embed_dim=8,
+            vggt_token_count=11,
+            vggt_token_dim=8,
+            mlp_vggt_hidden=16,
+            mlp_vggt_layers=1,
+            mlp_units=16,
+            mlp_layers_reward=1,
+            mlp_layers_cont=1,
+            mlp_layers_actor=1,
+            mlp_layers_critic=1,
+            twohot_bins=21,
+            imagination_horizon=2,
+            horizon=10,
+            lr=1e-3,
+            warmup_steps=0,
+        )
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        # Fused embed = concat([camera_embed, house_embed]) = 2 * vggt_embed_dim.
+        assert agent.embed_size == 2 * cfg.vggt_embed_dim
+        batch = ReplayBatch(
+            obs={
+                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros((1, 2, 1, 8), dtype=jnp.float32),
+                GLOBAL_PATCH_TOKENS_KEY: jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
+            },
+            actions=jax.nn.one_hot(
+                jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
+            ),
+            rewards=jnp.zeros((1, 2), dtype=jnp.float32),
+            is_first=jnp.ones((1, 2), dtype=jnp.float32),
+            is_episode_end=jnp.zeros((1, 2), dtype=jnp.float32),
+        )
+
+        before = agent.params["encoder"]
+        metrics = agent.train_step(batch, jax.random.PRNGKey(1))
+        after = agent.params["encoder"]
+
+        assert np.isfinite(metrics["total_loss"])
+        # Reducer + camera side branch params exist and update.
+        assert "reducer_hidden0" in after["params"]
+        assert "camera_hidden0" in after["params"]
+        assert "house_proj" in after["params"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
                 lambda a, b: jnp.allclose(a, b),

@@ -189,6 +189,22 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
         ],
     ),
+    # L1 house global embedding — RGB replay + split VGGT global tokens fed to
+    # a PointNet reducer (max-pool over 1369 patch tokens; camera token on its
+    # own side branch). PERSIST_SCENE, heads off (src/prototyp/
+    # house_global_embedding/IDEA.md).
+    "habitat-l1-vggt-house-global-embedding": dict(
+        env="habitat",
+        encoder="vggt_house_global_embedding",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-global-embedding",
+        wandb_name="l1_rgb_replay_vggt_house_global_embedding",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "global-embedding", "pointnet-reducer", "rgb-replay",
+            "live-cache", "persist-scene", "heads-off", "jax", "3d-encoder",
+        ],
+    ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
     "habitat-l1-vggt-wp-cp-64": dict(
         env="habitat",

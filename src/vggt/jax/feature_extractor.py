@@ -283,6 +283,16 @@ class JAXVGGTFeatureExtractor:
         self._configure_camera_cache(max_camera_frames)
         self._compile_apply_functions()
 
+        # Last-frame aggregator outputs + raw image, retained so an occasional
+        # PLY snapshot (write_point_cloud_ply) can run the point head without
+        # re-running the aggregator. Only references (JAX arrays are immutable);
+        # overwritten each extract(). The camera head is never invoked for
+        # dumps, so _past_kvs_camera stays unallocated under PERSIST_SCENE.
+        self._last_out_list: list[jnp.ndarray] | None = None
+        self._last_images: jnp.ndarray | None = None
+        self._last_patch_start_idx: jnp.ndarray | None = None
+        self._last_rgb: np.ndarray | None = None
+
         self.reset()
         self._warmup()
 
@@ -907,6 +917,12 @@ class JAXVGGTFeatureExtractor:
         budgets_static = self._resolve_static_budgets()
         out_list, patch_start_idx = self._run_aggregator(images, budgets_static)
 
+        # Retain this frame for an optional PLY snapshot (point head only).
+        self._last_out_list = out_list
+        self._last_images = images
+        self._last_patch_start_idx = patch_start_idx
+        self._last_rgb = rgb
+
         head_outputs = self._run_optional_heads(
             out_list,
             images,
@@ -923,4 +939,82 @@ class JAXVGGTFeatureExtractor:
             frame_tokens=frame_tokens,
             global_tokens=global_tokens,
             head_outputs=head_outputs,
+        )
+
+    def write_point_cloud_ply(self, path: str) -> None:
+        """Write the latest frame's point cloud (xyz + rgb) as an ASCII PLY.
+
+        Diagnostics only (src/prototyp/house_global_embedding/IDEA.md "Point-
+        Cloud Snapshots"). Runs the VGGT point head on the retained aggregator
+        outputs of the last ``extract()`` call. The camera head is never
+        invoked, so the camera-head KV-cache stays unallocated under
+        ``ResetMode.PERSIST_SCENE`` (the unbounded-growth risk is avoided by
+        construction). NumPy is used only at the file-writing boundary; the
+        point head itself runs in JAX on device.
+
+        With ``compute_heads=False`` the point head is not warmed up, so the
+        first dump pays the DPT JIT cost — acceptable for an infrequent
+        diagnostic.
+
+        Args:
+          path: Output ``.ply`` path. Parent directories are created.
+
+        Raises:
+          RuntimeError: If called before any ``extract()`` has retained a frame.
+        """
+        if self._last_out_list is None or self._last_images is None:
+            raise RuntimeError("write_point_cloud_ply called before any extract()")
+        patch_start_idx = int(np.asarray(self._last_patch_start_idx))
+        pts3d, _conf = self._point_head_apply(
+            self._pt_params,
+            self._last_out_list,
+            self._last_images,
+            patch_start_idx,
+        )
+        # pts3d raw: (1, seq, H, W, 3); pts3d[:, 0] -> (1, H, W, 3) (reference
+        # feature_extractor.py:225 drops the sequence dim the same way).
+        xyz = np.asarray(pts3d[:, 0][0], dtype=np.float32)  # (H, W, 3)
+        rgb_chw = np.asarray(self._last_rgb)  # (3, H, W) uint8
+        rgb = np.transpose(rgb_chw, (1, 2, 0))  # (H, W, 3)
+        self._write_ascii_ply_xyzrgb(path, xyz.reshape(-1, 3), rgb.reshape(-1, 3))
+
+    @staticmethod
+    def _write_ascii_ply_xyzrgb(
+        path: str, xyz: np.ndarray, rgb: np.ndarray
+    ) -> None:
+        """Write an ASCII XYZRGB PLY round-trip-compatible with the reader.
+
+        The reader (``static_house_context.load_ascii_ply_xyzrgb``) requires
+        the ``x, y, z, red, green, blue`` vertex properties.
+
+        Args:
+          path: Output ``.ply`` path; parent directories are created.
+          xyz: ``(N, 3)`` float vertex coordinates.
+          rgb: ``(N, 3)`` uint8 or float ``[0, 1]`` vertex colours.
+        """
+        n = int(xyz.shape[0])
+        rgb_u8 = (
+            rgb
+            if rgb.dtype == np.uint8
+            else np.clip(rgb, 0.0, 1.0).astype(np.float32) * 255.0
+        ).astype(np.uint8)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        rows = np.concatenate(
+            [xyz.astype(np.float32, copy=False), rgb_u8], axis=1
+        )  # (N, 6)
+        header = (
+            "ply\nformat ascii 1.0\n"
+            f"element vertex {n}\n"
+            "property float x\nproperty float y\nproperty float z\n"
+            "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+            "end_header"
+        )
+        np.savetxt(
+            path,
+            rows,
+            fmt=("%.6f", "%.6f", "%.6f", "%d", "%d", "%d"),
+            header=header,
+            comments="",
         )

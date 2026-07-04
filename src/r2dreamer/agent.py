@@ -29,7 +29,9 @@ from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
+    CAMERA_TOKEN_GLOBAL_KEY,
     FULL_TOKENS_KEY,
+    GLOBAL_PATCH_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
@@ -44,8 +46,11 @@ from .behavior.loss import behavior_loss
 from .behavior.return_ema import ReturnEMA
 from .checkpointing import load_checkpoint
 from .encoders.cnn import ConvEncoder
-from .encoders.constants import HYBRID_RGB_DIM
+from .encoders.constants import AGG_REGISTER_TOKENS, HYBRID_RGB_DIM
 from .encoders.decoder import ConvDecoder
+from .encoders.mlp import (
+    HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
+)
 from .encoders.mlp import (
     HousePointsCameraEncoder,
     WP64CNNCPMLPEncoder,
@@ -149,6 +154,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "vggt_house_points_pose": HousePointsCameraEncoder,
             "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
             "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
+            "vggt_house_global_embedding": WMHouseGlobalEmbeddingEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -259,6 +265,30 @@ def _make_house_points_camera_encoder(
     )
 
 
+def _make_house_global_embedding_encoder(
+    cfg: R2DreamerConfig, cls: type = WMHouseGlobalEmbeddingEncoder
+):
+    # PointNet reducer over VGGT global patch tokens + camera side branch.
+    # token_dim and num_patch_tokens are fixed by the VGGT global-half token
+    # layout (camera token + 4 registers dropped): num_patch_tokens =
+    # vggt_token_count - (1 camera + AGG_REGISTER_TOKENS). Prod sets
+    # vggt_token_dim=1024 / vggt_token_count=1374 via agent_overrides; tests
+    # may inject small dims.
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return cls(**kwargs)
+    num_patch_tokens = int(cfg.vggt_token_count) - (1 + AGG_REGISTER_TOKENS)
+    return cls(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_patch_tokens=num_patch_tokens,
+        reducer_hidden=cfg.mlp_vggt_hidden,
+        reducer_layers=cfg.mlp_vggt_layers,
+        camera_hidden=cfg.mlp_vggt_hidden,
+        camera_layers=cfg.mlp_vggt_layers,
+    )
+
+
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
     kwargs = _contract_encoder_kwargs(cfg)
@@ -327,6 +357,8 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp64_cnn_cp_mlp_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
+    if cls is WMHouseGlobalEmbeddingEncoder:
+        return _make_house_global_embedding_encoder(cfg, cls)
     if issubclass(cls, HousePointsCameraEncoder):
         # issubclass so GNN variants (src/r2dreamer/encoders/gnn_house.py)
         # reuse this builder with their own module class.
@@ -353,6 +385,20 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             GLOBAL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
+            ),
+        }
+    if cfg.encoder_type == "vggt_house_global_embedding":
+        if not isinstance(cfg.obs_shape, Mapping):
+            raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
+        return {
+            HYBRID_IMAGE_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[HYBRID_IMAGE_KEY]), dtype=jnp.float32
+            ),
+            CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[CAMERA_TOKEN_GLOBAL_KEY]), dtype=jnp.float32
+            ),
+            GLOBAL_PATCH_TOKENS_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[GLOBAL_PATCH_TOKENS_KEY]), dtype=jnp.float32
             ),
         }
     if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
@@ -628,6 +674,7 @@ class R2DreamerAgent:
                 "vggt_house_context",
                 "vggt_house_full_tokens_nogate",
                 "vggt_house_global_tokens_nogate",
+                "vggt_house_global_embedding",
             ):
                 raise ValueError(
                     "decoder=True requires an RGB-bearing encoder_type — the "

@@ -377,6 +377,20 @@ def test_house_full_tokens_nogate_smoke_uses_new_run_id() -> None:
     assert "=== Smoke PASS ===" in rendered
 
 
+def test_house_global_embedding_smoke_uses_new_run_id_and_dump_knob() -> None:
+    rendered = launch.render_sbatch(
+        launch.load_config("house_global_embedding_l1"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-vggt-house-global-embedding"
+    assert "#SBATCH --job-name=smoke-vggt-house-global-embedding-l1" in rendered
+    assert flags["--output_dir"] == "output/smoke/vggt-house-global-embedding-${TIMESTAMP}"
+    assert flags["--pointcloud_dump_every"] == "300"
+    assert "pointnet-reducer" in flags["--wandb_tags"]
+    assert "=== Smoke PASS ===" in rendered
+
+
 def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
     rendered = launch.render_sbatch(
         launch.load_config("house_context_l1_long_smoke"), mode="smoke",

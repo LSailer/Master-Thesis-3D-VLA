@@ -16,4 +16,5 @@ EVAL_ENCODER_TYPES = (
     "vggt_house_points_pose",
     "vggt_house_full_tokens_nogate",
     "vggt_house_global_tokens_nogate",
+    "vggt_house_global_embedding",
 )

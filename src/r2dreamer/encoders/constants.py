@@ -13,6 +13,10 @@ AGG_RAW_DIM = 1370 * 1024  # cam + patches, 4 register tokens dropped
 AGG_TOKEN_TOKENS = 1374  # cam + registers + patches
 HOUSE_CONTEXT_DIM = 1024
 AGG_REGISTER_TOKENS = 4
+# Width of one VGGT global-half aggregator token (the channel dim the reducers
+# operate on). Mirrors VGGT_AGGREGATOR_EMBED_DIM in observation_preparation.vggt
+# but kept here so encoder modules can import it without a circular import.
+VGGT_AGGREGATOR_EMBED_DIM = 1024
 
 # Live house-points-pose sidecar. The accumulating VGGT house buffer grows every
 # step, but jax.jit needs a static point count, so the adapter always emits a

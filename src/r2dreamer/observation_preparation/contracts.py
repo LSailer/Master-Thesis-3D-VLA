@@ -96,6 +96,16 @@ def encoder_module_kwargs_from_config(
             "point_hidden": int(config.mlp_vggt_hidden),
             "point_layers": int(config.mlp_vggt_layers),
         }
+    if class_name == "HouseGlobalEmbeddingEncoder":
+        # token_dim (1024) and num_patch_tokens (1369) use the module defaults
+        # — they are fixed by the VGGT global-half token layout.
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "reducer_hidden": int(config.mlp_vggt_hidden),
+            "reducer_layers": int(config.mlp_vggt_layers),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+        }
     if class_name == "TokenTransformerEncoder":
         common = {
             "embed_dim": int(config.vggt_embed_dim),
