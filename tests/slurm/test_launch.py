@@ -565,3 +565,25 @@ def test_3d87_probe_configs_render_expected_flags_paths_and_tags(
         assert flags["--compute_dtype"] == dtype_flag
     for fragment in tag_fragments:
         assert fragment in flags["--wandb_tags"]
+
+
+@pytest.mark.parametrize(
+    "variant, run_id",
+    [
+        ("gnn_house_points_pose_l1_live", "habitat-l1-gnn-house-points-pose"),
+        ("gnn_edge_house_points_pose_l1_live", "habitat-l1-gnn-edge-house-points-pose"),
+    ],
+)
+def test_gnn_smoke_configs_render_stability_gate(variant: str, run_id: str) -> None:
+    # Locks in the validated GNN smoke path (jobs 5744825/5744826): >=15-min
+    # duration (4500 train steps, measured ~20 min on H100), the teardown
+    # hard-exit guard, and the metrics gate.
+    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
+    _, _, positional, flags = training_command(rendered)
+
+    assert positional == run_id
+    assert flags["--steps"] == "4500"
+    assert flags["--prefill"] == "1000"
+    assert "#SBATCH --partition=gpu_h100_short" in rendered
+    assert 'export R2DREAMER_HARD_EXIT_ON_FINISH="1"' in rendered
+    assert "metrics.csv" in rendered

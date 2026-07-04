@@ -327,7 +327,7 @@ def _make_encoder(cfg: R2DreamerConfig):
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
     if issubclass(cls, HousePointsCameraEncoder):
-        # issubclass so prototype variants (e.g. src/prototyp/gnn_house_encoder)
+        # issubclass so GNN variants (src/r2dreamer/encoders/gnn_house.py)
         # reuse this builder with their own module class.
         return _make_house_points_camera_encoder(cfg, cls)
     if cls is WMTokenTransformerEncoder:
@@ -359,7 +359,11 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
         }
-    if cfg.encoder_type in ("vggt_house_points_pose", "gnn_house_points_pose"):
+    if cfg.encoder_type in (
+        "vggt_house_points_pose",
+        "gnn_house_points_pose",
+        "gnn_edge_house_points_pose",
+    ):
         if not isinstance(cfg.obs_shape, Mapping):
             raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
         return {

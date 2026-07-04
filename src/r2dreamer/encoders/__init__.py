@@ -18,6 +18,10 @@ from src.r2dreamer.encoders.base import (
     variant_encoder_class,
 )
 from src.r2dreamer.encoders.constants import AGG_TOKEN_TOKENS, HOUSE_CONTEXT_DIM
+from src.r2dreamer.encoders.gnn_house import (
+    GnnEdgeHousePointsPoseEncoder,
+    GnnHousePointsPoseEncoder,
+)
 from src.r2dreamer.encoders.house_points_pose import VGGTHousePointsPoseEncoder
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 

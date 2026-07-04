@@ -26,19 +26,14 @@ external/*
 uv.lock
 
 # Claude Code — personal/temporary files
-.claude/settings.local.json
-.claude/worktrees/
-.claude/memory/
-.claude/knowledge/
-.claude/scheduled_tasks.lock
-
+.claude/
 # agent-loop workspace
 .agent_loop/
 .agent/
 
 # Scratchpad workspace and local policy logs
 scratchpad/
-.pi/policy-guard.log
+.pi/
 
 # Manim partial movie files
 media/videos/*/partial_movie_files/
@@ -52,7 +47,7 @@ Baseline
 Goal Condition
 
 # Zed runtime/debug state
-.zed/debug-state/
+.zed/
 
 # Personal documents
 antrag_masterarbeit_*.pdf
