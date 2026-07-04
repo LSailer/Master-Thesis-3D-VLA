@@ -1,13 +1,14 @@
 # PR Workflow
 
-Use this for GitHub PRs linked to Linear implementation work.
+Use this for GitHub PRs linked to implementation issues in the local tracker
+(`.scratch/<feature>/issues/`, see `issue-tracker.md`).
 
 ## Before Opening Or Updating A PR
 
 - Run the narrowest useful verification for the files changed.
 - Review the diff for unrelated changes.
 - Follow `.github/pull_request_template.md` when it exists.
-- Update the Linear issue with what changed, acceptance criteria checked, verification run, known blockers, and intentional omissions.
+- Update the linked issue file with what changed, acceptance criteria checked, verification run, known blockers, and intentional omissions (append under `## Comments`).
 - If local hardware, credentials, or missing dependencies block an acceptance criterion, state that explicitly.
 
 ## PR Body
@@ -16,7 +17,7 @@ Every PR should explain:
 
 - What changed
 - Why
-- Linear issue
+- Linked issue file path (e.g. `.scratch/<feature>/issues/02-<slug>.md`)
 - Acceptance criteria checked
 - Screenshots, Loom, or preview URL when relevant
 - Risk
@@ -27,7 +28,7 @@ Every PR should explain:
 
 ## Review Standard
 
-Review against the linked Linear issue only.
+Review against the linked issue file only.
 
 Look for:
 

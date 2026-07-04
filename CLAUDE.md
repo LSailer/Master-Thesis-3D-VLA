@@ -37,3 +37,22 @@ Example:
 - `Returns:` describe the return value (and shape/dtype for arrays).
 - `Raises:` only if the function raises (list each exception type).
 - Classes/modules: a purpose line; classes may add `Attributes:`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as local markdown files under `.scratch/<feature>/` in this repo;
+GitHub is used for PRs and code review only. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`), recorded as `Status:` lines in issue files.
+See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Multi-context: `CONTEXT-MAP.md` at the root points to per-context `CONTEXT.md`
+files (`src/r2dreamer/`, `src/vggt/`) plus the shared root glossary.
+See `docs/agents/domain.md`.

@@ -57,8 +57,8 @@ files may add stricter rules.
 
 - Read `CONTEXT.md` and relevant `docs/adr/` entries for architecture, data-flow,
   experiment-contract, or cross-module work.
-- Linear project `3D-WM-ObjectNAV` exists but is not always active. Read or update
-  Linear only when the user gives a key or asks for issue-tracker work.
+- Issues and PRDs live as local markdown files under `.scratch/<feature>/`; follow
+  `docs/agents/issue-tracker.md` for conventions and triage states.
 - For PRs/reviews, follow `docs/agents/pr-workflow.md`.
 
 ## Thesis writing
@@ -77,11 +77,9 @@ Follow existing section, label, `natbib`/`splncs04`, and figure conventions.
 ## Worktrees and naming
 
 - Do not create or add worktrees unless the user explicitly asks.
-- Worktree names: `worktrees/<linear-key>-<slug>/` or
-  `worktrees/<intent-prefix>-<slug>/`.
+- Worktree names: `worktrees/<intent-prefix>-<slug>/`.
 - In fresh worktrees, run `./scripts/setup_worktree.sh` before training/eval.
-- Branch/worktree with Linear key: `<linear-key>-<slug>`.
-- Without Linear key: `fix-<slug>`, `add-<slug>`, `remove-<slug>`, or
+- Branch names: `fix-<slug>`, `add-<slug>`, `remove-<slug>`, or
   `chore-<slug>`.
-- Commit/PR title: `<Linear issue key>: <summary>` when tied to Linear;
-  otherwise `<type>: <summary>`.
+- Commit/PR title: `<type>: <summary>`. Reference the linked issue file
+  (e.g. `.scratch/<feature>/issues/02-<slug>.md`) in the PR body when one exists.
