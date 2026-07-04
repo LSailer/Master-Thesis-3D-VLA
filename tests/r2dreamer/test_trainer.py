@@ -108,12 +108,11 @@ class _PrepareOnlyAdapter(ObsAdapter):
         super().__init__()
         self.calls = 0
 
-    def prepare_env_step(self, env_obs: ObservationFrame, packer) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
         self.calls += 1
-        step_obs = {"image": env_obs.image, "is_first": True}
         return PreparedObservation(
             replay_obs=env_obs.image,
-            encoder_obs=packer.from_step(step_obs),
+            encoder_obs=env_obs.image[None],
             is_first=True,
         )
 

@@ -255,6 +255,12 @@ def main() -> None:
     parser.add_argument("--seq_len", type=int, default=64)
     parser.add_argument("--train_ratio", type=int, default=512)
     parser.add_argument("--render_resolution", type=int, default=518)
+    parser.add_argument(
+        "--buffer_capacity",
+        type=int,
+        default=None,
+        help="Override replay capacity (e.g. < prefill to exercise ring wrap).",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument(
@@ -292,6 +298,8 @@ def main() -> None:
         "--checkpoint_every", "1000000000",
         "--log_every", "100",
     ]
+    if args.buffer_capacity is not None:
+        argv += ["--buffer_capacity", str(args.buffer_capacity)]
     print(f"Launching {args.run_id} with argv: {argv}")
     trainer = launch_run(args.run_id, argv=argv)
 

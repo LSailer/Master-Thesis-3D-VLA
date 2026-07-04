@@ -1,19 +1,20 @@
-"""Replay buffer that stores complete transition objects in RAM ring slots.
+"""Replay buffer that stores transitions in preallocated parallel arrays.
 
 The public interface is batch-first: ``ReplayBuffer.add`` accepts one
 ``ReplayTransition`` and ``sample`` returns a ``ReplayBatch`` whose leaves have
-``(batch, time)`` leading axes. Internally, the replay ring stores copied
-transitions directly instead of parallel arrays for observations, actions,
-rewards, and flags.
+``(batch, time)`` leading axes. Internally, the ring is a structure-of-arrays:
+one preallocated NumPy array per observation field plus scalar arrays for
+actions, rewards, and flags. Sampling is a vectorized fancy-index gather —
+one host copy and one device transfer per field — instead of a per-transition
+Python object walk (which cost ~119 ms per 16x64 batch at production shape;
+see docs/notes/house-points-pose-profiling.md).
 """
 
 from __future__ import annotations
 
-import dataclasses
-from collections.abc import Mapping, Sequence
-from copy import deepcopy
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypeAlias, cast
+from typing import TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +45,9 @@ class HybridObservation:
 ObservationInput: TypeAlias = (
     ObservationLeaf | HybridObservation | Mapping[str, ObservationLeaf]
 )
+
+# Internal storage key for unstructured (single-array) observations.
+_ARRAY_FIELD = "__array__"
 
 
 @struct.dataclass
@@ -149,15 +153,18 @@ ReplayTransitionBatch: TypeAlias = list[list[ReplayTransition]]
 
 
 class ReplayBuffer:
-    """Lazy ring buffer for complete ``ReplayTransition`` objects.
+    """Structure-of-arrays ring buffer for ``ReplayTransition`` frames.
 
     Args:
         capacity: Maximum number of transitions to store.
         num_actions: Number of discrete actions for sampled one-hot batches.
         float_dtype: Floating dtype for sampled action, reward, and mask arrays.
 
-    Internally, the ring slots contain copied ``ReplayTransition`` objects only;
-    there are no parallel arrays for transition attributes.
+    Observation storage is allocated lazily on the first ``add`` (one array
+    per field, shaped ``(capacity, *leaf_shape)``); the observation structure
+    (plain array, ``HybridObservation``, or mapping with fixed keys) is locked
+    in by that first transition. Backing arrays come from ``np.empty``, so
+    physical pages are committed only as slots are written.
     """
 
     def __init__(
@@ -174,17 +181,88 @@ class ReplayBuffer:
         self.capacity = capacity
         self.num_actions = num_actions
         self.float_dtype = float_dtype
-        self.transitions: list[ReplayTransition | None] = [None] * capacity
         self.idx = 0
         self.size = 0
+        self._obs_kind: str | None = None  # "array" | "hybrid" | "mapping"
+        self._obs_store: dict[str, np.ndarray] = {}
+        self._actions = np.zeros(capacity, dtype=np.int32)
+        self._rewards = np.zeros(capacity, dtype=np.float32)
+        self._is_first = np.zeros(capacity, dtype=np.bool_)
+        self._is_episode_end = np.zeros(capacity, dtype=np.bool_)
+
+    @staticmethod
+    def _split_observation(
+        obs: ObservationInput,
+    ) -> tuple[str, dict[str, np.ndarray]]:
+        """Normalize one observation into ``(kind, field -> host array)``.
+
+        Args:
+            obs: Plain array, ``HybridObservation``, or mapping observation.
+
+        Returns:
+            The structure kind (``"array"``/``"hybrid"``/``"mapping"``) and a
+            dict of host NumPy leaves keyed by storage field name.
+        """
+        if isinstance(obs, HybridObservation):
+            return "hybrid", {
+                "image": np.asarray(obs.image),
+                "wp_cp": np.asarray(obs.wp_cp),
+            }
+        if isinstance(obs, Mapping):
+            return "mapping", {key: np.asarray(value) for key, value in obs.items()}
+        return "array", {_ARRAY_FIELD: np.asarray(obs)}
+
+    def _ensure_store(self, kind: str, fields: dict[str, np.ndarray]) -> None:
+        """Allocate storage on first add and enforce a stable structure after.
+
+        Args:
+            kind: Observation structure kind from ``_split_observation``.
+            fields: Normalized observation leaves for the incoming transition.
+
+        Raises:
+            TypeError: If ``kind`` differs from the stored structure.
+            KeyError: If mapping keys differ from the stored field set.
+            ValueError: If a leaf's shape or dtype differs from its store.
+        """
+        if self._obs_kind is None:
+            self._obs_kind = kind
+            self._obs_store = {
+                key: np.empty((self.capacity, *value.shape), dtype=value.dtype)
+                for key, value in fields.items()
+            }
+            return
+        if kind != self._obs_kind:
+            raise TypeError(
+                f"cannot mix {kind} and {self._obs_kind} observations in one buffer"
+            )
+        if set(fields) != set(self._obs_store):
+            raise KeyError(
+                "replay observation keys changed between added transitions: "
+                f"expected={sorted(self._obs_store)}, got={sorted(fields)}"
+            )
+        for key, value in fields.items():
+            store = self._obs_store[key]
+            if value.shape != store.shape[1:] or value.dtype != store.dtype:
+                raise ValueError(
+                    f"replay observation field {key!r} changed layout: stored "
+                    f"{store.shape[1:]}/{store.dtype}, got {value.shape}/{value.dtype}"
+                )
 
     def add(self, replay_transition: ReplayTransition) -> None:
         """Append one replay transition.
 
         Args:
-            replay_transition: Transition to copy into the current ring slot.
+            replay_transition: Transition whose leaves are copied into the
+                current ring slot (the caller keeps ownership of its arrays).
         """
-        self.transitions[self.idx] = deepcopy(replay_transition)
+        kind, fields = self._split_observation(replay_transition.obs)
+        self._ensure_store(kind, fields)
+        for key, value in fields.items():
+            self._obs_store[key][self.idx] = value
+        self._actions[self.idx] = int(replay_transition.action)
+        self._rewards[self.idx] = float(replay_transition.reward)
+        self._is_first[self.idx] = bool(replay_transition.is_first)
+        self._is_episode_end[self.idx] = bool(replay_transition.is_episode_end)
         self.idx = (self.idx + 1) % self.capacity
         self.size = min(self.size + 1, self.capacity)
 
@@ -198,9 +276,32 @@ class ReplayBuffer:
         Returns:
             A ``ReplayBatch`` with ``(batch_size, seq_len)`` leading axes.
         """
-        sequences = self.sample_transitions(batch_size=batch_size, seq_len=seq_len)
-        batch = self._pack_replay_batch(sequences)
-        return batch
+        ring = self._sample_ring_indices(batch_size, seq_len)
+
+        obs_fields = {
+            key: jnp.asarray(store[ring]) for key, store in self._obs_store.items()
+        }
+        obs: ReplayObservationBatch = (
+            obs_fields[_ARRAY_FIELD] if self._obs_kind == "array" else obs_fields
+        )
+
+        episode_ends = self._is_episode_end[ring]
+        # A window resets sequence state at its start, at stored episode
+        # starts, and on the frame after an episode end.
+        is_first = self._is_first[ring].copy()
+        is_first[:, 0] = True
+        is_first[:, 1:] |= episode_ends[:, :-1]
+
+        actions = jax.nn.one_hot(
+            jnp.asarray(self._actions[ring]), self.num_actions, dtype=self.float_dtype
+        )
+        return ReplayBatch(
+            obs=obs,
+            actions=actions,
+            rewards=jnp.asarray(self._rewards[ring], dtype=self.float_dtype),
+            is_first=jnp.asarray(is_first, dtype=self.float_dtype),
+            is_episode_end=jnp.asarray(episode_ends, dtype=self.float_dtype),
+        )
 
     def sample_transitions(
         self,
@@ -215,13 +316,34 @@ class ReplayBuffer:
 
         Returns:
             A list with ``batch_size`` sampled transition sequences. Each
-            sequence contains ``seq_len`` copied transitions.
+            sequence contains ``seq_len`` copied transitions; the first
+            transition of every window is marked ``is_first=True``.
+        """
+        ring = self._sample_ring_indices(batch_size, seq_len)
+        return [
+            [
+                self._transition_at(int(ring_index), first=offset == 0)
+                for offset, ring_index in enumerate(window)
+            ]
+            for window in ring
+        ]
+
+    def _sample_ring_indices(self, batch_size: int, seq_len: int) -> np.ndarray:
+        """Draw window starts and return their ``(B, T)`` physical ring indices.
+
+        Args:
+            batch_size: Number of windows to sample.
+            seq_len: Number of consecutive transitions per window.
+
+        Returns:
+            An int64 array of ring positions in chronological window order.
         """
         self._validate_sample_request(batch_size, seq_len)
         n_valid = self.size - seq_len + 1
-        starts = np.random.randint(0, n_valid, size=batch_size)
-        sequences = [self._gather_sequence(int(start), seq_len) for start in starts]
-        return sequences
+        starts = np.asarray(np.random.randint(0, n_valid, size=batch_size))
+        oldest_index = 0 if self.size < self.capacity else self.idx
+        offsets = np.arange(seq_len, dtype=np.int64)
+        return (oldest_index + starts[:, None] + offsets[None, :]) % self.capacity
 
     def _validate_sample_request(self, batch_size: int, seq_len: int) -> None:
         """Validate common sampling arguments before drawing windows."""
@@ -236,169 +358,34 @@ class ReplayBuffer:
                 f"not enough data in replay buffer: size={self.size}, seq_len={seq_len}"
             )
 
-    def _gather_sequence(self, start: int, seq_len: int) -> list[ReplayTransition]:
-        """Copy one sampled sequence from chronological ring-buffer positions."""
-        oldest_index = 0 if self.size < self.capacity else self.idx
-        sequence: list[ReplayTransition] = []
-        for offset in range(seq_len):
-            ring_index = (oldest_index + start + offset) % self.capacity
-            transition = deepcopy(self._transition_at(ring_index))
-            if offset == 0:
-                transition = dataclasses.replace(transition, is_first=True)
-            sequence.append(transition)
-        return sequence
+    def _transition_at(self, index: int, *, first: bool = False) -> ReplayTransition:
+        """Rebuild the stored transition at a physical ring index.
 
-    def _pack_replay_batch(
-        self,
-        sequences: Sequence[Sequence[ReplayTransition]],
-    ) -> ReplayBatch:
-        """Pack sampled transition windows into a model-ready replay batch."""
-        first_obs = sequences[0][0].obs
-        if isinstance(first_obs, HybridObservation):
-            obs = self._stack_hybrid_observations(sequences)
-        elif isinstance(first_obs, Mapping):
-            obs = self._stack_mapping_observations(sequences, first_obs)
-        else:
-            obs = self._stack_array_observations(sequences)
+        Args:
+            index: Physical ring position of the stored transition.
+            first: Whether to mark the rebuilt transition as a window start.
 
-        action_ids, rewards, episode_ends, is_first = self._stack_transition_labels(
-            sequences
-        )
-        actions = jax.nn.one_hot(action_ids, self.num_actions, dtype=self.float_dtype)
-        batch = ReplayBatch(
-            obs=obs,
-            actions=actions,
-            rewards=rewards,
-            is_first=is_first,
-            is_episode_end=episode_ends,
-        )
-        return batch
+        Returns:
+            A ``ReplayTransition`` whose observation leaves are fresh copies
+            (mutating them cannot affect replay storage).
 
-    def _stack_transition_labels(
-        self,
-        sequences: Sequence[Sequence[ReplayTransition]],
-    ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
-        """Stack frame-aligned action, reward, end, and reset labels."""
-        rows: dict[str, list[list[int | float]]] = {
-            "actions": [],
-            "rewards": [],
-            "episode_ends": [],
-            "is_first": [],
-        }
-
-        for sequence in sequences:
-            row: dict[str, list[int | float]] = {
-                "actions": [],
-                "rewards": [],
-                "episode_ends": [],
-                "is_first": [],
-            }
-            previous_episode_end = False
-
-            for offset, transition in enumerate(sequence):
-                episode_end = bool(transition.is_episode_end)
-                reset = offset == 0 or bool(transition.is_first) or previous_episode_end
-                row["actions"].append(int(transition.action))
-                row["rewards"].append(float(transition.reward))
-                row["episode_ends"].append(float(episode_end))
-                row["is_first"].append(float(reset))
-                previous_episode_end = episode_end
-
-            for key, values in row.items():
-                rows[key].append(values)
-
-        arrays = (
-            jnp.asarray(rows["actions"], dtype=jnp.int32),
-            jnp.asarray(rows["rewards"], dtype=self.float_dtype),
-            jnp.asarray(rows["episode_ends"], dtype=self.float_dtype),
-            jnp.asarray(rows["is_first"], dtype=self.float_dtype),
-        )
-        return arrays
-
-    def _stack_array_observations(
-        self,
-        sequences: Sequence[Sequence[ReplayTransition]],
-    ) -> jax.Array:
-        """Stack array observations with shape ``(B, T, *obs_shape)``."""
-        for sequence in sequences:
-            for transition in sequence:
-                if isinstance(transition.obs, (Mapping, HybridObservation)):
-                    raise TypeError("cannot mix structured and array observations")
-
-        stacked_sequences = [
-            jnp.stack([jnp.asarray(transition.obs) for transition in sequence])
-            for sequence in sequences
-        ]
-        stacked_batch = jnp.stack(stacked_sequences)
-        return stacked_batch
-
-    def _stack_hybrid_observations(
-        self,
-        sequences: Sequence[Sequence[ReplayTransition]],
-    ) -> dict[str, jax.Array]:
-        """Stack legacy hybrid observations into explicit replay fields."""
-        images: list[list[ObservationLeaf]] = []
-        wp_cp_values: list[list[ObservationLeaf]] = []
-        for sequence in sequences:
-            image_sequence: list[ObservationLeaf] = []
-            wp_cp_sequence: list[ObservationLeaf] = []
-            for transition in sequence:
-                if not isinstance(transition.obs, HybridObservation):
-                    raise TypeError("cannot mix hybrid and non-hybrid observations")
-                image_sequence.append(transition.obs.image)
-                wp_cp_sequence.append(transition.obs.wp_cp)
-            images.append(image_sequence)
-            wp_cp_values.append(wp_cp_sequence)
-
-        obs = {
-            "image": self._stack_array_grid(images),
-            "wp_cp": self._stack_array_grid(wp_cp_values),
-        }
-        return obs
-
-    def _stack_mapping_observations(
-        self,
-        sequences: Sequence[Sequence[ReplayTransition]],
-        first_obs: Mapping[str, ObservationLeaf],
-    ) -> dict[str, jax.Array]:
-        """Stack mapping observations while enforcing stable keys."""
-        keys = tuple(first_obs.keys())
-        expected_keys = set(keys)
-        for sequence in sequences:
-            for transition in sequence:
-                if not isinstance(transition.obs, Mapping):
-                    raise TypeError("cannot mix mapping and non-mapping observations")
-                if set(transition.obs.keys()) != expected_keys:
-                    raise KeyError(
-                        "replay observation keys changed inside sampled batch: "
-                        f"expected={sorted(expected_keys)}, "
-                        f"got={sorted(transition.obs.keys())}"
-                    )
-
-        stacked_fields: dict[str, jax.Array] = {}
-        for key in keys:
-            stacked_sequences = []
-            for sequence in sequences:
-                stacked_steps = []
-                for transition in sequence:
-                    obs_mapping = cast(Mapping[str, ObservationLeaf], transition.obs)
-                    stacked_steps.append(jnp.asarray(obs_mapping[key]))
-                stacked_sequences.append(jnp.stack(stacked_steps))
-            stacked_fields[key] = jnp.stack(stacked_sequences)
-
-        return stacked_fields
-
-    def _stack_array_grid(self, values: list[list[ObservationLeaf]]) -> jax.Array:
-        """Stack a ``(B, T)`` grid of observation leaves."""
-        stacked_sequences = [
-            jnp.stack([jnp.asarray(value) for value in sequence]) for sequence in values
-        ]
-        stacked_batch = jnp.stack(stacked_sequences)
-        return stacked_batch
-
-    def _transition_at(self, index: int) -> ReplayTransition:
-        """Return the stored transition at a valid physical ring index."""
-        transition = self.transitions[index]
-        if transition is None:
+        Raises:
+            RuntimeError: If the slot has not been written yet.
+        """
+        if index >= self.size and self.size < self.capacity:
             raise RuntimeError(f"ring slot {index} does not contain a transition")
-        return transition
+        leaves = {key: store[index].copy() for key, store in self._obs_store.items()}
+        obs: ObservationInput
+        if self._obs_kind == "array":
+            obs = leaves[_ARRAY_FIELD]
+        elif self._obs_kind == "hybrid":
+            obs = HybridObservation(image=leaves["image"], wp_cp=leaves["wp_cp"])
+        else:
+            obs = leaves
+        return ReplayTransition(
+            obs=obs,
+            action=int(self._actions[index]),
+            reward=float(self._rewards[index]),
+            is_first=True if first else bool(self._is_first[index]),
+            is_episode_end=bool(self._is_episode_end[index]),
+        )

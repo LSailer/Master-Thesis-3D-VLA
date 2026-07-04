@@ -834,7 +834,7 @@ class R2DreamerAgent:
         params = self.params
         B, T = replay_batch_shape(batch)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch["obs"])
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
         )
         if embed.shape[:2] != (B, T):
             raise ValueError(
@@ -849,9 +849,9 @@ class R2DreamerAgent:
             self.rssm_mod.apply(
                 params["rssm"],
                 embed,
-                batch["actions"],
+                batch.actions,
                 (stoch0, deter0),
-                batch["is_first"],
+                batch.is_first,
                 method=self.rssm_mod.observe,
                 rngs={"sample": jax.random.PRNGKey(0)},
             ),
@@ -969,7 +969,7 @@ class R2DreamerAgent:
         B, T = replay_batch_shape(batch)
 
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch["obs"])
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
         )
         if embed.shape[:2] != (B, T):
             raise ValueError(
@@ -987,9 +987,9 @@ class R2DreamerAgent:
             self.rssm_mod.apply(
                 params["rssm"],
                 embed,
-                batch["actions"],
+                batch.actions,
                 (stoch0, deter0),
-                batch["is_first"],
+                batch.is_first,
                 method=self.rssm_mod.observe,
                 rngs={"sample": k_obs},
             ),

@@ -89,7 +89,7 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
         def transform(self, obs):
             return None, f"agent-{obs['id']}"
 
-        def prepare_env_step(self, obs, _packer):
+        def prepare_env_step(self, obs):
             _, encoder_obs = self.transform(obs)
             return PreparedObservation(
                 replay_obs=None, encoder_obs=encoder_obs, is_first=False
@@ -106,7 +106,7 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
             self.seen.append(encoder_obs)
             return 1, state
 
-    def _fake_start_episode(env_instance, adapter, _packer):
+    def _fake_start_episode(env_instance, adapter):
         obs = {"id": "initial", "done": False, "reward": 0.0, "success": 0.0, "spl": 0.0}
         _, encoder_obs = adapter.transform(obs)
         return (
