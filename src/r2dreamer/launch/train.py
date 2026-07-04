@@ -250,7 +250,7 @@ def _make_trainer(
     trainer_config: Any,
     adapter: Any,
     trainer_cls: type,
-    habitat_defaults_fn: Any,
+    episode_metrics_cls: type,
 ):
     if env != "habitat":
         return trainer_cls(
@@ -261,18 +261,20 @@ def _make_trainer(
             obs_adapter=adapter,
         )
 
-    hab = habitat_defaults_fn(env_instance)
+    episode_metrics_fn = episode_metrics_cls(env_instance)
     val_kwargs: dict[str, object] = {}
     if val_env_instance is not None:
         # Val-Episode-Loop (3D-36) wiring: own adapter so the train
         # VGGT video buffer isn't disturbed; own tracker so val
         # rolling means stay independent of train rollouts.
         val_adapter = enc.new_adapter()
-        val_hab = habitat_defaults_fn(val_env_instance, track_collision_rate=True)
+        val_episode_metrics_fn = episode_metrics_cls(
+            val_env_instance, track_collision_rate=True
+        )
         val_kwargs = {
             "val_env": val_env_instance,
             "val_obs_adapter": val_adapter,
-            "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
+            "val_episode_metrics_fn": val_episode_metrics_fn,
         }
     return trainer_cls(
         agent=agent,
@@ -280,7 +282,7 @@ def _make_trainer(
         agent_config=agent_config,
         trainer_config=trainer_config,
         obs_adapter=adapter,
-        episode_metrics_fn=hab["episode_metrics_fn"],
+        episode_metrics_fn=episode_metrics_fn,
         **val_kwargs,
     )
 
@@ -308,7 +310,8 @@ def train(
     from src.configs.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer, habitat_defaults
+    from src.r2dreamer.trainer import Trainer
+    from src.environments.habitat_metrics import HabitatEpisodeMetrics
 
     parser = _build_parser_train()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
@@ -365,7 +368,7 @@ def train(
         trainer_config=trainer_config,
         adapter=adapter,
         trainer_cls=Trainer,
-        habitat_defaults_fn=habitat_defaults,
+        episode_metrics_cls=HabitatEpisodeMetrics,
     )
 
     trainer.run()

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from src.buffer.replay_buffer import ReplayBatch
 from src.r2dreamer.agent import R2DreamerAgent
 from src.configs.config import R2DreamerConfig
 
@@ -58,7 +59,9 @@ def _decoder_probe_cfg() -> R2DreamerConfig:
     )
 
 
-def _structured_rgb_batch(cfg: R2DreamerConfig, *, B: int = 2, T: int = 3) -> dict:
+def _structured_rgb_batch(
+    cfg: R2DreamerConfig, *, B: int = 2, T: int = 3
+) -> ReplayBatch:
     y = jnp.linspace(0.0, 1.0, 64, dtype=jnp.float32)[None, :, None]
     x = jnp.linspace(0.0, 1.0, 64, dtype=jnp.float32)[None, None, :]
     base = jnp.concatenate([
@@ -71,16 +74,18 @@ def _structured_rgb_batch(cfg: R2DreamerConfig, *, B: int = 2, T: int = 3) -> di
         frames.append(jnp.roll(base, shift=i * 3, axis=2))
     obs = jnp.stack(frames, axis=0).reshape(B, T, 3, 64, 64)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
-    return {
-        "obs": obs,
-        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
-        "rewards": jnp.zeros((B, T), dtype=jnp.float32),
-        "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
-    }
+    return ReplayBatch(
+        obs=obs,
+        actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        rewards=jnp.zeros((B, T), dtype=jnp.float32),
+        is_first=jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
+        is_episode_end=jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
+    )
 
 
-def _habitat_rgb_batch(cfg: R2DreamerConfig, *, B: int = 1, T: int = 8) -> dict:
+def _habitat_rgb_batch(
+    cfg: R2DreamerConfig, *, B: int = 1, T: int = 8
+) -> ReplayBatch:
     fixture = (
         Path(__file__).parents[1]
         / "launch"
@@ -97,21 +102,21 @@ def _habitat_rgb_batch(cfg: R2DreamerConfig, *, B: int = 1, T: int = 8) -> dict:
         resized.append(np.transpose(np.asarray(resized_hwc), (2, 0, 1)))
     obs = jnp.asarray(np.stack(resized).reshape(B, T, 3, 64, 64), dtype=jnp.uint8)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
-    return {
-        "obs": obs,
-        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
-        "rewards": jnp.zeros((B, T), dtype=jnp.float32),
-        "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
-    }
+    return ReplayBatch(
+        obs=obs,
+        actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        rewards=jnp.zeros((B, T), dtype=jnp.float32),
+        is_first=jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
+        is_episode_end=jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0),
+    )
 
 
-def _recon_mse(agent: R2DreamerAgent, batch: dict) -> float:
+def _recon_mse(agent: R2DreamerAgent, batch: ReplayBatch) -> float:
     target, recon = agent.reconstruct(batch)
     return float(np.mean((recon - target) ** 2))
 
 
-def _save_recon_grid(agent: R2DreamerAgent, batch: dict, path: Path) -> None:
+def _save_recon_grid(agent: R2DreamerAgent, batch: ReplayBatch, path: Path) -> None:
     target, recon = agent.reconstruct(batch)
     rows = []
     for i in range(target.shape[0]):
@@ -126,7 +131,7 @@ def _save_recon_grid(agent: R2DreamerAgent, batch: dict, path: Path) -> None:
 
 def _run_decoder_overfit_probe(
     *,
-    batch: dict,
+    batch: ReplayBatch,
     steps: int,
     max_final_fraction: float,
     artifact_prefix: Path | None = None,

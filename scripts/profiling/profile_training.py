@@ -27,7 +27,6 @@ from src.configs.config import R2DreamerConfig
 from src.environments.habitat import build_habitat_env
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.trainer import convert_batch
 from src.shared.profiling import (
     init_phase_times,
     summarize_values_ms,
@@ -289,7 +288,6 @@ def run_loop(
                 rng_key, train_key = jax.random.split(rng_key)
                 with timed(phase_times, "wm_training"):
                     batch = buffer.sample(acfg.batch_size, acfg.seq_len)
-                    batch = convert_batch(batch, acfg.num_actions)
                     _ = agent.train_step(batch, train_key)
                 train_credit -= 1.0
 

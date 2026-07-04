@@ -1,9 +1,9 @@
 """Training orchestration for R2-Dreamer experiments.
 
-Provides Trainer (training loop), convert_batch (buffer→agent format),
-save/load_checkpoint, ObsAdapter (env→buffer/agent bridge), and
-habitat_defaults (pre-configured Habitat+CNN settings). Loop/orchestration
-knobs live in ``TrainerConfig`` (``src.configs.config``).
+Provides Trainer (training loop), replay_batch_to_arrays (transition-window
+packing), save/load_checkpoint, and ObsAdapter (env→buffer/agent bridge).
+Loop/orchestration knobs live in ``TrainerConfig`` (``src.configs.config``).
+Habitat-specific episode metrics live in ``src.environments.habitat``.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from src.buffer.replay_buffer import (
 )
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
+from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
@@ -71,7 +71,9 @@ class R2DreamerAgentLike(Protocol):
     slow_critic_params: Any
     ema_state: Any
 
-    def train_step(self, batch: Any, rng_key: jnp.ndarray) -> dict[str, float]: ...
+    def train_step(
+        self, batch: ReplayBatch, rng_key: jnp.ndarray
+    ) -> dict[str, float]: ...
 
     def act(
         self,
@@ -85,7 +87,7 @@ class R2DreamerAgentLike(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# convert_batch
+# replay_batch_to_arrays
 # ---------------------------------------------------------------------------
 
 ArrayObservation: TypeAlias = np.ndarray | jax.Array
@@ -236,123 +238,16 @@ def replay_batch_to_arrays(
     }
 
 
-def convert_batch(
-    batch: ReplayBatch | ReplayTransitionBatch | ReplayArrayBatch,
-    num_actions: int,
-    *,
-    compute_dtype: str = "float32",
-) -> ReplayBatch | dict[str, Any]:
-    """Convert legacy replay outputs to frame-aligned training format.
-
-    New replay-buffer samples are already ``ReplayBatch`` objects. Legacy raw
-    transition windows or raw-array dictionaries are converted without temporal
-    shifting because replay stores the observation returned by ``env.step``
-    together with that frame's action, reward, and end flag.
-
-    Args:
-        batch: Replay output as a ``ReplayBatch``, transition windows, or raw
-            stacked arrays.
-        num_actions: Number of discrete actions for one-hot encoding legacy
-            integer action arrays.
-        compute_dtype: Floating dtype name used for agent-side action, reward,
-            and mask tensors. Raw action ids remain ``int32`` until one-hotting.
-    """
-    float_dtype = compute_jnp_dtype(compute_dtype)
-    if isinstance(batch, ReplayBatch):
-        return ReplayBatch(
-            obs=batch.obs,
-            actions=jnp.asarray(batch.actions, dtype=float_dtype),
-            rewards=jnp.asarray(batch.rewards, dtype=float_dtype),
-            is_first=jnp.asarray(batch.is_first, dtype=float_dtype),
-            is_episode_end=jnp.asarray(batch.is_episode_end, dtype=float_dtype),
-        )
-
-    replay_arrays = replay_batch_to_arrays(batch) if isinstance(batch, list) else batch
-    raw_actions = jnp.asarray(replay_arrays["actions"])
-    if raw_actions.ndim == 3:
-        actions = raw_actions.astype(float_dtype)
-    else:
-        actions = jax.nn.one_hot(raw_actions, num_actions, dtype=float_dtype)
-
-    return {
-        "obs": replay_arrays["obs"],
-        "actions": actions,
-        "rewards": jnp.asarray(replay_arrays["rewards"], dtype=float_dtype),
-        "is_first": jnp.asarray(replay_arrays["is_first"], dtype=float_dtype),
-        "is_episode_end": jnp.asarray(
-            replay_arrays["is_episode_end"], dtype=float_dtype
-        ),
-    }
-
-
 # ---------------------------------------------------------------------------
-# habitat_defaults
+# Episode metrics callback
 # ---------------------------------------------------------------------------
 
-EpisodeMetricsFn = Callable[..., dict[str, Any]]
-
-
-def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[str, Any]:
-    """Pre-configured ObsAdapter and episode_metrics_fn for Habitat+CNN.
-
-    Returns dict with keys "obs_adapter" and "episode_metrics_fn".
-
-    Pass track_collision_rate=True for the val-loop tracker; train rollouts
-    leave it False so the dashboard isn't doubly-noisy.
-    """
-    from src.shared.wandb_utils import EpisodeTracker
-
-    tracker = EpisodeTracker(window=100, track_collision_rate=track_collision_rate)
-    action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
-
-    def episode_metrics_fn(
-        env: Any,
-        last_obs: ObservationFrame,
-        episode_reward: float,
-        episode_steps: int,
-        action_counts: np.ndarray,
-    ) -> dict[str, Any]:
-        success = last_obs.success
-        spl = last_obs.spl
-        softspl = last_obs.softspl
-        dtg = last_obs.dtg
-        collision_rate = last_obs.collision_rate
-        episode = env.current_episode
-        category = getattr(episode, "object_category", "unknown")
-        scene_raw = getattr(episode, "scene_id", "")
-        path_length = env._path_length
-        shortest_path = env._start_geodesic
-        path_ratio = path_length / shortest_path if shortest_path > 0 else 0.0
-
-        tracked = tracker.record(
-            reward=episode_reward,
-            success=success,
-            spl=spl,
-            category=category,
-            scene_id=scene_raw,
-            softspl=softspl,
-            dtg=dtg,
-            collision_rate=collision_rate,
-        )
-
-        action_pcts = action_counts / max(episode_steps, 1)
-        return {
-            **tracked,
-            "episode/steps": episode_steps,
-            "episode/path_length": path_length,
-            "episode/shortest_path": shortest_path,
-            "episode/path_ratio": path_ratio,
-            "episode_reset": 1,
-            **{
-                f"action/{action_names[i]}_pct": float(action_pcts[i])
-                for i in range(len(action_counts))
-            },
-        }
-
-    return {
-        "obs_adapter": ObsAdapter(),
-        "episode_metrics_fn": episode_metrics_fn,
-    }
+# Called at episode end with the final observation and episode aggregates. The
+# env (if needed) is bound by the callable itself (e.g. HabitatEpisodeMetrics in
+# src.environments.habitat), so it is not passed here.
+EpisodeMetricsFn = Callable[
+    [ObservationFrame, float, int, np.ndarray], dict[str, Any]
+]
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +265,9 @@ class Trainer:
         trainer_config: TrainerConfig (for loop control, logging, checkpointing).
         obs_adapter: ObsAdapter (bridges env obs to buffer/agent).
         episode_metrics_fn: Optional callback called at episode end.
-            Signature: (env, last_obs, episode_reward, episode_steps, action_counts) -> dict
+            Signature: (last_obs, episode_reward, episode_steps, action_counts) -> dict
+            Any env access is bound by the callable itself (e.g.
+            HabitatEpisodeMetrics).
     """
 
     def __init__(
@@ -871,7 +768,6 @@ class Trainer:
     ) -> dict[str, Any]:
         if self.episode_metrics_fn is not None:
             ep_metrics = self.episode_metrics_fn(
-                self.env,
                 last_obs,
                 episode_reward,
                 episode_steps,
@@ -965,7 +861,7 @@ class Trainer:
             f"ms_step={metrics['perf/ms_per_step_interval']:.1f}"
         )
 
-    def _maybe_log_recon(self, batch: dict, step: int) -> None:
+    def _maybe_log_recon(self, batch: ReplayBatch, step: int) -> None:
         """Log decoder input/reconstruction image pairs to W&B (3D-51).
 
         No-op unless a decoder is configured and W&B is active. Decodes the
@@ -1038,7 +934,6 @@ class Trainer:
             is_first = next_is_first
 
         val_metrics = val_episode_metrics_fn(
-            val_env,
             obs,
             episode_reward,
             episode_steps,

@@ -33,7 +33,7 @@ and Crafter. This package contains the library code; runnable drivers live in
 - **Encoder wiring:** encoder, adapter, replay fields, and `obs_shape` must agree.
 - **KL:** DreamerV3 asymmetric KL; dynamics detaches posterior, representation detaches prior.
 - **Imagination:** RSSM/reward/continue are used under `stop_gradient`; bootstrap from slow critic.
-- **Actions:** replay stores int32; `convert_batch()` one-hots to `(B,T,A)` float.
+- **Actions:** replay stores int32; `ReplayBuffer.sample()` one-hots to `(B,T,A)` float.
 
 ## Adding encoder/input modes
 

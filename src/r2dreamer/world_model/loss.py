@@ -87,11 +87,11 @@ def world_model_loss(
     # ---- Reward head ----
     feat_flat = forward.feat.reshape(B * T, -1)
     rew_logits = modules["reward"].apply(params["reward"], feat_flat).reshape(B, T, -1)
-    losses["rew"] = jnp.mean(twohot.loss(rew_logits, batch["rewards"]))
+    losses["rew"] = jnp.mean(twohot.loss(rew_logits, batch.rewards))
 
     # ---- Continue head ----
     cont_logits = modules["cont"].apply(params["cont"], feat_flat).reshape(B, T, 1)
-    cont_target = 1.0 - batch["is_episode_end"]
+    cont_target = 1.0 - batch.is_episode_end
     losses["con"] = jnp.mean(
         optax.sigmoid_binary_cross_entropy(cont_logits[..., 0], cont_target)
     )

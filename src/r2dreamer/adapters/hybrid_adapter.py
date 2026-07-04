@@ -13,6 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
+from src.buffer.replay_buffer import ReplayBatch
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.encoders.constants import (
@@ -557,17 +558,17 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
             stats["house_buffer/failed_insert_count"] = float(total_failed)
         return stats
 
-    def augment_replay_batch(self, batch):
-        house_context = self._latest_house_context
-        house_size = self._latest_house_context_size
-        if hasattr(batch, "obs") and hasattr(batch, "replace"):
-            obs = dict(batch.obs)
-            obs[HOUSE_CONTEXT_KEY] = house_context
-            obs[HOUSE_CONTEXT_SIZE_KEY] = house_size
-            return batch.replace(obs=obs)
-        augmented = dict(batch)
-        obs = dict(augmented["obs"])
-        obs[HOUSE_CONTEXT_KEY] = house_context
-        obs[HOUSE_CONTEXT_SIZE_KEY] = house_size
-        augmented["obs"] = obs
-        return augmented
+    def augment_replay_batch(self, batch: ReplayBatch) -> ReplayBatch:
+        """Inject the latest live house-context/pose into a sampled batch.
+
+        Args:
+            batch: Sampled replay batch (as returned by ``ReplayBuffer.sample``).
+
+        Returns:
+            The batch with ``HOUSE_CONTEXT_KEY`` and ``HOUSE_CONTEXT_SIZE_KEY``
+            added to its observation mapping.
+        """
+        obs = dict(batch.obs)
+        obs[HOUSE_CONTEXT_KEY] = self._latest_house_context
+        obs[HOUSE_CONTEXT_SIZE_KEY] = self._latest_house_context_size
+        return dataclasses.replace(batch, obs=obs)

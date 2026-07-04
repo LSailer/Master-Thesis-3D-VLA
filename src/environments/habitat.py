@@ -540,3 +540,4 @@ def build_habitat_env(
         seed=seed,
         max_geodesic=max_geodesic,
     )
+

@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from src.buffer.replay_buffer import ReplayBatch
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
 from src.r2dreamer.adapters.hybrid_adapter import (
@@ -827,21 +828,21 @@ class TestVGGTHouseContextEncoder:
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY, "is_first"}
         assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
 
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
                 HOUSE_CONTEXT_KEY: np.zeros((2, 3, 1024), dtype=np.float16),
             },
-            "actions": np.zeros((2, 3), dtype=np.int32),
-            "rewards": np.zeros((2, 3), dtype=np.float32),
-            "is_episode_end": np.zeros((2, 3), dtype=bool),
-            "is_first": np.zeros((2, 3), dtype=np.float32),
-        }
+            actions=np.zeros((2, 3), dtype=np.int32),
+            rewards=np.zeros((2, 3), dtype=np.float32),
+            is_episode_end=np.zeros((2, 3), dtype=bool),
+            is_first=np.zeros((2, 3), dtype=np.float32),
+        )
         augmented = adapter.augment_replay_batch(batch)
 
-        assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
-        assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
-        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
+        assert set(augmented.obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
 
         np.testing.assert_allclose(np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context)
 
@@ -951,27 +952,27 @@ class TestVGGTHousePointsPoseEncoder:
 
         adapter.transform(_house_frame(2))
 
-        batch = {
-            "obs": {CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16)},
-            "actions": np.zeros((1, 2), dtype=np.int32),
-            "rewards": np.zeros((1, 2), dtype=np.float32),
-            "is_episode_end": np.zeros((1, 2), dtype=bool),
-            "is_first": np.zeros((1, 2), dtype=np.float32),
-        }
+        batch = ReplayBatch(
+            obs={CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16)},
+            actions=np.zeros((1, 2), dtype=np.int32),
+            rewards=np.zeros((1, 2), dtype=np.float32),
+            is_episode_end=np.zeros((1, 2), dtype=bool),
+            is_first=np.zeros((1, 2), dtype=np.float32),
+        )
         augmented = adapter.augment_replay_batch(batch)
 
-        assert set(augmented["obs"]) == {
+        assert set(augmented.obs) == {
             CAMERA_POSE_KEY,
             HOUSE_CONTEXT_KEY,
             HOUSE_CONTEXT_SIZE_KEY,
         }
-        assert augmented["obs"][CAMERA_POSE_KEY].shape == (1, 2, 9)
-        assert augmented["obs"][HOUSE_CONTEXT_KEY].shape == (
+        assert augmented.obs[CAMERA_POSE_KEY].shape == (1, 2, 9)
+        assert augmented.obs[HOUSE_CONTEXT_KEY].shape == (
             HOUSE_CONTEXT_MAX_POINTS,
             HOUSE_POINT_DIM,
         )
-        assert augmented["obs"][HOUSE_CONTEXT_SIZE_KEY].shape == ()
-        assert augmented["obs"][HOUSE_CONTEXT_SIZE_KEY].dtype == np.int32
+        assert augmented.obs[HOUSE_CONTEXT_SIZE_KEY].shape == ()
+        assert augmented.obs[HOUSE_CONTEXT_SIZE_KEY].dtype == np.int32
 
     def test_mapping_vggt_output_is_supported(self):
         adapter = VGGTHousePointsPoseObsAdapter(
@@ -1122,21 +1123,21 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         assert set(agent_obs) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY, "is_first"}
         assert agent_obs[FULL_TOKENS_KEY].shape == (1374, 2048)
 
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
                 FULL_TOKENS_KEY: np.zeros((2, 3, 1374, 2048), dtype=np.float16),
             },
-            "actions": np.zeros((2, 3), dtype=np.int32),
-            "rewards": np.zeros((2, 3), dtype=np.float32),
-            "is_episode_end": np.zeros((2, 3), dtype=bool),
-            "is_first": np.zeros((2, 3), dtype=np.float32),
-        }
+            actions=np.zeros((2, 3), dtype=np.int32),
+            rewards=np.zeros((2, 3), dtype=np.float32),
+            is_episode_end=np.zeros((2, 3), dtype=bool),
+            is_first=np.zeros((2, 3), dtype=np.float32),
+        )
         augmented = adapter.augment_replay_batch(batch)
 
-        assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
-        assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
-        assert augmented["obs"][FULL_TOKENS_KEY].shape == (2, 3, 1374, 2048)
+        assert set(augmented.obs) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[FULL_TOKENS_KEY].shape == (2, 3, 1374, 2048)
 
 
 class TestVGGTHouseGlobalTokenNoGateEncoder:
@@ -1215,22 +1216,22 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         assert agent_obs[GLOBAL_TOKENS_KEY].shape == (1374, 1024)
         assert extractor.calls == 1
 
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
                 GLOBAL_TOKENS_KEY: np.zeros((2, 3, 1374, 1024), dtype=np.float16),
             },
-            "actions": np.zeros((2, 3), dtype=np.int32),
-            "rewards": np.zeros((2, 3), dtype=np.float32),
-            "is_episode_end": np.zeros((2, 3), dtype=bool),
-            "is_first": np.zeros((2, 3), dtype=np.float32),
-        }
+            actions=np.zeros((2, 3), dtype=np.int32),
+            rewards=np.zeros((2, 3), dtype=np.float32),
+            is_episode_end=np.zeros((2, 3), dtype=bool),
+            is_first=np.zeros((2, 3), dtype=np.float32),
+        )
         augmented = adapter.augment_replay_batch(batch)
 
         assert extractor.calls == 1, "replay augmentation must not run VGGT"
-        assert set(augmented["obs"]) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
-        assert augmented["obs"][HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
-        assert augmented["obs"][GLOBAL_TOKENS_KEY].shape == (2, 3, 1374, 1024)
+        assert set(augmented.obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[GLOBAL_TOKENS_KEY].shape == (2, 3, 1374, 1024)
 
 
 @pytest.mark.gpu

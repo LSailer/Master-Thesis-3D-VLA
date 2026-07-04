@@ -32,8 +32,8 @@ def repval_loss(
     Returns:
         scalar repval loss.
     """
-    replay_episode_end = batch["is_episode_end"]  # (B, T)
-    replay_reward = batch["rewards"]  # (B, T)
+    replay_episode_end = batch.is_episode_end  # (B, T)
+    replay_reward = batch.rewards  # (B, T)
 
     # Bootstrap from the imagined return at step 0
     boot = imag_ret[:, 0].reshape(B, T, 1)

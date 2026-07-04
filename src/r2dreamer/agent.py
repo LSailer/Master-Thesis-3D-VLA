@@ -23,6 +23,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
@@ -869,7 +870,7 @@ class R2DreamerAgent:
     # Training
     # ------------------------------------------------------------------
 
-    def train_step(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
+    def train_step(self, batch: ReplayBatch , rng_key: jnp.ndarray) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
         self.train_state, metrics = self._jitted_train_step.__call__(
             self.train_state,

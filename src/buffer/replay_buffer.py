@@ -9,8 +9,8 @@ rewards, and flags.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 import dataclasses
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, TypeAlias, cast
@@ -112,6 +112,12 @@ class ReplayBatch:
             episode ends.
         is_episode_end: Episode-end flags returned with the stored observations
             as configured floating arrays of shape ``(B, T)``.
+        global_feature: Batch-wide feature array attached *after* sampling
+            via :meth:`change_global_feature` (e.g. the live house-context map
+            in ``live_house_context`` mode). Unlike the replay fields it has
+            no ``(B, T)`` prefix — one array is shared by every sequence in
+            the batch. The buffer itself never stores or fills it; ``sample``
+            always returns ``None``.
     """
 
     obs: ReplayObservationBatch
@@ -119,33 +125,24 @@ class ReplayBatch:
     rewards: jax.Array
     is_first: jax.Array
     is_episode_end: jax.Array
+    global_feature: jax.Array | None = None
 
-    def __getitem__(self, key: str) -> Any:
-        """Return a field by legacy mapping key.
+    def change_global_feature(self, value: jax.Array):
+        """Change the batch's global feature in place to ``value``.
+
+        Use this for a live, batch-wide array that is computed outside the
+        replay buffer (e.g. the house-context map). The value is stored as
+        given — the caller is responsible for device placement and dtype.
 
         Args:
-            key: One of ``obs``, ``actions``, ``rewards``, ``is_first``, or
-                ``is_episode_end``.
-
-        Returns:
-            The corresponding replay-batch field.
+            value: Feature array; replaces any previously set global feature.
 
         Raises:
-            KeyError: If ``key`` is not a replay-batch field.
+            dataclasses.FrozenInstanceError: Always, as long as
+                ``ReplayBatch`` is a frozen ``flax.struct`` dataclass —
+                in-place assignment is blocked by the class decorator.
         """
-        if key == "obs":
-            value = self.obs
-        elif key == "actions":
-            value = self.actions
-        elif key == "rewards":
-            value = self.rewards
-        elif key == "is_first":
-            value = self.is_first
-        elif key == "is_episode_end":
-            value = self.is_episode_end
-        else:
-            raise KeyError(key)
-        return value
+        self.global_feature = value
 
 
 ReplayTransitionBatch: TypeAlias = list[list[ReplayTransition]]
@@ -394,8 +391,7 @@ class ReplayBuffer:
     def _stack_array_grid(self, values: list[list[ObservationLeaf]]) -> jax.Array:
         """Stack a ``(B, T)`` grid of observation leaves."""
         stacked_sequences = [
-            jnp.stack([jnp.asarray(value) for value in sequence])
-            for sequence in values
+            jnp.stack([jnp.asarray(value) for value in sequence]) for sequence in values
         ]
         stacked_batch = jnp.stack(stacked_sequences)
         return stacked_batch

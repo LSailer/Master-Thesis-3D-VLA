@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer, ReplayTransition
 from src.configs.config import R2DreamerConfig
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.encoders.cnn import ConvEncoder
@@ -623,15 +623,15 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
-        batch = {
-            "obs": jnp.zeros((B, T, FEATURE_DIM)),
-            "actions": jax.nn.one_hot(
+        batch = ReplayBatch(
+            obs=jnp.zeros((B, T, FEATURE_DIM)),
+            actions=jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_episode_end": jnp.zeros((B, T)),
-        }
+            rewards=jnp.zeros((B, T)),
+            is_first=jnp.zeros((B, T)).at[:, 0].set(1.0),
+            is_episode_end=jnp.zeros((B, T)),
+        )
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
         assert "total_loss" in metrics
@@ -652,15 +652,15 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
-        batch = {
-            "obs": jnp.zeros((B, T, POOLED_FEATURE_DIM)),
-            "actions": jax.nn.one_hot(
+        batch = ReplayBatch(
+            obs=jnp.zeros((B, T, POOLED_FEATURE_DIM)),
+            actions=jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_episode_end": jnp.zeros((B, T)),
-        }
+            rewards=jnp.zeros((B, T)),
+            is_first=jnp.zeros((B, T)).at[:, 0].set(1.0),
+            is_episode_end=jnp.zeros((B, T)),
+        )
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
         assert "total_loss" in metrics

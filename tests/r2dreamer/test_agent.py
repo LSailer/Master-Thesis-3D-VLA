@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from src.buffer.replay_buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
@@ -31,17 +32,17 @@ def agent(cfg):
 
 
 def make_batch(cfg, B=4, T=16):
-    return {
-        "obs": jnp.array(np.random.rand(B, T, *cfg.obs_shape).astype(np.float32)),
-        "actions": jnp.array(
+    return ReplayBatch(
+        obs=jnp.array(np.random.rand(B, T, *cfg.obs_shape).astype(np.float32)),
+        actions=jnp.array(
             np.eye(cfg.num_actions, dtype=np.float32)[
                 np.random.randint(0, cfg.num_actions, (B, T))
             ]
         ),
-        "rewards": jnp.array(np.random.randn(B, T).astype(np.float32)),
-        "is_first": jnp.zeros((B, T)),
-        "is_episode_end": jnp.zeros((B, T)),
-    }
+        rewards=jnp.array(np.random.randn(B, T).astype(np.float32)),
+        is_first=jnp.zeros((B, T)),
+        is_episode_end=jnp.zeros((B, T)),
+    )
 
 
 def make_deterministic_cfg():
@@ -78,13 +79,13 @@ def make_deterministic_batch(cfg, B=2, T=4):
     rewards = jnp.linspace(-1.0, 1.0, B * T, dtype=jnp.float32).reshape(B, T)
     is_first = jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0)
     is_episode_end = jnp.zeros((B, T), dtype=jnp.float32).at[:, -1].set(1.0)
-    return {
-        "obs": obs,
-        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
-        "rewards": rewards,
-        "is_first": is_first,
-        "is_episode_end": is_episode_end,
-    }
+    return ReplayBatch(
+        obs=obs,
+        actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        rewards=rewards,
+        is_first=is_first,
+        is_episode_end=is_episode_end,
+    )
 
 
 def make_small_decoder_cfg(*, decoder=False):
@@ -175,16 +176,16 @@ def make_hybrid_mapping_batch(cfg, B=1, T=4):
         -1.0, 1.0, num=B * T * VGGT_FEATURE_DIM, dtype=np.float32
     ).reshape((B, T, VGGT_FEATURE_DIM))
     action_ids = jnp.arange(B * T).reshape(B, T) % cfg.num_actions
-    return {
-        "obs": {
+    return ReplayBatch(
+        obs={
             "image": jnp.asarray(image),
             "wp_cp": jnp.asarray(wp_cp),
         },
-        "actions": jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
-        "rewards": jnp.zeros((B, T), dtype=jnp.float32),
-        "is_first": jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
-        "is_episode_end": jnp.zeros((B, T), dtype=jnp.float32),
-    }
+        actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
+        rewards=jnp.zeros((B, T), dtype=jnp.float32),
+        is_first=jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
+        is_episode_end=jnp.zeros((B, T), dtype=jnp.float32),
+    )
 
 
 def tree_allclose(left, right, *, atol=1e-6):
@@ -288,18 +289,18 @@ class TestR2DreamerAgent:
             warmup_steps=0,
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
                 "house_context": jnp.zeros((1, 2, 1024), dtype=jnp.float32),
             },
-            "actions": jax.nn.one_hot(
+            actions=jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
-        }
+            rewards=jnp.zeros((1, 2), dtype=jnp.float32),
+            is_first=jnp.ones((1, 2), dtype=jnp.float32),
+            is_episode_end=jnp.zeros((1, 2), dtype=jnp.float32),
+        )
 
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))
 
@@ -316,21 +317,21 @@ class TestR2DreamerAgent:
             },
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
                 HOUSE_CONTEXT_KEY: jnp.ones(
                     (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM), dtype=jnp.float16
                 ),
                 HOUSE_CONTEXT_SIZE_KEY: jnp.asarray(4, dtype=jnp.int32),
             },
-            "actions": jax.nn.one_hot(
+            actions=jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
-        }
+            rewards=jnp.zeros((1, 2), dtype=jnp.float32),
+            is_first=jnp.ones((1, 2), dtype=jnp.float32),
+            is_episode_end=jnp.zeros((1, 2), dtype=jnp.float32),
+        )
 
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))
 
@@ -376,18 +377,18 @@ class TestR2DreamerAgent:
             warmup_steps=0,
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        batch = {
-            "obs": {
+        batch = ReplayBatch(
+            obs={
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
                 token_key: jnp.zeros(token_shape, dtype=jnp.float32),
             },
-            "actions": jax.nn.one_hot(
+            actions=jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((1, 2), dtype=jnp.float32),
-            "is_first": jnp.ones((1, 2), dtype=jnp.float32),
-            "is_episode_end": jnp.zeros((1, 2), dtype=jnp.float32),
-        }
+            rewards=jnp.zeros((1, 2), dtype=jnp.float32),
+            is_first=jnp.ones((1, 2), dtype=jnp.float32),
+            is_episode_end=jnp.zeros((1, 2), dtype=jnp.float32),
+        )
 
         before = agent.params["encoder"]
         metrics = agent.train_step(batch, jax.random.PRNGKey(1))
@@ -422,16 +423,14 @@ class TestR2DreamerAgent:
             compute_dtype="bfloat16",
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        batch = {
-            "obs": {
-                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.uint8),
-                "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
-            }
+        obs = {
+            "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.uint8),
+            "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
         }
 
         _, token_e = agent.encoder_mod.apply(
             {"params": agent.params["encoder"]["params"]},
-            batch["obs"],
+            obs,
             method=agent.encoder_mod.branches,
         )
 

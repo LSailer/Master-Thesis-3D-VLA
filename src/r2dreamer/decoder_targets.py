@@ -5,6 +5,7 @@ from typing import Any
 
 import jax.numpy as jnp
 
+from src.buffer.replay_buffer import ReplayBatch
 from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 
 
@@ -16,15 +17,15 @@ def _normalize_image_obs(image: Any) -> jnp.ndarray:
     return image.astype(jnp.float32)
 
 
-def replay_batch_shape(batch: Any) -> tuple[int, int]:
+def replay_batch_shape(batch: ReplayBatch) -> tuple[int, int]:
     """Return ``(B, T)`` from a sampled replay batch."""
-    actions = batch["actions"]
+    actions = batch.actions
     return int(actions.shape[0]), int(actions.shape[1])
 
 
-def decoder_rgb_target(batch: Any, encoder_type: str) -> jnp.ndarray:
+def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
-    obs = batch["obs"]
+    obs = batch.obs
     B, T = replay_batch_shape(batch)
     if encoder_type in (
         "hybrid",

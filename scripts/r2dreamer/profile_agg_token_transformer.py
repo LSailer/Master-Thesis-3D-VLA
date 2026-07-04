@@ -33,7 +33,6 @@ from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     _flatten_full_aggregator_tokens,
 )
-from src.r2dreamer.trainer import convert_batch
 from src.shared.profiling import timed
 
 TARGET_STEPS = 2_000_000
@@ -208,7 +207,6 @@ def run_phase(
                 with timed(accum, "buffer_sample"):
                     batch = buffer.sample(cfg.batch_size, cfg.seq_len)
                     block_tree(batch)
-                batch = convert_batch(batch, cfg.num_actions)
                 rng, train_key = jax.random.split(rng)
                 with timed(accum, "train_step"):
                     metrics = agent.train_step(batch, train_key)

@@ -20,10 +20,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer, ReplayTransition
 from src.r2dreamer.agent import R2DreamerAgent
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.trainer import convert_batch
 
 ObsShape: TypeAlias = tuple[int, ...] | Mapping[str, tuple[int, ...]]
 ObsDType: TypeAlias = str | Mapping[str, str]
@@ -379,6 +378,34 @@ def _fill_jax_buffer(
     return _summ(times)
 
 
+def _convert_legacy_batch(batch: dict[str, object], num_actions: int) -> ReplayBatch:
+    """Pack a raw JAX-ref replay dict into an agent-ready ``ReplayBatch``.
+
+    ``JaxRefReplayBuffer.sample`` returns a raw dict whose ``actions`` are int32
+    action ids, whereas the agent expects one-hot float actions. This mirrors
+    the field layout produced by ``ReplayBuffer.sample``.
+
+    Args:
+        batch: Raw replay dict with keys ``obs``, ``actions`` (int32,
+            ``(B, T)``), ``rewards``, ``is_first``, and ``is_episode_end``.
+        num_actions: Number of discrete actions for one-hot encoding.
+
+    Returns:
+        A ``ReplayBatch`` with ``(B, T, num_actions)`` float one-hot actions and
+        float rewards/masks.
+    """
+    actions = jax.nn.one_hot(
+        jnp.asarray(batch["actions"]), num_actions, dtype=jnp.float32
+    )
+    return ReplayBatch(
+        obs=batch["obs"],
+        actions=actions,
+        rewards=jnp.asarray(batch["rewards"], dtype=jnp.float32),
+        is_first=jnp.asarray(batch["is_first"], dtype=jnp.float32),
+        is_episode_end=jnp.asarray(batch["is_episode_end"], dtype=jnp.float32),
+    )
+
+
 def _measure_numpy_sample(
     buffer: ReplayBuffer,
     batch_size: int,
@@ -389,7 +416,7 @@ def _measure_numpy_sample(
     times: list[float] = []
     for idx in range(iters + warmup):
         t0 = time.perf_counter()
-        batch = convert_batch(buffer.sample(batch_size, seq_len), 4)
+        batch = buffer.sample(batch_size, seq_len)
         _block_tree(batch)
         if idx >= warmup:
             times.append((time.perf_counter() - t0) * 1000.0)
@@ -406,7 +433,7 @@ def _measure_jax_sample(
     times: list[float] = []
     for idx in range(iters + warmup):
         t0 = time.perf_counter()
-        batch = convert_batch(
+        batch = _convert_legacy_batch(
             buffer.sample(batch_size, seq_len, jax.random.PRNGKey(1000 + idx)), 4
         )
         _block_tree(batch)
@@ -526,10 +553,10 @@ def _measure_replay(args: argparse.Namespace, inputs: ExperimentInputs) -> dict[
     }
     if args.layout == "cnn" and not args.skip_train:
         runs["numpy_replay"]["tiny_train_step"] = _measure_train_step(
-            convert_batch(numpy_buffer.sample(2, 4), 4), args.train_iters, args.warmup
+            numpy_buffer.sample(2, 4), args.train_iters, args.warmup
         )
         runs["jax_ref_replay"]["tiny_train_step"] = _measure_train_step(
-            convert_batch(jax_buffer.sample(2, 4, jax.random.PRNGKey(99)), 4),
+            _convert_legacy_batch(jax_buffer.sample(2, 4, jax.random.PRNGKey(99)), 4),
             args.train_iters,
             args.warmup,
         )

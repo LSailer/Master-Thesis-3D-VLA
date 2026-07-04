@@ -1,4 +1,4 @@
-"""Tests for src/r2dreamer/trainer.py — convert_batch and checkpoint."""
+"""Tests for src/r2dreamer/trainer.py — replay_batch_to_arrays and checkpoint."""
 
 import json
 import os
@@ -21,7 +21,6 @@ from src.r2dreamer.observation_preparation import (
 from src.r2dreamer.trainer import (
     Trainer,
     config_snapshot,
-    convert_batch,
     load_checkpoint,
     replay_batch_to_arrays,
     save_checkpoint,
@@ -195,62 +194,6 @@ class TestReplayBatchToArrays:
         np.testing.assert_array_equal(
             np.asarray(batch["is_first"]), np.array([[True, False, True]])
         )
-
-
-class TestConvertBatch:
-    """convert_batch turns replay buffer output into agent-ready batches."""
-
-    @pytest.fixture
-    def replay_batch(self):
-        B, T, A = 4, 8, 6
-        return {
-            "obs": jnp.ones((B, T, 3, 4, 4)),
-            "actions": jnp.array(np.random.randint(0, A, (B, T)), dtype=jnp.int32),
-            "rewards": jnp.ones((B, T)),
-            "is_episode_end": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)),
-        }
-
-    def test_actions_become_onehot_without_shift(self, replay_batch):
-        replay_batch["actions"] = jnp.array([[1, 2, 3, 4, 5, 0, 1, 2]] * 4)
-        out = convert_batch(replay_batch, num_actions=6)
-        assert out["actions"].shape == (4, 8, 6)
-        assert out["actions"].dtype == jnp.float32
-        assert jnp.allclose(out["actions"].sum(axis=-1), 1.0)
-        np.testing.assert_allclose(np.asarray(out["actions"][0, 0]), np.eye(6)[1])
-
-    def test_episode_end_is_not_shifted(self, replay_batch):
-        replay_batch["is_episode_end"] = jnp.ones((4, 8))
-        out = convert_batch(replay_batch, num_actions=6)
-        assert "is_episode_end" in out
-        assert jnp.allclose(out["is_episode_end"], 1.0)
-
-    def test_float_outputs_use_configured_compute_dtype(self, replay_batch):
-        out = convert_batch(
-            replay_batch,
-            num_actions=6,
-            compute_dtype="bfloat16",
-        )
-        assert out["actions"].dtype == jnp.bfloat16
-        assert out["rewards"].dtype == jnp.bfloat16
-        assert out["is_first"].dtype == jnp.bfloat16
-        assert out["is_episode_end"].dtype == jnp.bfloat16
-
-    def test_obs_and_rewards_pass_through(self, replay_batch):
-        out = convert_batch(replay_batch, num_actions=6)
-        assert jnp.allclose(out["obs"], replay_batch["obs"])
-        assert jnp.allclose(out["rewards"], replay_batch["rewards"])
-        assert jnp.allclose(out["is_first"], replay_batch["is_first"])
-
-    def test_output_keys(self, replay_batch):
-        out = convert_batch(replay_batch, num_actions=6)
-        assert set(out.keys()) == {
-            "obs",
-            "actions",
-            "rewards",
-            "is_first",
-            "is_episode_end",
-        }
 
 
 class TestCheckpoint:
