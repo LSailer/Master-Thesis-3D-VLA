@@ -68,3 +68,5 @@ tests/prototyp/
 
 # Local markdown issue tracker (docs/agents/issue-tracker.md)
 .scratch/
+.agents/
+skills-lock.json
