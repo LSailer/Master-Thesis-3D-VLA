@@ -55,55 +55,52 @@ def _block_tree(tree: Any) -> None:
             pass
 
 
-def _fill_common(buffer, capacity: int, rng: np.random.Generator) -> None:
-    buffer.actions[:] = rng.integers(0, 4, size=capacity, dtype=np.int32)
-    buffer.rewards[:] = rng.standard_normal(capacity).astype(np.float32)
-    buffer.dones[:] = False
-    buffer.terminals[:] = False
-    buffer.size = capacity
-    buffer.idx = 0
+def _frame(action: int = 0, reward: float = 0.0, done: bool = False):
+    from src.environments.observation import ObservationFrame
+
+    return ObservationFrame(
+        image=np.empty((0,), dtype=np.uint8),
+        is_first=False,
+        previous_action=action,
+        reward=reward,
+        done=done,
+    )
 
 
 def _make_buffer(kind: str, capacity: int, rng: np.random.Generator):
-    from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
+    from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+
+    buffer = ReplayBuffer(capacity=capacity, num_actions=4)
+    actions = rng.integers(0, 4, size=capacity, dtype=np.int32)
+    rewards = rng.standard_normal(capacity).astype(np.float32)
+
+    def add_transition(index: int, obs: Any) -> None:
+        buffer.add(
+            ReplayTransition.from_frame(
+                obs,
+                _frame(action=int(actions[index]), reward=float(rewards[index])),
+            )
+        )
 
     if kind == "wpcp":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape=(4116,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
-        buffer = ReplayBuffer(cfg)
-        buffer.obs[:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        features = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        for idx, obs in enumerate(features):
+            add_transition(idx, obs)
     elif kind == "flat_hybrid":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape=(16404,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
-        buffer = ReplayBuffer(cfg)
         image = rng.integers(0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8)
         wp_cp = rng.standard_normal((capacity, 4116), dtype=np.float32)
         rgb = image.astype(np.float32).reshape(capacity, -1) / 255.0
-        buffer.obs[:] = np.concatenate([rgb, wp_cp], axis=-1).astype(np.float32)
+        flat = np.concatenate([rgb, wp_cp], axis=-1).astype(np.float32)
+        for idx, obs in enumerate(flat):
+            add_transition(idx, obs)
     elif kind == "modal_hybrid":
-        cfg = BufferConfig(
-            capacity=capacity,
-            obs_shape={"image": (3, 64, 64), "wp_cp": (4116,)},
-            obs_dtype={"image": "uint8", "wp_cp": "float32"},
-            normalize_obs={"image": False, "wp_cp": False},
-        )
-        buffer = ReplayBuffer(cfg)
-        buffer.obs["image"][:] = rng.integers(
-            0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8
-        )
-        buffer.obs["wp_cp"][:] = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        image = rng.integers(0, 256, size=(capacity, 3, 64, 64), dtype=np.uint8)
+        wp_cp = rng.standard_normal((capacity, 4116), dtype=np.float32)
+        for idx in range(capacity):
+            add_transition(idx, {"image": image[idx], "wp_cp": wp_cp[idx]})
     else:
         raise ValueError(kind)
 
-    _fill_common(buffer, capacity, rng)
     return buffer
 
 
@@ -111,8 +108,8 @@ def _make_agent(kind: str, seed: int):
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
-    from src.r2dreamer.world_model.encoders import HybridEncoder, VGGTEncoder
+    from src.configs.config import R2DreamerConfig
+    from src.r2dreamer.encoders.mlp import HybridEncoder, MLPEncoder
 
     common = dict(
         num_actions=4,
@@ -126,7 +123,7 @@ def _make_agent(kind: str, seed: int):
     if kind == "wpcp_mlp3":
         cfg = R2DreamerConfig(
             encoder_type="vggt",
-            encoder_module_cls=VGGTEncoder,
+            encoder_module_cls=MLPEncoder,
             obs_shape=(4116,),
             vggt_mlp_layers=3,
             **common,
@@ -143,11 +140,11 @@ def _make_agent(kind: str, seed: int):
     return cfg, R2DreamerAgent(cfg, jax.random.PRNGKey(seed))
 
 
-def _measure_sample_convert(buffer, convert_batch, iters: int, warmup: int) -> dict[str, float]:
+def _measure_sample_convert(buffer, iters: int, warmup: int) -> dict[str, float]:
     times: list[float] = []
     for i in range(iters + warmup):
         t0 = time.perf_counter()
-        batch = convert_batch(buffer.sample(16, 64), 4)
+        batch = buffer.sample(16, 64)
         _block_tree(batch)
         dt = (time.perf_counter() - t0) * 1000.0
         if i >= warmup:
@@ -171,14 +168,14 @@ def _measure_train_step(agent, batch, iters: int, warmup: int) -> dict[str, floa
     return _summ(times)
 
 
-def _measure_combined(buffer, agent, convert_batch, iters: int, warmup: int) -> dict[str, float]:
+def _measure_combined(buffer, agent, iters: int, warmup: int) -> dict[str, float]:
     import jax
 
     times: list[float] = []
     for i in range(iters + warmup):
         key = jax.random.PRNGKey(2000 + i)
         t0 = time.perf_counter()
-        batch = convert_batch(buffer.sample(16, 64), 4)
+        batch = buffer.sample(16, 64)
         metrics = agent.train_step(batch, key)
         _ = metrics.get("total_loss", 0.0)
         dt = (time.perf_counter() - t0) * 1000.0
@@ -201,7 +198,6 @@ def main() -> None:
     sys.path.insert(0, str(cwd))
 
     import jax
-    from src.r2dreamer.trainer import convert_batch
 
     rng = np.random.default_rng(72)
     buffers = {
@@ -237,13 +233,13 @@ def main() -> None:
 
     for kind, buffer in buffers.items():
         results["runs"].setdefault(kind, {})["sample_convert"] = _measure_sample_convert(
-            buffer, convert_batch, args.sample_iters, args.warmup,
+            buffer, args.sample_iters, args.warmup,
         )
 
     prepared_batches = {
-        "wpcp_mlp3": convert_batch(buffers["wpcp"].sample(16, 64), 4),
-        "flat_hybrid": convert_batch(buffers["flat_hybrid"].sample(16, 64), 4),
-        "modal_hybrid": convert_batch(buffers["modal_hybrid"].sample(16, 64), 4),
+        "wpcp_mlp3": buffers["wpcp"].sample(16, 64),
+        "flat_hybrid": buffers["flat_hybrid"].sample(16, 64),
+        "modal_hybrid": buffers["modal_hybrid"].sample(16, 64),
     }
     for label, (_, agent) in agents.items():
         results["runs"].setdefault(label, {})["train_step"] = _measure_train_step(
@@ -258,7 +254,7 @@ def main() -> None:
     for label, (buffer_kind, agent_kind) in combined.items():
         _, agent = agents[agent_kind]
         results["runs"].setdefault(label, {})["sample_convert_train"] = _measure_combined(
-            buffers[buffer_kind], agent, convert_batch, args.combined_iters, args.warmup,
+            buffers[buffer_kind], agent, args.combined_iters, args.warmup,
         )
 
     output = Path(args.output)

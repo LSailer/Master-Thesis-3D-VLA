@@ -8,15 +8,65 @@ import argparse
 import csv
 import json
 import os
-import sys
 import time
-from dataclasses import dataclass, fields
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from dataclasses import dataclass
 
 import numpy as np
 
 from src.environments.habitat import ACTIONS, HabitatObjectNavEnv, build_habitat_env
+from src.environments.observation import ObservationFrame
+
+
+class RandomAgent:
+    """Uniform-random discrete-action agent bound to one environment."""
+
+    def __init__(
+        self, env: HabitatObjectNavEnv, num_actions: int = 4, seed: int = 42
+    ) -> None:
+        self.env = env
+        self.num_actions = int(num_actions)
+        self._seed = int(seed)
+        self._rng = np.random.default_rng(self._seed)
+
+    def reset(self) -> None:
+        """Reset the RNG to the construction seed."""
+        self._rng = np.random.default_rng(self._seed)
+
+    def sample_action(self) -> int:
+        """Sample one action uniformly from ``[0, num_actions)``."""
+        return int(self._rng.integers(0, self.num_actions))
+
+    def act(self) -> ObservationFrame:
+        """Sample and apply one action, returning the resulting observation."""
+        return self.env.step(self.sample_action())
+
+
+@dataclass(frozen=True)
+class EpisodeMetrics:
+    """Scalar per-episode outcome metrics."""
+
+    steps: int
+    reward: float
+    success: float
+    spl: float
+
+
+@dataclass(frozen=True)
+class ActionPercentages:
+    """Per-action percentages for one episode."""
+
+    stop: float
+    forward: float
+    left: float
+    right: float
+
+    def as_tuple(self) -> tuple[float, float, float, float]:
+        """Return percentages in action-index order."""
+        return (self.stop, self.forward, self.left, self.right)
+
+    def count(self, steps: int, action_idx: int) -> float:
+        """Estimate the absolute count for one action."""
+        return steps * self.as_tuple()[action_idx] / 100
 
 
 @dataclass(frozen=True)
@@ -26,37 +76,41 @@ class EpisodeResult:
     episode: int
     scene: str
     category: str
-    steps: int
-    reward: float
-    success: float
-    spl: float
-    stop_pct: float
-    forward_pct: float
-    left_pct: float
-    right_pct: float
+    metrics: EpisodeMetrics
+    actions: ActionPercentages
 
     @classmethod
     def csv_header(cls) -> list[str]:
-        return [field.name for field in fields(cls)]
+        """Return CSV column names."""
+        return [
+            "episode",
+            "scene",
+            "category",
+            "steps",
+            "reward",
+            "success",
+            "spl",
+            "stop_pct",
+            "forward_pct",
+            "left_pct",
+            "right_pct",
+        ]
 
     def to_csv_row(self) -> list[str | int]:
+        """Return this result formatted for CSV output."""
         return [
             self.episode,
             self.scene,
             self.category,
-            self.steps,
-            f"{self.reward:.4f}",
-            f"{self.success:.0f}",
-            f"{self.spl:.4f}",
-            f"{self.stop_pct:.1f}",
-            f"{self.forward_pct:.1f}",
-            f"{self.left_pct:.1f}",
-            f"{self.right_pct:.1f}",
+            self.metrics.steps,
+            f"{self.metrics.reward:.4f}",
+            f"{self.metrics.success:.0f}",
+            f"{self.metrics.spl:.4f}",
+            f"{self.actions.stop:.1f}",
+            f"{self.actions.forward:.1f}",
+            f"{self.actions.left:.1f}",
+            f"{self.actions.right:.1f}",
         ]
-
-    def action_count(self, action_idx: int) -> float:
-        pcts = (self.stop_pct, self.forward_pct, self.left_pct, self.right_pct)
-        return self.steps * pcts[action_idx] / 100
 
 
 def _print_summary(
@@ -74,24 +128,24 @@ def _print_summary(
 
 
 def _run_episode(
-    env: HabitatObjectNavEnv,
-    rng,
-    num_actions: int,
+    agent: RandomAgent,
     max_episode_steps: int,
     ep_idx: int,
 ) -> EpisodeResult:
     """Roll one uniform-random episode and return its summary metrics."""
-    obs = env.reset()
-    episode = env.current_episode
-    scene = episode.scene_id.split("/")[-1].replace(".basis.glb", "")
+    obs = agent.env.reset()
+    episode = agent.env.current_episode
+    scene = episode.scene_id.rsplit("/", maxsplit=1)[-1].replace(".basis.glb", "")
     category = getattr(episode, "object_category", "unknown")
 
-    action_counts = {a: 0.0 for a in range(num_actions)}
+    action_counts = {a: 0.0 for a in range(agent.num_actions)}
     total_reward = 0.0
     steps = 0
     for _ in range(max_episode_steps):
-        action = int(rng.integers(0, num_actions))
-        obs = env.step(action)
+        obs = agent.act()
+        action = obs.previous_action
+        if action is None:
+            raise RuntimeError("random-agent step observation is missing previous_action")
         action_counts[action] += 1
         total_reward += obs.reward
         steps += 1
@@ -105,14 +159,18 @@ def _run_episode(
         episode=ep_idx,
         scene=scene,
         category=category,
-        steps=steps,
-        reward=total_reward,
-        success=obs.success,
-        spl=obs.spl,
-        stop_pct=action_pcts["STOP"],
-        forward_pct=action_pcts["MOVE_FORWARD"],
-        left_pct=action_pcts["TURN_LEFT"],
-        right_pct=action_pcts["TURN_RIGHT"],
+        metrics=EpisodeMetrics(
+            steps=steps,
+            reward=total_reward,
+            success=obs.success,
+            spl=obs.spl,
+        ),
+        actions=ActionPercentages(
+            stop=action_pcts["STOP"],
+            forward=action_pcts["MOVE_FORWARD"],
+            left=action_pcts["TURN_LEFT"],
+            right=action_pcts["TURN_RIGHT"],
+        ),
     )
 
 
@@ -124,15 +182,15 @@ def _aggregate_results(
     curriculum_path: str,
 ) -> dict:
     """Reduce per-episode results to aggregate metrics + action distribution."""
-    successes = [r.success for r in all_results]
-    spls = [r.spl for r in all_results]
-    rewards = [r.reward for r in all_results]
-    steps_list = [r.steps for r in all_results]
-    total_actions = sum(r.steps for r in all_results)
+    successes = [r.metrics.success for r in all_results]
+    spls = [r.metrics.spl for r in all_results]
+    rewards = [r.metrics.reward for r in all_results]
+    steps_list = [r.metrics.steps for r in all_results]
+    total_actions = sum(r.metrics.steps for r in all_results)
     agg_action_counts = {name: 0.0 for name in ACTIONS.values()}
     for result in all_results:
         for idx, name in ACTIONS.items():
-            agg_action_counts[name] += result.action_count(idx)
+            agg_action_counts[name] += result.actions.count(result.metrics.steps, idx)
 
     return {
         "episodes": len(all_results),
@@ -152,6 +210,38 @@ def _aggregate_results(
     }
 
 
+def _write_episode_results(
+    *,
+    env: HabitatObjectNavEnv,
+    agent: RandomAgent,
+    max_episode_steps: int,
+    csv_path: str,
+    start_time: float,
+) -> list[EpisodeResult]:
+    """Run all eval episodes and write per-episode CSV rows."""
+    all_results: list[EpisodeResult] = []
+    num_episodes = env.episode_count
+    print(f"Running random baseline on {num_episodes} eval episodes")
+
+    with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(EpisodeResult.csv_header())
+
+        for ep_idx in range(num_episodes):
+            result = _run_episode(agent, max_episode_steps, ep_idx)
+            writer.writerow(result.to_csv_row())
+            all_results.append(result)
+
+            if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
+                elapsed = time.time() - start_time
+                sr_so_far = np.mean([r.metrics.success for r in all_results]) * 100
+                print(
+                    f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
+                    f"elapsed={elapsed:.0f}s"
+                )
+    return all_results
+
+
 def run_random_baseline(
     curriculum_path: str,
     output_dir: str,
@@ -162,9 +252,6 @@ def run_random_baseline(
 
     Returns aggregate metrics dict.
     """
-    rng = np.random.default_rng(seed)
-    num_actions = len(ACTIONS)
-
     env = build_habitat_env(
         (3, 64, 64),
         max_episode_steps=max_episode_steps,
@@ -172,31 +259,18 @@ def run_random_baseline(
         curriculum_mode="eval",
         seed=seed,
     )
-    all_results = []
-    t_start = time.time()
+    agent = RandomAgent(env=env, num_actions=len(ACTIONS), seed=seed)
+    start_time = time.time()
     csv_path = os.path.join(output_dir, "episodes.csv")
+    os.makedirs(output_dir, exist_ok=True)
     try:
-        num_episodes = len(env._env._dataset.episodes)
-        print(f"Running random baseline on {num_episodes} eval episodes")
-
-        os.makedirs(output_dir, exist_ok=True)
-
-        with open(csv_path, "w", newline="") as csv_file:
-            writer = csv.writer(csv_file)
-            writer.writerow(EpisodeResult.csv_header())
-
-            for ep_idx in range(num_episodes):
-                result = _run_episode(env, rng, num_actions, max_episode_steps, ep_idx)
-                writer.writerow(result.to_csv_row())
-                all_results.append(result)
-
-                if (ep_idx + 1) % 50 == 0 or ep_idx == num_episodes - 1:
-                    elapsed = time.time() - t_start
-                    sr_so_far = np.mean([r.success for r in all_results]) * 100
-                    print(
-                        f"  [{ep_idx + 1}/{num_episodes}] SR={sr_so_far:.1f}%  "
-                        f"elapsed={elapsed:.0f}s"
-                    )
+        all_results = _write_episode_results(
+            env=env,
+            agent=agent,
+            max_episode_steps=max_episode_steps,
+            csv_path=csv_path,
+            start_time=start_time,
+        )
     finally:
         env.close()
 
@@ -208,14 +282,15 @@ def run_random_baseline(
     )
 
     json_path = os.path.join(output_dir, "summary.json")
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
-    _print_summary(summary, csv_path, json_path, time.time() - t_start)
+    _print_summary(summary, csv_path, json_path, time.time() - start_time)
     return summary
 
 
 def main():
+    """CLI entry point for the random baseline."""
     parser = argparse.ArgumentParser(
         description="Random-action baseline for Habitat ObjectNav"
     )

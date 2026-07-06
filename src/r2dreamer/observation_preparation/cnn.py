@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.environments.observation import ObservationFrame
-from src.r2dreamer.adapters.obs_adapter import ObsAdapter
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     ReplayObservationConfig,
 )
+from src.environments.observation import ObservationFrame
+from src.r2dreamer.adapters.obs_adapter import ObsAdapter
+from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.observation_preparation.contracts import (
     EncoderInputContract,
     ObservationField,
@@ -18,8 +19,6 @@ from src.r2dreamer.observation_preparation.contracts import (
     PreparedObservation,
     replay_observation_form,
 )
-from src.r2dreamer.world_model import encoders as wm_encoders
-
 
 CNN_OBSERVATION_CONFIG = ObservationRunConfig(
     encoder="cnn",
@@ -37,7 +36,7 @@ def _cnn_contract(
         observation_preparation_type="cnn",
         encoder_type="cnn",
         env_render_resolution=config.dims.render_size,
-        encoder_module_cls=wm_encoders.ConvEncoder,
+        encoder_module_cls=ConvEncoder,
         env_observation=ObservationFormContract(
             {
                 "image": image_uint8,
@@ -72,7 +71,7 @@ class CNNObservationPreparation(ObsAdapter):
             agent_obs_shape=self.contract.encoder_input.shape,
         )
 
-    def prepare_env_step(self, env_obs: ObservationFrame, packer) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
         image = np.asarray(env_obs.image)
         step_obs = {
             "image": image,
@@ -80,7 +79,7 @@ class CNNObservationPreparation(ObsAdapter):
         }
         return PreparedObservation(
             replay_obs=image,
-            encoder_obs=packer.from_step(step_obs),
+            encoder_obs={"image": image},
             is_first=bool(env_obs.is_first),
         )
 

@@ -31,10 +31,10 @@ from typing import Any, Iterable
 import jax
 import jax.numpy as jnp
 
-from src.r2dreamer.obs_batch import obs_leading_shape
+from src.buffer.replay_buffer import ReplayBatch
 
 
-def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
+def _reward_mse(agent: Any, batch: ReplayBatch, rng_key: jnp.ndarray) -> float:
     """One batch -> scalar reward MSE between the head's mean and the GT reward.
 
     Uses `R2TwoHotDist.pred()` to recover the expected reward in real space
@@ -42,7 +42,7 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
     """
     params = agent.params
     forward = agent._world_model_forward(params, batch, rng_key)
-    B, T = obs_leading_shape(batch["obs"])
+    B, T = batch.actions.shape[:2]
     feat = forward.feat
     rew_logits = (
         agent._modules["reward"]
@@ -53,13 +53,13 @@ def _reward_mse(agent: Any, batch: dict, rng_key: jnp.ndarray) -> float:
         .reshape(B, T, -1)
     )
     pred = agent.twohot.pred(rew_logits).reshape(B, T)
-    err = pred - batch["rewards"]
+    err = pred - batch.rewards
     return float(jnp.mean(err * err))
 
 
 def _k_step_rollout_error(
     agent: Any,
-    batch: dict,
+    batch: ReplayBatch,
     rng_key: jnp.ndarray,
     k_values: tuple[int, ...] = (1, 5, 15),
 ) -> dict[int, float]:
@@ -80,7 +80,7 @@ def _k_step_rollout_error(
             f"seq_len T={T} is too short for max k_rollout={max_k}; need T >= max_k+1"
         )
 
-    actions = batch["actions"]  # (B, T, A) one-hot
+    actions = batch.actions  # (B, T, A) one-hot
     rssm = agent.rssm_mod
     rssm_params = params["rssm"]
 
@@ -113,16 +113,17 @@ def _k_step_rollout_error(
 
 def compute_heldout_metrics(
     agent: Any,
-    batches: Iterable[dict],
+    batches: Iterable[ReplayBatch],
     *,
     rng_key: jnp.ndarray,
     k_values: tuple[int, ...] = (1, 5, 15),
 ) -> dict[str, float]:
     """Aggregate heldout metrics across batches.
 
-    Each `batch` must already be `convert_batch`'d (obs/actions one-hot/
-    rewards/is_first/is_last/is_terminal). Pulls eval_loss + reward_mse +
-    k-step rollout per batch and averages.
+    Each `batch` must already be an agent-ready `ReplayBatch` (obs, one-hot
+    float actions, and float rewards/is_first/is_episode_end), as returned by
+    `ReplayBuffer.sample`. Pulls eval_loss + reward_mse + k-step rollout per
+    batch and averages.
     """
     eval_sums: dict[str, float] = {}
     rew_mse_sum = 0.0

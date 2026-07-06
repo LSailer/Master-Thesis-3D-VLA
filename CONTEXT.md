@@ -36,38 +36,19 @@ _Avoid_: raw batch, sampled batch, replay dict
 Agent-ready fixed-length sequences consumed by R2Dreamer training.
 _Avoid_: batch, train dict, agent dict
 
+## Engineering rules
+
+- Prefer `jax.Array`/`jax.numpy` for arrays that are part of the training data path.
+  Use NumPy only at explicit I/O or library-compatibility boundaries, preferably as
+  a documented fallback.
+- Prefer `bfloat16` over `float32` for training-path floating-point arrays unless
+  numerical precision or external-library contracts require another dtype.
+
 **ObservationBatch**:
 Time-aligned observation sequences for one sampled replay window.
 _Avoid_: obs dict, observation dict, input batch
 
 **EpisodeBoundaryBatch**:
-Time-aligned flags that mark starts, ends, and true terminals within sampled sequences.
+Time-aligned flags that mark starts and episode ends within sampled sequences.
 _Avoid_: done flags, reset flags, terminal dict
 
-**Review Automation**:
-An autonomous repository workflow that reviews pull requests against their linked Linear issue and may merge only low- or medium-risk pull requests. High-risk pull requests require human review.
-_Avoid_: cronjob, auto-merge bot
-
-**Risk Tier**:
-The review automation's classification of a pull request's merge risk as low, medium, or high. Experiment and training code is medium risk when the linked issue is clear and validation passes; high risk is reserved for automation authority, infrastructure, compatibility, ambiguous criteria, or weakened validation.
-_Avoid_: confidence score, priority
-
-**Correctness Standard**:
-The review automation's basis for deciding whether a pull request satisfies its linked Linear issue without violating repository expectations. The linked Linear issue is primary, but repository tests, documentation, and a dedicated review standard also constrain correctness.
-_Avoid_: review prompt, acceptance check
-
-**Review Standard**:
-A dedicated repository policy document that defines merge eligibility, risk tiers, validation expectations, and Linear follow-up behavior for pull request review. Agents and automation reference it, but it is not itself an agent instruction file.
-_Avoid_: AGENTS.md, bot prompt
-
-**Needs-Human Follow-up**:
-A Linear issue or sub-issue labeled `needs-human` that records work the review automation must not decide or complete silently. Medium-risk fixes and feature ideas found during review become needs-human follow-ups unless a human explicitly commands the automation to handle them.
-_Avoid_: human label, TODO, review note
-
-**Linear Command**:
-A human instruction written in Linear that grants or withholds review automation authority for a linked pull request. The command vocabulary is `review: fix`, `review: merge`, and `review: hold`; Linear commands are preferred over pull request comments because the Linear issue is the source of task authority.
-_Avoid_: PR command, slash command
-
-**Review Completion**:
-The review automation's finalization of a correct low- or medium-risk pull request by merging it, commenting on the linked Linear issue, and moving that Linear issue to Done.
-_Avoid_: closeout, cleanup

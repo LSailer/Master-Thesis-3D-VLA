@@ -26,11 +26,10 @@ class CrafterEnv:
         obs, reward, done, _info = self._env.step(action)
         return ObservationFrame(
             image=np.transpose(obs, (2, 0, 1)),  # CHW
+            is_first=False,
+            previous_action=int(action),
             reward=float(reward),
             done=bool(done),
-            is_first=False,
-            is_last=bool(done),
-            is_terminal=bool(done),
         )
 
     def close(self):

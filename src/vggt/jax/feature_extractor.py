@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 # JAX compilation cache: re-use compiled graphs across runs / processes.
@@ -28,6 +29,7 @@ import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 
+from src.environments.observation import ObservationFrame  # noqa: E402
 from src.vggt.jax.aggregator import (  # noqa: E402
     Aggregator,
     _calculate_dynamic_budgets,
@@ -38,7 +40,6 @@ from src.vggt.jax.weight_transfer import (  # noqa: E402
     load_checkpoint,
     load_pytorch_weights,
 )
-
 
 # Image and patch grid are fixed at 518 / 14 = 37 patches per side.
 _IMG_SIZE = 518
@@ -51,7 +52,28 @@ ParamTree = dict[str, Any]
 CacheEntry = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]
 CompactCacheEntry = tuple[jnp.ndarray, jnp.ndarray]
 PhaseTimes = dict[str, list[float]]
-ExtractOutput = dict[str, jnp.ndarray]
+
+
+@dataclass(frozen=True)
+class VGGTExtractOutput:
+    """Structured VGGT output for one streamed observation frame.
+
+    ``world_points`` is the full-resolution point map when heads are enabled.
+    ``confidence`` is the point head's per-pixel confidence for that map (the
+    ``expp1`` activation, so values are ``>= 1``); it shares ``world_points``'
+    spatial layout so the two flatten in lockstep. ``camera_pose`` is the final
+    camera-head pose encoding. ``frame_tokens`` and ``global_tokens`` are the two
+    halves of the final full-width aggregator tokens.
+    """
+
+    world_points: jnp.ndarray
+    confidence: jnp.ndarray
+    camera_pose: jnp.ndarray
+    frame_tokens: jnp.ndarray
+    global_tokens: jnp.ndarray
+
+
+ExtractOutput = VGGTExtractOutput
 
 
 @dataclass(frozen=True)
@@ -65,11 +87,43 @@ class ExtractorParams:
 
 @dataclass(frozen=True)
 class HeadOutputs:
-    """Post-processed camera/point-head outputs for one streamed frame."""
+    """Post-processed head outputs for one streamed frame."""
 
     world_points: jnp.ndarray
+    confidence: jnp.ndarray
     camera_pose: jnp.ndarray
-    dense_world_points: jnp.ndarray | None
+
+
+class ResetMode(Enum):
+    """How the extractor handles cache state at an episode/scene boundary.
+
+    ``FULL`` wipes all streaming state every episode (the existing behaviour;
+    safe, re-anchors each episode). ``PERSIST_SCENE`` saves the current cache
+    keyed by ``scene_id`` and restores it when the same scene is seen again, so
+    the VGGT attention stream resumes across episodes of one house instead of
+    re-deriving geometry from scratch. The aggregator cache self-bounds via
+    eviction, but the camera-head cache does not — see ``HANDOFF.md`` §2/§4.2
+    before enabling ``PERSIST_SCENE`` for long runs.
+    """
+
+    FULL = "full"
+    PERSIST_SCENE = "scene"
+
+
+@dataclass(frozen=True)
+class AggregatorCacheSnapshot:
+    """Immutable snapshot of the four streaming-state fields.
+
+    JAX arrays are immutable, so holding references is a true snapshot — the
+    extractor reassigns these fields each frame (functional updates), it never
+    mutates the arrays in place. ``save_cache``/``load_cache`` move these
+    references in and out of the per-scene store without copying device memory.
+    """
+
+    past_kvs_padded: tuple[CacheEntry, ...] | None
+    last_scores: jnp.ndarray | None
+    past_kvs_camera: tuple[CacheEntry, ...] | None
+    frame_idx: int
 
 
 def select_jax_device(device: str) -> Any:
@@ -184,11 +238,6 @@ def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarra
     )
 
 
-def _adaptive_avg_pool_518_to_37(pts_nhwc: jnp.ndarray) -> jnp.ndarray:
-    """Average-pool ``(N, 518, 518, C)`` to exact 37x37 patch-grid cells."""
-    return _pool_dense_world_points(pts_nhwc, _PATCH_GRID)
-
-
 class JAXVGGTFeatureExtractor:
     """Drop-in JAX backend for ``VGGTFeatureExtractor``.
 
@@ -208,6 +257,7 @@ class JAXVGGTFeatureExtractor:
         budgets_static: tuple[int, ...] | None = None,
         compute_heads: bool = True,
         wp_pool_size: int = _PATCH_GRID,
+        reset_mode: ResetMode = ResetMode.FULL,
     ) -> None:
         """Initialize weights, cache dimensions, JIT callables, and warmup graphs."""
         self._configure_runtime_options(compute_heads, wp_pool_size, budgets_static)
@@ -215,6 +265,12 @@ class JAXVGGTFeatureExtractor:
         self._compile = compile  # reserved
         self._total_budget = total_budget
         self._dtype = dtype
+        self._reset_mode = reset_mode
+        # Per-scene save/restore store for ResetMode.PERSIST_SCENE. Maps
+        # scene_id -> snapshot of the streaming state at the last frame of that
+        # scene. Only populated under PERSIST_SCENE; empty under FULL.
+        self._scene_cache_store: dict[str, AggregatorCacheSnapshot] = {}
+        self._current_scene_id: str | None = None
 
         params = load_params_on_device(self._device)
         self._agg_params = params.aggregator
@@ -226,6 +282,16 @@ class JAXVGGTFeatureExtractor:
         self._finalize_static_budget_override()
         self._configure_camera_cache(max_camera_frames)
         self._compile_apply_functions()
+
+        # Last-frame aggregator outputs + raw image, retained so an occasional
+        # PLY snapshot (write_point_cloud_ply) can run the point head without
+        # re-running the aggregator. Only references (JAX arrays are immutable);
+        # overwritten each extract(). The camera head is never invoked for
+        # dumps, so _past_kvs_camera stays unallocated under PERSIST_SCENE.
+        self._last_out_list: list[jnp.ndarray] | None = None
+        self._last_images: jnp.ndarray | None = None
+        self._last_patch_start_idx: jnp.ndarray | None = None
+        self._last_rgb: np.ndarray | None = None
 
         self.reset()
         self._warmup()
@@ -386,7 +452,7 @@ class JAXVGGTFeatureExtractor:
         out0[0][-1].block_until_ready()
 
         # Frame 1: reuse returned cache to compile the "is_first_frame=False" graph.
-        _, _, past1, last1 = out0
+        out_list0, patch_start_idx0, past1, last1 = out0
         # Keep same budget (same last_scores pre-eviction) so shapes match.
         out1 = self._aggregator_apply(
             self._agg_params,
@@ -400,11 +466,24 @@ class JAXVGGTFeatureExtractor:
         )
         out1[0][-1].block_until_ready()
 
+        if not self._compute_heads:
+            return
+
         # Camera-head warmup: single graph covers all frames since the padded
         # cache keeps shapes stable regardless of valid_len.
         past_cam0 = [self._new_padded_camera_entry() for _ in range(self._cam_depth)]
-        pose_list_w, _ = self._camera_head_apply(self._cam_params, out0[0], past_cam0)
+        pose_list_w, _ = self._camera_head_apply(self._cam_params, out_list0, past_cam0)
         pose_list_w[-1].block_until_ready()
+
+        # Point-head warmup: unlike the aggregator and camera head, this was not
+        # exercised above, so the first real extract() paid the DPT JIT cost.
+        pts3d_w, _ = self._point_head_apply(
+            self._pt_params,
+            out_list0,
+            dummy,
+            int(np.asarray(patch_start_idx0)),
+        )
+        pts3d_w.block_until_ready()
 
     # ------------------------------------------------------------------
     # Public cache view (_past_kvs property).
@@ -468,6 +547,101 @@ class JAXVGGTFeatureExtractor:
         self._past_kvs_camera: list[CacheEntry] | None = None
         self._frame_idx: int = 0
 
+    def save_cache(self) -> AggregatorCacheSnapshot:
+        """Snapshot the current streaming state (the four cache fields).
+
+        Returns an :class:`AggregatorCacheSnapshot` holding references to the
+        live arrays — no device-memory copy. Safe because JAX arrays are
+        immutable and the extractor reassigns these fields each frame rather
+        than mutating them. Use to persist the VGGT attention stream across
+        episodes/agents of one scene (HANDOFF.md §4.3).
+        """
+        return AggregatorCacheSnapshot(
+            past_kvs_padded=(
+                tuple(self._past_kvs_padded) if self._past_kvs_padded is not None else None
+            ),
+            last_scores=self._last_scores,
+            past_kvs_camera=(
+                tuple(self._past_kvs_camera) if self._past_kvs_camera is not None else None
+            ),
+            frame_idx=self._frame_idx,
+        )
+
+    def load_cache(self, snapshot: AggregatorCacheSnapshot) -> None:
+        """Restore streaming state from a snapshot produced by ``save_cache``.
+
+        Restores the four fields verbatim. The caller is responsible for
+        ensuring the snapshot came from a compatible extractor (same
+        ``total_budget`` / ``max_camera_frames`` configuration), otherwise the
+        padded cache shapes will not match the compiled apply functions.
+        """
+        self._past_kvs_padded = (
+            list(snapshot.past_kvs_padded) if snapshot.past_kvs_padded is not None else None
+        )
+        self._last_scores = snapshot.last_scores
+        self._past_kvs_camera = (
+            list(snapshot.past_kvs_camera) if snapshot.past_kvs_camera is not None else None
+        )
+        self._frame_idx = snapshot.frame_idx
+
+    def reset_for_scene(self, scene_id: str) -> None:
+        """Mode-aware reset at an episode boundary.
+
+        Under ``ResetMode.FULL`` (default) this is identical to :meth:`reset` —
+        the streaming state is wiped every episode, matching the existing
+        training behaviour.
+
+        Under ``ResetMode.PERSIST_SCENE`` the current scene's state is saved
+        (keyed by ``scene_id``) and the incoming scene's saved state is
+        restored, or a fresh cache is started if the scene has not been seen
+        before. Same-scene episodes thus resume the VGGT attention stream
+        instead of re-anchoring. The camera-head cache is bounded by a sliding
+        window (``_check_camera_cache_capacity`` -> ``_evict_oldest_camera_frame``,
+        commit 6977127), so long per-scene streams no longer raise; the remaining
+        cost is the per-frame eviction concat (HANDOFF.md R5) once
+        ``max_camera_frames`` fills — watch the step-time regression vs the FULL
+        baseline when enabling this for long runs.
+
+        Args:
+          scene_id: Identifier for the incoming scene. When it matches the
+            current scene the call is a no-op.
+
+        Returns:
+          None.
+        """
+        if self._reset_mode is ResetMode.FULL:
+            self.reset()
+            return
+        # PERSIST_SCENE: only save/restore when the scene actually changes.
+        if self._current_scene_id == scene_id:
+            return
+        if self._current_scene_id is not None:
+            self._scene_cache_store[self._current_scene_id] = self.save_cache()
+        self._current_scene_id = scene_id
+        saved = self._scene_cache_store.get(scene_id)
+        if saved is not None:
+            self.load_cache(saved)
+        else:
+            self.reset()
+
+    def _image_from_extract_input(
+        self, source: np.ndarray | ObservationFrame
+    ) -> np.ndarray:
+        """Resolve either a raw CHW frame or an ObservationFrame to image input."""
+        if isinstance(source, ObservationFrame):
+            if source.is_first:
+                # Scene-aware episode reset. Under ``ResetMode.FULL`` this is
+                # identical to ``self.reset()``. Under ``PERSIST_SCENE`` it
+                # saves the outgoing scene's cache and restores the incoming
+                # one. The reset lives here (not in the trainer's
+                # ``on_episode_reset`` callback) because only the frame carries
+                # the incoming ``scene_id`` the restore needs.
+                self.reset_for_scene(
+                    getattr(source, "scene_id", None) or "scene"
+                )
+            return source.image
+        return source
+
     def _prepare_input_image(self, rgb: np.ndarray) -> jnp.ndarray:
         """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
         if not isinstance(rgb, np.ndarray):
@@ -525,24 +699,67 @@ class JAXVGGTFeatureExtractor:
             ]
 
     def _check_camera_cache_capacity(self) -> None:
-        """Fail before the next camera-head write would exceed the padded cache."""
-        # Guard against silent cache overflow: dynamic_update_slice_in_dim
-        # clamps out-of-range writes, and key_value_seq_lengths > _CAM_MAX
-        # produces undefined cuDNN behavior.  Fail loud here instead.
+        """Evict the oldest camera frame when the padded cache is full.
+
+        Sliding-window replacement for the former ``RuntimeError`` guard. The
+        camera head has no internal eviction (its trunk blocks run with
+        ``cache_budget=None``, unlike the aggregator), so without this the
+        padded buffer would overflow: ``dynamic_update_slice_in_dim`` clamps
+        out-of-range writes (silently corrupting the last slot) and
+        ``key_value_seq_lengths > _CAM_MAX`` gives undefined cuDNN behaviour.
+        Instead of raising, drop one frame per new frame once full, so the
+        camera head always attends over the most recent ``max_camera_frames``
+        frames — matching the reference extractor's
+        ``k[:, :, -max_camera_tokens:, :]`` sliding window
+        (``reference/feature_extractor.py:214``). Output is byte-identical to
+        the old behaviour for the first ``max_camera_frames`` frames; only
+        behaviour past that point changes (continue instead of crash).
+        """
         max_frames = self._CAM_MAX // self._cam_num_iters
         if self._frame_idx >= max_frames:
-            raise RuntimeError(
-                f"Camera-head padded cache overflow: cannot extract frame "
-                f"{self._frame_idx + 1}, max_camera_frames={max_frames}. "
-                f"Raise max_camera_frames at construction or call reset()."
+            self._evict_oldest_camera_frame()
+
+    def _evict_oldest_camera_frame(self) -> None:
+        """Slide the camera-head cache left by one frame to make room for the next.
+
+        Drops the oldest ``_cam_num_iters`` rows (one frame's worth, 4 pose
+        iterations) from each trunk block and pads the same number of zero
+        rows at the tail, setting ``valid_len = _CAM_MAX - _cam_num_iters`` so
+        the next camera-head apply appends the new frame at the freed end and
+        ``valid_len`` returns to ``_CAM_MAX``. Net: a sliding window of the
+        last ``max_camera_frames`` frames. Run only when the cache is full.
+
+        Cost (HANDOFF.md R5): once full, one concat per trunk block per frame
+        (``_cam_depth`` blocks x 2 (k,v)). At ``_CAM_MAX=4096`` this is
+        non-trivial device traffic — watch the wall-clock regression vs. the
+        158 ms/step baseline (EXPERIMENTS E2). A circular-buffer variant would
+        avoid the copy but needs rotated reads inside the attention block.
+        """
+        if self._past_kvs_camera is None:
+            return
+        n = self._cam_num_iters
+        shifted: list[CacheEntry] = []
+        for k_pad, v_pad, valid_len in self._past_kvs_camera:
+            vl = int(np.asarray(valid_len))
+            if vl < self._CAM_MAX:
+                # Not full yet — no eviction; the apply will append and grow valid_len.
+                shifted.append((k_pad, v_pad, valid_len))
+                continue
+            k_tail = jnp.zeros_like(k_pad[:, :, :n, :])
+            v_tail = jnp.zeros_like(v_pad[:, :, :n, :])
+            k_shift = jnp.concatenate([k_pad[:, :, n:, :], k_tail], axis=2)
+            v_shift = jnp.concatenate([v_pad[:, :, n:, :], v_tail], axis=2)
+            shifted.append(
+                (k_shift, v_shift, jnp.asarray(self._CAM_MAX - n, dtype=jnp.int32))
             )
+        self._past_kvs_camera = shifted
 
     def _run_heads(
         self,
         out_list: list[jnp.ndarray],
         images: jnp.ndarray,
         patch_start_idx: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         self._ensure_camera_cache()
         self._check_camera_cache_capacity()
         pose_list, self._past_kvs_camera = self._camera_head_apply(
@@ -554,30 +771,25 @@ class JAXVGGTFeatureExtractor:
 
         # patch_start_idx is always 1 + num_register_tokens = 5; cast to Python
         # int so it can be used as a static JIT arg (JIT returns JAX scalars).
-        pts3d, _ = self._point_head_apply(
+        pts3d, conf = self._point_head_apply(
             self._pt_params,
             out_list,
             images,
             int(np.asarray(patch_start_idx)),
         )
-        return pts3d[:, 0], camera_pose
+        return pts3d[:, 0], conf[:, 0], camera_pose
 
     def _pool_head_outputs(
         self,
         pts3d: jnp.ndarray,
+        conf: jnp.ndarray,
         camera_pose: jnp.ndarray,
-        return_dense: bool,
     ) -> HeadOutputs:
-        """Pool dense point maps and unwrap the single-frame camera pose."""
-        world_points = _pool_dense_world_points(pts3d, self._wp_pool_size)
-        world_points_out = world_points[0].astype(jnp.float32)
-        camera_pose_out = camera_pose[0].astype(jnp.float32)
-        # Pre-pool dense map (N, 518, 518, 3) -> (518, 518, 3); 3D-48.
-        dense_world_points_out = pts3d[0].astype(jnp.float32) if return_dense else None
+        """Unwrap full-resolution single-frame head outputs."""
         return HeadOutputs(
-            world_points=world_points_out,
-            camera_pose=camera_pose_out,
-            dense_world_points=dense_world_points_out,
+            world_points=pts3d[0].astype(jnp.float32),
+            confidence=conf[0].astype(jnp.float32),
+            camera_pose=camera_pose[0].astype(jnp.float32),
         )
 
     def _aggregator_full_tokens(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
@@ -585,23 +797,12 @@ class JAXVGGTFeatureExtractor:
         final_tokens = out_list[-1]
         return final_tokens[0, 0].astype(jnp.float32)
 
-    def _aggregator_features(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
-        """Expose the final global-stream tokens used by VGGT encoder variants."""
-        # Final pre-head aggregator tokens for encoder ablations. The JAX port
-        # stores frame/local and global/contextual streams concatenated as
-        # 2048-d tokens for DPT heads; expose the 1024-d global stream requested
-        # by Variant 1 before camera/point heads transform it into WP+CP. Keep
-        # all VGGT-DP / VGGT-World tokens: camera + register + spatial patches.
-        final_tokens = self._aggregator_full_tokens(out_list)
-        return final_tokens[..., final_tokens.shape[-1] // 2 :]
-
     def _run_optional_heads(
         self,
         out_list: list[jnp.ndarray],
         images: jnp.ndarray,
         patch_start_idx: jnp.ndarray,
         *,
-        return_dense: bool,
         phase_times: PhaseTimes | None,
         forward_start: float,
     ) -> HeadOutputs | None:
@@ -610,19 +811,21 @@ class JAXVGGTFeatureExtractor:
             self._record_aggregator_only_profile(phase_times, forward_start)
             return None
 
-        pts3d, camera_pose = self._run_heads(out_list, images, patch_start_idx)
+        pts3d, conf, camera_pose = self._run_heads(out_list, images, patch_start_idx)
         wrapper_start = self._synchronize_heads_for_profile(
             pts3d,
+            conf,
             camera_pose,
             phase_times,
         )
-        head_outputs = self._pool_head_outputs(pts3d, camera_pose, return_dense)
+        head_outputs = self._pool_head_outputs(pts3d, conf, camera_pose)
         self._record_head_profile(phase_times, forward_start, wrapper_start)
         return head_outputs
 
     def _synchronize_heads_for_profile(
         self,
         pts3d: jnp.ndarray,
+        conf: jnp.ndarray,
         camera_pose: jnp.ndarray,
         phase_times: PhaseTimes | None,
     ) -> float:
@@ -630,6 +833,7 @@ class JAXVGGTFeatureExtractor:
         if phase_times is None:
             return 0.0
         pts3d.block_until_ready()
+        conf.block_until_ready()
         camera_pose.block_until_ready()
         return time.perf_counter()
 
@@ -661,68 +865,156 @@ class JAXVGGTFeatureExtractor:
     def _build_extract_output(
         self,
         *,
-        aggregator_full_tokens: jnp.ndarray,
-        aggregator_features: jnp.ndarray,
+        frame_tokens: jnp.ndarray,
+        global_tokens: jnp.ndarray,
         head_outputs: HeadOutputs | None,
-        return_dense: bool,
     ) -> ExtractOutput:
-        """Build the public output dict without changing legacy key names."""
+        """Build the public structured output."""
         if self._compute_heads:
             if head_outputs is None:
                 raise RuntimeError("head outputs missing while compute_heads=True")
-            out = {
-                "world_points": head_outputs.world_points,
-                "camera_pose": head_outputs.camera_pose,
-                "aggregator_features": aggregator_features,
-                "aggregator_full_tokens": aggregator_full_tokens,
-            }
-            if return_dense:
-                if head_outputs.dense_world_points is None:
-                    raise RuntimeError("dense world points missing")
-                out["dense_world_points"] = head_outputs.dense_world_points
-            return out
-        return {
-            "aggregator_features": aggregator_features,
-            "aggregator_full_tokens": aggregator_full_tokens,
-        }
+            return VGGTExtractOutput(
+                world_points=head_outputs.world_points,
+                confidence=head_outputs.confidence,
+                camera_pose=head_outputs.camera_pose,
+                frame_tokens=frame_tokens,
+                global_tokens=global_tokens,
+            )
+        # Heads disabled: no point map / confidence / camera pose for this frame.
+        # The dataclass fields stay non-optional so head-enabled consumers need no
+        # None guards.
+        return VGGTExtractOutput(
+            world_points=None,  # type: ignore[arg-type]
+            confidence=None,  # type: ignore[arg-type]
+            camera_pose=None,  # type: ignore[arg-type]
+            frame_tokens=frame_tokens,
+            global_tokens=global_tokens,
+        )
 
     def extract(
         self,
-        rgb: np.ndarray,
+        source: np.ndarray | ObservationFrame,
         phase_times: PhaseTimes | None = None,
         return_dense: bool = False,
     ) -> ExtractOutput:
-        """Single-frame streaming inference.
+        """Single-frame streaming inference from an ObservationFrame or CHW image.
 
-        When ``return_dense`` is True the result dict additionally carries
-        ``dense_world_points`` — the pre-pool DPT point map at full
-        518x518x3 resolution (one 3D point per pixel, the paper's
-        "pixel-as-point" map). Diagnostic only (see issue 3D-48); the
-        default path is unaffected and does not materialize it.
+        Passing an ``ObservationFrame`` is the preferred high-level path: the
+        extractor resets its stream when ``source.is_first`` is true and then
+        consumes ``source.image``. Passing a raw ``(3, 518, 518)`` uint8 array is
+        still the low-level path for profiling and fixtures.
+
+        The returned ``world_points`` field is the full 518x518x3 point map
+        when heads are enabled. ``return_dense`` is accepted for call-site
+        compatibility and no longer changes the output contract.
         """
         forward_start = time.perf_counter() if phase_times is not None else 0.0
+        del return_dense
 
+        rgb = self._image_from_extract_input(source)
         images = self._prepare_input_image(rgb)
         self._ensure_aggregator_cache()
         budgets_static = self._resolve_static_budgets()
         out_list, patch_start_idx = self._run_aggregator(images, budgets_static)
 
+        # Retain this frame for an optional PLY snapshot (point head only).
+        self._last_out_list = out_list
+        self._last_images = images
+        self._last_patch_start_idx = patch_start_idx
+        self._last_rgb = rgb
+
         head_outputs = self._run_optional_heads(
             out_list,
             images,
             patch_start_idx,
-            return_dense=return_dense,
             phase_times=phase_times,
             forward_start=forward_start,
         )
         aggregator_full_tokens = self._aggregator_full_tokens(out_list)
-        aggregator_features = aggregator_full_tokens[
-            ..., aggregator_full_tokens.shape[-1] // 2 :
-        ]
+        token_split = aggregator_full_tokens.shape[-1] // 2
+        frame_tokens = aggregator_full_tokens[..., :token_split]
+        global_tokens = aggregator_full_tokens[..., token_split:]
         self._frame_idx += 1
         return self._build_extract_output(
-            aggregator_full_tokens=aggregator_full_tokens,
-            aggregator_features=aggregator_features,
+            frame_tokens=frame_tokens,
+            global_tokens=global_tokens,
             head_outputs=head_outputs,
-            return_dense=return_dense,
+        )
+
+    def write_point_cloud_ply(self, path: str) -> None:
+        """Write the latest frame's point cloud (xyz + rgb) as an ASCII PLY.
+
+        Diagnostics only (src/prototyp/house_global_embedding/IDEA.md "Point-
+        Cloud Snapshots"). Runs the VGGT point head on the retained aggregator
+        outputs of the last ``extract()`` call. The camera head is never
+        invoked, so the camera-head KV-cache stays unallocated under
+        ``ResetMode.PERSIST_SCENE`` (the unbounded-growth risk is avoided by
+        construction). NumPy is used only at the file-writing boundary; the
+        point head itself runs in JAX on device.
+
+        With ``compute_heads=False`` the point head is not warmed up, so the
+        first dump pays the DPT JIT cost — acceptable for an infrequent
+        diagnostic.
+
+        Args:
+          path: Output ``.ply`` path. Parent directories are created.
+
+        Raises:
+          RuntimeError: If called before any ``extract()`` has retained a frame.
+        """
+        if self._last_out_list is None or self._last_images is None:
+            raise RuntimeError("write_point_cloud_ply called before any extract()")
+        patch_start_idx = int(np.asarray(self._last_patch_start_idx))
+        pts3d, _conf = self._point_head_apply(
+            self._pt_params,
+            self._last_out_list,
+            self._last_images,
+            patch_start_idx,
+        )
+        # pts3d raw: (1, seq, H, W, 3); pts3d[:, 0] -> (1, H, W, 3) (reference
+        # feature_extractor.py:225 drops the sequence dim the same way).
+        xyz = np.asarray(pts3d[:, 0][0], dtype=np.float32)  # (H, W, 3)
+        rgb_chw = np.asarray(self._last_rgb)  # (3, H, W) uint8
+        rgb = np.transpose(rgb_chw, (1, 2, 0))  # (H, W, 3)
+        self._write_ascii_ply_xyzrgb(path, xyz.reshape(-1, 3), rgb.reshape(-1, 3))
+
+    @staticmethod
+    def _write_ascii_ply_xyzrgb(
+        path: str, xyz: np.ndarray, rgb: np.ndarray
+    ) -> None:
+        """Write an ASCII XYZRGB PLY round-trip-compatible with the reader.
+
+        The reader (``static_house_context.load_ascii_ply_xyzrgb``) requires
+        the ``x, y, z, red, green, blue`` vertex properties.
+
+        Args:
+          path: Output ``.ply`` path; parent directories are created.
+          xyz: ``(N, 3)`` float vertex coordinates.
+          rgb: ``(N, 3)`` uint8 or float ``[0, 1]`` vertex colours.
+        """
+        n = int(xyz.shape[0])
+        rgb_u8 = (
+            rgb
+            if rgb.dtype == np.uint8
+            else np.clip(rgb, 0.0, 1.0).astype(np.float32) * 255.0
+        ).astype(np.uint8)
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        rows = np.concatenate(
+            [xyz.astype(np.float32, copy=False), rgb_u8], axis=1
+        )  # (N, 6)
+        header = (
+            "ply\nformat ascii 1.0\n"
+            f"element vertex {n}\n"
+            "property float x\nproperty float y\nproperty float z\n"
+            "property uchar red\nproperty uchar green\nproperty uchar blue\n"
+            "end_header"
+        )
+        np.savetxt(
+            path,
+            rows,
+            fmt=("%.6f", "%.6f", "%.6f", "%d", "%d", "%d"),
+            header=header,
+            comments="",
         )

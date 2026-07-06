@@ -26,15 +26,14 @@ external/*
 uv.lock
 
 # Claude Code — personal/temporary files
-.claude/settings.local.json
-.claude/worktrees/
-.claude/memory/
-.claude/knowledge/
-.claude/scheduled_tasks.lock
-
+.claude/
 # agent-loop workspace
 .agent_loop/
 .agent/
+
+# Scratchpad workspace and local policy logs
+scratchpad/
+.pi/
 
 # Manim partial movie files
 media/videos/*/partial_movie_files/
@@ -47,6 +46,9 @@ archiv/
 Baseline
 Goal Condition
 
+# Zed runtime/debug state
+.zed/
+
 # Personal documents
 antrag_masterarbeit_*.pdf
 external/
@@ -58,3 +60,13 @@ logs/
 artifacts/
 .cache/
 worktrees/
+scripts/dev
+.zed
+.pi
+src/prototyp/
+tests/prototyp/
+
+# Local markdown issue tracker (docs/agents/issue-tracker.md)
+.scratch/
+.agents/
+skills-lock.json

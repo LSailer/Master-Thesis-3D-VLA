@@ -22,21 +22,21 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
+from src.configs.config import R2DreamerConfig
+from src.environments.habitat import build_habitat_env
+from src.r2dreamer.adapters import ObsAdapter
+from src.r2dreamer.agent import R2DreamerAgent
 from src.shared.profiling import (
     init_phase_times,
     summarize_values_ms,
     timed,
     write_json,
 )
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.environments.habitat import build_habitat_env
-from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.adapters import ObsAdapter
-from src.r2dreamer.obs_batch import ObservationPacker
-from src.r2dreamer.trainer import convert_batch
 
-VGGT_FEATURE_DIM = 4116  # 37*37*3 + 9 — matches the vggt encoder (run id habitat-l1-vggt)
+VGGT_FEATURE_DIM = (
+    4116  # 37*37*3 + 9 — matches the vggt encoder (run id habitat-l1-vggt)
+)
 
 
 # 7-phase list locked in PRD #74.
@@ -63,9 +63,11 @@ class RunResult:
 
 
 def _build_cnn(
-    seed: int, curriculum_path: str | None,
+    seed: int,
+    curriculum_path: str | None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
-    from src.r2dreamer.world_model.encoders import ConvEncoder
+    from src.r2dreamer.encoders.cnn import ConvEncoder
+
     agent_cfg = R2DreamerConfig(
         encoder_type="cnn",
         encoder_module_cls=ConvEncoder,
@@ -81,7 +83,10 @@ def _build_cnn(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    buffer = ReplayBuffer(agent_cfg)
+    buffer = ReplayBuffer(
+        capacity=agent_cfg.buffer_capacity,
+        num_actions=agent_cfg.num_actions,
+    )
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     obs_adapter = ObsAdapter()
@@ -94,12 +99,14 @@ def _flatten_vggt(out: dict) -> jnp.ndarray:
     Duplicated from the vggt encoder's flatten readout to keep this self-contained.
     """
     wp = out["world_points"].reshape(-1)  # (4107,)
-    cp = out["camera_pose"]              # (9,)
+    cp = out["camera_pose"]  # (9,)
     return jnp.concatenate([wp, cp]).astype(jnp.float32)
 
 
 def _build_vggt(
-    seed: int, curriculum_path: str | None, render_resolution: int,
+    seed: int,
+    curriculum_path: str | None,
+    render_resolution: int,
     compile: bool = False,
     compile_mode: str | None = None,
 ) -> tuple[Any, Any, Any, ObsAdapter, R2DreamerConfig, Any]:
@@ -107,12 +114,14 @@ def _build_vggt(
     obs_adapter with on_episode_reset hook wired to extractor.reset, and the
     raw VGGTFeatureExtractor (needed by the loop for instrumented extract calls).
     """
-    from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor as VGGTFeatureExtractor
-    from src.r2dreamer.world_model.encoders import VGGTEncoder as VGGTEncoderModule
+    from src.r2dreamer.encoders.mlp import MLPEncoder
+    from src.vggt.jax.feature_extractor import (
+        JAXVGGTFeatureExtractor as VGGTFeatureExtractor,
+    )
 
     agent_cfg = R2DreamerConfig(
         encoder_type="vggt",
-        encoder_module_cls=VGGTEncoderModule,
+        encoder_module_cls=MLPEncoder,
         obs_shape=(VGGT_FEATURE_DIM,),
         num_actions=4,
         batch_size=16,
@@ -125,9 +134,13 @@ def _build_vggt(
         curriculum_path=curriculum_path,
         curriculum_mode="train",
     )
-    print(f"Loading InfiniteVGGT model (compile={compile}, compile_mode={compile_mode!r})...")
+    print(
+        f"Loading InfiniteVGGT model (compile={compile}, compile_mode={compile_mode!r})..."
+    )
     extractor = VGGTFeatureExtractor(
-        device="cuda", compile=compile, compile_mode=compile_mode,
+        device="cuda",
+        compile=compile,
+        compile_mode=compile_mode,
     )
     print("InfiniteVGGT loaded.")
 
@@ -139,12 +152,10 @@ def _build_vggt(
         normalize_on_sample=False,
         on_episode_reset=extractor.reset,
     )
-    buffer = ReplayBuffer(BufferConfig(
+    buffer = ReplayBuffer(
         capacity=agent_cfg.buffer_capacity,
-        obs_shape=(VGGT_FEATURE_DIM,),
-        obs_dtype="float32",
-        normalize_obs=False,
-    ))
+        num_actions=agent_cfg.num_actions,
+    )
     init_key = jax.random.PRNGKey(seed)
     agent = R2DreamerAgent(agent_cfg, init_key)
     return env, agent, buffer, obs_adapter, agent_cfg, extractor
@@ -162,11 +173,15 @@ def run_loop(
 ) -> RunResult:
     if encoder == "cnn":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_cnn(
-            seed, curriculum_path,
+            seed,
+            curriculum_path,
         )
     elif encoder == "vggt":
         env, agent, buffer, obs_adapter, acfg, extractor = _build_vggt(
-            seed, curriculum_path, render_resolution, compile=compile,
+            seed,
+            curriculum_path,
+            render_resolution,
+            compile=compile,
             compile_mode=compile_mode,
         )
     else:
@@ -180,7 +195,6 @@ def run_loop(
     episode_count = 0
 
     rng_key = jax.random.PRNGKey(seed + 1)
-    packer = ObservationPacker(acfg)
 
     def transform(obs_dict: dict) -> tuple[np.ndarray, dict]:
         """Build (buffer_obs, agent_obs). For VGGT, time VGGT phases inline."""
@@ -195,7 +209,10 @@ def run_loop(
         features_jax = _flatten_vggt(out)
         features_np = np.asarray(features_jax)
         phase_times["vggt_wrapper"][-1] += (time.perf_counter() - t0) * 1000.0
-        agent_obs = {"features": features_jax, "is_first": obs_dict.get("is_first", False)}
+        agent_obs = {
+            "features": features_jax,
+            "is_first": obs_dict.get("is_first", False),
+        }
         return features_np, agent_obs
 
     def do_reset() -> tuple[dict, np.ndarray, dict]:
@@ -227,10 +244,7 @@ def run_loop(
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(
-                buffer_obs, action, next_obs["reward"],
-                next_obs["done"], terminal=(next_obs.get("success", 0.0) > 0),
-            )
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
         total_steps += 1
         total_reward += next_obs["reward"]
 
@@ -251,18 +265,14 @@ def run_loop(
             probe_jax_upload(buffer_obs)
 
         with timed(phase_times, "wm_inference"):
-            encoder_obs = packer.from_step(agent_obs)
-            action = agent.act(encoder_obs, agent_obs["is_first"], act_key)
+            action = agent.act(agent_obs, agent_obs["is_first"], act_key)
 
         with timed(phase_times, "env_step"):
             next_obs = env.step(action)
         next_buffer_obs, next_agent_obs = transform(next_obs)
 
         with timed(phase_times, "buffer_add"):
-            buffer.add(
-                buffer_obs, action, next_obs["reward"],
-                next_obs["done"], terminal=(next_obs.get("success", 0.0) > 0),
-            )
+            buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
         total_steps += 1
         total_reward += next_obs["reward"]
 
@@ -278,7 +288,6 @@ def run_loop(
                 rng_key, train_key = jax.random.split(rng_key)
                 with timed(phase_times, "wm_training"):
                     batch = buffer.sample(acfg.batch_size, acfg.seq_len)
-                    batch = convert_batch(batch, acfg.num_actions)
                     _ = agent.train_step(batch, train_key)
                 train_credit -= 1.0
 
@@ -396,11 +405,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curriculum_path", type=str, default=None)
     parser.add_argument(
-        "--render_resolution", type=int, default=518,
+        "--render_resolution",
+        type=int,
+        default=518,
         help="Habitat render resolution (VGGT only; ignored for CNN).",
     )
     parser.add_argument(
-        "--compile", action="store_true",
+        "--compile",
+        action="store_true",
         help="Apply torch.compile to VGGT sub-modules (VGGT only).",
     )
     parser.add_argument(

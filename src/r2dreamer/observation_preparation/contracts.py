@@ -16,8 +16,12 @@ from typing import Any
 import flax.linen as nn
 import numpy as np
 
-from src.r2dreamer.config import ObservationRunConfig
-
+from src.configs.config import ObservationRunConfig
+from src.r2dreamer.observation_keys import (
+    FULL_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
+    HYBRID_IMAGE_KEY,
+)
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]
 ContractSnapshot = dict[str, Any]
@@ -45,12 +49,61 @@ def _tuple_value(config: Any, name: str) -> tuple[int, ...]:
     return tuple(getattr(config, name))
 
 
+# Encoder Module classes with a dedicated kwargs branch below. Matched by
+# name (not issubclass) so this module stays import-free of the encoder
+# packages, which import contract machinery themselves.
+_HANDLED_ENCODER_CLASS_NAMES = frozenset(
+    {
+        "ConvEncoder",
+        "WP64CNNCPMLPEncoder",
+        "HybridEncoder",
+        "HousePointsCameraEncoder",
+        "HybridHousePointsCameraEncoder",
+        "HouseGlobalEmbeddingEncoder",
+        "TokenTransformerEncoder",
+    }
+)
+
+
+def _kwargs_dispatch_name(encoder_module_cls: type) -> str:
+    """Return the nearest handled class name along the MRO.
+
+    Subclasses (e.g. the GNN variants of ``HousePointsCameraEncoder``)
+    inherit their parent's constructor kwargs, so dispatch walks the MRO
+    and picks the first ancestor with a dedicated kwargs branch — the
+    name-matching equivalent of an ``issubclass`` chain ordered
+    most-derived-first.
+
+    Args:
+      encoder_module_cls: The Encoder Module class to resolve kwargs for.
+
+    Returns:
+      The matched ancestor's class name, or the class's own name when no
+      ancestor has a dedicated branch (falls through to the MLP tail).
+    """
+    for base in encoder_module_cls.__mro__:
+        if base.__name__ in _HANDLED_ENCODER_CLASS_NAMES:
+            return base.__name__
+    return encoder_module_cls.__name__
+
+
 def encoder_module_kwargs_from_config(
     config: Any,
     encoder_module_cls: type,
 ) -> dict[str, Any]:
-    """Resolve Encoder Module constructor kwargs from an effective config."""
-    class_name = encoder_module_cls.__name__
+    """Resolve Encoder Module constructor kwargs from an effective config.
+
+    Dispatch is subclass-aware: a class without its own branch inherits the
+    kwargs of its nearest handled ancestor (see ``_kwargs_dispatch_name``).
+
+    Args:
+      config: Effective agent config (``R2DreamerConfig`` or equivalent).
+      encoder_module_cls: The Encoder Module class to be constructed.
+
+    Returns:
+      Constructor kwargs for ``encoder_module_cls``.
+    """
+    class_name = _kwargs_dispatch_name(encoder_module_cls)
     if class_name == "ConvEncoder":
         kwargs = {
             "depth": int(config.encoder_depth),
@@ -82,6 +135,73 @@ def encoder_module_kwargs_from_config(
             "vggt_embed_dim": int(config.vggt_embed_dim),
             "mlp_hidden": int(config.mlp_vggt_hidden),
             "mlp_layers": int(config.mlp_vggt_layers),
+            "vggt_dim": int(config.vggt_feature_dim),
+        }
+    if class_name == "HousePointsCameraEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+            "point_hidden": int(config.mlp_vggt_hidden),
+            "point_layers": int(config.mlp_vggt_layers),
+        }
+    if class_name == "HybridHousePointsCameraEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+            "point_hidden": int(config.mlp_vggt_hidden),
+            "point_layers": int(config.mlp_vggt_layers),
+            "cnn_depth": int(config.encoder_depth),
+            "cnn_kernel": int(config.encoder_kernel),
+            "cnn_mults": _tuple_value(config, "encoder_mults"),
+        }
+    if class_name == "HouseGlobalEmbeddingEncoder":
+        # token_dim (1024) and num_patch_tokens (1369) use the module defaults
+        # — they are fixed by the VGGT global-half token layout.
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "reducer_hidden": int(config.mlp_vggt_hidden),
+            "reducer_layers": int(config.mlp_vggt_layers),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+        }
+    if class_name == "TokenTransformerEncoder":
+        common = {
+            "embed_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_tokens": int(config.vggt_token_count),
+            "layers": int(config.vggt_token_transformer_layers),
+            "heads": int(config.vggt_token_transformer_heads),
+            "mlp_ratio": int(config.vggt_token_transformer_mlp_ratio),
+            "dropout": float(config.vggt_token_transformer_dropout),
+        }
+        if getattr(config, "encoder_type", None) == "vggt_agg_token_transformer":
+            return {
+                **common,
+                "model_dim": int(config.vggt_token_projection_dim),
+                "readout": "camera_register_patch",
+                "norm_kind": "rms",
+                "activation": "silu",
+                "keep_register_tokens": bool(config.vggt_keep_register_tokens),
+            }
+        token_key = FULL_TOKENS_KEY
+        singleton_tokens = False
+        if getattr(config, "encoder_type", None) == "vggt_house_global_tokens_nogate":
+            token_key = GLOBAL_TOKENS_KEY
+            singleton_tokens = True
+        return {
+            **common,
+            "model_dim": None,
+            "readout": "mean",
+            "norm_kind": "layer",
+            "activation": "gelu",
+            "token_key": token_key,
+            "image_key": HYBRID_IMAGE_KEY,
+            "singleton_tokens": singleton_tokens,
+            "cnn_depth": int(config.encoder_depth),
+            "cnn_kernel": int(config.encoder_kernel),
+            "cnn_mults": _tuple_value(config, "encoder_mults"),
         }
     return {
         "embed_dim": int(config.vggt_embed_dim),

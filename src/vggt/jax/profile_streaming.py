@@ -32,9 +32,8 @@ import numpy as np
 from src.shared.profiling import make_synthetic_rgb_frame
 from src.vggt.jax.feature_extractor import (
     JAXVGGTFeatureExtractor,
-    _adaptive_avg_pool_518_to_37,
+    _pool_dense_world_points,
 )
-
 
 WARMUP_FRAMES = 3
 PHASES = ("input_prep", "aggregator", "camera_head", "point_head", "pool_transfer")
@@ -117,9 +116,9 @@ def _profile_one_frame(
     pts3d.block_until_ready()
     t["point_head"] = (time.perf_counter() - t0) * 1000.0
 
-    # 5. Pool 518->37 + JAX -> numpy host transfer.
+    # 5. Pool dense points + transfer head outputs to host arrays.
     t0 = time.perf_counter()
-    world_points = _adaptive_avg_pool_518_to_37(pts3d)
+    world_points = _pool_dense_world_points(pts3d, ext.wp_pool_size)
     world_points_np = np.asarray(world_points[0], dtype=np.float32)
     camera_pose_np = np.asarray(camera_pose[0], dtype=np.float32)
     t["pool_transfer"] = (time.perf_counter() - t0) * 1000.0
@@ -127,7 +126,8 @@ def _profile_one_frame(
     ext._frame_idx += 1
 
     # Touch outputs so the consumer can verify shapes if needed.
-    assert world_points_np.shape == (37, 37, 3)
+    expected_world_points_shape = (ext.wp_pool_size, ext.wp_pool_size, 3)
+    assert world_points_np.shape == expected_world_points_shape
     assert camera_pose_np.shape == (9,)
 
     return t

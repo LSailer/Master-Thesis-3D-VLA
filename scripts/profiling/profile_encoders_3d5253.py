@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import jax
 import jax.numpy as jnp
 
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.shared.profiling import make_synthetic_rgb_frame, measure_ms
 
@@ -37,8 +37,7 @@ def make_batch(cfg):
         "actions": jax.nn.one_hot(jnp.zeros((B, T), jnp.int32), cfg.num_actions),
         "rewards": jnp.zeros((B, T)),
         "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-        "is_last": jnp.zeros((B, T)),
-        "is_terminal": jnp.zeros((B, T)),
+        "is_episode_end": jnp.zeros((B, T)),
     }
 
 

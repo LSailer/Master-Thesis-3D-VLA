@@ -10,7 +10,7 @@ from src.r2dreamer.launch.evaluate import (
 )
 from src.r2dreamer.observation_preparation import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import PreparedObservation
-from src.r2dreamer.world_model import encoders as wm_encoders
+from src.r2dreamer.encoders.cnn import ConvEncoder
 
 
 def test_find_manifest_next_to_checkpoint(tmp_path):
@@ -49,7 +49,7 @@ def test_load_arch_overrides_recovers_encoder_input_contract_from_manifest(tmp_p
 
     assert overrides["obs_shape"] == (3, 64, 64)
     assert overrides["encoder_type"] == "cnn"
-    assert overrides["encoder_module_cls"] is wm_encoders.ConvEncoder
+    assert overrides["encoder_module_cls"] is ConvEncoder
     assert overrides["encoder_input_contract"]["encoder_module_kwargs"] == {}
 
 
@@ -89,7 +89,7 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
         def transform(self, obs):
             return None, f"agent-{obs['id']}"
 
-        def prepare_env_step(self, obs, _packer):
+        def prepare_env_step(self, obs):
             _, encoder_obs = self.transform(obs)
             return PreparedObservation(
                 replay_obs=None, encoder_obs=encoder_obs, is_first=False
@@ -106,7 +106,7 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
             self.seen.append(encoder_obs)
             return 1, state
 
-    def _fake_start_episode(env_instance, adapter, _packer):
+    def _fake_start_episode(env_instance, adapter):
         obs = {"id": "initial", "done": False, "reward": 0.0, "success": 0.0, "spl": 0.0}
         _, encoder_obs = adapter.transform(obs)
         return (

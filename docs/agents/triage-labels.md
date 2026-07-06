@@ -1,19 +1,17 @@
 # Triage Labels
 
-The skills speak in terms of five canonical triage roles. This repo maps agent delegation roles to Linear labels plus workflow state.
+The skills speak in terms of five canonical triage roles. This file maps those roles to the actual label strings used in this repo's issue tracker.
 
-Known Linear labels for `3D-WM-ObjectNAV` include `experiment-run`, `Feature`, `Bug`, and `Improvement`; these are type/context labels, not triage roles.
+In this repo the tracker is local markdown (see `issue-tracker.md`), so a "label" is the value of the `Status:` line near the top of an issue file.
 
-| Role in mattpocock/skills | Linear mapping | Meaning |
-| ------------------------- | -------------- | ------- |
-| `needs-triage` | State `Backlog` | Maintainer needs to evaluate the issue. |
-| `needs-info` | Blocker relation or comment; leave workflow state unchanged unless another rule applies | Waiting on reporter or external information. |
-| `ready-for-agent` | Linear label `ready-for-agent` and state `Backlog` or `Todo` | Fully specified, ready for an AFK agent. |
-| `needs-human` | Linear label `needs-human`; use blocker relations when it blocks another issue | Requires human implementation, judgement, credentials, manual validation, or an unblocking decision. |
-| `wontfix` | State `Canceled` or equivalent closed/canceled state | Will not be actioned. |
+| Label in mattpocock/skills | Label in our tracker | Meaning                                  |
+| -------------------------- | -------------------- | ---------------------------------------- |
+| `needs-triage`             | `needs-triage`       | Maintainer needs to evaluate this issue  |
+| `needs-info`               | `needs-info`         | Waiting on reporter for more information |
+| `ready-for-agent`          | `ready-for-agent`    | Fully specified, ready for an AFK agent  |
+| `ready-for-human`          | `ready-for-human`    | Requires human implementation            |
+| `wontfix`                  | `wontfix`            | Will not be actioned                     |
 
-When applying a role, update the Linear state, apply the relevant delegation label when one exists, and add a concise comment that explains the transition. Use `needs-human` for human escalation; do not use `ready-for-human`.
+When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
-If an agent cannot continue an issue because of an actionable human blocker, create or link the blocking `needs-human` subissue and mark the current issue as blocked by that subissue.
-
-When all blocking `needs-human` subissues are completed, the automation should requeue the blocked parent automatically: remove or ignore the resolved blocker relations, move the parent to `Todo`, keep or re-add `ready-for-agent`, and add a comment explaining that the human blockers were resolved.
+Edit the right-hand column to match whatever vocabulary you actually use.

@@ -5,43 +5,50 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from src.r2dreamer.config import R2DreamerConfig
-from src.r2dreamer.obs_batch import (
-    CAMERA_POSE_KEY,
-    WORLD_POINTS_KEY,
-    ObservationPacker,
-    encoder_obs_from_batch,
-)
-from src.r2dreamer.world_model.encoders import (
-    ConvEncoder,
-    RGBFullTokenTransformerEncoder,
-    VGGTAggTokenTransformerEncoder,
-    VGGTFullTokenContextTransformer,
-    VGGTEncoder,
+from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer, ReplayTransition
+from src.configs.config import R2DreamerConfig
+from src.environments.observation import ObservationFrame
+from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.r2dreamer.encoders.mlp import (
+    MLPEncoder,
     VGGTAggregatorMLPEncoder,
     WP64CNNCPMLPEncoder,
 )
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.observation_preparation.vggt_readouts import full_aggregator_tokens
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-
 
 FEATURE_DIM = 4116  # 37*37*3 + 9
 POOL_DIM = 1024
 POOLED_FEATURE_DIM = 3 * POOL_DIM  # [cam | mean_patches | max_patches]
 
 
-class TestVGGTAggTokenTransformerEncoder:
-    """Shape tests for the 3D-75 full-token Transformer encoder."""
+class _FullTokenOutput:
+    """Minimal VGGT-output object for full-token readout tests."""
+
+    world_points = None
+    camera_pose = None
+
+    def __init__(self, frame_tokens: jax.Array, global_tokens: jax.Array) -> None:
+        self.frame_tokens = frame_tokens
+        self.global_tokens = global_tokens
+
+
+class TestTokenTransformerEncoder:
+    """Shape tests for the generic token Transformer encoder."""
 
     def test_output_shape_with_reduced_token_count(self):
-        enc = VGGTAggTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
             embed_dim=64,
             token_dim=16,
             num_tokens=10,
-            projection_dim=32,
+            model_dim=32,
             layers=2,
             heads=4,
             mlp_ratio=2,
+            readout="camera_register_patch",
+            norm_kind="rms",
+            activation="silu",
             keep_register_tokens=True,
         )
         dummy = jnp.zeros((2, 10 * 16), dtype=jnp.float16)
@@ -51,13 +58,16 @@ class TestVGGTAggTokenTransformerEncoder:
         assert jnp.isfinite(out).all()
 
     def test_can_drop_register_tokens_for_future_ablation(self):
-        enc = VGGTAggTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
             embed_dim=32,
             token_dim=8,
             num_tokens=10,
-            projection_dim=16,
+            model_dim=16,
             layers=1,
             heads=4,
+            readout="camera_patch",
+            norm_kind="rms",
+            activation="silu",
             keep_register_tokens=False,
         )
         dummy = jnp.ones((1, 80), dtype=jnp.float16)
@@ -67,37 +77,43 @@ class TestVGGTAggTokenTransformerEncoder:
         assert params["params"]["pos_embed"].shape == (1, 6, 16)
 
     def test_rejects_wrong_flat_dim(self):
-        enc = VGGTAggTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
             embed_dim=32,
             token_dim=8,
             num_tokens=10,
-            projection_dim=16,
+            model_dim=16,
             heads=4,
         )
-        with pytest.raises(ValueError, match="flattened VGGT aggregator tokens"):
+        with pytest.raises(ValueError, match="expected tokens"):
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 79), dtype=jnp.float16))
 
 
-class TestVGGTFullTokenContextTransformer:
-    """Shape tests for the 3D-77 full-token context Transformer."""
+class TestFullTokenContextTransformer:
+    """Shape tests for a token-only context Transformer."""
 
     def test_full_token_source_shape(self):
-        tokens = jnp.zeros((1374, 2048), dtype=jnp.float32)
         out = full_aggregator_tokens(
-            {"aggregator_full_tokens": tokens},
+            _FullTokenOutput(
+                frame_tokens=jnp.zeros((1374, 1024), dtype=jnp.float32),
+                global_tokens=jnp.zeros((1374, 1024), dtype=jnp.float32),
+            ),
             expected_shape=(1374, 2048),
         )
         assert out.shape == (1374, 2048)
 
     def test_output_shape_with_reduced_dims_and_no_token_projection(self):
-        enc = VGGTFullTokenContextTransformer(
-            context_dim=32,
+        enc = TokenTransformerEncoder(
+            embed_dim=32,
             token_dim=16,
             num_tokens=10,
+            model_dim=None,
             layers=2,
             heads=4,
             mlp_ratio=2,
             dropout=0.0,
+            readout="mean",
+            norm_kind="layer",
+            activation="gelu",
         )
         dummy = jnp.zeros((2, 10, 16), dtype=jnp.float32)
         params = enc.init(jax.random.PRNGKey(0), dummy, train=False)
@@ -105,21 +121,21 @@ class TestVGGTFullTokenContextTransformer:
 
         assert out.shape == (2, 32)
         assert "token_proj" not in params["params"]
-        assert params["params"]["context_proj"]["kernel"].shape == (16, 32)
+        assert params["params"]["proj"]["kernel"].shape == (16, 32)
 
     def test_rejects_wrong_full_token_shape(self):
-        enc = VGGTFullTokenContextTransformer(
-            context_dim=32,
+        enc = TokenTransformerEncoder(
+            embed_dim=32,
             token_dim=16,
             num_tokens=10,
             heads=4,
         )
-        with pytest.raises(ValueError, match="full VGGT tokens"):
+        with pytest.raises(ValueError, match="expected tokens"):
             enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 10, 15), dtype=jnp.float32))
 
     def test_bfloat16_compute_keeps_transformer_activations_bfloat16(self):
-        enc = VGGTFullTokenContextTransformer(
-            context_dim=32,
+        enc = TokenTransformerEncoder(
+            embed_dim=32,
             token_dim=16,
             num_tokens=10,
             layers=1,
@@ -135,17 +151,20 @@ class TestVGGTFullTokenContextTransformer:
         assert out.dtype == jnp.bfloat16
 
 
-class TestRGBFullTokenTransformerEncoder:
-    """Shape tests for live full-token RGB+VGGT context fusion without a gate."""
+class TestRGBTokenTransformerEncoder:
+    """Shape tests for live RGB+token context fusion without a gate."""
 
     def test_accepts_image_and_live_full_tokens_without_gate(self):
-        enc = RGBFullTokenTransformerEncoder(
+        enc = TokenTransformerEncoder(
+            embed_dim=32,
             token_dim=16,
             num_tokens=10,
-            context_dim=32,
-            transformer_layers=1,
-            transformer_heads=4,
-            transformer_mlp_ratio=2,
+            model_dim=None,
+            layers=1,
+            heads=4,
+            mlp_ratio=2,
+            token_key="full_tokens",
+            image_key="image",
             cnn_depth=2,
             cnn_kernel=3,
             cnn_mults=(1, 1, 1, 1),
@@ -190,7 +209,7 @@ class TestVGGTAggregatorMLPEncoder:
         enc = VGGTAggregatorMLPEncoder(embed_dim=32)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.zeros((2, 1374, 1024), dtype=jnp.float32)
-        with pytest.raises(ValueError, match="VGGT pooled features"):
+        with pytest.raises(ValueError, match="pooled features"):
             enc.init(rng, dummy)
 
     def test_per_pool_norms_and_mlp_params(self):
@@ -203,30 +222,43 @@ class TestVGGTAggregatorMLPEncoder:
 
         assert out.shape == (2, 32)
         assert set(params["params"].keys()) == {
-            "norm_cam", "norm_mean", "norm_max", "hidden0", "norm0", "proj",
+            "norm_cam",
+            "norm_mean",
+            "norm_max",
+            "hidden0",
+            "norm0",
+            "proj",
         }
 
     def test_num_layers_stacks_blocks(self):
         # num_layers=3 -> hidden0/1/2 + norm0/1/2 + per-pool norms + proj.
-        enc = VGGTAggregatorMLPEncoder(embed_dim=32, pool_dim=8, hidden=16, num_layers=3)
+        enc = VGGTAggregatorMLPEncoder(
+            embed_dim=32, pool_dim=8, hidden=16, num_layers=3
+        )
         rng = jax.random.PRNGKey(0)
         dummy = jnp.zeros((2, 24), dtype=jnp.float32)
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (2, 32)
         assert set(params["params"].keys()) == {
-            "norm_cam", "norm_mean", "norm_max",
-            "hidden0", "hidden1", "hidden2",
-            "norm0", "norm1", "norm2",
+            "norm_cam",
+            "norm_mean",
+            "norm_max",
+            "hidden0",
+            "hidden1",
+            "hidden2",
+            "norm0",
+            "norm1",
+            "norm2",
             "proj",
         }
 
 
-class TestVGGTEncoder:
-    """Test VGGTEncoder Flax module."""
+class TestMLPEncoder:
+    """Test generic flat-feature MLP encoder."""
 
     def test_output_shape(self):
-        enc = VGGTEncoder(embed_dim=1024)
+        enc = MLPEncoder(embed_dim=1024)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.zeros((2, FEATURE_DIM))
         params = enc.init(rng, dummy)
@@ -234,7 +266,7 @@ class TestVGGTEncoder:
         assert out.shape == (2, 1024)
 
     def test_batched(self):
-        enc = VGGTEncoder(embed_dim=1024)
+        enc = MLPEncoder(embed_dim=1024)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.ones((8, FEATURE_DIM)) * 0.5
         params = enc.init(rng, dummy)
@@ -243,7 +275,7 @@ class TestVGGTEncoder:
         assert jnp.isfinite(out).all()
 
     def test_custom_embed_dim(self):
-        enc = VGGTEncoder(embed_dim=512)
+        enc = MLPEncoder(embed_dim=512)
         rng = jax.random.PRNGKey(0)
         dummy = jnp.zeros((1, FEATURE_DIM))
         params = enc.init(rng, dummy)
@@ -252,79 +284,67 @@ class TestVGGTEncoder:
 
     def test_default_is_one_hidden_block_plus_proj(self):
         # 3D-52: default depth replaces the bare linear projection with an MLP.
-        enc = VGGTEncoder(embed_dim=64, hidden=48)
+        enc = MLPEncoder(embed_dim=64, hidden=48)
         params = enc.init(jax.random.PRNGKey(0), jnp.zeros((1, FEATURE_DIM)))
         assert set(params["params"].keys()) == {"hidden0", "norm0", "proj"}
 
     def test_num_layers_three(self):
-        enc = VGGTEncoder(embed_dim=64, hidden=48, num_layers=3)
+        enc = MLPEncoder(embed_dim=64, hidden=48, num_layers=3)
         params = enc.init(jax.random.PRNGKey(0), jnp.zeros((2, FEATURE_DIM)))
         out = enc.apply(params, jnp.zeros((2, FEATURE_DIM)))
         assert out.shape == (2, 64)
         assert set(params["params"].keys()) == {
-            "hidden0", "hidden1", "hidden2", "norm0", "norm1", "norm2", "proj",
+            "hidden0",
+            "hidden1",
+            "hidden2",
+            "norm0",
+            "norm1",
+            "norm2",
+            "proj",
         }
 
     def test_num_layers_zero_is_bare_linear(self):
         # Escape hatch: depth 0 reproduces the historical single-Dense projection.
-        enc = VGGTEncoder(embed_dim=64, num_layers=0)
+        enc = MLPEncoder(embed_dim=64, num_layers=0)
         params = enc.init(jax.random.PRNGKey(0), jnp.zeros((1, FEATURE_DIM)))
         assert set(params["params"].keys()) == {"proj"}
 
 
 class TestWP64CNNCPMLPObservationBatch:
-    def test_batch_and_agent_obs_keep_structured_fields(self):
-        cfg = R2DreamerConfig(
-            encoder_type="vggt_wp64_cnn_cp_mlp",
-            obs_shape={WORLD_POINTS_KEY: (3, 64, 64), CAMERA_POSE_KEY: (9,)},
+    def test_encoder_preserves_replay_leading_dims_for_structured_fields(self):
+        enc = WP64CNNCPMLPEncoder(
+            embed_dim=16,
+            conv_depth=2,
+            conv_kernel=3,
+            conv_mults=(1, 1),
+            cp_hidden=8,
+            cp_layers=1,
         )
-        batch = {
-            "obs": {
-                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
-            }
+        obs = {
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
+            CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = ObservationPacker(cfg).from_step(
-            {
-                WORLD_POINTS_KEY: jnp.ones((3, 64, 64), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            }
-        )
+        params = enc.init(jax.random.PRNGKey(0), obs)
+        out = enc.apply(params, obs)
 
-        assert enc_obs[WORLD_POINTS_KEY].shape == (6, 3, 64, 64)
-        assert enc_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
-        assert enc_obs[CAMERA_POSE_KEY].shape == (6, 9)
-        assert enc_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
-        assert act_obs[WORLD_POINTS_KEY].shape == (1, 3, 64, 64)
-        assert act_obs[WORLD_POINTS_KEY].dtype == jnp.bfloat16
-        assert act_obs[CAMERA_POSE_KEY].shape == (1, 9)
-        assert act_obs[CAMERA_POSE_KEY].dtype == jnp.bfloat16
+        assert out.shape == (2, 3, 16)
+        assert jnp.isfinite(out).all()
 
 
 class TestVGGTObservationBatchDType:
-    def test_flat_vggt_training_obs_uses_configured_compute_dtype(self):
-        cfg = R2DreamerConfig(encoder_type="vggt", obs_shape=(FEATURE_DIM,))
-        batch = {
-            "obs": {
-                WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 37, 37), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
-            }
+    def test_flat_vggt_encoder_flattens_structured_wp_cp_internally(self):
+        enc = MLPEncoder(embed_dim=16, hidden=16, num_layers=1)
+        obs = {
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 37, 37), dtype=jnp.float16),
+            CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
         }
 
-        enc_obs = encoder_obs_from_batch(batch, cfg)
-        act_obs = ObservationPacker(cfg).from_step(
-            {
-                WORLD_POINTS_KEY: jnp.ones((3, 37, 37), dtype=jnp.float16),
-                CAMERA_POSE_KEY: jnp.ones((9,), dtype=jnp.float16),
-            }
-        )
+        params = enc.init(jax.random.PRNGKey(0), obs)
+        out = enc.apply(params, obs)
 
-        assert enc_obs.shape == (6, FEATURE_DIM)
-        assert enc_obs.dtype == jnp.bfloat16
-        assert act_obs.shape == (1, FEATURE_DIM)
-        assert act_obs.dtype == jnp.bfloat16
+        assert out.shape == (2, 3, 16)
+        assert jnp.isfinite(out).all()
 
 
 class TestWP64CNNCPMLPEncoder:
@@ -378,13 +398,16 @@ class TestConvEncoderWorldPoints:
 
 
 def _vggt_replay_buffer(capacity: int) -> ReplayBuffer:
-    return ReplayBuffer(
-        BufferConfig(
-            capacity=capacity,
-            obs_shape=(FEATURE_DIM,),
-            obs_dtype="float32",
-            normalize_obs=False,
-        )
+    return ReplayBuffer(capacity=capacity, num_actions=4)
+
+
+def _transition_frame(action: int, reward: float, done: bool) -> ObservationFrame:
+    return ObservationFrame(
+        image=np.empty((0,), dtype=np.uint8),
+        is_first=False,
+        previous_action=action,
+        reward=reward,
+        done=done,
     )
 
 
@@ -395,38 +418,48 @@ class TestVGGTFeatureReplayBuffer:
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(200):
             features = np.random.randn(FEATURE_DIM).astype(np.float32)
-            buf.add(features, action=i % 4, reward=0.1, done=(i % 50 == 49))
+            buf.add(
+                ReplayTransition.from_frame(
+                    features, _transition_frame(i % 4, 0.1, i % 50 == 49)
+                )
+            )
         assert buf.size == 200
 
         batch = buf.sample(batch_size=4, seq_len=16)
-        assert batch["obs"].shape == (4, 16, FEATURE_DIM)
-        assert batch["obs"].dtype == jnp.float32
-        assert batch["actions"].shape == (4, 16)
-        assert batch["rewards"].shape == (4, 16)
-        assert batch["is_first"].shape == (4, 16)
+        assert batch.obs.shape == (4, 16, FEATURE_DIM)
+        assert batch.obs.dtype == jnp.float32
+        assert batch.actions.shape == (4, 16, 4)
+        assert batch.rewards.shape == (4, 16)
+        assert batch.is_first.shape == (4, 16)
 
     def test_no_normalization(self):
         """VGGT features should NOT be divided by 255."""
         buf = _vggt_replay_buffer(capacity=100)
         features = np.ones(FEATURE_DIM, dtype=np.float32) * 500.0
-        buf.add(features, action=0, reward=0.0, done=False)
+        buf.add(ReplayTransition.from_frame(features, _transition_frame(0, 0.0, False)))
         # Add enough for sampling
         for _ in range(63):
-            buf.add(features, action=0, reward=0.0, done=False)
+            buf.add(
+                ReplayTransition.from_frame(features, _transition_frame(0, 0.0, False))
+            )
 
         batch = buf.sample(batch_size=1, seq_len=16)
         # Values should be 500.0, not 500/255
-        assert float(batch["obs"][0, 0, 0]) == pytest.approx(500.0)
+        assert float(batch.obs[0, 0, 0]) == pytest.approx(500.0)
 
     def test_is_first_at_boundaries(self):
         buf = _vggt_replay_buffer(capacity=1000)
         for i in range(100):
             features = np.zeros(FEATURE_DIM, dtype=np.float32)
-            buf.add(features, action=0, reward=0.0, done=(i % 20 == 19))
+            buf.add(
+                ReplayTransition.from_frame(
+                    features, _transition_frame(0, 0.0, i % 20 == 19)
+                )
+            )
 
         batch = buf.sample(batch_size=8, seq_len=16)
         # is_first should be 1.0 at t=0 of every sequence
-        assert (batch["is_first"][:, 0] == 1.0).all()
+        assert (batch.is_first[:, 0] == 1.0).all()
 
 
 class TestVGGTAgentInit:
@@ -462,8 +495,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_aggregator_mlp(self):
@@ -482,8 +514,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_agg_token_transformer_reduced_shape(self):
@@ -509,8 +540,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_wp64_cnn_cp_mlp(self):
@@ -535,8 +565,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_agent_act_vggt_wp_dense(self):
@@ -558,8 +587,7 @@ class TestVGGTAgentInit:
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
-        encoder_obs = ObservationPacker(cfg).from_step(obs_dict)
-        action = agent.act(encoder_obs, obs_dict["is_first"], act_key)
+        action = agent.act(obs_dict, obs_dict["is_first"], act_key)
         assert 0 <= action < 4
 
     def test_mlp_layers_rejected_by_conv_encoders(self):
@@ -595,16 +623,15 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
-        batch = {
-            "obs": jnp.zeros((B, T, FEATURE_DIM)),
-            "actions": jax.nn.one_hot(
+        batch = ReplayBatch(
+            obs=jnp.zeros((B, T, FEATURE_DIM)),
+            actions=jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_last": jnp.zeros((B, T)),
-            "is_terminal": jnp.zeros((B, T)),
-        }
+            rewards=jnp.zeros((B, T)),
+            is_first=jnp.zeros((B, T)).at[:, 0].set(1.0),
+            is_episode_end=jnp.zeros((B, T)),
+        )
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
         assert "total_loss" in metrics
@@ -625,16 +652,15 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
-        batch = {
-            "obs": jnp.zeros((B, T, POOLED_FEATURE_DIM)),
-            "actions": jax.nn.one_hot(
+        batch = ReplayBatch(
+            obs=jnp.zeros((B, T, POOLED_FEATURE_DIM)),
+            actions=jax.nn.one_hot(
                 jnp.zeros((B, T), dtype=jnp.int32), cfg.num_actions
             ),
-            "rewards": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)).at[:, 0].set(1.0),
-            "is_last": jnp.zeros((B, T)),
-            "is_terminal": jnp.zeros((B, T)),
-        }
+            rewards=jnp.zeros((B, T)),
+            is_first=jnp.zeros((B, T)).at[:, 0].set(1.0),
+            is_episode_end=jnp.zeros((B, T)),
+        )
         rng, train_key = jax.random.split(rng)
         metrics = agent.train_step(batch, train_key)
         assert "total_loss" in metrics

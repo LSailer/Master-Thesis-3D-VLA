@@ -41,7 +41,7 @@ def benchmark_jax_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
     import jax
     import jax.numpy as jnp
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig
+    from src.configs.config import R2DreamerConfig
 
     print(f"JAX devices: {jax.devices()}")
     print(f"JAX backend: {jax.default_backend()}")
@@ -73,10 +73,7 @@ def benchmark_jax_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
             "is_first": jnp.array(
                 np.zeros((batch_size, seq_len), dtype=np.float32)
             ),
-            "is_last": jnp.array(
-                np.zeros((batch_size, seq_len), dtype=np.float32)
-            ),
-            "is_terminal": jnp.array(
+            "is_episode_end": jnp.array(
                 np.zeros((batch_size, seq_len), dtype=np.float32)
             ),
         }
@@ -182,6 +179,7 @@ def benchmark_pytorch_r2dreamer(steps=DEFAULT_STEPS, obs_shape=OBS_SHAPE,
         ).to(dev)
         reward = torch.zeros(batch_size, seq_len, 1, dtype=torch.float32, device=dev)
         is_first = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
+        # External PyTorch Dreamer expects its original boundary key names.
         is_last = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
         is_terminal = torch.zeros(batch_size, seq_len, 1, dtype=torch.bool, device=dev)
 

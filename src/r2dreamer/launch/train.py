@@ -4,33 +4,38 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
+
+from src.environments.habitat import HabitatEnvConfig
 
 if TYPE_CHECKING:
     from src.r2dreamer.trainer import Trainer
 
 
-def _resolve_curriculum_inputs(
+def _effective_curriculum_inputs(
     *,
     env: str,
     args: Any,
     curriculum: str | None,
     env_registry: dict[str, Any],
-) -> str | None:
-    from src.r2dreamer.launch._helpers import resolve_curriculum_path
-
+) -> tuple[str | None, str | None]:
     if env not in env_registry:
         raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
 
-    curriculum_path = resolve_curriculum_path(args.curriculum_path, curriculum)
-    if env == "habitat" and curriculum_path is None:
+    effective_curriculum = (
+        args.curriculum if args.curriculum is not None else curriculum
+    )
+    curriculum_path = args.curriculum_path
+    has_curriculum = effective_curriculum is not None or curriculum_path is not None
+    if env == "habitat" and not has_curriculum:
         raise ValueError(
-            "Habitat env requires a curriculum. "
-            "Pass curriculum='L1'..'L4' to train() or --curriculum_path on CLI."
+            "Habitat env requires a curriculum. Pass curriculum='L1'..'L4', "
+            "--curriculum, or --curriculum_path."
         )
-    if env == "crafter" and curriculum_path is not None:
+    if env == "crafter" and has_curriculum:
         raise ValueError("Crafter env does not use a curriculum.")
-    return curriculum_path
+    return effective_curriculum, curriculum_path
 
 
 def _make_encoder_bundle(encoder: str, args: Any, encoder_registry: dict[str, Any]):
@@ -67,6 +72,7 @@ def _make_env_instances(
     *,
     env: str,
     args: Any,
+    curriculum: str | None,
     curriculum_path: str | None,
     encoder_spec: Any,
     env_registry: dict[str, Any],
@@ -74,20 +80,26 @@ def _make_env_instances(
     env_fn = env_registry[env]
     val_env_instance = None
     if env == "habitat":
-        env_instance = env_fn(
+        env_config = HabitatEnvConfig(
+            obs_shape=(
+                3,
+                encoder_spec.env_render_resolution,
+                encoder_spec.env_render_resolution,
+            ),
+            max_episode_steps=500,
+            split="train",
+            reward_type="geodesic_delta",
+            curriculum=curriculum,
             curriculum_path=curriculum_path,
             curriculum_mode=args.curriculum_mode,
-            seed=args.seed,
-            render_resolution=encoder_spec.env_render_resolution,
         )
-        # Val env: same curriculum JSON, eval-key set. Skip when val is off
+        env_instance = env_fn(config=env_config, seed=args.seed)
+        # Val env: same curriculum config, eval-key set. Skip when val is off
         # or the user is in train-of-train mode (curriculum_mode != "train").
         if args.val_every > 0 and args.curriculum_mode == "train":
             val_env_instance = env_fn(
-                curriculum_path=curriculum_path,
-                curriculum_mode="eval",
+                config=replace(env_config, curriculum_mode="eval"),
                 seed=args.seed,
-                render_resolution=encoder_spec.env_render_resolution,
             )
         return env_instance, val_env_instance, 4
 
@@ -118,9 +130,9 @@ def _agent_overrides_from_args(
     if args.barlow_grad_to_encoder:
         agent_overrides["barlow_stop_grad"] = False
 
-    # Latent-size ablation (3D-50): preset from the LATENT_PRESETS table, then
-    # explicit flags win.
-    preset = getattr(args, "latent_preset", "default")
+    # Model-size ablation (3D-50): preset from the LATENT_PRESETS table, then
+    # explicit RSSM-shape flags win.
+    preset = getattr(args, "latent_preset", "12m")
     agent_overrides.update(latent_presets.get(preset, {}))
     for name in (
         "deter_size",
@@ -238,7 +250,7 @@ def _make_trainer(
     trainer_config: Any,
     adapter: Any,
     trainer_cls: type,
-    habitat_defaults_fn: Any,
+    episode_metrics_cls: type,
 ):
     if env != "habitat":
         return trainer_cls(
@@ -249,18 +261,20 @@ def _make_trainer(
             obs_adapter=adapter,
         )
 
-    hab = habitat_defaults_fn(env_instance)
+    episode_metrics_fn = episode_metrics_cls(env_instance)
     val_kwargs: dict[str, object] = {}
     if val_env_instance is not None:
         # Val-Episode-Loop (3D-36) wiring: own adapter so the train
         # VGGT video buffer isn't disturbed; own tracker so val
         # rolling means stay independent of train rollouts.
         val_adapter = enc.new_adapter()
-        val_hab = habitat_defaults_fn(val_env_instance, track_collision_rate=True)
+        val_episode_metrics_fn = episode_metrics_cls(
+            val_env_instance, track_collision_rate=True
+        )
         val_kwargs = {
             "val_env": val_env_instance,
             "val_obs_adapter": val_adapter,
-            "val_episode_metrics_fn": val_hab["episode_metrics_fn"],
+            "val_episode_metrics_fn": val_episode_metrics_fn,
         }
     return trainer_cls(
         agent=agent,
@@ -268,7 +282,7 @@ def _make_trainer(
         agent_config=agent_config,
         trainer_config=trainer_config,
         obs_adapter=adapter,
-        episode_metrics_fn=hab["episode_metrics_fn"],
+        episode_metrics_fn=episode_metrics_fn,
         **val_kwargs,
     )
 
@@ -283,7 +297,7 @@ def train(
     wandb_tags: list[str] | None = None,
     argv: list[str] | None = None,
 ) -> "Trainer":
-    """Resolve (env, encoder, curriculum) via registries; parse CLI; run Trainer.run().
+    """Resolve env/encoder via registries, build configs, and run Trainer.run().
 
     Kwargs (output_dir, wandb_name, wandb_tags) are shim-supplied defaults — CLI
     flags from argparse override if provided.
@@ -293,15 +307,16 @@ def train(
     import jax
 
     from src.r2dreamer.agent import R2DreamerAgent
-    from src.r2dreamer.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
+    from src.configs.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer, habitat_defaults
+    from src.r2dreamer.trainer import Trainer
+    from src.environments.habitat_metrics import HabitatEpisodeMetrics
 
     parser = _build_parser_train()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
-    curriculum_path = _resolve_curriculum_inputs(
+    effective_curriculum, curriculum_path = _effective_curriculum_inputs(
         env=env,
         args=args,
         curriculum=curriculum,
@@ -317,6 +332,7 @@ def train(
     env_instance, val_env_instance, num_actions = _make_env_instances(
         env=env,
         args=args,
+        curriculum=effective_curriculum,
         curriculum_path=curriculum_path,
         encoder_spec=encoder_spec,
         env_registry=env_registry,
@@ -352,7 +368,7 @@ def train(
         trainer_config=trainer_config,
         adapter=adapter,
         trainer_cls=Trainer,
-        habitat_defaults_fn=habitat_defaults,
+        episode_metrics_cls=HabitatEpisodeMetrics,
     )
 
     trainer.run()

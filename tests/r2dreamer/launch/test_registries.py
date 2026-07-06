@@ -3,9 +3,36 @@
 import inspect
 import pytest
 
+from src.configs.agent_config import R2DreamerConfig
+from src.environments.habitat import (
+    HABITAT_CURRICULA,
+    HabitatEnvConfig,
+    resolve_habitat_curriculum_path,
+)
 from src.r2dreamer.encoders import Encoder, HybridEncoder
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
-from src.r2dreamer.launch.curricula import CURRICULA
+from src.r2dreamer.observation_preparation.contracts import (
+    encoder_module_kwargs_from_config,
+)
+
+
+def _registry_module_cls(encoder_cls: type[Encoder]) -> type:
+    """Resolve an Encoder selection's module class without running __init__.
+
+    ``module_cls`` is either a plain class attribute or a property that only
+    reads class-level state (the ``variant`` descriptor), so an uninitialized
+    instance suffices — full construction would build the VGGT extractor.
+
+    Args:
+      encoder_cls: A launcher-side ``Encoder`` selection class.
+
+    Returns:
+      The Flax Encoder Module class the selection would instantiate.
+    """
+    attr = inspect.getattr_static(encoder_cls, "module_cls")
+    if isinstance(attr, property):
+        return attr.fget(object.__new__(encoder_cls))
+    return attr
 
 
 class TestEncoderRegistry:
@@ -32,11 +59,30 @@ class TestEncoderRegistry:
         assert "vggt_wp64_cnn_cp_mlp" in encoder_registry
         assert "hybrid" in encoder_registry
         assert "vggt_house_context" in encoder_registry
+        assert "vggt_house_points_pose" in encoder_registry
+        assert "vggt_hybrid_house_points_pose" in encoder_registry
         assert "vggt_house_full_tokens_nogate" in encoder_registry
         assert "vggt_house_global_tokens_nogate" in encoder_registry
 
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
         assert encoder_registry["hybrid"] is HybridEncoder
+
+    @pytest.mark.parametrize(
+        "encoder_type",
+        sorted(encoder_registry),
+    )
+    def test_module_constructs_from_contract_kwargs(self, encoder_type):
+        # Regression: subclass modules (e.g. the GNN variants of
+        # HousePointsCameraEncoder) must dispatch to their parent's kwargs
+        # branch, not the generic MLP tail, on contract-snapshot paths
+        # (make_encoder_module, checkpoint eval) that bypass agent.py.
+        module_cls = _registry_module_cls(encoder_registry[encoder_type])
+        config = R2DreamerConfig(encoder_type=encoder_type)
+
+        kwargs = encoder_module_kwargs_from_config(config, module_cls)
+        module = module_cls(**kwargs)
+
+        assert isinstance(module, module_cls)
 
 
 class TestEnvRegistry:
@@ -49,10 +95,21 @@ class TestEnvRegistry:
         assert "crafter" in env_registry
 
 
-class TestCurricula:
+class TestHabitatCurricula:
     def test_all_curriculum_paths_exist(self):
-        for name, path in CURRICULA.items():
+        for name, path in HABITAT_CURRICULA.items():
             assert path.exists(), f"Curriculum {name!r} path does not exist: {path}"
 
     def test_expected_keys(self):
-        assert set(CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
+        assert set(HABITAT_CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
+
+    def test_config_resolves_named_curriculum(self):
+        config = HabitatEnvConfig(curriculum="L1")
+
+        assert resolve_habitat_curriculum_path(config) == HABITAT_CURRICULA["L1"]
+
+    def test_config_curriculum_path_overrides_name(self, tmp_path):
+        override = tmp_path / "curriculum.json"
+        config = HabitatEnvConfig(curriculum="L1", curriculum_path=override)
+
+        assert resolve_habitat_curriculum_path(config) == override

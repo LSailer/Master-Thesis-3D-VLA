@@ -1,9 +1,9 @@
 """Training orchestration for R2-Dreamer experiments.
 
-Provides Trainer (training loop), convert_batch (buffer→agent format),
-save/load_checkpoint, ObsAdapter (env→buffer/agent bridge), and
-habitat_defaults (pre-configured Habitat+CNN settings). Loop/orchestration
-knobs live in ``TrainerConfig`` (``src.r2dreamer.config``).
+Provides Trainer (training loop), replay_batch_to_arrays (transition-window
+packing), save/load_checkpoint, and ObsAdapter (env→buffer/agent bridge).
+Loop/orchestration knobs live in ``TrainerConfig`` (``src.configs.config``).
+Habitat-specific episode metrics live in ``src.environments.habitat``.
 """
 
 from __future__ import annotations
@@ -12,30 +12,36 @@ import csv
 import os
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, Protocol, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import BufferConfig, ReplayBuffer
-from src.environments.observation import ObservationFrame
-from src.shared.video_utils import (
-    compose_frame,
-    log_episode_video,
-    render_topdown_frame,
+from src.buffer.replay_buffer import (
+    HybridObservation,
+    ReplayBatch,
+    ReplayBuffer,
+    ReplayTransition,
+    ReplayTransitionBatch,
 )
-from src.r2dreamer.adapters import ObsAdapter  # noqa: F401 — re-exported for callers
+from src.configs.config import R2DreamerConfig, TrainerConfig
+from src.environments.observation import ObservationFrame
+from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
     save_checkpoint,
 )
-from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
-from src.r2dreamer.obs_batch import ObservationPacker
-
+from src.shared.dtypes import compute_jnp_dtype
+from src.shared.video_utils import (
+    compose_frame,
+    log_episode_video,
+    render_topdown_frame,
+)
 
 # ---------------------------------------------------------------------------
 # Protocols
@@ -66,7 +72,7 @@ class R2DreamerAgentLike(Protocol):
     ema_state: Any
 
     def train_step(
-        self, batch: dict[str, jnp.ndarray], rng_key: jnp.ndarray
+        self, batch: ReplayBatch, rng_key: jnp.ndarray
     ) -> dict[str, float]: ...
 
     def act(
@@ -77,106 +83,171 @@ class R2DreamerAgentLike(Protocol):
         training: bool = True,
     ) -> int: ...
 
-    def reconstruct(
-        self, batch: dict[str, jnp.ndarray]
-    ) -> tuple[np.ndarray, np.ndarray] | None: ...
+    def reconstruct(self, batch: Any) -> tuple[np.ndarray, np.ndarray] | None: ...
 
 
 # ---------------------------------------------------------------------------
-# convert_batch
+# replay_batch_to_arrays
 # ---------------------------------------------------------------------------
 
+ArrayObservation: TypeAlias = np.ndarray | jax.Array
+ReplayObservation: TypeAlias = (
+    ArrayObservation | Mapping[str, ArrayObservation] | HybridObservation
+)
+ReplayArrayBatch: TypeAlias = dict[str, Any]
 
-def convert_batch(batch: dict[str, Any], num_actions: int) -> dict[str, Any]:
-    """Convert replay buffer output to agent training format.
 
-    Replay stores transitions as ``obs_t, action_t, reward_{t+1}``. The RSSM
-    posterior for ``obs_t`` must receive the previous action/labels, so shift
-    transition fields right by one step inside each sampled window.
-    """
-    actions = jax.nn.one_hot(batch["actions"], num_actions)
-    zero_action = jnp.zeros_like(actions[:, :1])
-    zero_scalar = jnp.zeros_like(batch["rewards"][:, :1])
+def _stack_array_grid(values: list[list[ArrayObservation]]) -> jax.Array:
+    """Stack ``(B, T)`` replay observation arrays into one JAX array."""
+    return jnp.stack(
+        [jnp.stack([jnp.asarray(value) for value in sequence]) for sequence in values]
+    )
+
+
+def _transition_observation(transition: ReplayTransition) -> ReplayObservation:
+    """Return a transition observation, including structured adapter mappings."""
+    return cast(ReplayObservation, transition.obs)
+
+
+def _stack_hybrid_observations(
+    obs_grid: list[list[ReplayObservation]],
+) -> dict[str, jax.Array]:
+    """Stack replay-domain hybrid observations as explicit replay fields."""
+    images: list[list[ArrayObservation]] = []
+    wp_cp_values: list[list[ArrayObservation]] = []
+    for sequence in obs_grid:
+        image_sequence: list[ArrayObservation] = []
+        wp_cp_sequence: list[ArrayObservation] = []
+        for obs in sequence:
+            if not isinstance(obs, HybridObservation):
+                raise TypeError("cannot mix hybrid and non-hybrid replay observations")
+            image_sequence.append(obs.image)
+            wp_cp_sequence.append(obs.wp_cp)
+        images.append(image_sequence)
+        wp_cp_values.append(wp_cp_sequence)
     return {
-        "obs": batch["obs"],
-        "actions": jnp.concatenate([zero_action, actions[:, :-1]], axis=1),
-        "rewards": jnp.concatenate([zero_scalar, batch["rewards"][:, :-1]], axis=1),
-        "is_first": batch["is_first"],
-        "is_last": jnp.concatenate([zero_scalar, batch["dones"][:, :-1]], axis=1),
-        "is_terminal": jnp.concatenate(
-            [zero_scalar, batch["terminals"][:, :-1]], axis=1
-        ),
+        "image": _stack_array_grid(images),
+        "wp_cp": _stack_array_grid(wp_cp_values),
     }
 
 
-# ---------------------------------------------------------------------------
-# habitat_defaults
-# ---------------------------------------------------------------------------
-
-EpisodeMetricsFn = Callable[..., dict[str, Any]]
-
-
-def habitat_defaults(env: Any, *, track_collision_rate: bool = False) -> dict[str, Any]:
-    """Pre-configured ObsAdapter and episode_metrics_fn for Habitat+CNN.
-
-    Returns dict with keys "obs_adapter" and "episode_metrics_fn".
-
-    Pass track_collision_rate=True for the val-loop tracker; train rollouts
-    leave it False so the dashboard isn't doubly-noisy.
-    """
-    from src.shared.wandb_utils import EpisodeTracker
-
-    tracker = EpisodeTracker(window=100, track_collision_rate=track_collision_rate)
-    action_names = {0: "stop", 1: "forward", 2: "left", 3: "right"}
-
-    def episode_metrics_fn(
-        env: Any,
-        last_obs: ObservationFrame,
-        episode_reward: float,
-        episode_steps: int,
-        action_counts: np.ndarray,
-    ) -> dict[str, Any]:
-        success = last_obs.success
-        spl = last_obs.spl
-        softspl = last_obs.softspl
-        dtg = last_obs.dtg
-        collision_rate = last_obs.collision_rate
-        episode = env.current_episode
-        category = getattr(episode, "object_category", "unknown")
-        scene_raw = getattr(episode, "scene_id", "")
-        path_length = env._path_length
-        shortest_path = env._start_geodesic
-        path_ratio = path_length / shortest_path if shortest_path > 0 else 0.0
-
-        tracked = tracker.record(
-            reward=episode_reward,
-            success=success,
-            spl=spl,
-            category=category,
-            scene_id=scene_raw,
-            softspl=softspl,
-            dtg=dtg,
-            collision_rate=collision_rate,
+def _stack_mapping_observations(
+    obs_grid: list[list[ReplayObservation]],
+    first_obs: Mapping[str, ArrayObservation],
+) -> dict[str, jax.Array]:
+    """Stack structured replay mappings after checking each window has same keys."""
+    keys = tuple(first_obs.keys())
+    expected_keys = set(keys)
+    for sequence in obs_grid:
+        for obs in sequence:
+            if not isinstance(obs, Mapping):
+                raise TypeError(
+                    "cannot mix mapping and non-mapping replay observations"
+                )
+            if set(obs.keys()) != expected_keys:
+                raise KeyError(
+                    "replay observation keys changed inside sampled batch: "
+                    f"expected={sorted(expected_keys)}, got={sorted(obs.keys())}"
+                )
+    return {
+        key: _stack_array_grid(
+            [
+                [cast(Mapping[str, ArrayObservation], obs)[key] for obs in sequence]
+                for sequence in obs_grid
+            ]
         )
+        for key in keys
+    }
 
-        action_pcts = action_counts / max(episode_steps, 1)
+
+def _stack_replay_observations(
+    batch: ReplayTransitionBatch,
+) -> jax.Array | dict[str, jax.Array]:
+    """Stack transition observations into the raw replay-batch observation form."""
+    obs_grid = [
+        [_transition_observation(transition) for transition in sequence]
+        for sequence in batch
+    ]
+    first_obs = obs_grid[0][0]
+    if isinstance(first_obs, HybridObservation):
+        return _stack_hybrid_observations(obs_grid)
+    if isinstance(first_obs, Mapping):
+        return _stack_mapping_observations(obs_grid, first_obs)
+    return _stack_array_grid(cast(list[list[ArrayObservation]], obs_grid))
+
+
+def replay_batch_to_arrays(
+    batch: ReplayBatch | ReplayTransitionBatch,
+) -> ReplayArrayBatch:
+    """Pack transition-object replay windows into arrays with ``(B, T)`` prefix.
+
+    Args:
+        batch: Non-empty sampled replay windows returned by ``ReplayBuffer.sample``.
+
+    Returns:
+        Raw replay arrays keyed by ``obs``, ``actions``, ``rewards``,
+        ``is_first``, and ``is_episode_end``. Observation leaves preserve their
+        stored dtype and have shape ``(batch_size, seq_len, *obs_shape)``.
+    """
+    if isinstance(batch, ReplayBatch):
         return {
-            **tracked,
-            "episode/steps": episode_steps,
-            "episode/path_length": path_length,
-            "episode/shortest_path": shortest_path,
-            "episode/path_ratio": path_ratio,
-            "episode_reset": 1,
-            **{
-                f"action/{action_names[i]}_pct": float(action_pcts[i])
-                for i in range(len(action_counts))
-            },
+            "obs": batch.obs,
+            "actions": batch.actions,
+            "rewards": batch.rewards,
+            "is_first": batch.is_first,
+            "is_episode_end": batch.is_episode_end,
         }
 
+    if not batch:
+        raise ValueError("cannot convert an empty replay batch")
+    seq_len = len(batch[0])
+    if seq_len == 0:
+        raise ValueError("cannot convert replay sequences with length zero")
+    if any(len(sequence) != seq_len for sequence in batch):
+        raise ValueError("all replay sequences must have the same length")
+
+    episode_ends = [
+        [bool(transition.is_episode_end) for transition in sequence]
+        for sequence in batch
+    ]
+    is_first = [
+        [
+            offset == 0
+            or bool(transition.is_first)
+            or (offset > 0 and episode_ends[batch_index][offset - 1])
+            for offset, transition in enumerate(sequence)
+        ]
+        for batch_index, sequence in enumerate(batch)
+    ]
+
     return {
-        "obs_adapter": ObsAdapter(),
-        "episode_metrics_fn": episode_metrics_fn,
+        "obs": _stack_replay_observations(batch),
+        "actions": jnp.asarray(
+            [[int(transition.action) for transition in sequence] for sequence in batch],
+            dtype=jnp.int32,
+        ),
+        "rewards": jnp.asarray(
+            [
+                [float(transition.reward) for transition in sequence]
+                for sequence in batch
+            ],
+            dtype=jnp.float32,
+        ),
+        "is_first": jnp.asarray(is_first, dtype=jnp.bool_),
+        "is_episode_end": jnp.asarray(episode_ends, dtype=jnp.bool_),
     }
+
+
+# ---------------------------------------------------------------------------
+# Episode metrics callback
+# ---------------------------------------------------------------------------
+
+# Called at episode end with the final observation and episode aggregates. The
+# env (if needed) is bound by the callable itself (e.g. HabitatEpisodeMetrics in
+# src.environments.habitat), so it is not passed here.
+EpisodeMetricsFn = Callable[
+    [ObservationFrame, float, int, np.ndarray], dict[str, Any]
+]
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +265,9 @@ class Trainer:
         trainer_config: TrainerConfig (for loop control, logging, checkpointing).
         obs_adapter: ObsAdapter (bridges env obs to buffer/agent).
         episode_metrics_fn: Optional callback called at episode end.
-            Signature: (env, last_obs, episode_reward, episode_steps, action_counts) -> dict
+            Signature: (last_obs, episode_reward, episode_steps, action_counts) -> dict
+            Any env access is bound by the callable itself (e.g.
+            HabitatEpisodeMetrics).
     """
 
     def __init__(
@@ -214,7 +287,6 @@ class Trainer:
         self.acfg = agent_config
         self.tcfg = trainer_config
         self.obs_adapter = obs_adapter or ObsAdapter()
-        self.obs_packer = ObservationPacker(agent_config)
         self.episode_metrics_fn = episode_metrics_fn
         # Val-Episode-Loop wiring (3D-36). All three must be non-None for the
         # loop to run; the launcher constructs them together when val is on.
@@ -222,28 +294,12 @@ class Trainer:
         self.val_obs_adapter = val_obs_adapter
         self.val_episode_metrics_fn = val_episode_metrics_fn
 
-        # Build buffer from the Observation Preparation contract when present;
-        # legacy adapters keep using their adapter attributes during migration.
-        replay_contract = getattr(
-            getattr(self.obs_adapter, "contract", None),
-            "replay_observation",
-            None,
-        )
-        if replay_contract is not None:
-            obs_shape = replay_contract.buffer_shape()
-            obs_dtype = replay_contract.buffer_dtype()
-            normalize_obs = replay_contract.buffer_normalize()
-        else:
-            obs_shape = self.obs_adapter.buffer_shape
-            obs_dtype = self.obs_adapter.buffer_dtype
-            normalize_obs = self.obs_adapter.normalize_on_sample
+        # Replay shape and dtype are inferred lazily from the first prepared
+        # observation; normalization belongs to Observation Preparation.
         self.buffer = ReplayBuffer(
-            BufferConfig(
-                capacity=agent_config.buffer_capacity,
-                obs_shape=obs_shape,
-                obs_dtype=obs_dtype,
-                normalize_obs=normalize_obs,
-            )
+            capacity=agent_config.buffer_capacity,
+            num_actions=agent_config.num_actions,
+            float_dtype=compute_jnp_dtype(agent_config.compute_dtype),
         )
 
         # Resume from checkpoint (overwrite freshly-initialised agent state).
@@ -319,6 +375,7 @@ class Trainer:
                     rng_key = self._overfit_loop(rng_key, writer, f)
                 else:
                     rng_key = self._train_loop(rng_key, writer, f)
+                self._log_adapter_summary(writer, f)
 
             save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
             status = "completed"
@@ -350,17 +407,24 @@ class Trainer:
     def _prepare_observation(
         self, adapter: ObsAdapter, obs: ObservationFrame
     ) -> tuple[Any, Any, bool]:
-        prepared = adapter.prepare_env_step(obs, self.obs_packer)
+        prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.encoder_obs, prepared.is_first
 
     def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
-        obs = self.env.reset()
+        # Capture the reset frame so its scene_id reaches the scene-aware
+        # on_episode_reset callback (VGGT PERSIST_SCENE saves/restores per
+        # scene). Prefill discards the reset obs for replay purposes, but the
+        # extractor reset MUST still fire here — otherwise reset_for_scene
+        # never runs during prefill and the first train episode fresh-resets,
+        # orphaning the prefill frame (see PROTOCOL.md §2 / smoke 5738008).
+        _rst_obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
-        buffer_obs, _, _ = self._prepare_observation(self.obs_adapter, obs)
+            self.obs_adapter.on_episode_reset(
+                getattr(_rst_obs, "scene_id", None) or "scene"
+            )
 
         for _ in range(tcfg.prefill_steps):
             rng_key, action_key = jax.random.split(rng_key)
@@ -370,22 +434,18 @@ class Trainer:
                 self.obs_adapter, next_obs
             )
 
-            self.buffer.add(
-                buffer_obs,
-                action,
-                next_obs.reward,
-                next_obs.done,
-                terminal=next_obs.is_terminal,
+            self._record_train_transition(
+                buffer_obs=next_buffer_obs,
+                action=action,
+                next_obs=next_obs,
             )
 
             if next_obs.done:
-                obs = self.env.reset()
+                _rst_obs = self.env.reset()
                 if self.obs_adapter.on_episode_reset:
-                    self.obs_adapter.on_episode_reset()
-                buffer_obs, _, _ = self._prepare_observation(self.obs_adapter, obs)
-            else:
-                obs = next_obs
-                buffer_obs = next_buffer_obs
+                    self.obs_adapter.on_episode_reset(
+                        getattr(_rst_obs, "scene_id", None) or "scene"
+                    )
         return rng_key
 
     # ------------------------------------------------------------------
@@ -397,7 +457,9 @@ class Trainer:
     ) -> tuple[ObservationFrame, np.ndarray | dict[str, np.ndarray], Any, bool]:
         obs = self.env.reset()
         if self.obs_adapter.on_episode_reset:
-            self.obs_adapter.on_episode_reset()
+            self.obs_adapter.on_episode_reset(
+                getattr(obs, "scene_id", None) or "scene"
+            )
         buffer_obs, encoder_obs, is_first = self._prepare_observation(
             self.obs_adapter, obs
         )
@@ -410,13 +472,12 @@ class Trainer:
         action: int,
         next_obs: ObservationFrame,
     ) -> None:
-        self.buffer.add(
-            buffer_obs,
-            action,
-            next_obs.reward,
-            next_obs.done,
-            terminal=next_obs.is_terminal,
-        )
+        if next_obs.previous_action != action:
+            raise ValueError(
+                "ObservationFrame.previous_action does not match recorded action: "
+                f"expected {action}, got {next_obs.previous_action}"
+            )
+        self.buffer.add(ReplayTransition.from_frame(buffer_obs, next_obs))
 
     def _finish_train_episode(
         self,
@@ -485,7 +546,7 @@ class Trainer:
 
         start_step = self._resume_step
         print(f"Training from step {start_step} to {tcfg.total_steps}...")
-        obs, buffer_obs, encoder_obs, is_first = self._reset_train_episode()
+        obs, _buffer_obs, encoder_obs, is_first = self._reset_train_episode()
         episode_reward, episode_steps, action_counts = (
             0.0,
             0,
@@ -506,13 +567,15 @@ class Trainer:
             rng_key, act_key = jax.random.split(rng_key)
             action = self.agent.act(encoder_obs, is_first, act_key)
             next_obs = self.env.step(action)
-            next_buffer_obs, next_encoder_obs, next_is_first = self._prepare_observation(
-                self.obs_adapter,
-                next_obs,
+            next_buffer_obs, next_encoder_obs, next_is_first = (
+                self._prepare_observation(
+                    self.obs_adapter,
+                    next_obs,
+                )
             )
 
             self._record_train_transition(
-                buffer_obs=buffer_obs,
+                buffer_obs=next_buffer_obs,
                 action=action,
                 next_obs=next_obs,
             )
@@ -525,7 +588,7 @@ class Trainer:
             if next_obs.done:
                 (
                     obs,
-                    buffer_obs,
+                    _buffer_obs,
                     encoder_obs,
                     is_first,
                     episode_reward,
@@ -546,7 +609,6 @@ class Trainer:
                 )
             else:
                 obs = next_obs
-                buffer_obs = next_buffer_obs
                 encoder_obs = next_encoder_obs
                 is_first = next_is_first
 
@@ -557,7 +619,6 @@ class Trainer:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
                     batch = self.obs_adapter.augment_replay_batch(batch)
-                    batch = convert_batch(batch, acfg.num_actions)
                     metrics = self.agent.train_step(batch, train_key)
                     train_credit -= 1.0
 
@@ -644,9 +705,8 @@ class Trainer:
             )
 
         # Sample once, freeze, reuse.
-        batch_raw = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
-        batch_raw = self.obs_adapter.augment_replay_batch(batch_raw)
-        batch = convert_batch(batch_raw, self.acfg.num_actions)
+        batch = self.buffer.sample(tcfg.overfit_batch_size, tcfg.overfit_seq_len)
+        batch = self.obs_adapter.augment_replay_batch(batch)
         print(
             f"Overfit mode: cached batch "
             f"B={tcfg.overfit_batch_size} T={tcfg.overfit_seq_len}; "
@@ -708,7 +768,6 @@ class Trainer:
     ) -> dict[str, Any]:
         if self.episode_metrics_fn is not None:
             ep_metrics = self.episode_metrics_fn(
-                self.env,
                 last_obs,
                 episode_reward,
                 episode_steps,
@@ -732,6 +791,34 @@ class Trainer:
             f" steps={episode_steps}{sr_str}"
         )
         return ep_metrics
+
+    def _log_adapter_summary(self, writer: Any, f: Any) -> None:
+        """Write end-of-run adapter diagnostics and the buffer growth curve.
+
+        Growth rows are keyed by the adapter's own env-step counter (which
+        includes prefill), not the trainer step, and land in ``metrics.csv``
+        as ``house_buffer/points_growth``. Final stats also go to the W&B
+        run summary when W&B is active.
+        """
+        stats = self.obs_adapter.diagnostics()
+        if not stats:
+            return
+        final_step = self.tcfg.total_steps
+        for k, v in stats.items():
+            writer.writerow([final_step, k, v])
+        history = self.obs_adapter.growth_history
+        for env_step, points in history:
+            writer.writerow([env_step, "house_buffer/points_growth", points])
+        f.flush()
+        if self._wandb is not None:
+            self._wandb.summary.update(stats)
+        print("=== house buffer summary ===")
+        for k, v in stats.items():
+            print(f"  {k}: {v}")
+        if history:
+            print("  growth (env_step -> total_points):")
+            for env_step, points in history:
+                print(f"    {env_step:>9d} -> {points}")
 
     def _log_train_metrics(
         self,
@@ -774,7 +861,7 @@ class Trainer:
             f"ms_step={metrics['perf/ms_per_step_interval']:.1f}"
         )
 
-    def _maybe_log_recon(self, batch: dict, step: int) -> None:
+    def _maybe_log_recon(self, batch: ReplayBatch, step: int) -> None:
         """Log decoder input/reconstruction image pairs to W&B (3D-51).
 
         No-op unless a decoder is configured and W&B is active. Decodes the
@@ -812,7 +899,9 @@ class Trainer:
 
         obs = val_env.reset()
         if val_adapter.on_episode_reset:
-            val_adapter.on_episode_reset()
+            val_adapter.on_episode_reset(
+                getattr(obs, "scene_id", None) or "scene"
+            )
         _, encoder_obs, is_first = self._prepare_observation(val_adapter, obs)
 
         episode_reward = 0.0
@@ -845,7 +934,6 @@ class Trainer:
             is_first = next_is_first
 
         val_metrics = val_episode_metrics_fn(
-            val_env,
             obs,
             episode_reward,
             episode_steps,

@@ -15,6 +15,7 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -22,46 +23,63 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from .config import R2DreamerConfig
+from src.buffer import ReplayBatch
+from src.configs.config import R2DreamerConfig
+from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
+from src.r2dreamer.encoders.shape_utils import batch_live_observation
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
+    CAMERA_TOKEN_GLOBAL_KEY,
+    FULL_TOKENS_KEY,
+    GLOBAL_PATCH_TOKENS_KEY,
+    GLOBAL_TOKENS_KEY,
+    HOUSE_CONTEXT_KEY,
+    HOUSE_CONTEXT_SIZE_KEY,
+    HYBRID_IMAGE_KEY,
+    WORLD_POINTS_KEY,
+)
+from src.shared.dtypes import compute_jnp_dtype
+from src.shared.optim import agc, laprop
+
+from .behavior.imagination import _imagine, _lambda_return
+from .behavior.loss import behavior_loss
+from .behavior.return_ema import ReturnEMA
 from .checkpointing import load_checkpoint
+from .encoders.cnn import ConvEncoder
+from .encoders.constants import AGG_REGISTER_TOKENS, HYBRID_RGB_DIM
+from .encoders.decoder import ConvDecoder
+from .encoders.mlp import (
+    HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
+)
+from .encoders.mlp import (
+    HousePointsCameraEncoder,
+    HybridHousePointsCameraEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from .encoders.mlp import (
+    HybridEncoder as WMHybridEncoder,
+)
+from .encoders.mlp import (
+    MLPEncoder as WMMLPEncoder,
+)
+from .encoders.mlp import (
+    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
+)
+from .encoders.mlp import (
+    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
+)
+from .encoders.transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
 from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import (
     normalize_encoder_module_kwargs,
     recover_encoder_input_contract,
 )
-from .world_model.rssm import R2RSSM
-from .world_model.encoders import (
-    ConvEncoder,
-    WP64CNNCPMLPEncoder,
-    ConvDecoder,
-    HybridEncoder as WMHybridEncoder,
-    RGBFullTokenTransformerEncoder as WMRGBFullTokenTransformerEncoder,
-    RGBGlobalTokenTransformerEncoder as WMRGBGlobalTokenTransformerEncoder,
-    VGGTEncoder as WMVGGTEncoder,
-    VGGTAggTokenTransformerEncoder as WMVGGTAggTokenTransformerEncoder,
-    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
-    HYBRID_RGB_DIM,
-)
-from .obs_batch import (
-    CAMERA_POSE_KEY,
-    GLOBAL_TOKENS_KEY,
-    HYBRID_IMAGE_KEY,
-    WORLD_POINTS_KEY,
-)
-from .world_model.heads import R2MLP, R2TwoHotDist
-from .world_model.loss import world_model_loss, kl_loss as _kl_loss
-from .behavior.return_ema import ReturnEMA
-from .behavior.imagination import _imagine, _lambda_return
-from .behavior.loss import behavior_loss
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
-from .obs_batch import (
-    compute_jnp_dtype,
-    decoder_rgb_target,
-    encoder_obs_from_batch,
-    obs_leading_shape,
-)
-from src.shared.optim import laprop, agc
+from .world_model.heads import R2MLP, R2TwoHotDist
+from .world_model.loss import kl_loss as _kl_loss
+from .world_model.loss import world_model_loss
+from .world_model.rssm import R2RSSM
 
 
 class ActState(NamedTuple):
@@ -125,16 +143,20 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
     if cls is None:
         cls = {
             "cnn": ConvEncoder,
-            "vggt": WMVGGTEncoder,
-            "vggt_wp_cp_64": WMVGGTEncoder,  # same MLP module, finer WP grid (obs 12297)
+            "vggt": WMMLPEncoder,
+            "vggt_wp_cp_64": WMMLPEncoder,  # same MLP module, finer WP grid (obs 12297)
             "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
-            "vggt_agg_token_transformer": WMVGGTAggTokenTransformerEncoder,
+            "vggt_agg_raw": WMVGGTAggRawMLPEncoder,
+            "vggt_agg_token_transformer": WMTokenTransformerEncoder,
             "vggt_wp_dense_cnn": ConvEncoder,
             "vggt_wp64_cnn_cp_mlp": WP64CNNCPMLPEncoder,
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
-            "vggt_house_full_tokens_nogate": WMRGBFullTokenTransformerEncoder,
-            "vggt_house_global_tokens_nogate": WMRGBGlobalTokenTransformerEncoder,
+            "vggt_house_points_pose": HousePointsCameraEncoder,
+            "vggt_hybrid_house_points_pose": HybridHousePointsCameraEncoder,
+            "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
+            "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
+            "vggt_house_global_embedding": WMHouseGlobalEmbeddingEncoder,
         }.get(cfg.encoder_type)
         if cls is None:
             raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
@@ -202,9 +224,7 @@ def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
 
 def _make_hybrid_encoder(cfg: R2DreamerConfig):
     # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-    # Guard the packed encoder-layout contract: replay may store modalities in
-    # separate fields, but obs_batch packs them into this flat shape before the
-    # Flax encoder and decoder see them.
+    # HybridEncoder now owns structured replay/live layout handling.
     expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
     if not isinstance(cfg.obs_shape, tuple):
         raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
@@ -232,6 +252,52 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     )
 
 
+def _make_house_points_camera_encoder(
+    cfg: R2DreamerConfig, cls: type = HousePointsCameraEncoder
+):
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return cls(**kwargs)
+    kwargs = dict(
+        embed_dim=cfg.vggt_embed_dim,
+        camera_hidden=cfg.mlp_vggt_hidden,
+        camera_layers=cfg.mlp_vggt_layers,
+        point_hidden=cfg.mlp_vggt_hidden,
+        point_layers=cfg.mlp_vggt_layers,
+    )
+    if issubclass(cls, HybridHousePointsCameraEncoder):
+        kwargs.update(
+            cnn_depth=cfg.encoder_depth,
+            cnn_kernel=cfg.encoder_kernel,
+            cnn_mults=cfg.encoder_mults,
+        )
+    return cls(**kwargs)
+
+
+def _make_house_global_embedding_encoder(
+    cfg: R2DreamerConfig, cls: type = WMHouseGlobalEmbeddingEncoder
+):
+    # PointNet reducer over VGGT global patch tokens + camera side branch.
+    # token_dim and num_patch_tokens are fixed by the VGGT global-half token
+    # layout (camera token + 4 registers dropped): num_patch_tokens =
+    # vggt_token_count - (1 camera + AGG_REGISTER_TOKENS). Prod sets
+    # vggt_token_dim=1024 / vggt_token_count=1374 via agent_overrides; tests
+    # may inject small dims.
+    kwargs = _contract_encoder_kwargs(cfg)
+    if kwargs:
+        return cls(**kwargs)
+    num_patch_tokens = int(cfg.vggt_token_count) - (1 + AGG_REGISTER_TOKENS)
+    return cls(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_patch_tokens=num_patch_tokens,
+        reducer_hidden=cfg.mlp_vggt_hidden,
+        reducer_layers=cfg.mlp_vggt_layers,
+        camera_hidden=cfg.mlp_vggt_hidden,
+        camera_layers=cfg.mlp_vggt_layers,
+    )
+
+
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
     kwargs = _contract_encoder_kwargs(cfg)
@@ -244,32 +310,48 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     )
 
 
-def _make_rgb_token_encoder(cfg: R2DreamerConfig, cls):
-    return cls(
+def _make_rgb_token_encoder(cfg: R2DreamerConfig):
+    token_key = FULL_TOKENS_KEY
+    singleton_tokens = False
+    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
+        token_key = GLOBAL_TOKENS_KEY
+        singleton_tokens = True
+    return WMTokenTransformerEncoder(
+        embed_dim=cfg.vggt_embed_dim,
+        token_dim=cfg.vggt_token_dim,
+        num_tokens=cfg.vggt_token_count,
+        model_dim=None,
+        layers=cfg.vggt_token_transformer_layers,
+        heads=cfg.vggt_token_transformer_heads,
+        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        dropout=cfg.vggt_token_transformer_dropout,
+        readout="mean",
+        norm_kind="layer",
+        activation="gelu",
+        token_key=token_key,
+        image_key=HYBRID_IMAGE_KEY,
+        singleton_tokens=singleton_tokens,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
         cnn_depth=cfg.encoder_depth,
         cnn_kernel=cfg.encoder_kernel,
         cnn_mults=cfg.encoder_mults,
-        context_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        transformer_layers=cfg.vggt_token_transformer_layers,
-        transformer_heads=cfg.vggt_token_transformer_heads,
-        transformer_mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        transformer_dropout=cfg.vggt_token_transformer_dropout,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
     )
 
 
 def _make_token_transformer_encoder(cfg: R2DreamerConfig):
-    return WMVGGTAggTokenTransformerEncoder(
+    return WMTokenTransformerEncoder(
         embed_dim=cfg.vggt_embed_dim,
         token_dim=cfg.vggt_token_dim,
         num_tokens=cfg.vggt_token_count,
-        projection_dim=cfg.vggt_token_projection_dim,
+        model_dim=cfg.vggt_token_projection_dim,
         layers=cfg.vggt_token_transformer_layers,
         heads=cfg.vggt_token_transformer_heads,
         mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
+        readout="camera_register_patch",
+        norm_kind="rms",
+        activation="silu",
         keep_register_tokens=cfg.vggt_keep_register_tokens,
+        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
     )
 
 
@@ -284,10 +366,16 @@ def _make_encoder(cfg: R2DreamerConfig):
         return _make_wp64_cnn_cp_mlp_encoder(cfg)
     if cls is WMHybridEncoder:
         return _make_hybrid_encoder(cfg)
-    if cls is WMVGGTAggTokenTransformerEncoder:
-        return _make_token_transformer_encoder(cfg)
-    if cls in (WMRGBFullTokenTransformerEncoder, WMRGBGlobalTokenTransformerEncoder):
-        return _make_rgb_token_encoder(cfg, cls)
+    if cls is WMHouseGlobalEmbeddingEncoder:
+        return _make_house_global_embedding_encoder(cfg, cls)
+    if issubclass(cls, HousePointsCameraEncoder):
+        # issubclass so GNN variants (src/r2dreamer/encoders/gnn_house.py)
+        # reuse this builder with their own module class.
+        return _make_house_points_camera_encoder(cfg, cls)
+    if cls is WMTokenTransformerEncoder:
+        if cfg.encoder_type == "vggt_agg_token_transformer":
+            return _make_token_transformer_encoder(cfg)
+        return _make_rgb_token_encoder(cfg)
     return _make_mlp_encoder(cfg, cls)
 
 
@@ -295,7 +383,7 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt_house_full_tokens_nogate":
         return {
             HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
-            "full_tokens": jnp.zeros(
+            FULL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
@@ -308,11 +396,43 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),
         }
+    if cfg.encoder_type == "vggt_house_global_embedding":
+        if not isinstance(cfg.obs_shape, Mapping):
+            raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
+        return {
+            HYBRID_IMAGE_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[HYBRID_IMAGE_KEY]), dtype=jnp.float32
+            ),
+            CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[CAMERA_TOKEN_GLOBAL_KEY]), dtype=jnp.float32
+            ),
+            GLOBAL_PATCH_TOKENS_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[GLOBAL_PATCH_TOKENS_KEY]), dtype=jnp.float32
+            ),
+        }
     if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         return {
             WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
         }
+    if cfg.encoder_type in (
+        "vggt_house_points_pose",
+        "vggt_hybrid_house_points_pose",
+        "gnn_house_points_pose",
+        "gnn_edge_house_points_pose",
+    ):
+        if not isinstance(cfg.obs_shape, Mapping):
+            raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
+        dummy = {
+            CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
+            HOUSE_CONTEXT_KEY: jnp.zeros(
+                (1, *cfg.obs_shape[HOUSE_CONTEXT_KEY]), dtype=jnp.float32
+            ),
+            HOUSE_CONTEXT_SIZE_KEY: jnp.zeros((), dtype=jnp.int32),
+        }
+        if cfg.encoder_type == "vggt_hybrid_house_points_pose":
+            dummy[HYBRID_IMAGE_KEY] = jnp.zeros((1, 3, 64, 64), dtype=jnp.float32)
+        return dummy
     return jnp.zeros((1, *cfg.obs_shape))
 
 
@@ -567,6 +687,7 @@ class R2DreamerAgent:
                 "vggt_house_context",
                 "vggt_house_full_tokens_nogate",
                 "vggt_house_global_tokens_nogate",
+                "vggt_house_global_embedding",
             ):
                 raise ValueError(
                     "decoder=True requires an RGB-bearing encoder_type — the "
@@ -670,8 +791,8 @@ class R2DreamerAgent:
         """Select an action for a single prepared environment step.
 
         Args:
-            encoder_obs: batched one-step Encoder Module input from
-                ``ObservationPacker.from_step``.
+            encoder_obs: one live observation in the layout consumed by the encoder.
+                The agent adds the single-env batch dimension internally.
             is_first: whether the step starts an episode and should reset RSSM state.
             rng_key: PRNG key.
             training: if False, use argmax (greedy).
@@ -679,10 +800,17 @@ class R2DreamerAgent:
         Returns:
             Integer action in [0, num_actions).
         """
-        action_int, self._act_state = self.act_with_state(
-            encoder_obs, is_first, self._act_state, rng_key, training
+        reset = jnp.asarray(is_first, dtype=jnp.bool_)
+        batched_obs = batch_live_observation(encoder_obs)
+        action_int, self._act_state = self._jit_act_with_state.__call__(
+            self.params, batched_obs, self._act_state, reset, rng_key, training
         )
-        return action_int
+
+        # Honor the ``-> int`` contract: the jitted core returns a 0-d JAX array,
+        # but callers (env.step, action_counts indexing) need a host Python int.
+        # habitat's env.step only wraps int/np.integer into {"action": ...}; a
+        # raw JAX array slips through to string indexing and raises.
+        return int(action_int)
 
     def act_with_state(
         self,
@@ -692,11 +820,14 @@ class R2DreamerAgent:
         rng_key: jnp.ndarray,
         training: bool = True,
     ) -> tuple[int, ActState]:
-        """Select an action and return the next functional acting state."""
+        """Functional acting wrapper for one raw live encoder observation."""
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
+        batched_obs = batch_live_observation(encoder_obs)
         action_int, new_state = self._jit_act_with_state.__call__(
-            self.params, encoder_obs, state, reset, rng_key, training
+            self.params, batched_obs, state, reset, rng_key, training
         )
+        # As in ``act``: return a host int action (state pytree passes through
+        # untouched so the next jitted call still sees stable shapes/dtypes).
         return int(action_int), new_state
 
     def act_with_state_pure(
@@ -750,7 +881,7 @@ class R2DreamerAgent:
     # Decoder reconstruction probe (visual verification; only when cfg.decoder)
     # ------------------------------------------------------------------
 
-    def reconstruct(self, batch: Dict[str, jnp.ndarray]):
+    def reconstruct(self, batch: Any):
         """Decode RGB reconstructions for a batch (encoder -> RSSM -> decoder).
 
         Returns ``(target, recon)`` as JAX arrays ``(B*T, 3, 64, 64)`` in
@@ -761,11 +892,14 @@ class R2DreamerAgent:
         if not self.cfg.decoder or self.decoder_mod is None:
             return None
         params = self.params
-        B, T = obs_leading_shape(batch["obs"])
-        obs_flat = encoder_obs_from_batch(batch, self.cfg)
+        B, T = replay_batch_shape(batch)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
-        ).reshape(B, T, -1)
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
+        )
+        if embed.shape[:2] != (B, T):
+            raise ValueError(
+                f"encoder must preserve replay leading dims {(B, T)}, got {embed.shape}"
+            )
         stoch0, deter0 = cast(
             tuple[jnp.ndarray, jnp.ndarray],
             self.rssm_mod.apply(params["rssm"], B, method=self.rssm_mod.initial_state),
@@ -775,9 +909,9 @@ class R2DreamerAgent:
             self.rssm_mod.apply(
                 params["rssm"],
                 embed,
-                batch["actions"],
+                batch.actions,
                 (stoch0, deter0),
-                batch["is_first"],
+                batch.is_first,
                 method=self.rssm_mod.observe,
                 rngs={"sample": jax.random.PRNGKey(0)},
             ),
@@ -789,16 +923,14 @@ class R2DreamerAgent:
             ),
         )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        target = decoder_rgb_target(batch, self.cfg)
+        target = decoder_rgb_target(batch, self.cfg.encoder_type)
         return target, recon
 
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
 
-    def train_step(
-        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
-    ) -> Dict[str, float]:
+    def train_step(self, batch: ReplayBatch , rng_key: jnp.ndarray) -> Dict[str, float]:
         """One LaProp step on `batch`. Returns Python-float metrics."""
         self.train_state, metrics = self._jitted_train_step.__call__(
             self.train_state,
@@ -807,9 +939,7 @@ class R2DreamerAgent:
         )
         return {k: float(v) for k, v in metrics.items()}
 
-    def eval_loss(
-        self, batch: Dict[str, jnp.ndarray], rng_key: jnp.ndarray
-    ) -> Dict[str, float]:
+    def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
         """Evaluate the current objective on a batch without updating state."""
         _total_loss, aux = self._loss_fn(
             self.params,
@@ -896,12 +1026,15 @@ class R2DreamerAgent:
         `barlow_stop_grad` toggle would no longer mean what it claims.
         """
         cfg = self.cfg
-        B, T = obs_leading_shape(batch["obs"])
+        B, T = replay_batch_shape(batch)
 
-        obs_flat = encoder_obs_from_batch(batch, cfg)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs_flat)
-        ).reshape(B, T, -1)
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
+        )
+        if embed.shape[:2] != (B, T):
+            raise ValueError(
+                f"encoder must preserve replay leading dims {(B, T)}, got {embed.shape}"
+            )
 
         stoch0, deter0 = cast(
             tuple[jnp.ndarray, jnp.ndarray],
@@ -914,9 +1047,9 @@ class R2DreamerAgent:
             self.rssm_mod.apply(
                 params["rssm"],
                 embed,
-                batch["actions"],
+                batch.actions,
                 (stoch0, deter0),
-                batch["is_first"],
+                batch.is_first,
                 method=self.rssm_mod.observe,
                 rngs={"sample": k_obs},
             ),
@@ -963,7 +1096,7 @@ class R2DreamerAgent:
             returns used for the post-step `ReturnEMA` update.
         """
         cfg = self.cfg
-        B, T = obs_leading_shape(batch["obs"])
+        B, T = replay_batch_shape(batch)
 
         rng_key, k_fwd = jax.random.split(rng_key)
         forward = self._world_model_forward(params, batch, k_fwd)

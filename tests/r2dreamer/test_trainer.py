@@ -1,4 +1,4 @@
-"""Tests for src/r2dreamer/trainer.py — convert_batch and checkpoint."""
+"""Tests for src/r2dreamer/trainer.py — replay_batch_to_arrays and checkpoint."""
 
 import json
 import os
@@ -9,8 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from src.buffer.replay_buffer import ReplayTransition
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.config import R2DreamerConfig, TrainerConfig
+from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.observation_preparation import (
@@ -20,8 +21,8 @@ from src.r2dreamer.observation_preparation import (
 from src.r2dreamer.trainer import (
     Trainer,
     config_snapshot,
-    convert_batch,
     load_checkpoint,
+    replay_batch_to_arrays,
     save_checkpoint,
 )
 
@@ -29,6 +30,8 @@ from src.r2dreamer.trainer import (
 def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
     cfg = TrainerConfig(output_dir="/tmp/r2dreamer-test")
 
+    assert cfg.total_steps == 10_000_000
+    assert cfg.seed == 0
     assert cfg.val_every == 0
     assert cfg.video_log_every == 0
     assert cfg.val_video_episodes == 0
@@ -48,6 +51,7 @@ class _DummyEnv:
         return ObservationFrame(
             image=np.zeros((3, 64, 64), dtype=np.uint8),
             is_first=False,
+            previous_action=int(action),
         )
 
     def close(self) -> None:
@@ -73,9 +77,10 @@ class _TinyCNNEnv:
         done = self.t >= 4
         return ObservationFrame(
             image=np.full((3, 64, 64), self.t, dtype=np.uint8),
+            is_first=False,
+            previous_action=int(action),
             reward=1.0,
             done=done,
-            is_first=False,
         )
 
     def close(self) -> None:
@@ -103,12 +108,11 @@ class _PrepareOnlyAdapter(ObsAdapter):
         super().__init__()
         self.calls = 0
 
-    def prepare_env_step(self, env_obs: ObservationFrame, packer) -> PreparedObservation:
+    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
         self.calls += 1
-        step_obs = {"image": env_obs.image, "is_first": True}
         return PreparedObservation(
             replay_obs=env_obs.image,
-            encoder_obs=packer.from_step(step_obs),
+            encoder_obs=env_obs.image[None],
             is_first=True,
         )
 
@@ -154,63 +158,41 @@ def _tree_any_changed(before, after, *, atol=1e-7):
     )
 
 
-class TestConvertBatch:
-    """convert_batch turns replay buffer output into agent-ready batches."""
+class TestReplayBatchToArrays:
+    """Replay transition windows become raw training-aligned arrays."""
 
-    @pytest.fixture
-    def replay_batch(self):
-        B, T, A = 4, 8, 6
-        return {
-            "obs": jnp.ones((B, T, 3, 4, 4)),
-            "actions": jnp.array(np.random.randint(0, A, (B, T)), dtype=jnp.int32),
-            "rewards": jnp.ones((B, T)),
-            "dones": jnp.zeros((B, T)),
-            "terminals": jnp.zeros((B, T)),
-            "is_first": jnp.zeros((B, T)),
-        }
+    def test_marks_is_first_after_episode_end(self):
+        batch = replay_batch_to_arrays(
+            [
+                [
+                    ReplayTransition(
+                        obs=np.array([0.0], dtype=np.float32),
+                        action=0,
+                        reward=0.0,
+                        is_first=False,
+                        is_episode_end=False,
+                    ),
+                    ReplayTransition(
+                        obs=np.array([1.0], dtype=np.float32),
+                        action=1,
+                        reward=1.0,
+                        is_first=False,
+                        is_episode_end=True,
+                    ),
+                    ReplayTransition(
+                        obs=np.array([2.0], dtype=np.float32),
+                        action=2,
+                        reward=2.0,
+                        is_first=False,
+                        is_episode_end=False,
+                    ),
+                ]
+            ]
+        )
 
-    def test_actions_become_onehot(self, replay_batch):
-        replay_batch["actions"] = jnp.array([[1, 2, 3, 4, 5, 0, 1, 2]] * 4)
-        out = convert_batch(replay_batch, num_actions=6)
-        assert out["actions"].shape == (4, 8, 6)
-        assert out["actions"].dtype == jnp.float32
-        assert jnp.allclose(out["actions"][:, 0].sum(axis=-1), 0.0)
-        assert jnp.allclose(out["actions"][:, 1:].sum(axis=-1), 1.0)
-        np.testing.assert_allclose(np.asarray(out["actions"][0, 1]), np.eye(6)[1])
-
-    def test_dones_renamed_to_is_last(self, replay_batch):
-        replay_batch["dones"] = jnp.ones((4, 8))
-        out = convert_batch(replay_batch, num_actions=6)
-        assert "is_last" in out
-        assert "dones" not in out
-        assert jnp.allclose(out["is_last"][:, 0], 0.0)
-        assert jnp.allclose(out["is_last"][:, 1:], 1.0)
-
-    def test_terminals_renamed_to_is_terminal(self, replay_batch):
-        replay_batch["terminals"] = jnp.ones((4, 8))
-        out = convert_batch(replay_batch, num_actions=6)
-        assert "is_terminal" in out
-        assert "terminals" not in out
-        assert jnp.allclose(out["is_terminal"][:, 0], 0.0)
-        assert jnp.allclose(out["is_terminal"][:, 1:], 1.0)
-
-    def test_obs_and_rewards_pass_through(self, replay_batch):
-        out = convert_batch(replay_batch, num_actions=6)
-        assert jnp.allclose(out["obs"], replay_batch["obs"])
-        assert jnp.allclose(out["rewards"][:, 0], 0.0)
-        assert jnp.allclose(out["rewards"][:, 1:], replay_batch["rewards"][:, :-1])
-        assert jnp.allclose(out["is_first"], replay_batch["is_first"])
-
-    def test_output_keys(self, replay_batch):
-        out = convert_batch(replay_batch, num_actions=6)
-        assert set(out.keys()) == {
-            "obs",
-            "actions",
-            "rewards",
-            "is_first",
-            "is_last",
-            "is_terminal",
-        }
+        np.testing.assert_array_equal(
+            np.asarray(batch["is_first"]), np.array([[True, False, True]])
+        )
 
 
 class TestCheckpoint:
@@ -266,7 +248,7 @@ class TestCheckpoint:
             data = load_checkpoint(path)
 
         snapshot = data["encoder_input_contract"]
-        assert snapshot["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert snapshot["encoder_module"] == "src.r2dreamer.encoders.cnn.ConvEncoder"
         assert snapshot["encoder_module_kwargs"] == {
             "depth": 16,
             "kernel_size": 5,
@@ -326,7 +308,7 @@ class TestConfigSnapshot:
 
         snapshot = config_snapshot(cfg)
 
-        assert snapshot["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert snapshot["encoder_module"] == "src.r2dreamer.encoders.cnn.ConvEncoder"
         assert "encoder_module_cls" not in snapshot
         assert snapshot["encoder_input_contract"]["encoder_type"] == "cnn"
         assert snapshot["encoder_input_contract"]["encoder_module_kwargs"] == {
@@ -491,14 +473,17 @@ class TestTrainerMappingReplay:
             next_obs=ObservationFrame(
                 image=np.zeros((3, 64, 64), dtype=np.uint8),
                 is_first=False,
+                previous_action=1,
                 reward=1.0,
             ),
         )
 
         assert trainer.buffer.size == 1
-        batch = trainer.buffer.sample(batch_size=1, seq_len=1)
-        assert set(batch["obs"]) == {"image", "wp_cp"}
-        assert batch["obs"]["image"].shape == (1, 1, 3, 64, 64)
-        assert batch["obs"]["image"].dtype == jnp.uint8
-        assert batch["obs"]["wp_cp"].shape == (1, 1, 4116)
-        assert batch["obs"]["wp_cp"].dtype == jnp.float32
+        batch = replay_batch_to_arrays(trainer.buffer.sample(batch_size=1, seq_len=1))
+        obs_batch = batch["obs"]
+        assert isinstance(obs_batch, dict)
+        assert set(obs_batch) == {"image", "wp_cp"}
+        assert obs_batch["image"].shape == (1, 1, 3, 64, 64)
+        assert obs_batch["image"].dtype == jnp.uint8
+        assert obs_batch["wp_cp"].shape == (1, 1, 4116)
+        assert obs_batch["wp_cp"].dtype == jnp.float32

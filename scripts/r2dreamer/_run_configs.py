@@ -123,6 +123,61 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "3d-77", "jax", "3d-encoder",
         ],
     ),
+    # L1 static house points + current VGGT camera pose.
+    "habitat-l1-vggt-house-points-pose": dict(
+        env="habitat",
+        encoder="vggt_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose",
+        wandb_name="l1_static_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "static-sidecar", "camera-pose-replay",
+            "point-mlp", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 additive hybrid: rgb64 CNN backbone + zero-init-gated live house
+    # points/pose branches (starts exactly at the CNN baseline).
+    "habitat-l1-vggt-hybrid-house-points-pose": dict(
+        env="habitat",
+        encoder="vggt_hybrid_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-hybrid-house-points-pose",
+        wandb_name="l1_hybrid_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "live-buffer", "camera-pose-replay",
+            "point-mlp", "cnn-backbone", "additive-hybrid", "gated",
+            "jax", "3d-encoder",
+        ],
+    ),
+    # L1 live house points + GNN house branch (src/r2dreamer/encoders/gnn_house.py).
+    "habitat-l1-gnn-house-points-pose": dict(
+        env="habitat",
+        encoder="gnn_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose",
+        wandb_name="l1_gnn_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "live-buffer", "camera-pose-replay",
+            "gnn", "knn-graph", "prototype", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 live house points + EdgeConv-variant GNN house branch (gnn_house.py).
+    "habitat-l1-gnn-edge-house-points-pose": dict(
+        env="habitat",
+        encoder="gnn_edge_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-gnn-edge-house-points-pose",
+        wandb_name="l1_gnn_edge_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "live-buffer", "camera-pose-replay",
+            "gnn", "knn-graph", "edgeconv", "residual", "prototype",
+            "jax", "3d-encoder",
+        ],
+    ),
     # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
     "habitat-l1-vggt-house-full-tokens-nogate": dict(
         env="habitat",
@@ -147,6 +202,22 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "curriculum", "level1", "1house", "chair-only", "vggt",
             "house-context", "global-token-transformer", "no-gate", "rgb-replay",
             "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
+        ],
+    ),
+    # L1 house global embedding — RGB replay + split VGGT global tokens fed to
+    # a PointNet reducer (max-pool over 1369 patch tokens; camera token on its
+    # own side branch). PERSIST_SCENE, heads off (src/prototyp/
+    # house_global_embedding/IDEA.md).
+    "habitat-l1-vggt-house-global-embedding": dict(
+        env="habitat",
+        encoder="vggt_house_global_embedding",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-global-embedding",
+        wandb_name="l1_rgb_replay_vggt_house_global_embedding",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-context", "global-embedding", "pointnet-reducer", "rgb-replay",
+            "live-cache", "persist-scene", "heads-off", "jax", "3d-encoder",
         ],
     ),
     # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).

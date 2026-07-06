@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from src.r2dreamer.obs_batch import decoder_rgb_target
+from src.r2dreamer.decoder_targets import decoder_rgb_target
 from src.r2dreamer.learning_types import LossResult, WorldModelForward
 
 
@@ -55,7 +55,7 @@ def world_model_loss(
     Args:
         forward: shared `agent._world_model_forward` output.
         params: full agent params dict (only `reward`, `cont` are read here).
-        batch: training batch (uses `rewards`, `is_terminal`).
+        batch: training batch (uses `rewards`, `is_episode_end`).
         modules: dict of Flax modules (uses `reward`, `cont`).
         cfg: R2DreamerConfig (uses `stoch_classes`, `stoch_discrete`, `kl_free`).
         twohot: R2TwoHotDist for the reward head.
@@ -87,11 +87,11 @@ def world_model_loss(
     # ---- Reward head ----
     feat_flat = forward.feat.reshape(B * T, -1)
     rew_logits = modules["reward"].apply(params["reward"], feat_flat).reshape(B, T, -1)
-    losses["rew"] = jnp.mean(twohot.loss(rew_logits, batch["rewards"]))
+    losses["rew"] = jnp.mean(twohot.loss(rew_logits, batch.rewards))
 
     # ---- Continue head ----
     cont_logits = modules["cont"].apply(params["cont"], feat_flat).reshape(B, T, 1)
-    cont_target = 1.0 - batch["is_terminal"]
+    cont_target = 1.0 - batch.is_episode_end
     losses["con"] = jnp.mean(
         optax.sigmoid_binary_cross_entropy(cont_logits[..., 0], cont_target)
     )
@@ -106,7 +106,7 @@ def world_model_loss(
         recon = modules["decoder"].apply(
             params["decoder"], decoder_feat
         )  # (BT,3,64,64)
-        rgb_target = decoder_rgb_target(batch, cfg)
+        rgb_target = decoder_rgb_target(batch, cfg.encoder_type)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]
 

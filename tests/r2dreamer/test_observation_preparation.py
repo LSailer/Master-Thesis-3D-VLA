@@ -5,32 +5,36 @@ import json
 
 import numpy as np
 
-from src.environments.observation import ObservationFrame
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
-    R2DreamerConfig,
     ReplayObservationConfig,
 )
-from src.r2dreamer.observation_preparation import (
-    CNNObservationPreparation,
-    HYBRID_FEATURE_DIM,
-    HYBRID_IMAGE_SHAPE,
-    VGGTFeatureKind,
-    VGGT_DREAMER_SPECS,
-    build_hybrid_contract,
-    build_vggt_contract,
-    PreparedObservation,
-    recover_encoder_input_contract,
+from src.environments.observation import ObservationFrame
+from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.r2dreamer.encoders.mlp import (
+    HybridEncoder,
+    MLPEncoder,
+    VGGTAggregatorMLPEncoder,
+    WP64CNNCPMLPEncoder,
 )
-from src.r2dreamer.obs_batch import (
+from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
-    ObservationPacker,
 )
-from src.r2dreamer.world_model import encoders as wm_encoders
+from src.r2dreamer.observation_preparation import (
+    HYBRID_FEATURE_DIM,
+    HYBRID_IMAGE_SHAPE,
+    VGGT_DREAMER_SPECS,
+    CNNObservationPreparation,
+    PreparedObservation,
+    VGGTFeatureKind,
+    build_hybrid_contract,
+    build_vggt_contract,
+    recover_encoder_input_contract,
+)
 
 
 class TestObservationRunConfig:
@@ -63,7 +67,7 @@ class TestCNNObservationPreparation:
         assert contract.observation_preparation_type == "cnn"
         assert contract.encoder_type == "cnn"
         assert contract.env_render_resolution == 64
-        assert contract.encoder_module_cls is wm_encoders.ConvEncoder
+        assert contract.encoder_module_cls is ConvEncoder
         assert contract.encoder_input.shape == (3, 64, 64)
         assert contract.env_observation.fields["image"].shape == (3, 64, 64)
         assert contract.env_observation.fields["image"].dtype == "uint8"
@@ -86,7 +90,7 @@ class TestCNNObservationPreparation:
         encoded = json.loads(json.dumps(snapshot))
         recovered = recover_encoder_input_contract(encoded)
 
-        assert encoded["encoder_module"] == "src.r2dreamer.world_model.encoders.ConvEncoder"
+        assert encoded["encoder_module"] == "src.r2dreamer.encoders.cnn.ConvEncoder"
         assert "encoder_module_cls" not in encoded
         assert encoded["encoder_module_kwargs"] == {}
         assert encoded["replay_observation"] == {
@@ -102,15 +106,11 @@ class TestCNNObservationPreparation:
     def test_prepare_env_step_returns_replay_and_encoder_observation(self):
         prep = CNNObservationPreparation()
         image = np.arange(3 * 64 * 64, dtype=np.uint8).reshape(3, 64, 64)
-        packer = ObservationPacker(R2DreamerConfig())
-
-        prepared = prep.prepare_env_step(
-            ObservationFrame(image=image, is_first=True), packer
-        )
+        prepared = prep.prepare_env_step(ObservationFrame(image=image, is_first=True))
 
         assert isinstance(prepared, PreparedObservation)
         np.testing.assert_array_equal(prepared.replay_obs, image)
-        assert prepared.encoder_obs.shape == (1, 3, 64, 64)
+        np.testing.assert_array_equal(prepared.encoder_obs["image"], image)
         assert prepared.is_first is True
 
     def test_legacy_transform_routes_through_prepared_observation(self):
@@ -137,15 +137,15 @@ class TestVGGTObservationPreparationContracts:
         assert VGGT_DREAMER_SPECS["vggt"].storage.replay_readout is True
         assert VGGT_DREAMER_SPECS["hybrid"].storage.replay_rgb is True
         assert VGGT_DREAMER_SPECS["hybrid"].storage.replay_readout is True
-        assert VGGT_DREAMER_SPECS[
-            "vggt_house_global_tokens_nogate"
-        ].storage.replay_readout is True
         assert (
-            VGGT_DREAMER_SPECS["vggt_agg_raw"].readout.token_source == "flattened"
+            VGGT_DREAMER_SPECS["vggt_house_global_tokens_nogate"].storage.replay_readout
+            is True
         )
-        assert VGGT_DREAMER_SPECS[
-            "vggt_agg_token_transformer"
-        ].readout.token_source == "global"
+        assert VGGT_DREAMER_SPECS["vggt_agg_raw"].readout.token_source == "flattened"
+        assert (
+            VGGT_DREAMER_SPECS["vggt_agg_token_transformer"].readout.token_source
+            == "global"
+        )
 
     def test_wp_cp_contract_declares_raw_env_replay_and_encoder_forms(self):
         contract = build_vggt_contract(self._Extractor(), feature_kind="wp_cp")
@@ -153,7 +153,7 @@ class TestVGGTObservationPreparationContracts:
         assert contract.observation_preparation_type == "vggt"
         assert contract.encoder_type == "vggt"
         assert contract.env_render_resolution == 518
-        assert contract.encoder_module_cls is wm_encoders.VGGTEncoder
+        assert contract.encoder_module_cls is MLPEncoder
         assert contract.env_observation.fields["image"].shape == (3, 518, 518)
         assert contract.env_observation.fields["image"].dtype == "uint8"
         assert contract.env_observation.fields["is_first"].dtype == "bool"
@@ -175,7 +175,7 @@ class TestVGGTObservationPreparationContracts:
                 "vggt_aggregator_mlp",
                 (3 * 128,),
                 "float32",
-                wm_encoders.VGGTAggregatorMLPEncoder,
+                VGGTAggregatorMLPEncoder,
             ),
         ]
 
@@ -201,16 +201,20 @@ class TestVGGTObservationPreparationContracts:
         assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert contract.encoder_input.shape == (64 * 64 * 3 + 9,)
-        assert contract.encoder_module_cls is wm_encoders.VGGTEncoder
+        assert contract.encoder_module_cls is MLPEncoder
 
     def test_wp_dense_contract_stores_structured_wp_cp_but_encodes_world_points(self):
         contract = build_vggt_contract(self._Extractor(), feature_kind="wp_dense")
 
         assert contract.observation_preparation_type == "vggt_wp_dense_cnn"
-        assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 518, 518)
+        assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (
+            3,
+            518,
+            518,
+        )
         assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert contract.encoder_input.shape == (3, 518, 518)
-        assert contract.encoder_module_cls is wm_encoders.ConvEncoder
+        assert contract.encoder_module_cls is ConvEncoder
 
     def test_wp64_cnn_cp_mlp_contract_uses_structured_float16_replay(self):
         class Extractor64(self._Extractor):
@@ -220,7 +224,7 @@ class TestVGGTObservationPreparationContracts:
 
         assert contract.observation_preparation_type == "vggt_wp64_cnn_cp_mlp"
         assert contract.encoder_type == "vggt_wp64_cnn_cp_mlp"
-        assert contract.encoder_module_cls is wm_encoders.WP64CNNCPMLPEncoder
+        assert contract.encoder_module_cls is WP64CNNCPMLPEncoder
         assert contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert contract.replay_observation.fields[WORLD_POINTS_KEY].dtype == "float16"
         assert contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
@@ -236,14 +240,24 @@ class TestVGGTObservationPreparationContracts:
         assert contract.observation_preparation_type == "hybrid"
         assert contract.encoder_type == "hybrid"
         assert contract.env_render_resolution == 518
-        assert contract.encoder_module_cls is wm_encoders.HybridEncoder
+        assert contract.encoder_module_cls is HybridEncoder
         assert contract.env_observation.fields["image"].shape == (3, 518, 518)
-        assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
+        assert (
+            contract.replay_observation.fields[HYBRID_IMAGE_KEY].shape
+            == HYBRID_IMAGE_SHAPE
+        )
         assert contract.replay_observation.fields[HYBRID_IMAGE_KEY].dtype == "uint8"
-        assert contract.replay_observation.fields[HYBRID_WP_CP_KEY].shape == (37 * 37 * 3 + 9,)
+        assert contract.replay_observation.fields[HYBRID_WP_CP_KEY].shape == (
+            37 * 37 * 3 + 9,
+        )
         assert contract.replay_observation.fields[HYBRID_WP_CP_KEY].dtype == "float32"
-        assert contract.agent_observation.fields[HYBRID_IMAGE_KEY].shape == HYBRID_IMAGE_SHAPE
-        assert contract.agent_observation.fields[HYBRID_WP_CP_KEY].shape == (37 * 37 * 3 + 9,)
+        assert (
+            contract.agent_observation.fields[HYBRID_IMAGE_KEY].shape
+            == HYBRID_IMAGE_SHAPE
+        )
+        assert contract.agent_observation.fields[HYBRID_WP_CP_KEY].shape == (
+            37 * 37 * 3 + 9,
+        )
         assert contract.encoder_input.shape == (HYBRID_FEATURE_DIM,)
         assert contract.decoder_target is not None
         assert contract.decoder_target.shape == HYBRID_IMAGE_SHAPE

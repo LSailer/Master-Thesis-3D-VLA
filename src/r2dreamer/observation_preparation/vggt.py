@@ -4,16 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal, Any, cast
+from typing import Any, Literal, cast
 
 import flax.linen as nn
 
-from src.r2dreamer.config import (
+from src.configs.config import (
     ObservationDims,
     ObservationRunConfig,
     ReplayObservationConfig,
 )
-from src.r2dreamer.obs_batch import (
+from src.r2dreamer.encoders.cnn import ConvEncoder
+from src.r2dreamer.encoders.constants import AGG_TOKEN_TOKENS, HOUSE_CONTEXT_DIM
+from src.r2dreamer.encoders.mlp import (
+    HybridEncoder,
+    MLPEncoder,
+    VGGTAggRawMLPEncoder,
+    VGGTAggregatorMLPEncoder,
+    WP64CNNCPMLPEncoder,
+)
+from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     HYBRID_IMAGE_KEY,
     HYBRID_WP_CP_KEY,
@@ -25,8 +35,6 @@ from src.r2dreamer.observation_preparation.contracts import (
     ObservationFormContract,
     replay_observation_form,
 )
-from src.r2dreamer.world_model import encoders as wm_encoders
-
 
 VGGTFeatureKind = Literal[
     "wp_cp", "wp64_cp", "aggregator", "wp_dense", "agg_raw", "agg_tokens"
@@ -154,7 +162,9 @@ class VGGTDreamerSpec:
     @property
     def wp_pool_size(self) -> int:
         """World-point pooling side passed to the VGGT extractor."""
-        if isinstance(self.readout, HeadReadout) and isinstance(self.readout.wp_side, int):
+        if isinstance(self.readout, HeadReadout) and isinstance(
+            self.readout.wp_side, int
+        ):
             return self.readout.wp_side
         return VGGT_DEFAULT_WP_POOL_SIZE
 
@@ -172,14 +182,14 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt",
         readout=HeadReadout(37),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec("mlp", wm_encoders.VGGTEncoder, "flat_wp_cp"),
+        dreamer=DreamerEncoderSpec("mlp", MLPEncoder, "flat_wp_cp"),
         agent_overrides={"buffer_capacity": 1_000_000},
     ),
     "vggt_wp_cp_64": VGGTDreamerSpec(
         name="vggt_wp_cp_64",
         readout=HeadReadout(64),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec("mlp", wm_encoders.VGGTEncoder, "flat_wp_cp"),
+        dreamer=DreamerEncoderSpec("mlp", MLPEncoder, "flat_wp_cp"),
         agent_overrides={"buffer_capacity": 1_000_000},
         design_notes="WP/CP MLP with 64x64 pooled world points.",
     ),
@@ -187,17 +197,15 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt_wp64_cnn_cp_mlp",
         readout=HeadReadout(64),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec(
-            "hybrid", wm_encoders.WP64CNNCPMLPEncoder, "structured_wp_cp"
-        ),
+        dreamer=DreamerEncoderSpec("hybrid", WP64CNNCPMLPEncoder, "structured_wp_cp"),
         agent_overrides={"buffer_capacity": 1_000_000},
         design_notes="64x64 world-point CNN plus camera-pose MLP.",
     ),
     "vggt_wp_dense_cnn": VGGTDreamerSpec(
         name="vggt_wp_dense_cnn",
-        readout=HeadReadout("dense", include_camera_pose=False),
+        readout=HeadReadout("dense"),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec("cnn", wm_encoders.ConvEncoder, "world_points"),
+        dreamer=DreamerEncoderSpec("cnn", ConvEncoder, "world_points"),
         agent_overrides=_SMALL_REPLAY_OVERRIDES,
         design_notes="Dense 518x518 VGGT world-point map through a CNN encoder.",
     ),
@@ -207,9 +215,7 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         storage=StorageSpec(
             replay_rgb=False, replay_readout=True, readout_dtype="float32"
         ),
-        dreamer=DreamerEncoderSpec(
-            "mlp", wm_encoders.VGGTAggregatorMLPEncoder, "flat_features"
-        ),
+        dreamer=DreamerEncoderSpec("mlp", VGGTAggregatorMLPEncoder, "flat_features"),
         agent_overrides=_SMALL_REPLAY_OVERRIDES,
         design_notes="Pooled [camera token, mean patches, max patches] VGGT tokens.",
     ),
@@ -217,9 +223,7 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         name="vggt_agg_raw",
         readout=TokenReadout("flattened"),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
-        dreamer=DreamerEncoderSpec(
-            "mlp", wm_encoders.VGGTAggRawMLPEncoder, "flat_features"
-        ),
+        dreamer=DreamerEncoderSpec("mlp", VGGTAggRawMLPEncoder, "flat_features"),
         agent_overrides=_SMALL_REPLAY_OVERRIDES,
         design_notes="Flattened VGGT camera and patch tokens for an MLP.",
     ),
@@ -228,7 +232,7 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         readout=TokenReadout("global"),
         storage=StorageSpec(replay_rgb=False, replay_readout=True),
         dreamer=DreamerEncoderSpec(
-            "transformer", wm_encoders.VGGTAggTokenTransformerEncoder, "flat_features"
+            "transformer", TokenTransformerEncoder, "flat_features"
         ),
         agent_overrides={
             "buffer_capacity": 5_000,
@@ -244,9 +248,7 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         storage=StorageSpec(
             replay_rgb=True, replay_readout=True, readout_dtype="float32"
         ),
-        dreamer=DreamerEncoderSpec(
-            "hybrid", wm_encoders.HybridEncoder, "rgb_plus_flat"
-        ),
+        dreamer=DreamerEncoderSpec("hybrid", HybridEncoder, "rgb_plus_flat"),
         agent_overrides={"buffer_capacity": 100_000},
         design_notes="RGB64 CNN plus gated WP/CP MLP branch.",
     ),
@@ -256,14 +258,12 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         storage=StorageSpec(
             replay_rgb=True, replay_readout=True, readout_dtype="float32"
         ),
-        dreamer=DreamerEncoderSpec(
-            "hybrid", wm_encoders.HybridEncoder, "rgb_plus_context"
-        ),
+        dreamer=DreamerEncoderSpec("hybrid", HybridEncoder, "rgb_plus_context"),
         agent_overrides={
             "buffer_capacity": 1_000_000,
-            "vggt_feature_dim": wm_encoders.HOUSE_CONTEXT_DIM,
+            "vggt_feature_dim": HOUSE_CONTEXT_DIM,
             "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
-            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+            "vggt_token_count": AGG_TOKEN_TOKENS,
         },
         design_notes="RGB replay plus live full-token VGGT house context.",
     ),
@@ -272,12 +272,12 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         readout=TokenReadout("full", token_dim=VGGT_FULL_TOKEN_EMBED_DIM),
         storage=StorageSpec(replay_rgb=True, replay_readout=True),
         dreamer=DreamerEncoderSpec(
-            "transformer", wm_encoders.RGBFullTokenTransformerEncoder, "rgb_plus_tokens"
+            "transformer", TokenTransformerEncoder, "rgb_plus_tokens"
         ),
         agent_overrides={
             **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_FULL_TOKEN_EMBED_DIM,
-            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+            "vggt_token_count": AGG_TOKEN_TOKENS,
         },
         design_notes="RGB replay plus per-step full-width VGGT tokens, no gate.",
     ),
@@ -286,12 +286,12 @@ VGGT_DREAMER_SPECS: dict[str, VGGTDreamerSpec] = {
         readout=TokenReadout("global"),
         storage=StorageSpec(replay_rgb=True, replay_readout=True),
         dreamer=DreamerEncoderSpec(
-            "transformer", wm_encoders.RGBGlobalTokenTransformerEncoder, "rgb_plus_tokens"
+            "transformer", TokenTransformerEncoder, "rgb_plus_tokens"
         ),
         agent_overrides={
             **_SMALL_REPLAY_OVERRIDES,
             "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
-            "vggt_token_count": wm_encoders.AGG_TOKEN_TOKENS,
+            "vggt_token_count": AGG_TOKEN_TOKENS,
         },
         design_notes="RGB replay plus per-step global-half VGGT tokens, no gate.",
     ),
@@ -409,9 +409,7 @@ def _spec_for_feature_kind(
     wp_pool_size: int = VGGT_DEFAULT_WP_POOL_SIZE,
 ) -> VGGTDreamerSpec:
     if feature_kind == "wp_cp":
-        return VGGT_DREAMER_SPECS[
-            "vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"
-        ]
+        return VGGT_DREAMER_SPECS["vggt_wp_cp_64" if wp_pool_size == 64 else "vggt"]
     return {
         "wp64_cp": VGGT_DREAMER_SPECS["vggt_wp64_cnn_cp_mlp"],
         "wp_dense": VGGT_DREAMER_SPECS["vggt_wp_dense_cnn"],
@@ -483,7 +481,9 @@ def _head_replay_config(
         encoder=spec.encoder_type,
         dims=dims,
         replay=ReplayObservationConfig(
-            components=("image", "wp_cp") if spec.storage.replay_rgb else ("world_points",),
+            components=("image", "wp_cp")
+            if spec.storage.replay_rgb
+            else ("world_points",),
             feature_dtype=spec.storage.readout_dtype,
             normalize_image=False,
         ),
@@ -558,9 +558,7 @@ def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
         )
         encoder_input_by_layout = {
             "flat_wp_cp": ObservationFormContract(
-                ObservationField(
-                    dims.wp_cp_shape, "float32", normalize_on_sample=False
-                )
+                ObservationField(dims.wp_cp_shape, "float32", normalize_on_sample=False)
             ),
             "structured_wp_cp": ObservationFormContract(encoder_fields),
             "world_points": ObservationFormContract(

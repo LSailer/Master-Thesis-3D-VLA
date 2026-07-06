@@ -7,8 +7,8 @@ test_spl.py is the GPU-only integration test that validates SPL end-to-end.
 import numpy as np
 import pytest
 
-from src.shared.configs import DreamerConfig
 from src.environments.habitat import (
+    HabitatEnvConfig,
     HabitatObjectNavEnv,
 )
 
@@ -41,7 +41,7 @@ class _FakeHabitatEnv:
 def _make_env(distance: float, *, start_geodesic: float, path_length: float,
               prev_position=(0.0, 0.0, 0.0), max_steps: int = 100) -> HabitatObjectNavEnv:
     env = object.__new__(HabitatObjectNavEnv)
-    env._cfg = DreamerConfig(
+    env._cfg = HabitatEnvConfig(
         obs_shape=(3, 1, 1),
         max_episode_steps=max_steps,
         reward_type="sparse",

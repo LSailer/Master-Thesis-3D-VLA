@@ -5,20 +5,27 @@ Episodes terminate on: (1) agent within goal_radius of target, or
 (2) max_episode_steps exceeded.
 """
 
+import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import numpy as np
 
 from src.environments.observation import ObservationFrame
-from src.shared.configs import DreamerConfig
 
 # Discrete actions: STOP is a no-op (no movement), kept for action-space parity
 ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
 
 SCENE_DIR = Path("data/scene_datasets/hm3d")
 DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
+HABITAT_CURRICULA: dict[str, Path] = {
+    "L1": Path("data/curriculum/level1_1house_1goal.json"),
+    "L2": Path("data/curriculum/level2_1house_6goals.json"),
+    "L3": Path("data/curriculum/level3_10houses_1goal.json"),
+    "L4": Path("data/curriculum/level4_10houses_6goals.json"),
+}
 
 # Success radius (meters) — geodesic distance to nearest viewpoint.
 # 0.2m is the tightest threshold that gives 100% SR for the optimal agent
@@ -26,10 +33,45 @@ DATA_DIR = Path("data/datasets/objectnav/hm3d/objectnav_hm3d_v2")
 GOAL_RADIUS = 0.2
 
 
+@dataclass(frozen=True)
+class HabitatEnvConfig:
+    """Environment-only configuration for Habitat ObjectNav."""
+
+    obs_shape: tuple[int, int, int] = (3, 518, 518)
+    max_episode_steps: int = 500
+    split: str = "train"
+    reward_type: str = "geodesic_delta"
+    step_penalty: float = -0.01
+    success_bonus: float = 10.0
+    curriculum: str | None = None
+    curriculum_path: str | Path | None = None
+    curriculum_mode: str = "train"
+
+
 class EpisodeEndMetrics(TypedDict):
+    """Metrics populated on episode-end transitions."""
+
     softspl: float
     dtg: float
     collision_rate: float
+
+
+def resolve_habitat_curriculum_path(config: HabitatEnvConfig) -> Path | None:
+    """Resolve the curriculum JSON path declared by ``config``.
+
+    ``curriculum_path`` is the explicit override. Otherwise ``curriculum`` names one
+    of the built-in Habitat ObjectNav levels (``L1``..``L4``).
+    """
+    if config.curriculum_path is not None:
+        return Path(config.curriculum_path)
+    if config.curriculum is None:
+        return None
+    if config.curriculum not in HABITAT_CURRICULA:
+        raise KeyError(
+            f"Unknown Habitat curriculum {config.curriculum!r}. "
+            f"Available: {list(HABITAT_CURRICULA)}"
+        )
+    return HABITAT_CURRICULA[config.curriculum]
 
 
 def _validate_goal_distance(dist: float) -> float:
@@ -102,18 +144,18 @@ def sample_navmesh(env, resolution: float = 0.05) -> dict:
 
 
 class HabitatObjectNavEnv:
+    """Habitat ObjectNav wrapper exposing Dreamer-style observation frames."""
+
     _env: Any
     _last_obs: Any
     _prev_position: np.ndarray | None
 
     def __init__(
         self,
-        config: DreamerConfig,
+        config: HabitatEnvConfig,
         max_geodesic: float | None = None,
         step_counts_path: str | None = None,
         semantic: bool = False,
-        curriculum_path: str | None = None,
-        curriculum_mode: str = "train",
         seed: int | None = None,
     ):
         import habitat
@@ -121,19 +163,20 @@ class HabitatObjectNavEnv:
 
         habitat_module = cast(Any, habitat)
         self._cfg = config
-        H, W = config.obs_shape[1], config.obs_shape[2]
+        height, width = config.obs_shape[1], config.obs_shape[2]
         split = config.split
 
-        # Curriculum episodes always come from the train split
+        # Curriculum episodes always come from the train split.
+        curriculum_path = resolve_habitat_curriculum_path(config)
         curriculum = None
         if curriculum_path is not None:
-            import json
-
             split = "train"
-            with open(curriculum_path) as f:
+            with curriculum_path.open(encoding="utf-8") as f:
                 curriculum = json.load(f)
 
-        hab_cfg = habitat_module.get_config("benchmark/nav/objectnav/objectnav_hm3d.yaml")
+        hab_cfg = habitat_module.get_config(
+            "benchmark/nav/objectnav/objectnav_hm3d.yaml"
+        )
         with habitat_module.config.read_write(hab_cfg):
             hab_cfg.habitat.dataset.split = split
             if seed is not None:
@@ -149,8 +192,8 @@ class HabitatObjectNavEnv:
             if scene_cfg:
                 hab_cfg.habitat.simulator.scene_dataset = str(scene_cfg)
             agent_cfg = hab_cfg.habitat.simulator.agents.main_agent
-            agent_cfg.sim_sensors.rgb_sensor.height = H
-            agent_cfg.sim_sensors.rgb_sensor.width = W
+            agent_cfg.sim_sensors.rgb_sensor.height = height
+            agent_cfg.sim_sensors.rgb_sensor.width = width
             hab_cfg.habitat.environment.max_episode_steps = config.max_episode_steps
             # load_semantic_mesh is a habitat-sim attr not in the OmegaConf schema
             OmegaConf.set_struct(hab_cfg.habitat.simulator, False)
@@ -165,7 +208,7 @@ class HabitatObjectNavEnv:
             # Keys are [episode_id, object_category, scene_name] triples
             key_set = {
                 (k[0], k[1], k[2])
-                for k in curriculum[f"{curriculum_mode}_episode_keys"]
+                for k in curriculum[f"{config.curriculum_mode}_episode_keys"]
             }
             dataset = self._env._dataset
             before = len(dataset.episodes)
@@ -181,13 +224,14 @@ class HabitatObjectNavEnv:
             ]
             after = len(dataset.episodes)
             assert after > 0, (
-                f"Curriculum filter matched 0 episodes for mode='{curriculum_mode}'. "
-                f"Check that curriculum JSON keys match the dataset split."
+                "Curriculum filter matched 0 episodes for "
+                f"mode='{config.curriculum_mode}'. Check that curriculum JSON "
+                "keys match the dataset split."
             )
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
             print(
-                f"Curriculum [{curriculum['name']}] {curriculum_mode}: "
+                f"Curriculum [{curriculum['name']}] {config.curriculum_mode}: "
                 f"{before} → {after} episodes"
             )
         else:
@@ -212,9 +256,7 @@ class HabitatObjectNavEnv:
                 )
 
             if step_counts_path is not None:
-                import json
-
-                with open(step_counts_path) as f:
+                with open(step_counts_path, encoding="utf-8") as f:
                     step_counts = json.load(f)
                 split_counts = step_counts.get(config.split, {})
                 dataset = self._env._dataset
@@ -242,13 +284,26 @@ class HabitatObjectNavEnv:
         self._prev_position = None
         self._collisions = 0
         self._forward_steps = 0
+        self.reset()
+
+    @property
+    def num_actions(self) -> int:
+        """Number of discrete actions exposed by this environment."""
+        return len(ACTIONS)
 
     @property
     def current_episode(self) -> Any:
         """Current Habitat episode exposed without leaking the wrapped env."""
-        return self._env.current_episode
+        return getattr(self._env, "current_episode", None)
+
+    @property
+    def episode_count(self) -> int:
+        """Number of episodes in the wrapped Habitat dataset."""
+        dataset = getattr(self._env, "_dataset")
+        return len(dataset.episodes)
 
     def reset(self) -> ObservationFrame:
+        """Reset the environment and return the first observation frame."""
         for attempt in range(100):
             obs = self._env.reset()
             raw_dist = self._env.get_metrics().get("distance_to_goal", 0.0)
@@ -278,12 +333,13 @@ class HabitatObjectNavEnv:
         return ObservationFrame(
             image=image,
             is_first=True,
-            scene_id=getattr(episode, "scene_id", None),
+            scene_id=getattr(episode, "scene_id", ""),
             episode_id=getattr(episode, "episode_id", None),
             step=self._step_count,
         )
 
     def step(self, action: int) -> ObservationFrame:
+        """Apply one discrete action and return the next observation frame."""
         # STOP (action 0) is a no-op: no movement, no termination
         if action == 0:
             self._step_count += 1
@@ -295,11 +351,11 @@ class HabitatObjectNavEnv:
             episode = self.current_episode
             return ObservationFrame(
                 image=image,
+                is_first=False,
+                previous_action=int(action),
                 reward=self._cfg.step_penalty,
                 done=done,
-                is_first=False,
-                is_last=done,
-                scene_id=getattr(episode, "scene_id", None),
+                scene_id=getattr(episode, "scene_id", ""),
                 episode_id=getattr(episode, "episode_id", None),
                 step=self._step_count,
                 **end_metrics,
@@ -330,7 +386,7 @@ class HabitatObjectNavEnv:
             dist = _validate_goal_distance(raw_dist)
         except ValueError:
             self._log_invalid_goal_distance(raw_dist, phase="step")
-            return self._invalid_goal_distance_transition(obs, raw_dist)
+            return self._invalid_goal_distance_transition(obs, raw_dist, action)
 
         reward = self._compute_reward(dist)
         success = 1.0 if _is_success_distance(dist) else 0.0
@@ -344,21 +400,20 @@ class HabitatObjectNavEnv:
         episode = self.current_episode
         return ObservationFrame(
             image=image,
+            is_first=False,
+            previous_action=int(action),
             reward=reward,
             done=done,
-            is_first=False,
             success=success,
             spl=spl,
-            is_last=done,
-            is_terminal=success > 0,
-            scene_id=getattr(episode, "scene_id", None),
+            scene_id=getattr(episode, "scene_id", ""),
             episode_id=getattr(episode, "episode_id", None),
             step=self._step_count,
             **end_metrics,
         )
 
     def _invalid_goal_distance_transition(
-        self, obs, raw_dist: object
+        self, obs, raw_dist: object, action: int
     ) -> ObservationFrame:
         image = self._obs_to_image(obs)
         fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
@@ -366,13 +421,13 @@ class HabitatObjectNavEnv:
         episode = self.current_episode
         return ObservationFrame(
             image=image,
+            is_first=False,
+            previous_action=int(action),
             reward=self._cfg.step_penalty,
             done=True,
-            is_first=False,
-            is_last=True,
             invalid_goal_distance=1.0,
             invalid_goal_distance_raw=str(raw_dist),
-            scene_id=getattr(episode, "scene_id", None),
+            scene_id=getattr(episode, "scene_id", ""),
             episode_id=getattr(episode, "episode_id", None),
             step=self._step_count,
             **end_metrics,
@@ -391,7 +446,7 @@ class HabitatObjectNavEnv:
         episode_id = getattr(episode, "episode_id", "unknown")
         category = getattr(episode, "object_category", "unknown")
         scene_id = getattr(episode, "scene_id", "unknown")
-        scene_name = str(scene_id).split("/")[-1].replace(".basis.glb", "")
+        scene_name = str(scene_id).rsplit("/", maxsplit=1)[-1].replace(".basis.glb", "")
         start_position = getattr(episode, "start_position", "unknown")
         return (
             f"episode_id={episode_id} category={category} scene={scene_name} "
@@ -452,6 +507,7 @@ class HabitatObjectNavEnv:
         raise ValueError(f"Unknown reward_type: {self._cfg.reward_type!r}")
 
     def close(self):
+        """Close the wrapped Habitat environment."""
         self._env.close()
 
 
@@ -460,29 +516,28 @@ def build_habitat_env(
     *,
     max_episode_steps: int = 500,
     split: str = "train",
-    curriculum_path: str | None = None,
+    curriculum: str | None = None,
+    curriculum_path: str | Path | None = None,
     curriculum_mode: str = "train",
     semantic: bool = False,
     seed: int | None = None,
     reward_type: str = "geodesic_delta",
     max_geodesic: float | None = None,
 ) -> "HabitatObjectNavEnv":
-    """Build a ``HabitatObjectNavEnv`` with a ``DreamerConfig`` derived from ``obs_shape``.
-
-    Consolidates the boilerplate ``DreamerConfig(...) + HabitatObjectNavEnv(...)``
-    pair that several callers duplicate.
-    """
-    config = DreamerConfig(
+    """Build a ``HabitatObjectNavEnv`` with a config derived from ``obs_shape``."""
+    config = HabitatEnvConfig(
         obs_shape=obs_shape,
         max_episode_steps=max_episode_steps,
         split=split,
         reward_type=reward_type,
+        curriculum=curriculum,
+        curriculum_path=curriculum_path,
+        curriculum_mode=curriculum_mode,
     )
     return HabitatObjectNavEnv(
         config,
         semantic=semantic,
-        curriculum_path=curriculum_path,
-        curriculum_mode=curriculum_mode,
         seed=seed,
         max_geodesic=max_geodesic,
     )
+

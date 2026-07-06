@@ -2,6 +2,9 @@
 
 import argparse
 
+from src.configs.config import LATENT_PRESETS
+from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
+
 
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
@@ -18,12 +21,17 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated tags (appended to shim defaults)",
     )
-    # escape hatch: override the shim-hardcoded curriculum path
+    p.add_argument(
+        "--curriculum",
+        type=str,
+        default=None,
+        help="Habitat curriculum level name (L1..L4).",
+    )
     p.add_argument(
         "--curriculum_path",
         type=str,
         default=None,
-        help="Override shim curriculum path (escape hatch)",
+        help="Explicit Habitat curriculum JSON path.",
     )
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument(
@@ -205,10 +213,11 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
     # --- Latent-size ablation (3D-50) ---
     p.add_argument(
         "--latent_preset",
-        choices=["small", "default", "large"],
-        default="default",
-        help="Latent-size ablation preset (3D-50). Explicit "
-        "--deter_size/--stoch_classes/--stoch_discrete win over it.",
+        choices=tuple(LATENT_PRESETS),
+        default="12m",
+        help="Model-size preset from the R2-Dreamer table. Scales RSSM shape, "
+        "CNN depth, and head MLP width. Explicit "
+        "--deter_size/--stoch_classes/--stoch_discrete override the RSSM shape.",
     )
     p.add_argument(
         "--deter_size",
@@ -303,6 +312,34 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_house_context_train_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--static_house_context_path",
+        "--static-house-context-path",
+        type=str,
+        default=None,
+        help="ASCII XYZRGB PLY path for deterministic static vggt_house_context "
+        "prototype. Default keeps the live VGGT house-context readout.",
+    )
+    p.add_argument(
+        "--static_house_points_path",
+        "--static-house-points-path",
+        type=str,
+        default=None,
+        help="ASCII XYZRGB PLY path for vggt_house_points_pose. Replay stores "
+        "only camera_pose; the complete point cloud stays as a static sidecar.",
+    )
+    p.add_argument(
+        "--pointcloud_dump_every",
+        type=int,
+        default=0,
+        help="For vggt_house_global_embedding: write a PLY point-cloud snapshot "
+        "every N env steps (diagnostics only; the point head runs only on dump "
+        "steps, never for training). 0 disables the feature. An extra snapshot "
+        "is written at the end of the first episode when N > 0.",
+    )
+
+
 def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
@@ -313,6 +350,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)
     _add_token_transformer_train_args(p)
+    _add_house_context_train_args(p)
     return p
 
 
@@ -324,18 +362,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         "--encoder",
         type=str,
         default=None,
-        choices=[
-            "cnn",
-            "vggt",
-            "vggt_aggregator_mlp",
-            "vggt_agg_token_transformer",
-            "vggt_wp_dense_cnn",
-            "vggt_wp_cp_64",
-            "hybrid",
-            "vggt_house_context",
-            "vggt_house_full_tokens_nogate",
-            "vggt_house_global_tokens_nogate",
-        ],
+        choices=EVAL_ENCODER_TYPES,
     )
     p.add_argument(
         "--random", action="store_true", help="Use random agent instead of a checkpoint"
@@ -345,12 +372,17 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         "--output_dir", type=str, default=None, help="Directory to write results JSON"
     )
     p.add_argument("--seed", type=int, default=42)
-    # escape hatch: override shim-hardcoded curriculum
+    p.add_argument(
+        "--curriculum",
+        type=str,
+        default=None,
+        help="Habitat curriculum level name (L1..L4).",
+    )
     p.add_argument(
         "--curriculum_path",
         type=str,
         default=None,
-        help="Override shim curriculum path (escape hatch)",
+        help="Explicit Habitat curriculum JSON path.",
     )
     p.add_argument(
         "--render_resolution",

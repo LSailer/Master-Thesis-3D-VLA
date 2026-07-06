@@ -1,19 +1,42 @@
 import pytest
-from src.r2dreamer.config import R2DreamerConfig
+from src.configs.config import LATENT_PRESETS, R2DreamerConfig
 
 
 class TestR2DreamerConfig:
+    def test_table_presets(self):
+        expected = {
+            "12m": (256, 32, 16, 512),
+            "25m": (384, 32, 24, 768),
+            "50m": (512, 32, 32, 1024),
+            "100m": (768, 32, 48, 1536),
+            "200m": (1024, 32, 64, 2048),
+            "400m": (1536, 32, 96, 3072),
+        }
+        for name, (width, classes, discrete, flat) in expected.items():
+            cfg = R2DreamerConfig(**LATENT_PRESETS[name])
+            assert cfg.hidden_size == width
+            assert cfg.deter_size == 8 * width
+            assert cfg.stoch_classes == classes
+            assert cfg.stoch_discrete == discrete
+            assert cfg.stoch_size == flat
+            assert cfg.encoder_depth == width // 16
+            assert cfg.mlp_units == width
+
     def test_defaults(self):
         cfg = R2DreamerConfig()
         assert cfg.stoch_size == 32 * 16  # 512
         assert cfg.feat_size == 2048 + 512  # 2560
         assert cfg.deter_size == 2048
         assert cfg.compute_dtype == "bfloat16"
+        assert cfg.step_penalty == -0.01
+        assert cfg.success_bonus == 10.0
 
-    def test_size25m(self):
-        cfg = R2DreamerConfig.size25M()
+    def test_size_25m(self):
+        cfg = R2DreamerConfig.size_25m()
         assert cfg.deter_size == 3072
         assert cfg.hidden_size == 384
+        assert cfg.stoch_size == 768
+        assert cfg.encoder_depth == 24
 
 
 import jax
@@ -167,7 +190,13 @@ class TestR2RSSM:
         deter0 = jnp.zeros((B, cfg.deter_size))
 
         k1, k2 = jax.random.split(rng)
-        params = rssm.init({"params": rng, "sample": k1}, stoch0, deter0, actions[:, 0], embed[:, 0])
+        params = rssm.init(
+            {"params": rng, "sample": k1},
+            stoch0,
+            deter0,
+            actions[:, 0],
+            embed[:, 0],
+        )
 
         stochs, deters, logits = rssm.apply(
             params, embed, actions, (stoch0, deter0), is_first,
@@ -190,7 +219,7 @@ class TestR2RSSM:
         assert feat.shape == (B, cfg.stoch_size + cfg.deter_size)
 
 
-from src.r2dreamer.world_model.encoders import ConvEncoder
+from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.representation.barlow import Projector
 from src.r2dreamer.behavior.return_ema import ReturnEMA
 

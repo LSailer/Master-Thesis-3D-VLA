@@ -7,8 +7,7 @@ FORWARD steps whose position delta falls under 0.01 m (vs nominal 0.25 m).
 import numpy as np
 import pytest
 
-from src.shared.configs import DreamerConfig
-from src.environments.habitat import HabitatObjectNavEnv
+from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 
 
 class _FakeAgentState:
@@ -51,7 +50,7 @@ class _FakeHabitatEnv:
 
 def _make_env(post_step_positions, max_steps: int = 100) -> HabitatObjectNavEnv:
     env = object.__new__(HabitatObjectNavEnv)
-    env._cfg = DreamerConfig(
+    env._cfg = HabitatEnvConfig(
         obs_shape=(3, 1, 1),
         max_episode_steps=max_steps,
         reward_type="sparse",

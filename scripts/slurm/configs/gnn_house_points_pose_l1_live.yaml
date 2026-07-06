@@ -1,0 +1,22 @@
+extends: house_points_pose_l1_live
+job_name: gnn-house-points-pose-l1-live
+output_dir: output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose
+run_id: habitat-l1-gnn-house-points-pose
+comments:
+  - "GNN house branch (src/r2dreamer/encoders/gnn_house.py): even-stride subsample to 4096 nodes, brute-force k-NN (k=8), Gaussian edge weights, 2 GraphSAGE-style weighted-mean layers, mean|max pool. Baseline validated by 50k compare run (job 5736907, completed, no NaN)."
+  - "Same live per-scene buffer + PERSIST_SCENE pipeline as the parent; only the agent-side house-branch Flax module differs."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose/run-${SLURM_JOB_ID}
+  wandb_name: l1_gnn_house_points_pose-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,gnn,knn-graph,persist-scene,jax,3d-encoder
+smoke:
+  time: "00:30:00"
+  args:
+    # Measured: 1000 prefill + 2000 train = 12:08 wall (job 5744355, H100,
+    # ~0.19 s/env-step incl. startup). 4500 train steps ≈ 20 min — long
+    # enough to be a meaningful stability gate (>=15 min) while inside the
+    # 30-min gpu_h100_short cap.
+    steps: 4500
+    output_dir: output/smoke/gnn-house-points-pose-live-${TIMESTAMP}
+    wandb_name: gnn-house-points-pose-live-smoke-${TIMESTAMP}
+    wandb_tags: house-points,live-buffer,smoke,camera-pose-replay,gnn,knn-graph,persist-scene
