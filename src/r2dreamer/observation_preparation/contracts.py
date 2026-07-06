@@ -49,12 +49,60 @@ def _tuple_value(config: Any, name: str) -> tuple[int, ...]:
     return tuple(getattr(config, name))
 
 
+# Encoder Module classes with a dedicated kwargs branch below. Matched by
+# name (not issubclass) so this module stays import-free of the encoder
+# packages, which import contract machinery themselves.
+_HANDLED_ENCODER_CLASS_NAMES = frozenset(
+    {
+        "ConvEncoder",
+        "WP64CNNCPMLPEncoder",
+        "HybridEncoder",
+        "HousePointsCameraEncoder",
+        "HouseGlobalEmbeddingEncoder",
+        "TokenTransformerEncoder",
+    }
+)
+
+
+def _kwargs_dispatch_name(encoder_module_cls: type) -> str:
+    """Return the nearest handled class name along the MRO.
+
+    Subclasses (e.g. the GNN variants of ``HousePointsCameraEncoder``)
+    inherit their parent's constructor kwargs, so dispatch walks the MRO
+    and picks the first ancestor with a dedicated kwargs branch — the
+    name-matching equivalent of an ``issubclass`` chain ordered
+    most-derived-first.
+
+    Args:
+      encoder_module_cls: The Encoder Module class to resolve kwargs for.
+
+    Returns:
+      The matched ancestor's class name, or the class's own name when no
+      ancestor has a dedicated branch (falls through to the MLP tail).
+    """
+    for base in encoder_module_cls.__mro__:
+        if base.__name__ in _HANDLED_ENCODER_CLASS_NAMES:
+            return base.__name__
+    return encoder_module_cls.__name__
+
+
 def encoder_module_kwargs_from_config(
     config: Any,
     encoder_module_cls: type,
 ) -> dict[str, Any]:
-    """Resolve Encoder Module constructor kwargs from an effective config."""
-    class_name = encoder_module_cls.__name__
+    """Resolve Encoder Module constructor kwargs from an effective config.
+
+    Dispatch is subclass-aware: a class without its own branch inherits the
+    kwargs of its nearest handled ancestor (see ``_kwargs_dispatch_name``).
+
+    Args:
+      config: Effective agent config (``R2DreamerConfig`` or equivalent).
+      encoder_module_cls: The Encoder Module class to be constructed.
+
+    Returns:
+      Constructor kwargs for ``encoder_module_cls``.
+    """
+    class_name = _kwargs_dispatch_name(encoder_module_cls)
     if class_name == "ConvEncoder":
         kwargs = {
             "depth": int(config.encoder_depth),
