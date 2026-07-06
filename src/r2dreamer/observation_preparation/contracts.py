@@ -58,6 +58,7 @@ _HANDLED_ENCODER_CLASS_NAMES = frozenset(
         "WP64CNNCPMLPEncoder",
         "HybridEncoder",
         "HousePointsCameraEncoder",
+        "HybridHousePointsCameraEncoder",
         "HouseGlobalEmbeddingEncoder",
         "TokenTransformerEncoder",
     }
@@ -143,6 +144,17 @@ def encoder_module_kwargs_from_config(
             "camera_layers": int(config.mlp_vggt_layers),
             "point_hidden": int(config.mlp_vggt_hidden),
             "point_layers": int(config.mlp_vggt_layers),
+        }
+    if class_name == "HybridHousePointsCameraEncoder":
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+            "point_hidden": int(config.mlp_vggt_hidden),
+            "point_layers": int(config.mlp_vggt_layers),
+            "cnn_depth": int(config.encoder_depth),
+            "cnn_kernel": int(config.encoder_kernel),
+            "cnn_mults": _tuple_value(config, "encoder_mults"),
         }
     if class_name == "HouseGlobalEmbeddingEncoder":
         # token_dim (1024) and num_patch_tokens (1369) use the module defaults

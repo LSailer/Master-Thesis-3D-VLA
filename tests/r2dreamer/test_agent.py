@@ -20,6 +20,7 @@ from src.r2dreamer.observation_keys import (
     GLOBAL_PATCH_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
+    HYBRID_IMAGE_KEY,
 )
 
 
@@ -308,6 +309,38 @@ class TestR2DreamerAgent:
 
         assert np.isfinite(metrics["total_loss"])
         assert "hybrid/vggt_frac" in metrics
+
+    def test_train_step_accepts_hybrid_house_points_with_image(self):
+        cfg = make_tiny_train_cfg(
+            encoder_type="vggt_hybrid_house_points_pose",
+            obs_shape={
+                HYBRID_IMAGE_KEY: (3, 64, 64),
+                CAMERA_POSE_KEY: (9,),
+                HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
+                HOUSE_CONTEXT_SIZE_KEY: (),
+            },
+        )
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        batch = ReplayBatch(
+            obs={
+                HYBRID_IMAGE_KEY: jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
+                HOUSE_CONTEXT_KEY: jnp.ones(
+                    (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM), dtype=jnp.float16
+                ),
+                HOUSE_CONTEXT_SIZE_KEY: jnp.asarray(4, dtype=jnp.int32),
+            },
+            actions=jax.nn.one_hot(
+                jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
+            ),
+            rewards=jnp.zeros((1, 2), dtype=jnp.float32),
+            is_first=jnp.ones((1, 2), dtype=jnp.float32),
+            is_episode_end=jnp.zeros((1, 2), dtype=jnp.float32),
+        )
+
+        metrics = agent.train_step(batch, jax.random.PRNGKey(1))
+
+        assert np.isfinite(metrics["total_loss"])
 
     def test_train_step_accepts_live_house_points_with_camera_pose(self):
         cfg = make_tiny_train_cfg(

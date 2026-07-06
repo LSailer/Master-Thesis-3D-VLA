@@ -19,6 +19,7 @@ from src.r2dreamer.adapters.hybrid_adapter import (
     VGGTHouseFullTokenObsAdapter,
     VGGTHouseGlobalEmbeddingObsAdapter,
     VGGTHousePointsPoseObsAdapter,
+    VGGTHybridHousePointsPoseObsAdapter,
 )
 from src.r2dreamer.encoders import (
     VGGT_VARIANTS,
@@ -33,6 +34,7 @@ from src.r2dreamer.encoders import (
     VGGTHouseFullTokenNoGateEncoder,
     VGGTHouseGlobalEmbeddingEncoder,
     VGGTHousePointsPoseEncoder,
+    VGGTHybridHousePointsPoseEncoder,
     VGGTWP64CNNCPMLPEncoder,
     VGGTWPCP64Encoder,
 )
@@ -1063,6 +1065,70 @@ class TestVGGTHousePointsPoseEncoder:
         seeded_adapter.transform(_house_frame(2))
         # The seed points are registered in the per-scene buffer.
         assert seeded_adapter._buffers["houseA"].points_xyz.shape[0] > 0
+
+
+class TestVGGTHybridHousePointsPoseEncoder:
+    def test_hybrid_adapter_replays_camera_pose_and_image(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor",
+            _FakeHousePointsExtractor,
+        )
+        enc = VGGTHybridHousePointsPoseEncoder()
+        adapter = enc.make_adapter()
+        spec = enc.spec()
+
+        replay, agent_obs = adapter.transform(_house_frame(2))
+
+        assert isinstance(adapter, VGGTHybridHousePointsPoseObsAdapter)
+        assert spec.encoder_type == "vggt_hybrid_house_points_pose"
+        assert spec.obs_shape == {
+            CAMERA_POSE_KEY: (9,),
+            HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
+            HOUSE_CONTEXT_SIZE_KEY: (),
+            HYBRID_IMAGE_KEY: (3, 64, 64),
+        }
+        assert replay.keys() == {CAMERA_POSE_KEY, HYBRID_IMAGE_KEY}
+        assert replay[CAMERA_POSE_KEY].dtype == np.float16
+        assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
+        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert set(agent_obs) == {
+            CAMERA_POSE_KEY,
+            HOUSE_CONTEXT_KEY,
+            HOUSE_CONTEXT_SIZE_KEY,
+            HYBRID_IMAGE_KEY,
+            "is_first",
+        }
+        assert agent_obs[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert int(agent_obs[HOUSE_CONTEXT_SIZE_KEY]) > 0
+
+    def test_hybrid_adapter_keeps_live_house_context_injection(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor",
+            _FakeHousePointsExtractor,
+        )
+        enc = VGGTHybridHousePointsPoseEncoder()
+        adapter = enc.make_adapter()
+        adapter.transform(_house_frame(2))
+
+        batch = ReplayBatch(
+            obs={
+                CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16),
+                HYBRID_IMAGE_KEY: np.zeros((1, 2, 3, 64, 64), dtype=np.float32),
+            },
+            actions=np.zeros((1, 2), dtype=np.int32),
+            rewards=np.zeros((1, 2), dtype=np.float32),
+            is_episode_end=np.zeros((1, 2), dtype=bool),
+            is_first=np.zeros((1, 2), dtype=np.float32),
+        )
+        augmented = adapter.augment_replay_batch(batch)
+
+        assert set(augmented.obs) == {
+            CAMERA_POSE_KEY,
+            HYBRID_IMAGE_KEY,
+            HOUSE_CONTEXT_KEY,
+            HOUSE_CONTEXT_SIZE_KEY,
+        }
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (1, 2, 3, 64, 64)
 
 
 class TestVGGTHouseFullTokenNoGateEncoder:

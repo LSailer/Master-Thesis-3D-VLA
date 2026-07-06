@@ -136,6 +136,21 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "point-mlp", "jax", "3d-encoder",
         ],
     ),
+    # L1 additive hybrid: rgb64 CNN backbone + zero-init-gated live house
+    # points/pose branches (starts exactly at the CNN baseline).
+    "habitat-l1-vggt-hybrid-house-points-pose": dict(
+        env="habitat",
+        encoder="vggt_hybrid_house_points_pose",
+        curriculum="L1",
+        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-hybrid-house-points-pose",
+        wandb_name="l1_hybrid_house_points_pose",
+        wandb_tags=[
+            "curriculum", "level1", "1house", "chair-only", "vggt",
+            "house-points", "live-buffer", "camera-pose-replay",
+            "point-mlp", "cnn-backbone", "additive-hybrid", "gated",
+            "jax", "3d-encoder",
+        ],
+    ),
     # L1 live house points + GNN house branch (src/r2dreamer/encoders/gnn_house.py).
     "habitat-l1-gnn-house-points-pose": dict(
         env="habitat",

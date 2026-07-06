@@ -601,3 +601,17 @@ def test_gnn_smoke_configs_render_stability_gate(variant: str, run_id: str) -> N
     assert "#SBATCH --partition=gpu_h100_short" in rendered
     assert 'export R2DREAMER_HARD_EXIT_ON_FINISH="1"' in rendered
     assert "metrics.csv" in rendered
+
+
+def test_hybrid_house_points_smoke_config_inherits_parent_shape() -> None:
+    # The additive-hybrid variant reuses the parent's validated smoke shape
+    # (1000 prefill + 2000 train) and maps to its own run_id/output tree.
+    rendered = launch.render_sbatch(
+        launch.load_config("hybrid_house_points_pose_l1_live"), mode="smoke"
+    )
+    _, _, positional, flags = training_command(rendered)
+
+    assert positional == "habitat-l1-vggt-hybrid-house-points-pose"
+    assert flags["--steps"] == "2000"
+    assert flags["--prefill"] == "1000"
+    assert "vggt-hybrid-house-points-pose-live" in flags["--output_dir"]
