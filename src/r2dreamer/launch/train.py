@@ -8,6 +8,8 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from src.environments.habitat import HabitatEnvConfig
+from src.r2dreamer.launch.agent_overrides import agent_overrides_from_args
+from src.r2dreamer.launch.settings import resolve_override, resolve_required
 
 if TYPE_CHECKING:
     from src.r2dreamer.trainer import Trainer
@@ -55,13 +57,14 @@ def _effective_run_metadata(
     wandb_tags: list[str] | None,
 ) -> tuple[str, str | None, list[str]]:
     # CLI value (non-None) wins over shim kwarg.
-    eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
-    if eff_output_dir is None:
-        raise ValueError(
-            "output_dir must be set via train(..., output_dir=...) or --output_dir"
-        )
+    eff_output_dir = resolve_required(
+        args.output_dir,
+        output_dir,
+        name="output_dir",
+        hint="train(..., output_dir=...) or --output_dir",
+    )
 
-    eff_wandb_name = args.wandb_name if args.wandb_name is not None else wandb_name
+    eff_wandb_name = resolve_override(args.wandb_name, wandb_name)
     eff_wandb_tags: list[str] = list(wandb_tags) if wandb_tags is not None else []
     if args.wandb_tags:
         eff_wandb_tags.extend(t.strip() for t in args.wandb_tags.split(","))
@@ -109,59 +112,22 @@ def _make_env_instances(
 def _agent_overrides_from_args(
     args: Any, encoder_spec: Any, latent_presets: dict[str, dict]
 ):
-    agent_overrides = dict(encoder_spec.agent_overrides)
-    # Diagnostic CLI overrides (None => keep config default / encoder override).
-    for attr, override in (
-        ("actor_loss_weight", "scale_policy"),
-        ("value_loss_weight", "scale_value"),
-        ("repval_loss_weight", "scale_repval"),
-        ("batch_size", "batch_size"),
-        ("seq_len", "seq_len"),
-        ("lr", "lr"),
-        ("mlp_layers", "vggt_mlp_layers"),
-    ):
-        value = getattr(args, attr)
-        if value is not None:
-            agent_overrides[override] = value
-    for name in ("train_ratio", "buffer_capacity"):
-        value = getattr(args, name, None)
-        if value is not None:
-            agent_overrides[name] = value
-    if args.barlow_grad_to_encoder:
-        agent_overrides["barlow_stop_grad"] = False
+    """Build the agent-config override dict from parsed train CLI args.
 
-    # Model-size ablation (3D-50): preset from the LATENT_PRESETS table, then
-    # explicit RSSM-shape flags win.
-    preset = getattr(args, "latent_preset", "12m")
-    agent_overrides.update(latent_presets.get(preset, {}))
-    for name in (
-        "deter_size",
-        "stoch_classes",
-        "stoch_discrete",
-        "mlp_vggt_hidden",
-        "mlp_vggt_layers",
-        "scale_decoder",
-        "vggt_token_transformer_layers",
-        "vggt_token_transformer_heads",
-        "vggt_token_projection_dim",
-        "vggt_token_transformer_mlp_ratio",
-        "vggt_token_transformer_dropout",
-    ):
-        value = getattr(args, name, None)
-        if value is not None:
-            agent_overrides[name] = value
-    if getattr(args, "decoder", False):
-        agent_overrides["decoder"] = True
-    if getattr(args, "vggt_drop_register_tokens", False):
-        agent_overrides["vggt_keep_register_tokens"] = False
-    if getattr(args, "compute_dtype", None) is not None:
-        dtype = args.compute_dtype
-        if dtype == "bf16":
-            dtype = "bfloat16"
-        elif dtype == "fp16":
-            dtype = "float16"
-        agent_overrides["compute_dtype"] = dtype
-    return agent_overrides
+    Thin wrapper preserving the historical name/signature; delegates to the
+    validated ``agent_overrides_from_args`` bridge (see
+    ``src.r2dreamer.launch.agent_overrides``), which checks every target field
+    against ``R2DreamerConfig.model_fields`` so a renamed field fails loudly.
+
+    Args:
+      args: Parsed argparse namespace from the train parser.
+      encoder_spec: EncoderSpec whose ``agent_overrides`` seed the dict.
+      latent_presets: The ``LATENT_PRESETS`` table (preset name -> field dict).
+
+    Returns:
+      The override dict to splat into ``R2DreamerConfig(**overrides)``.
+    """
+    return agent_overrides_from_args(args, encoder_spec, latent_presets)
 
 
 def _make_agent_config(

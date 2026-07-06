@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ReplayComponent = Literal["image", "world_points", "wp_cp", "tokens", "features"]
 _ALLOWED_REPLAY_COMPONENTS: set[ReplayComponent] = {
@@ -15,13 +16,14 @@ _ALLOWED_REPLAY_COMPONENTS: set[ReplayComponent] = {
 }
 
 
-@dataclass(frozen=True)
-class ObservationDims:
+class ObservationDims(BaseModel):
     """Dimension knobs for observation/replay layouts.
 
     Store knobs here, derive shapes from properties. This avoids independent
     config fields like ``wp_side=37`` and ``vggt_feature_dim=4116`` drifting.
     """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     render_size: int = 518
     replay_image_size: int = 64
@@ -72,13 +74,14 @@ class ObservationDims:
         return (self.token_count * self.token_dim,)
 
 
-@dataclass(frozen=True)
-class ReplayObservationConfig:
+class ReplayObservationConfig(BaseModel):
     """Replay fields requested by a run.
 
     ``components`` controls what buffer_obs stores. Single-component configs map
     to the existing array replay path; multi-component configs map to dict replay.
     """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     components: tuple[ReplayComponent, ...] = ("image",)
     image_dtype: str = "uint8"
@@ -86,21 +89,33 @@ class ReplayObservationConfig:
     normalize_image: bool = True
     feature_shape: tuple[int, ...] | None = None
 
-    def __post_init__(self) -> None:
+    @model_validator(mode="after")
+    def _validate_components(self) -> "ReplayObservationConfig":
+        """Reject unknown replay components and missing generic feature shapes.
+
+        Returns:
+            The validated config instance.
+
+        Raises:
+            ValueError: If ``components`` contains an unknown component, or if
+                ``features`` is requested without a ``feature_shape``.
+        """
         invalid = set(self.components) - _ALLOWED_REPLAY_COMPONENTS
         if invalid:
             raise ValueError(f"unknown replay components: {sorted(invalid)}")
         if "features" in self.components and self.feature_shape is None:
             raise ValueError("feature_shape is required for generic 'features'")
+        return self
 
 
-@dataclass(frozen=True)
-class ObservationRunConfig:
+class ObservationRunConfig(BaseModel):
     """Observation/replay config for one run, independent of model hyperparams."""
 
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     encoder: str = "cnn"
-    dims: ObservationDims = field(default_factory=ObservationDims)
-    replay: ReplayObservationConfig = field(default_factory=ReplayObservationConfig)
+    dims: ObservationDims = Field(default_factory=ObservationDims)
+    replay: ReplayObservationConfig = Field(default_factory=ReplayObservationConfig)
 
     def replay_field_shapes(self) -> dict[str, tuple[int, ...]]:
         """Return replay storage shapes keyed by field name."""

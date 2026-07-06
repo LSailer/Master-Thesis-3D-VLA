@@ -4,29 +4,27 @@ Provides Trainer (training loop), replay_batch_to_arrays (transition-window
 packing), save/load_checkpoint, and ObsAdapter (env→buffer/agent bridge).
 Loop/orchestration knobs live in ``TrainerConfig`` (``src.configs.config``).
 Habitat-specific episode metrics live in ``src.environments.habitat``.
+
+Reporting concerns (CSV/W&B metrics logging, video/topdown recording) are
+delegated to the ``MetricsLogger``/``EpisodeRecorder`` collaborators in
+``src.r2dreamer.reporting``; replay-batch packing lives in
+``src.r2dreamer.replay_packing``. Both are re-exported here for backward
+compatibility.
 """
 
 from __future__ import annotations
 
-import csv
 import os
 import sys
 import time
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Callable, Protocol, TypeAlias, cast
+from typing import Any, Callable, Protocol
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.buffer.replay_buffer import (
-    HybridObservation,
-    ReplayBatch,
-    ReplayBuffer,
-    ReplayTransition,
-    ReplayTransitionBatch,
-)
+from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer, ReplayTransition
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters import ObsAdapter
@@ -36,12 +34,28 @@ from src.r2dreamer.checkpointing import (
     save_checkpoint,
 )
 from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
-from src.shared.dtypes import compute_jnp_dtype
-from src.shared.video_utils import (
-    compose_frame,
-    log_episode_video,
-    render_topdown_frame,
+from src.r2dreamer.replay_packing import (
+    ArrayObservation,
+    ReplayArrayBatch,
+    ReplayObservation,
+    replay_batch_to_arrays,
 )
+from src.r2dreamer.reporting import EpisodeRecorder, MetricsLogger
+from src.shared.dtypes import compute_jnp_dtype
+
+__all__ = [
+    "Env",
+    "R2DreamerAgentLike",
+    "Trainer",
+    "EpisodeMetricsFn",
+    "replay_batch_to_arrays",
+    "ArrayObservation",
+    "ReplayObservation",
+    "ReplayArrayBatch",
+    "config_snapshot",
+    "load_checkpoint",
+    "save_checkpoint",
+]
 
 # ---------------------------------------------------------------------------
 # Protocols
@@ -87,158 +101,6 @@ class R2DreamerAgentLike(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# replay_batch_to_arrays
-# ---------------------------------------------------------------------------
-
-ArrayObservation: TypeAlias = np.ndarray | jax.Array
-ReplayObservation: TypeAlias = (
-    ArrayObservation | Mapping[str, ArrayObservation] | HybridObservation
-)
-ReplayArrayBatch: TypeAlias = dict[str, Any]
-
-
-def _stack_array_grid(values: list[list[ArrayObservation]]) -> jax.Array:
-    """Stack ``(B, T)`` replay observation arrays into one JAX array."""
-    return jnp.stack(
-        [jnp.stack([jnp.asarray(value) for value in sequence]) for sequence in values]
-    )
-
-
-def _transition_observation(transition: ReplayTransition) -> ReplayObservation:
-    """Return a transition observation, including structured adapter mappings."""
-    return cast(ReplayObservation, transition.obs)
-
-
-def _stack_hybrid_observations(
-    obs_grid: list[list[ReplayObservation]],
-) -> dict[str, jax.Array]:
-    """Stack replay-domain hybrid observations as explicit replay fields."""
-    images: list[list[ArrayObservation]] = []
-    wp_cp_values: list[list[ArrayObservation]] = []
-    for sequence in obs_grid:
-        image_sequence: list[ArrayObservation] = []
-        wp_cp_sequence: list[ArrayObservation] = []
-        for obs in sequence:
-            if not isinstance(obs, HybridObservation):
-                raise TypeError("cannot mix hybrid and non-hybrid replay observations")
-            image_sequence.append(obs.image)
-            wp_cp_sequence.append(obs.wp_cp)
-        images.append(image_sequence)
-        wp_cp_values.append(wp_cp_sequence)
-    return {
-        "image": _stack_array_grid(images),
-        "wp_cp": _stack_array_grid(wp_cp_values),
-    }
-
-
-def _stack_mapping_observations(
-    obs_grid: list[list[ReplayObservation]],
-    first_obs: Mapping[str, ArrayObservation],
-) -> dict[str, jax.Array]:
-    """Stack structured replay mappings after checking each window has same keys."""
-    keys = tuple(first_obs.keys())
-    expected_keys = set(keys)
-    for sequence in obs_grid:
-        for obs in sequence:
-            if not isinstance(obs, Mapping):
-                raise TypeError(
-                    "cannot mix mapping and non-mapping replay observations"
-                )
-            if set(obs.keys()) != expected_keys:
-                raise KeyError(
-                    "replay observation keys changed inside sampled batch: "
-                    f"expected={sorted(expected_keys)}, got={sorted(obs.keys())}"
-                )
-    return {
-        key: _stack_array_grid(
-            [
-                [cast(Mapping[str, ArrayObservation], obs)[key] for obs in sequence]
-                for sequence in obs_grid
-            ]
-        )
-        for key in keys
-    }
-
-
-def _stack_replay_observations(
-    batch: ReplayTransitionBatch,
-) -> jax.Array | dict[str, jax.Array]:
-    """Stack transition observations into the raw replay-batch observation form."""
-    obs_grid = [
-        [_transition_observation(transition) for transition in sequence]
-        for sequence in batch
-    ]
-    first_obs = obs_grid[0][0]
-    if isinstance(first_obs, HybridObservation):
-        return _stack_hybrid_observations(obs_grid)
-    if isinstance(first_obs, Mapping):
-        return _stack_mapping_observations(obs_grid, first_obs)
-    return _stack_array_grid(cast(list[list[ArrayObservation]], obs_grid))
-
-
-def replay_batch_to_arrays(
-    batch: ReplayBatch | ReplayTransitionBatch,
-) -> ReplayArrayBatch:
-    """Pack transition-object replay windows into arrays with ``(B, T)`` prefix.
-
-    Args:
-        batch: Non-empty sampled replay windows returned by ``ReplayBuffer.sample``.
-
-    Returns:
-        Raw replay arrays keyed by ``obs``, ``actions``, ``rewards``,
-        ``is_first``, and ``is_episode_end``. Observation leaves preserve their
-        stored dtype and have shape ``(batch_size, seq_len, *obs_shape)``.
-    """
-    if isinstance(batch, ReplayBatch):
-        return {
-            "obs": batch.obs,
-            "actions": batch.actions,
-            "rewards": batch.rewards,
-            "is_first": batch.is_first,
-            "is_episode_end": batch.is_episode_end,
-        }
-
-    if not batch:
-        raise ValueError("cannot convert an empty replay batch")
-    seq_len = len(batch[0])
-    if seq_len == 0:
-        raise ValueError("cannot convert replay sequences with length zero")
-    if any(len(sequence) != seq_len for sequence in batch):
-        raise ValueError("all replay sequences must have the same length")
-
-    episode_ends = [
-        [bool(transition.is_episode_end) for transition in sequence]
-        for sequence in batch
-    ]
-    is_first = [
-        [
-            offset == 0
-            or bool(transition.is_first)
-            or (offset > 0 and episode_ends[batch_index][offset - 1])
-            for offset, transition in enumerate(sequence)
-        ]
-        for batch_index, sequence in enumerate(batch)
-    ]
-
-    return {
-        "obs": _stack_replay_observations(batch),
-        "actions": jnp.asarray(
-            [[int(transition.action) for transition in sequence] for sequence in batch],
-            dtype=jnp.int32,
-        ),
-        "rewards": jnp.asarray(
-            [
-                [float(transition.reward) for transition in sequence]
-                for sequence in batch
-            ],
-            dtype=jnp.float32,
-        ),
-        "is_first": jnp.asarray(is_first, dtype=jnp.bool_),
-        "is_episode_end": jnp.asarray(episode_ends, dtype=jnp.bool_),
-    }
-
-
-# ---------------------------------------------------------------------------
 # Episode metrics callback
 # ---------------------------------------------------------------------------
 
@@ -268,6 +130,14 @@ class Trainer:
             Signature: (last_obs, episode_reward, episode_steps, action_counts) -> dict
             Any env access is bound by the callable itself (e.g.
             HabitatEpisodeMetrics).
+        val_env: Optional pinned environment for the Val-Episode-Loop.
+        val_obs_adapter: Optional ObsAdapter for the validation env.
+        val_episode_metrics_fn: Optional episode-metrics callback for validation.
+        metrics_logger: Optional ``MetricsLogger`` collaborator. Defaults to a
+            fresh instance wired to the same W&B run as the trainer, so
+            behavior is unchanged unless a test/caller injects its own.
+        episode_recorder: Optional ``EpisodeRecorder`` collaborator. Defaults
+            analogously to ``metrics_logger``.
     """
 
     def __init__(
@@ -281,6 +151,8 @@ class Trainer:
         val_env: Env | None = None,
         val_obs_adapter: ObsAdapter | None = None,
         val_episode_metrics_fn: EpisodeMetricsFn | None = None,
+        metrics_logger: MetricsLogger | None = None,
+        episode_recorder: EpisodeRecorder | None = None,
     ) -> None:
         self.agent = agent
         self.env = env
@@ -340,6 +212,12 @@ class Trainer:
                 init_kwargs.update(id=trainer_config.wandb_id, resume="must")
             wandb.init(**init_kwargs)
 
+        # Reporting collaborators (CSV/W&B metrics logging, video capture).
+        # Both default to fresh instances wired to this trainer's W&B handle
+        # (None if W&B is disabled), reproducing prior inline behavior.
+        self.metrics_logger = metrics_logger or MetricsLogger(self._wandb)
+        self.episode_recorder = episode_recorder or EpisodeRecorder(self._wandb)
+
     def run(self) -> None:
         """Execute full training run: prefill + train loop + final checkpoint."""
         tcfg, acfg = self.tcfg, self.acfg
@@ -354,14 +232,12 @@ class Trainer:
         rng_key = jax.random.PRNGKey(tcfg.seed)
 
         try:
-            # Append to existing CSV when resuming so the prior rows survive.
+            # Append to existing CSV when resuming so the prior rows survive;
+            # the header is written only on a fresh run. MetricsLogger owns the
+            # open writer/handle for the block, so the loop methods below never
+            # thread raw CSV handles.
             is_resume = self._resume_step > 0
-            csv_mode = "a" if is_resume else "w"
-            with open(csv_path, csv_mode, newline="") as f:
-                writer = csv.writer(f)
-                if not is_resume:
-                    writer.writerow(["step", "metric", "value"])
-
+            with self.metrics_logger.open_csv(csv_path, is_resume):
                 if is_resume:
                     # Skip random prefill — the trained policy collects on-policy
                     # transitions in _train_loop until buffer >= batch_steps.
@@ -370,12 +246,12 @@ class Trainer:
                         f"Resume mode: skipping prefill, jumping to step {self._resume_step}"
                     )
                 else:
-                    rng_key = self._prefill(rng_key, writer, f)
+                    rng_key = self._prefill(rng_key)
                 if tcfg.overfit_one_batch:
-                    rng_key = self._overfit_loop(rng_key, writer, f)
+                    rng_key = self._overfit_loop(rng_key)
                 else:
-                    rng_key = self._train_loop(rng_key, writer, f)
-                self._log_adapter_summary(writer, f)
+                    rng_key = self._train_loop(rng_key)
+                self._log_adapter_summary()
 
             save_checkpoint(self.agent, tcfg.total_steps, tcfg.output_dir)
             status = "completed"
@@ -410,7 +286,7 @@ class Trainer:
         prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.encoder_obs, prepared.is_first
 
-    def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+    def _prefill(self, rng_key: jnp.ndarray) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
@@ -487,8 +363,6 @@ class Trainer:
         episode_steps: int,
         action_counts: np.ndarray,
         step: int,
-        writer: Any,
-        f: Any,
         video_recording: dict[str, Any] | None,
         video_next_step: int,
     ) -> tuple[
@@ -508,15 +382,10 @@ class Trainer:
             episode_steps,
             action_counts,
             step,
-            writer,
-            f,
         )
         if video_recording is not None:
-            log_episode_video(
-                self._wandb,
-                "train/episode_video",
-                video_recording["frames"],
-                step,
+            self.episode_recorder.log_video(
+                "train/episode_video", video_recording, step
             )
             video_recording = None
             video_next_step = step + max(1, self.tcfg.video_log_every)
@@ -528,7 +397,7 @@ class Trainer:
         )
         obs, buffer_obs, encoder_obs, is_first = self._reset_train_episode()
         if self._should_record_video(step + 1, video_next_step):
-            video_recording = self._start_video_recording(self.env, obs)
+            video_recording = self.episode_recorder.start_recording(self.env, obs)
         return (
             obs,
             buffer_obs,
@@ -541,7 +410,7 @@ class Trainer:
             video_next_step,
         )
 
-    def _train_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+    def _train_loop(self, rng_key: jnp.ndarray) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
 
         start_step = self._resume_step
@@ -552,16 +421,14 @@ class Trainer:
             0,
             np.zeros(acfg.num_actions, dtype=int),
         )
-        self._t0 = time.time()
-        self._last_log_time = self._t0
-        self._last_log_step = start_step - 1
+        self.metrics_logger.start_timing(start_step)
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
         metrics: dict[str, Any] = {}
         video_next_step = start_step
         video_recording = None
         if self._should_record_video(start_step, video_next_step):
-            video_recording = self._start_video_recording(self.env, obs)
+            video_recording = self.episode_recorder.start_recording(self.env, obs)
 
         for step in range(start_step, tcfg.total_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -583,7 +450,7 @@ class Trainer:
             episode_reward += next_obs.reward
             episode_steps += 1
             if video_recording is not None:
-                self._append_video_frame(self.env, video_recording, next_obs)
+                self.episode_recorder.append_frame(self.env, video_recording, next_obs)
 
             if next_obs.done:
                 (
@@ -602,8 +469,6 @@ class Trainer:
                     episode_steps=episode_steps,
                     action_counts=action_counts,
                     step=step,
-                    writer=writer,
-                    f=f,
                     video_recording=video_recording,
                     video_next_step=video_next_step,
                 )
@@ -623,7 +488,7 @@ class Trainer:
                     train_credit -= 1.0
 
                 if step % tcfg.log_every == 0 and metrics:
-                    self._log_train_metrics(metrics, step, writer, f)
+                    self._log_train_metrics(metrics, step)
                     if getattr(acfg, "decoder", False):
                         self._maybe_log_recon(batch, step)
 
@@ -634,7 +499,7 @@ class Trainer:
                 and (step + 1) % tcfg.val_every == 0
             ):
                 rng_key, val_key = jax.random.split(rng_key)
-                self._run_val_loop(val_key, step, writer, f)
+                self._run_val_loop(val_key, step)
 
             # --- Checkpoint ---
             if (step + 1) % tcfg.checkpoint_every == 0:
@@ -643,50 +508,19 @@ class Trainer:
         return rng_key
 
     def _should_record_video(self, step: int, next_video_step: int) -> bool:
-        return (
-            self._wandb is not None
-            and self.tcfg.video_log_every > 0
-            and self.tcfg.video_log_episodes > 0
-            and step >= next_video_step
-            and hasattr(self.env, "_env")
+        return self.episode_recorder.should_record_video(
+            self.env,
+            step,
+            next_video_step,
+            self.tcfg.video_log_every,
+            self.tcfg.video_log_episodes,
         )
-
-    def _goal_positions(self, env: Env) -> list[list[float]]:
-        positions = []
-        for goal in env.current_episode.goals:
-            if goal.view_points:
-                pos = goal.view_points[0].agent_state.position
-            else:
-                pos = goal.position
-            positions.append(pos.tolist() if hasattr(pos, "tolist") else list(pos))
-        return positions
-
-    def _agent_position(self, env: Env) -> list[float]:
-        pos = env._env.sim.get_agent_state().position
-        return pos.tolist() if hasattr(pos, "tolist") else list(pos)
-
-    def _start_video_recording(self, env: Env, obs: ObservationFrame) -> dict[str, Any]:
-        recording = {
-            "trajectory": [self._agent_position(env)],
-            "goals": self._goal_positions(env),
-            "frames": [],
-        }
-        self._append_video_frame(env, recording, obs)
-        return recording
-
-    def _append_video_frame(
-        self, env: Env, recording: dict[str, Any], obs: ObservationFrame
-    ) -> None:
-        if recording["frames"]:
-            recording["trajectory"].append(self._agent_position(env))
-        topdown = render_topdown_frame(env, recording["trajectory"], recording["goals"])
-        recording["frames"].append(compose_frame(obs.image, topdown))
 
     # ------------------------------------------------------------------
     # Overfit-one-batch diagnostic loop (Karpathy step 3)
     # ------------------------------------------------------------------
 
-    def _overfit_loop(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+    def _overfit_loop(self, rng_key: jnp.ndarray) -> jnp.ndarray:
         """Freeze one sampled batch and call train_step on it repeatedly.
 
         Proves the full stack (encoder -> RSSM -> heads) can memorise a real
@@ -716,7 +550,7 @@ class Trainer:
         if tcfg.overfit_steps < 1:
             raise ValueError(f"overfit_steps must be >= 1, got {tcfg.overfit_steps}")
 
-        self._t0 = time.time()
+        self.metrics_logger.start_timing(0)
         first_loss = last_loss = 0.0
         for step in range(tcfg.overfit_steps):
             rng_key, train_key = jax.random.split(rng_key)
@@ -726,18 +560,19 @@ class Trainer:
                 first_loss = last_loss
 
             if step % tcfg.log_every == 0 or step == tcfg.overfit_steps - 1:
-                self._log_train_metrics(metrics, step, writer, f)
+                self._log_train_metrics(metrics, step)
 
         loss_drop = (first_loss - last_loss) / max(abs(first_loss), 1e-12)
-        writer.writerow([tcfg.overfit_steps - 1, "verify/overfit_loss_drop", loss_drop])
-        writer.writerow(
+        self.metrics_logger.write_metric_rows(
             [
-                tcfg.overfit_steps - 1,
-                "verify/overfit_pass",
-                float(loss_drop >= tcfg.overfit_min_loss_drop),
+                (tcfg.overfit_steps - 1, "verify/overfit_loss_drop", loss_drop),
+                (
+                    tcfg.overfit_steps - 1,
+                    "verify/overfit_pass",
+                    float(loss_drop >= tcfg.overfit_min_loss_drop),
+                ),
             ]
         )
-        f.flush()
         print(
             f"Overfit verify: first_loss={first_loss:.6g} "
             f"last_loss={last_loss:.6g} drop={loss_drop:.1%} "
@@ -763,8 +598,6 @@ class Trainer:
         episode_steps: int,
         action_counts: np.ndarray,
         step: int,
-        writer: Any,
-        f: Any,
     ) -> dict[str, Any]:
         if self.episode_metrics_fn is not None:
             ep_metrics = self.episode_metrics_fn(
@@ -776,113 +609,31 @@ class Trainer:
         else:
             ep_metrics = {"episode/reward": episode_reward}
 
-        for k, v in ep_metrics.items():
-            writer.writerow([step, k, v])
-        f.flush()
-
-        if self._wandb is not None:
-            self._wandb.log(ep_metrics, step=step)
-
-        # Console summary
-        sr = ep_metrics.get("metrics/sr", "")
-        sr_str = f" SR={sr:.3f}" if isinstance(sr, float) else ""
-        print(
-            f"[step {step:>8d}] reward={episode_reward:.2f}"
-            f" steps={episode_steps}{sr_str}"
+        self.metrics_logger.log_episode_end(
+            ep_metrics, episode_reward, episode_steps, step
         )
         return ep_metrics
 
-    def _log_adapter_summary(self, writer: Any, f: Any) -> None:
-        """Write end-of-run adapter diagnostics and the buffer growth curve.
-
-        Growth rows are keyed by the adapter's own env-step counter (which
-        includes prefill), not the trainer step, and land in ``metrics.csv``
-        as ``house_buffer/points_growth``. Final stats also go to the W&B
-        run summary when W&B is active.
-        """
-        stats = self.obs_adapter.diagnostics()
-        if not stats:
-            return
-        final_step = self.tcfg.total_steps
-        for k, v in stats.items():
-            writer.writerow([final_step, k, v])
-        history = self.obs_adapter.growth_history
-        for env_step, points in history:
-            writer.writerow([env_step, "house_buffer/points_growth", points])
-        f.flush()
-        if self._wandb is not None:
-            self._wandb.summary.update(stats)
-        print("=== house buffer summary ===")
-        for k, v in stats.items():
-            print(f"  {k}: {v}")
-        if history:
-            print("  growth (env_step -> total_points):")
-            for env_step, points in history:
-                print(f"    {env_step:>9d} -> {points}")
+    def _log_adapter_summary(self) -> None:
+        self.metrics_logger.log_adapter_summary(
+            self.obs_adapter.diagnostics(),
+            self.obs_adapter.growth_history,
+            self.tcfg.total_steps,
+        )
 
     def _log_train_metrics(
         self,
         metrics: dict,
         step: int,
-        writer: Any,
-        f: Any,
     ) -> None:
-        now = time.time()
-        elapsed = now - self._t0
-        steps_this_run = step + 1 - self._resume_step
-        fps = steps_this_run / elapsed if elapsed > 0 else 0
-
-        interval_steps = max(1, step - getattr(self, "_last_log_step", step - 1))
-        interval_elapsed = now - getattr(self, "_last_log_time", now)
-        fps_interval = interval_steps / interval_elapsed if interval_elapsed > 0 else 0
-        metrics["perf/fps_cumulative"] = fps
-        metrics["perf/fps_interval"] = fps_interval
-        metrics["perf/ms_per_step_interval"] = (
-            1000.0 / fps_interval if fps_interval > 0 else 0
-        )
-        self._last_log_time = now
-        self._last_log_step = step
-
-        for k, v in metrics.items():
-            writer.writerow([step, k, v])
-        f.flush()
-
-        if self._wandb is not None:
-            self._wandb.log(metrics, step=step)
-
-        print(
-            f"[step {step:>8d}/{self.tcfg.total_steps}] "
-            f"total={metrics.get('total_loss', 0):.3f} "
-            f"dyn={metrics.get('loss/dyn', 0):.3f} "
-            f"rew={metrics.get('loss/rew', 0):.3f} "
-            f"policy={metrics.get('loss/policy', 0):.3f} "
-            f"fps={fps:.0f} "
-            f"fps_interval={fps_interval:.1f} "
-            f"ms_step={metrics['perf/ms_per_step_interval']:.1f}"
+        self.metrics_logger.log_train_metrics(
+            metrics, step, self.tcfg.total_steps, self._resume_step
         )
 
     def _maybe_log_recon(self, batch: ReplayBatch, step: int) -> None:
-        """Log decoder input/reconstruction image pairs to W&B (3D-51).
-
-        No-op unless a decoder is configured and W&B is active. Decodes the
-        sampled training batch and logs up to 4 side-by-side ``input | recon``
-        panels so the learned hybrid representation can be eyeballed during a run.
-        """
-        if self._wandb is None or not getattr(self.acfg, "decoder", False):
-            return
-        pair = self.agent.reconstruct(batch)
-        if pair is None:
-            return
-        target, recon = jax.device_get(pair)  # (B*T, 3, 64, 64) in [0, 1]
-        n = min(4, target.shape[0])
-        images = []
-        for i in range(n):
-            tgt = np.transpose(target[i], (1, 2, 0))  # CHW -> HWC
-            rec = np.transpose(recon[i], (1, 2, 0))
-            combo = np.concatenate([tgt, rec], axis=1)  # side by side
-            combo = np.clip(combo * 255.0, 0, 255).astype(np.uint8)
-            images.append(self._wandb.Image(combo, caption=f"input | recon ({i})"))
-        self._wandb.log({"decoder/reconstructions": images}, step=step)
+        self.metrics_logger.maybe_log_recon(
+            self.agent, batch, step, getattr(self.acfg, "decoder", False)
+        )
 
     def _run_single_val_episode(
         self,
@@ -910,7 +661,7 @@ class Trainer:
 
         recording = None
         if record_video:
-            recording = self._start_video_recording(val_env, obs)
+            recording = self.episode_recorder.start_recording(val_env, obs)
 
         for _ in range(self.tcfg.val_max_episode_steps):
             rng_key, act_key = jax.random.split(rng_key)
@@ -924,7 +675,7 @@ class Trainer:
             episode_reward += next_obs.reward
             episode_steps += 1
             if recording is not None:
-                self._append_video_frame(val_env, recording, next_obs)
+                self.episode_recorder.append_frame(val_env, recording, next_obs)
 
             if next_obs.done:
                 obs = next_obs
@@ -940,31 +691,18 @@ class Trainer:
             action_counts,
         )
         if recording is not None:
-            log_episode_video(
-                self._wandb,
-                "val/episode_video",
-                recording["frames"],
-                step,
-            )
+            self.episode_recorder.log_video("val/episode_video", recording, step)
         return val_metrics, rng_key
 
     def _prefix_val_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
-        return {
-            f"val/{k}" if not k.startswith("val/") else k: v for k, v in metrics.items()
-        }
+        return self.metrics_logger.prefix_val_metrics(metrics)
 
     def _log_val_metrics(
         self,
         val_logged: dict[str, Any],
         step: int,
-        writer: Any,
-        f: Any,
     ) -> None:
-        for k, v in val_logged.items():
-            writer.writerow([step, k, v])
-        f.flush()
-        if self._wandb is not None:
-            self._wandb.log(val_logged, step=step)
+        self.metrics_logger.log_val_metrics(val_logged, step)
 
     def _print_val_summary(
         self,
@@ -972,26 +710,14 @@ class Trainer:
         step: int,
         elapsed: float,
     ) -> None:
-        sr = val_logged.get("val/metrics/sr", 0.0)
-        spl = val_logged.get("val/metrics/spl", 0.0)
-        softspl = val_logged.get("val/metrics/softspl", 0.0)
-        dtg = val_logged.get("val/metrics/dtg", 0.0)
-        sr_str = f"{sr:.3f}" if isinstance(sr, float) else str(sr)
-        spl_str = f"{spl:.3f}" if isinstance(spl, float) else str(spl)
-        soft_str = f"{softspl:.3f}" if isinstance(softspl, float) else str(softspl)
-        dtg_str = f"{dtg:.3f}" if isinstance(dtg, float) else str(dtg)
-        print(
-            f"[step {step:>8d}] VAL-LOOP "
-            f"sr={sr_str} spl={spl_str} softspl={soft_str} dtg={dtg_str}m "
-            f"({self.tcfg.val_episodes} eps in {elapsed:.1f}s)"
+        self.metrics_logger.print_val_summary(
+            val_logged, step, elapsed, self.tcfg.val_episodes
         )
 
     def _run_val_loop(
         self,
         rng_key: jnp.ndarray,
         step: int,
-        writer: Any,
-        f: Any,
     ) -> None:
         """Deterministic Val-Episode-Loop (3D-36) + video recording (3D-41).
 
@@ -1033,7 +759,7 @@ class Trainer:
         # rolling-mean fields already reflect the whole val loop (since the
         # tracker is shared across episodes within this run).
         val_logged = self._prefix_val_metrics(last_val_metrics)
-        self._log_val_metrics(val_logged, step, writer, f)
+        self._log_val_metrics(val_logged, step)
         elapsed = time.time() - val_t0
         self._print_val_summary(val_logged, step, elapsed)
 

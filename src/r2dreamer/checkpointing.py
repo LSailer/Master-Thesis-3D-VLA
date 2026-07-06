@@ -10,6 +10,7 @@ from typing import Any, Protocol, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+from pydantic import BaseModel
 
 from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
@@ -55,13 +56,14 @@ class _CheckpointUnpickler(pickle.Unpickler):
 
 def config_snapshot(config: Any) -> dict[str, Any]:
     """Return a JSON-serializable run config snapshot for manifests/W&B."""
-    snapshot = (
-        asdict(cast(Any, config))
-        if is_dataclass(config)
-        else dict(vars(config))
-        if hasattr(config, "__dict__")
-        else {}
-    )
+    if isinstance(config, BaseModel):
+        snapshot = config.model_dump()
+    elif is_dataclass(config):
+        snapshot = asdict(cast(Any, config))
+    elif hasattr(config, "__dict__"):
+        snapshot = dict(vars(config))
+    else:
+        snapshot = {}
     encoder_module_cls = snapshot.pop("encoder_module_cls", None)
     runtime_cls = getattr(config, "encoder_module_cls", None)
     if runtime_cls is not None:

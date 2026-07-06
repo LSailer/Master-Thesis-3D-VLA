@@ -14,8 +14,11 @@ from collections.abc import Mapping
 import jax.numpy as jnp
 
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
-from src.r2dreamer.encoders.mlp import HouseGlobalEmbeddingEncoder, HousePointsCameraEncoder
+from src.r2dreamer.encoders.registry import (
+    RGB_BEARING_ENCODER_TYPES,
+    resolve_module_cls_from_type,
+    validate_encoder_config,
+)
 from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 from src.r2dreamer.observation_preparation.cnn import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import (
@@ -26,19 +29,7 @@ from src.r2dreamer.observation_preparation.contracts import (
     normalize_encoder_module_kwargs,
     recover_encoder_input_contract,
 )
-from src.r2dreamer.observation_preparation.vggt import VGGT_DREAMER_SPECS
 from src.r2dreamer.world_model.rssm import R2RSSM
-
-_DECODER_RGB_ENCODERS = frozenset(
-    {
-        "cnn",
-        "hybrid",
-        "vggt_house_context",
-        "vggt_house_full_tokens_nogate",
-        "vggt_house_global_tokens_nogate",
-        "vggt_house_global_embedding",
-    }
-)
 
 
 def make_rssm_module(cfg: R2DreamerConfig) -> R2RSSM:
@@ -60,16 +51,9 @@ def make_rssm_module(cfg: R2DreamerConfig) -> R2RSSM:
 def _encoder_module_cls_from_config(cfg: R2DreamerConfig):
     if cfg.encoder_module_cls is not None:
         return cfg.encoder_module_cls
-    if cfg.encoder_type == "cnn":
-        return CNNObservationPreparation().contract.encoder_module_cls
-    if cfg.encoder_type == "vggt_house_points_pose":
-        return HousePointsCameraEncoder
-    if cfg.encoder_type == "vggt_house_global_embedding":
-        return HouseGlobalEmbeddingEncoder
-    spec = VGGT_DREAMER_SPECS.get(cfg.encoder_type)
-    if spec is not None:
-        return spec.module_cls
-    raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
+    # Delegates to the single encoder_type -> Flax module class registry
+    # (src/r2dreamer/encoders/registry.py) shared with agent.py.
+    return resolve_module_cls_from_type(cfg.encoder_type)
 
 
 def _field(shape: tuple[int, ...], dtype: str = "float32") -> ObservationField:
@@ -92,7 +76,7 @@ def _legacy_env_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
     image_shape = (3, 64, 64)
     if (
         cfg.encoder_type.startswith("vggt")
-        and cfg.encoder_type not in _DECODER_RGB_ENCODERS
+        and cfg.encoder_type not in RGB_BEARING_ENCODER_TYPES
     ):
         image_shape = (3, 518, 518)
     return ObservationFormContract(
@@ -130,7 +114,7 @@ def _legacy_agent_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
 
 
 def _legacy_decoder_target(cfg: R2DreamerConfig) -> ObservationFormContract | None:
-    if cfg.encoder_type not in _DECODER_RGB_ENCODERS:
+    if cfg.encoder_type not in RGB_BEARING_ENCODER_TYPES:
         return None
     return ObservationFormContract(ObservationField((3, 64, 64), "float32"))
 
@@ -193,32 +177,9 @@ def _validate_encoder_module_config(
     cfg: R2DreamerConfig,
     contract: EncoderInputContract,
 ) -> None:
-    class_name = contract.encoder_module_cls.__name__
-    if (
-        class_name in {"ConvEncoder", "WP64CNNCPMLPEncoder"}
-        and cfg.vggt_mlp_layers != 1
-    ):
-        raise ValueError(
-            f"vggt_mlp_layers={cfg.vggt_mlp_layers} has no effect on "
-            f"{class_name} (a conv encoder, no MLP blocks). Only the 'vggt' and "
-            f"'vggt_aggregator_mlp' encoders consume vggt_mlp_layers; leave it at 1 "
-            f"for cnn / vggt_wp_dense_cnn."
-        )
-    if class_name != "HybridEncoder":
-        return
-    expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
-    if not isinstance(cfg.obs_shape, tuple):
-        raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
-    if not (
-        cfg.obs_shape == expected_shape
-        and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
-    ):
-        raise ValueError(
-            "hybrid obs_shape/split mismatch: expected "
-            f"{expected_shape} with vggt_feature_dim={cfg.vggt_feature_dim}, "
-            f"got obs_shape={cfg.obs_shape}, "
-            f"vggt_feature_dim={cfg.vggt_feature_dim}"
-        )
+    # Delegates to the single registry-based validator (encoders/registry.py)
+    # shared with agent.py; dispatch is by MRO walk from contract.encoder_module_cls.
+    validate_encoder_config(cfg, contract.encoder_module_cls)
 
 
 def make_encoder_module(cfg: R2DreamerConfig):

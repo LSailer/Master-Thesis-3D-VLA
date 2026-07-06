@@ -2,285 +2,40 @@
 
 from __future__ import annotations
 
-import functools
-from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import ClassVar, NamedTuple, TextIO
+from typing import ClassVar, TextIO
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError as PydanticValidationError
 
+from src.buffer.voxel_hash import VoxelContextConfig as _VoxelContextConfig
+from src.buffer.voxel_hash import VoxelContextState as _VoxelContextState
+from src.buffer.voxel_hash import add_frame_to_state as _add_frame_to_state
+from src.buffer.voxel_hash import empty_state as _empty_state
+from src.buffer.voxel_hash import house_context_snapshot as _house_context_snapshot
+from src.buffer.voxel_hash import is_power_of_two as _is_power_of_two
 from src.environments.observation import ObservationFrame
 from src.vggt.jax.feature_extractor import VGGTExtractOutput
 
 
-@dataclass(frozen=True, slots=True)
-class _VoxelContextConfig:
-    """Static JAX config for the fixed-shape voxel context state."""
+class _HouseContextBufferParams(BaseModel):
+    """Validated construction parameters for ``HouseContextPoseBuffer``.
 
-    voxel_size_m: float
+    Used internally at construction time only; the buffer's public constructor
+    keeps its flat-kwarg signature and validates through this model on the host,
+    never on a per-step hot path.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     confidence_score: float
-    hash_table_size: int
-    capacity: int
-    max_probe_count: int
-
-
-class _VoxelContextState(NamedTuple):
-    """Fixed-shape device state for exact voxel occupancy and point storage."""
-
-    key_xyz: jax.Array  # (hash_table_size, 3) int32 voxel keys
-    occupied: jax.Array  # (hash_table_size,) bool
-    store_xyz: jax.Array  # (capacity, 3) bfloat16 representative points
-    store_rgb: jax.Array  # (capacity, 3) uint8 representative colours
-    size: jax.Array  # () int32 logical stored row count, capped at capacity
-    overflow_count: jax.Array  # () int32 new voxels dropped after capacity fills
-    failed_insert_count: jax.Array  # () int32 hash-table insert failures
-
-
-class _UniqueFrameVoxels(NamedTuple):
-    """Static-length unique voxel representatives for one flattened frame."""
-
-    xyz: jax.Array  # (P, 3) float32 representative points, sorted by voxel key
-    rgb: jax.Array  # (P, 3) uint8 representative colours
-    key_xyz: jax.Array  # (P, 3) int32 voxel keys
-    active: jax.Array  # (P,) bool, true only for valid first representatives
-    first_slot: jax.Array  # (P,) int32 first hash-table slot per key
-
-
-class _ProbeLoopState(NamedTuple):
-    """Carry for vectorized open-addressing probe rounds."""
-
-    probe_index: jax.Array  # () int32
-    voxel_state: _VoxelContextState
-    active: jax.Array  # (P,) bool keys not inserted/found yet
-
-
-def _is_power_of_two(value: int) -> bool:
-    return value > 0 and value & (value - 1) == 0
-
-
-def _empty_state(hash_table_size: int, capacity: int) -> _VoxelContextState:
-    """Create an empty fixed-shape voxel context state on the default device."""
-    return _VoxelContextState(
-        key_xyz=jnp.zeros((hash_table_size, 3), dtype=jnp.int32),
-        occupied=jnp.zeros((hash_table_size,), dtype=jnp.bool_),
-        store_xyz=jnp.zeros((capacity, 3), dtype=jnp.bfloat16),
-        store_rgb=jnp.zeros((capacity, 3), dtype=jnp.uint8),
-        size=jnp.asarray(0, dtype=jnp.int32),
-        overflow_count=jnp.asarray(0, dtype=jnp.int32),
-        failed_insert_count=jnp.asarray(0, dtype=jnp.int32),
-    )
-
-
-def _hash_voxel_keys(keys_xyz: jax.Array, hash_table_size: int) -> jax.Array:
-    """Hash int32 ``(..., 3)`` voxel keys into a power-of-two table."""
-    keys_u32 = keys_xyz.astype(jnp.uint32)
-    hashed = (
-        keys_u32[..., 0] * jnp.uint32(73_856_093)
-        ^ keys_u32[..., 1] * jnp.uint32(19_349_663)
-        ^ keys_u32[..., 2] * jnp.uint32(83_492_791)
-    )
-    return (hashed & jnp.uint32(hash_table_size - 1)).astype(jnp.int32)
-
-
-def _quantize_points(flat_xyz: jax.Array, voxel_size_m: float) -> tuple[jax.Array, jax.Array]:
-    """Return finite mask and int32 voxel keys for ``(P, 3)`` XYZ points."""
-    finite_xyz = jnp.isfinite(flat_xyz).all(axis=1)
-    safe_xyz = jnp.where(jnp.isfinite(flat_xyz), flat_xyz, jnp.float32(0.0))
-    voxel_keys = jnp.floor(safe_xyz / voxel_size_m).astype(jnp.int32)
-    return finite_xyz, voxel_keys
-
-
-def _unique_frame_voxels(
-    flat_xyz: jax.Array,
-    flat_rgb: jax.Array,
-    valid: jax.Array,
-    voxel_keys: jax.Array,
-    hash_table_size: int,
-) -> _UniqueFrameVoxels:
-    """Sort rows by voxel key and keep the first valid input row per voxel."""
-    invalid_key = jnp.iinfo(jnp.int32).max
-    sort_keys = jnp.where(valid[:, None], voxel_keys, invalid_key)
-    # lexsort is stable, so equal keys keep input order and the first valid
-    # input row per voxel wins without an explicit tie-break key.
-    sort_order = jnp.lexsort((sort_keys[:, 2], sort_keys[:, 1], sort_keys[:, 0]))
-    sorted_keys = voxel_keys[sort_order]
-    sorted_valid = valid[sort_order]
-    same_as_previous = jnp.concatenate(
-        [
-            jnp.zeros((1,), dtype=jnp.bool_),
-            jnp.all(sorted_keys[1:] == sorted_keys[:-1], axis=1),
-        ]
-    )
-    active = sorted_valid & ~same_as_previous
-    return _UniqueFrameVoxels(
-        xyz=flat_xyz[sort_order],
-        rgb=flat_rgb[sort_order],
-        key_xyz=sorted_keys,
-        active=active,
-        first_slot=_hash_voxel_keys(sorted_keys, hash_table_size),
-    )
-
-
-def _store_winning_voxels(
-    state: _VoxelContextState,
-    frame: _UniqueFrameVoxels,
-    slots: jax.Array,
-    wins: jax.Array,
-    config: _VoxelContextConfig,
-) -> _VoxelContextState:
-    """Commit this probe round's winning new voxels to table and store."""
-    table_slots = jnp.where(wins, slots, config.hash_table_size)
-    offsets = jnp.cumsum(wins.astype(jnp.int32)) - jnp.int32(1)
-    destinations = state.size + offsets
-    can_store = wins & (destinations < config.capacity)
-    store_slots = jnp.where(can_store, destinations, config.capacity)
-    return _VoxelContextState(
-        key_xyz=state.key_xyz.at[table_slots].set(frame.key_xyz, mode="drop"),
-        occupied=state.occupied.at[table_slots].set(True, mode="drop"),
-        store_xyz=state.store_xyz.at[store_slots].set(
-            frame.xyz.astype(jnp.bfloat16), mode="drop"
-        ),
-        store_rgb=state.store_rgb.at[store_slots].set(
-            frame.rgb.astype(jnp.uint8), mode="drop"
-        ),
-        size=jnp.minimum(state.size + jnp.sum(wins), config.capacity).astype(jnp.int32),
-        overflow_count=state.overflow_count + jnp.sum(wins & ~can_store),
-        failed_insert_count=state.failed_insert_count,
-    )
-
-
-def _probe_round(
-    loop_state: _ProbeLoopState,
-    frame: _UniqueFrameVoxels,
-    config: _VoxelContextConfig,
-) -> _ProbeLoopState:
-    """Run one vectorized linear-probing round for all active frame keys."""
-    table_mask = jnp.int32(config.hash_table_size - 1)
-    slots = (frame.first_slot + loop_state.probe_index) & table_mask
-    slot_occupied = loop_state.voxel_state.occupied[slots]
-    same_key = (
-        loop_state.active
-        & slot_occupied
-        & jnp.all(loop_state.voxel_state.key_xyz[slots] == frame.key_xyz, axis=1)
-    )
-    empty_candidate = loop_state.active & ~slot_occupied
-    inactive_order = jnp.int32(frame.active.shape[0])
-    contender_order = jnp.where(
-        empty_candidate,
-        jnp.arange(frame.active.shape[0], dtype=jnp.int32),
-        inactive_order,
-    )
-    winner_by_slot = jnp.full(
-        (config.hash_table_size,), inactive_order, dtype=jnp.int32
-    ).at[slots].min(contender_order)
-    wins = empty_candidate & (winner_by_slot[slots] == contender_order)
-    voxel_state = _store_winning_voxels(
-        loop_state.voxel_state,
-        frame,
-        slots,
-        wins,
-        config,
-    )
-    return _ProbeLoopState(
-        probe_index=loop_state.probe_index + jnp.int32(1),
-        voxel_state=voxel_state,
-        active=loop_state.active & ~(same_key | wins),
-    )
-
-
-def _insert_unique_voxels(
-    state: _VoxelContextState,
-    frame: _UniqueFrameVoxels,
-    config: _VoxelContextConfig,
-) -> _VoxelContextState:
-    """Insert sorted unique frame voxels with bounded vectorized probing."""
-    initial = _ProbeLoopState(
-        probe_index=jnp.asarray(0, dtype=jnp.int32),
-        voxel_state=state,
-        active=frame.active,
-    )
-
-    def should_probe(loop_state: _ProbeLoopState) -> jax.Array:
-        return (loop_state.probe_index < config.max_probe_count) & jnp.any(
-            loop_state.active
-        )
-
-    def probe_once(loop_state: _ProbeLoopState) -> _ProbeLoopState:
-        return _probe_round(loop_state, frame, config)
-
-    result = jax.lax.while_loop(should_probe, probe_once, initial)
-    return result.voxel_state._replace(
-        failed_insert_count=result.voxel_state.failed_insert_count
-        + jnp.sum(result.active.astype(jnp.int32))
-    )
-
-
-@functools.partial(jax.jit, static_argnums=(4,), donate_argnums=(0,))
-def _add_frame_to_state(
-    state: _VoxelContextState,
-    flat_xyz: jax.Array,
-    flat_rgb: jax.Array,
-    confidence_flat: jax.Array,
-    config: _VoxelContextConfig,
-) -> _VoxelContextState:
-    """Add one fixed-shape frame to the voxel context state.
-
-    Per-frame representatives are selected by a static lexicographic sort of
-    int32 voxel keys. Cross-frame novelty is resolved by exact key comparison in
-    a vectorized open-addressed table; hash collisions only add probe rounds.
-    """
-    flat_xyz = jnp.asarray(flat_xyz, dtype=jnp.float32)
-    flat_rgb = jnp.asarray(flat_rgb, dtype=jnp.uint8)
-    confidence_flat = jnp.asarray(confidence_flat, dtype=jnp.float32)
-    finite_xyz, voxel_keys = _quantize_points(flat_xyz, config.voxel_size_m)
-    valid = (
-        finite_xyz
-        & jnp.isfinite(confidence_flat)
-        & (confidence_flat >= config.confidence_score)
-    )
-    frame = _unique_frame_voxels(
-        flat_xyz,
-        flat_rgb,
-        valid,
-        voxel_keys,
-        config.hash_table_size,
-    )
-    return _insert_unique_voxels(state, frame, config)
-
-
-@functools.partial(jax.jit, static_argnums=(1, 2))
-def _house_context_snapshot(
-    state: _VoxelContextState,
-    max_points: int,
-    dtype: jnp.dtype = jnp.float32,
-) -> tuple[jax.Array, jax.Array]:
-    """Return ``(max_points, 6)`` XYZRGB rows in ``dtype`` plus the valid count.
-
-    Rows ``[0, count)`` carry stored points and rows beyond are zeros, so
-    consumers can mask padding exactly (masked pooling in the encoder). While
-    more voxels are stored than ``max_points``, an even stride subsamples them
-    and ``count == max_points``; below that the stored prefix is zero-padded.
-    """
-    safe_size = jnp.maximum(state.size, jnp.int32(1))
-    # int32 ``arange * size`` overflows once size exceeds 2**31 / max_points
-    # (~524k stored voxels at max_points=4096). float32 keeps the stride math
-    # exact enough: size <= capacity <= 2**24 is exactly representable, the
-    # per-index error stays below one row, and floor preserves monotonicity.
-    stride_ratio = safe_size.astype(jnp.float32) / jnp.float32(max_points)
-    strided = jnp.floor(
-        jnp.arange(max_points, dtype=jnp.float32) * stride_ratio
-    ).astype(jnp.int32)
-    rows = jnp.arange(max_points, dtype=jnp.int32)
-    indices = jnp.where(state.size > max_points, strided, rows)
-    indices = jnp.clip(indices, jnp.int32(0), safe_size - jnp.int32(1))
-    xyz = state.store_xyz[indices].astype(dtype)
-    rgb = state.store_rgb[indices].astype(dtype) / jnp.asarray(255.0, dtype)
-    snapshot = jnp.concatenate([xyz, rgb], axis=1)
-    count = jnp.minimum(state.size, jnp.int32(max_points))
-    return jnp.where(rows[:, None] < count, snapshot, jnp.asarray(0.0, dtype)), count
+    voxel_size_m: float = Field(gt=0.0)
+    capacity: int = Field(gt=0)
+    hash_table_size: int = Field(gt=0)
 
 
 class HouseContextPoseBuffer:
@@ -322,12 +77,14 @@ class HouseContextPoseBuffer:
         capacity: int = DEFAULT_CAPACITY,
         hash_table_size: int = DEFAULT_HASH_TABLE_SIZE,
     ) -> None:
-        self._validate_config(voxel_size_m, capacity, hash_table_size)
-        self.confidence_score = float(confidence_score)
+        params = self._validate_config(
+            confidence_score, voxel_size_m, capacity, hash_table_size
+        )
+        self.confidence_score = params.confidence_score
         self.scene_id = scene_id
-        self.voxel_size_m = float(voxel_size_m)
-        self.capacity = int(capacity)
-        self.hash_table_size = int(hash_table_size)
+        self.voxel_size_m = params.voxel_size_m
+        self.capacity = params.capacity
+        self.hash_table_size = params.hash_table_size
         self._config = _VoxelContextConfig(
             voxel_size_m=self.voxel_size_m,
             confidence_score=self.confidence_score,
@@ -339,24 +96,47 @@ class HouseContextPoseBuffer:
 
     @staticmethod
     def _validate_config(
+        confidence_score: float,
         voxel_size_m: float,
         capacity: int,
         hash_table_size: int,
-    ) -> None:
-        """Validate fixed-state sizing and voxel quantization parameters."""
-        if voxel_size_m <= 0.0:
-            raise ValueError(f"voxel_size_m must be positive, got {voxel_size_m}")
-        if capacity <= 0:
-            raise ValueError(f"capacity must be positive, got {capacity}")
-        if not _is_power_of_two(hash_table_size):
-            raise ValueError(
-                f"hash_table_size must be a positive power of two, got {hash_table_size}"
+    ) -> _HouseContextBufferParams:
+        """Validate fixed-state sizing and voxel quantization parameters.
+
+        Args:
+            confidence_score: Minimum VGGT confidence score for admission.
+            voxel_size_m: Edge length in metres of the dedup voxel grid.
+            capacity: Maximum number of representative voxels stored.
+            hash_table_size: Power-of-two occupancy table slot count.
+
+        Returns:
+            The validated, frozen ``_HouseContextBufferParams`` model.
+
+        Raises:
+            ValueError: If any field fails its positivity/type constraint, or
+                if ``hash_table_size`` is not a power of two or is smaller
+                than ``capacity``.
+        """
+        try:
+            params = _HouseContextBufferParams(
+                confidence_score=confidence_score,
+                voxel_size_m=voxel_size_m,
+                capacity=capacity,
+                hash_table_size=hash_table_size,
             )
-        if hash_table_size < capacity:
+        except PydanticValidationError as exc:
+            raise ValueError(str(exc)) from exc
+        if not _is_power_of_two(params.hash_table_size):
+            raise ValueError(
+                "hash_table_size must be a positive power of two, "
+                f"got {params.hash_table_size}"
+            )
+        if params.hash_table_size < params.capacity:
             raise ValueError(
                 "hash_table_size must be at least capacity "
-                f"({hash_table_size} < {capacity})"
+                f"({params.hash_table_size} < {params.capacity})"
             )
+        return params
 
     @property
     def points_xyz(self) -> jax.Array:

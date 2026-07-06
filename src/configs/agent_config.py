@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 # Model-size presets from the R2-Dreamer table. Each row scales the RSSM width,
 # stochastic latent shape, CNN encoder depth, and prediction-head MLP width.
@@ -60,15 +61,26 @@ LATENT_PRESETS: dict[str, dict[str, int]] = {
 }
 
 
-@dataclass
-class R2DreamerConfig:
+class R2DreamerConfig(BaseModel):
     """Configuration consumed by ``R2DreamerAgent``.
 
     Trainer-loop ownership lives in ``TrainerConfig``. The current
     ``R2DreamerAgent`` and trainer still read interface and sampling fields from
-    this dataclass, so those fields remain here until that constructor boundary
+    this config, so those fields remain here until that constructor boundary
     is split.
     """
+
+    # ``encoder_module_cls`` holds a live Python class object and
+    # ``encoder_input_contract`` an arbitrary snapshot dict; ``arbitrary_types``
+    # lets pydantic store them without validation/serialization. Mutable
+    # (non-frozen): ``encoder_input_contract`` is reassigned post-construction —
+    # ``launch/train.py`` (~line 164) copies the snapshot dict and rewrites its
+    # ``encoder_module_kwargs`` before the agent is built. (Only declared fields
+    # can be reassigned: ``extra="forbid"`` rejects undeclared attrs, so this is
+    # not about setting arbitrary profiling knobs after construction.)
+    # ``extra="forbid"`` catches typos; no call site passes unknown kwargs
+    # (checkpoint restore + manifest overrides are field-scoped).
+    model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
     # --- Environment / agent interface ---
     obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]] = (3, 64, 64)

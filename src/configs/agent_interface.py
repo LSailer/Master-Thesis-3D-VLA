@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True)
-class R2DreamerInterfaceConfig:
+class R2DreamerInterfaceConfig(BaseModel):
     """Static interface facts required to build an ``R2DreamerAgent``.
 
     Args:
@@ -22,6 +22,8 @@ class R2DreamerInterfaceConfig:
     shaping belong to environment/trainer configuration, not to the agent's
     neural architecture/interface.
     """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]]
     num_actions: int

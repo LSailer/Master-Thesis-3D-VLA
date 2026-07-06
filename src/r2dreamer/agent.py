@@ -2,6 +2,13 @@
 
 The agent is a thin orchestrator: it owns parameters, the LaProp optimizer,
 the slow-target EMA, the acting state, and the JIT'd train/eval entry points.
+Three collaborator modules do the heavy lifting so this file stays a facade:
+
+    agent_modules.py — Flax module construction + parameter-bundle init
+    agent_optim.py   — LaProp optimizer construction
+    agent_loss.py    — total-objective composition (world-model + behavior +
+                        representation losses, plus per-encoder diagnostics)
+
 The actual loss math lives in three subpackages, each with its own loss file:
 
     world_model/loss.py     — KL (dyn + rep) + reward + continue heads
@@ -15,7 +22,6 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -25,60 +31,18 @@ import optax
 
 from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
+from src.r2dreamer.agent_loss import compose_agent_loss
+from src.r2dreamer.agent_modules import build_agent_modules
+from src.r2dreamer.agent_optim import make_optimizer
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
-from src.r2dreamer.observation_keys import (
-    CAMERA_POSE_KEY,
-    CAMERA_TOKEN_GLOBAL_KEY,
-    FULL_TOKENS_KEY,
-    GLOBAL_PATCH_TOKENS_KEY,
-    GLOBAL_TOKENS_KEY,
-    HOUSE_CONTEXT_KEY,
-    HOUSE_CONTEXT_SIZE_KEY,
-    HYBRID_IMAGE_KEY,
-    WORLD_POINTS_KEY,
-)
-from src.shared.dtypes import compute_jnp_dtype
-from src.shared.optim import agc, laprop
+from src.shared.optim import agc
 
-from .behavior.imagination import _imagine, _lambda_return
-from .behavior.loss import behavior_loss
 from .behavior.return_ema import ReturnEMA
 from .checkpointing import load_checkpoint
-from .encoders.cnn import ConvEncoder
-from .encoders.constants import AGG_REGISTER_TOKENS, HYBRID_RGB_DIM
-from .encoders.decoder import ConvDecoder
-from .encoders.mlp import (
-    HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
-)
-from .encoders.mlp import (
-    HousePointsCameraEncoder,
-    WP64CNNCPMLPEncoder,
-)
-from .encoders.mlp import (
-    HybridEncoder as WMHybridEncoder,
-)
-from .encoders.mlp import (
-    MLPEncoder as WMMLPEncoder,
-)
-from .encoders.mlp import (
-    VGGTAggRawMLPEncoder as WMVGGTAggRawMLPEncoder,
-)
-from .encoders.mlp import (
-    VGGTAggregatorMLPEncoder as WMVGGTAggregatorMLPEncoder,
-)
-from .encoders.transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
-from .learning_types import AgentLossAux, WorldModelForward
-from .observation_preparation.contracts import (
-    normalize_encoder_module_kwargs,
-    recover_encoder_input_contract,
-)
-from .representation.barlow import Projector
-from .representation.loss import representation_loss
-from .world_model.heads import R2MLP, R2TwoHotDist
-from .world_model.loss import kl_loss as _kl_loss
-from .world_model.loss import world_model_loss
-from .world_model.rssm import R2RSSM
+from .learning_types import WorldModelForward
+from .observation_preparation.contracts import recover_encoder_input_contract
+from .world_model.heads import R2TwoHotDist
 
 
 class ActState(NamedTuple):
@@ -104,26 +68,6 @@ class R2DTrainState(NamedTuple):
     ema_state: Any
 
 
-# ---------------------------------------------------------------------------
-# Module factories
-# ---------------------------------------------------------------------------
-
-
-def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
-    return R2RSSM(
-        deter_size=cfg.deter_size,
-        stoch_classes=cfg.stoch_classes,
-        stoch_discrete=cfg.stoch_discrete,
-        num_actions=cfg.num_actions,
-        hidden=cfg.hidden_size,
-        blocks=cfg.blocks,
-        dyn_layers=cfg.dyn_layers,
-        obs_layers=cfg.obs_layers,
-        img_layers=cfg.img_layers,
-        unimix_ratio=cfg.unimix_ratio,
-    )
-
-
 def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     """Load an R2DreamerAgent checkpoint, tolerating moved optimizer classes."""
     path = Path(path)
@@ -132,355 +76,6 @@ def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     if missing:
         raise KeyError(f"checkpoint {path} is missing required keys: {sorted(missing)}")
     return ckpt
-
-
-def _resolve_encoder_cls(cfg: R2DreamerConfig):
-    # Launcher-created configs pass EncoderSpec.module_cls explicitly. Unit tests
-    # and direct R2DreamerConfig() construction rely on encoder_type, so map the
-    # documented names to their Flax modules when no class is supplied.
-    cls = cfg.encoder_module_cls
-    if cls is None:
-        cls = {
-            "cnn": ConvEncoder,
-            "vggt": WMMLPEncoder,
-            "vggt_wp_cp_64": WMMLPEncoder,  # same MLP module, finer WP grid (obs 12297)
-            "vggt_aggregator_mlp": WMVGGTAggregatorMLPEncoder,
-            "vggt_agg_raw": WMVGGTAggRawMLPEncoder,
-            "vggt_agg_token_transformer": WMTokenTransformerEncoder,
-            "vggt_wp_dense_cnn": ConvEncoder,
-            "vggt_wp64_cnn_cp_mlp": WP64CNNCPMLPEncoder,
-            "hybrid": WMHybridEncoder,
-            "vggt_house_context": WMHybridEncoder,
-            "vggt_house_points_pose": HousePointsCameraEncoder,
-            "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
-            "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
-            "vggt_house_global_embedding": WMHouseGlobalEmbeddingEncoder,
-        }.get(cfg.encoder_type)
-        if cls is None:
-            raise ValueError(f"unknown encoder_type {cfg.encoder_type!r}")
-    return cls
-
-
-def _validate_encoder_config(cfg: R2DreamerConfig, cls) -> None:
-    if cls in (ConvEncoder, WP64CNNCPMLPEncoder) and cfg.vggt_mlp_layers != 1:
-        # Fail loud instead of silently dropping the knob: conv encoders have no
-        # MLP depth, so a non-default vggt_mlp_layers here is a misconfiguration.
-        raise ValueError(
-            f"vggt_mlp_layers={cfg.vggt_mlp_layers} has no effect on "
-            f"{cls.__name__} (a conv encoder, no MLP blocks). Only the 'vggt' and "
-            f"'vggt_aggregator_mlp' encoders consume vggt_mlp_layers; leave it at 1 "
-            f"for cnn / vggt_wp_dense_cnn."
-        )
-
-
-def _contract_encoder_kwargs(cfg: R2DreamerConfig) -> dict[str, Any]:
-    snapshot = getattr(cfg, "encoder_input_contract", None)
-    if snapshot is None:
-        return {}
-    return normalize_encoder_module_kwargs(snapshot.get("encoder_module_kwargs", {}))
-
-
-def _make_conv_encoder(cfg: R2DreamerConfig):
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return ConvEncoder(**kwargs)
-    return ConvEncoder(
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
-
-
-def _make_wp_conv_encoder(cfg: R2DreamerConfig):
-    # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
-    # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return ConvEncoder(**kwargs)
-    return ConvEncoder(
-        input_kind="world_points",
-        embed_dim=cfg.vggt_embed_dim,
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
-
-
-def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return WP64CNNCPMLPEncoder(**kwargs)
-    return WP64CNNCPMLPEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        conv_depth=cfg.encoder_depth,
-        conv_kernel=cfg.encoder_kernel,
-        conv_mults=cfg.encoder_mults,
-        cp_hidden=cfg.mlp_vggt_hidden,
-        cp_layers=cfg.mlp_vggt_layers,
-    )
-
-
-def _make_hybrid_encoder(cfg: R2DreamerConfig):
-    # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-    # HybridEncoder now owns structured replay/live layout handling.
-    expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
-    if not isinstance(cfg.obs_shape, tuple):
-        raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
-    if not (
-        cfg.obs_shape == expected_shape
-        and cfg.obs_shape[0] - cfg.vggt_feature_dim == HYBRID_RGB_DIM
-    ):
-        raise ValueError(
-            "hybrid obs_shape/split mismatch: expected "
-            f"{expected_shape} with vggt_feature_dim={cfg.vggt_feature_dim}, "
-            f"got obs_shape={cfg.obs_shape}, "
-            f"vggt_feature_dim={cfg.vggt_feature_dim}"
-        )
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return WMHybridEncoder(**kwargs)
-    return WMHybridEncoder(
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
-        vggt_embed_dim=cfg.vggt_embed_dim,
-        mlp_hidden=cfg.mlp_vggt_hidden,
-        mlp_layers=cfg.mlp_vggt_layers,
-        vggt_dim=cfg.vggt_feature_dim,
-    )
-
-
-def _make_house_points_camera_encoder(
-    cfg: R2DreamerConfig, cls: type = HousePointsCameraEncoder
-):
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return cls(**kwargs)
-    return cls(
-        embed_dim=cfg.vggt_embed_dim,
-        camera_hidden=cfg.mlp_vggt_hidden,
-        camera_layers=cfg.mlp_vggt_layers,
-        point_hidden=cfg.mlp_vggt_hidden,
-        point_layers=cfg.mlp_vggt_layers,
-    )
-
-
-def _make_house_global_embedding_encoder(
-    cfg: R2DreamerConfig, cls: type = WMHouseGlobalEmbeddingEncoder
-):
-    # PointNet reducer over VGGT global patch tokens + camera side branch.
-    # token_dim and num_patch_tokens are fixed by the VGGT global-half token
-    # layout (camera token + 4 registers dropped): num_patch_tokens =
-    # vggt_token_count - (1 camera + AGG_REGISTER_TOKENS). Prod sets
-    # vggt_token_dim=1024 / vggt_token_count=1374 via agent_overrides; tests
-    # may inject small dims.
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return cls(**kwargs)
-    num_patch_tokens = int(cfg.vggt_token_count) - (1 + AGG_REGISTER_TOKENS)
-    return cls(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_patch_tokens=num_patch_tokens,
-        reducer_hidden=cfg.mlp_vggt_hidden,
-        reducer_layers=cfg.mlp_vggt_layers,
-        camera_hidden=cfg.mlp_vggt_hidden,
-        camera_layers=cfg.mlp_vggt_layers,
-    )
-
-
-def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
-    # wp_cp + aggregator MLP encoders: depth from cfg.vggt_mlp_layers (3D-52).
-    kwargs = _contract_encoder_kwargs(cfg)
-    if kwargs:
-        return cls(**kwargs)
-    return cls(
-        embed_dim=cfg.vggt_embed_dim,
-        hidden=cfg.vggt_embed_dim,
-        num_layers=cfg.vggt_mlp_layers,
-    )
-
-
-def _make_rgb_token_encoder(cfg: R2DreamerConfig):
-    token_key = FULL_TOKENS_KEY
-    singleton_tokens = False
-    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        token_key = GLOBAL_TOKENS_KEY
-        singleton_tokens = True
-    return WMTokenTransformerEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        model_dim=None,
-        layers=cfg.vggt_token_transformer_layers,
-        heads=cfg.vggt_token_transformer_heads,
-        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        dropout=cfg.vggt_token_transformer_dropout,
-        readout="mean",
-        norm_kind="layer",
-        activation="gelu",
-        token_key=token_key,
-        image_key=HYBRID_IMAGE_KEY,
-        singleton_tokens=singleton_tokens,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
-    )
-
-
-def _make_token_transformer_encoder(cfg: R2DreamerConfig):
-    return WMTokenTransformerEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        model_dim=cfg.vggt_token_projection_dim,
-        layers=cfg.vggt_token_transformer_layers,
-        heads=cfg.vggt_token_transformer_heads,
-        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        readout="camera_register_patch",
-        norm_kind="rms",
-        activation="silu",
-        keep_register_tokens=cfg.vggt_keep_register_tokens,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
-    )
-
-
-def _make_encoder(cfg: R2DreamerConfig):
-    cls = _resolve_encoder_cls(cfg)
-    _validate_encoder_config(cfg, cls)
-    if cls is ConvEncoder:
-        if cfg.encoder_type == "vggt_wp_dense_cnn":
-            return _make_wp_conv_encoder(cfg)
-        return _make_conv_encoder(cfg)
-    if cls is WP64CNNCPMLPEncoder:
-        return _make_wp64_cnn_cp_mlp_encoder(cfg)
-    if cls is WMHybridEncoder:
-        return _make_hybrid_encoder(cfg)
-    if cls is WMHouseGlobalEmbeddingEncoder:
-        return _make_house_global_embedding_encoder(cfg, cls)
-    if issubclass(cls, HousePointsCameraEncoder):
-        # issubclass so GNN variants (src/r2dreamer/encoders/gnn_house.py)
-        # reuse this builder with their own module class.
-        return _make_house_points_camera_encoder(cfg, cls)
-    if cls is WMTokenTransformerEncoder:
-        if cfg.encoder_type == "vggt_agg_token_transformer":
-            return _make_token_transformer_encoder(cfg)
-        return _make_rgb_token_encoder(cfg)
-    return _make_mlp_encoder(cfg, cls)
-
-
-def _dummy_encoder_obs(cfg: R2DreamerConfig):
-    if cfg.encoder_type == "vggt_house_full_tokens_nogate":
-        return {
-            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
-            FULL_TOKENS_KEY: jnp.zeros(
-                (1, cfg.vggt_token_count, cfg.vggt_token_dim),
-                dtype=compute_jnp_dtype(cfg.compute_dtype),
-            ),
-        }
-    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        return {
-            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
-            GLOBAL_TOKENS_KEY: jnp.zeros(
-                (1, cfg.vggt_token_count, cfg.vggt_token_dim),
-                dtype=compute_jnp_dtype(cfg.compute_dtype),
-            ),
-        }
-    if cfg.encoder_type == "vggt_house_global_embedding":
-        if not isinstance(cfg.obs_shape, Mapping):
-            raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
-        return {
-            HYBRID_IMAGE_KEY: jnp.zeros(
-                (1, *cfg.obs_shape[HYBRID_IMAGE_KEY]), dtype=jnp.float32
-            ),
-            CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros(
-                (1, *cfg.obs_shape[CAMERA_TOKEN_GLOBAL_KEY]), dtype=jnp.float32
-            ),
-            GLOBAL_PATCH_TOKENS_KEY: jnp.zeros(
-                (1, *cfg.obs_shape[GLOBAL_PATCH_TOKENS_KEY]), dtype=jnp.float32
-            ),
-        }
-    if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
-        return {
-            WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
-            CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
-        }
-    if cfg.encoder_type in (
-        "vggt_house_points_pose",
-        "gnn_house_points_pose",
-        "gnn_edge_house_points_pose",
-    ):
-        if not isinstance(cfg.obs_shape, Mapping):
-            raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
-        return {
-            CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
-            HOUSE_CONTEXT_KEY: jnp.zeros(
-                (1, *cfg.obs_shape[HOUSE_CONTEXT_KEY]), dtype=jnp.float32
-            ),
-            HOUSE_CONTEXT_SIZE_KEY: jnp.zeros((), dtype=jnp.int32),
-        }
-    return jnp.zeros((1, *cfg.obs_shape))
-
-
-def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
-    """Agent objective, excluding the optional debug decoder probe."""
-    return (
-        cfg.scale_dyn * losses["dyn"]
-        + cfg.scale_rep * losses["rep"]
-        + cfg.scale_barlow * losses["barlow"]
-        + cfg.scale_rew * losses["rew"]
-        + cfg.scale_con * losses["con"]
-        + cfg.scale_policy * losses["policy"]
-        + cfg.scale_value * losses["value"]
-        + cfg.scale_repval * losses["repval"]
-    )
-
-
-def _add_loss_metrics(metrics: dict[str, Any], losses: dict[str, Any]) -> None:
-    for k, v in losses.items():
-        metrics[f"loss/{k}"] = v
-
-
-def _add_encoder_l2_metric(metrics: dict[str, Any], params: dict[str, Any]) -> None:
-    # Encoder L2 — Protocol D diagnostic for whether Barlow's gradient
-    # toggle is actually moving the encoder weights.
-    enc_sq = jax.tree_util.tree_reduce(
-        lambda acc, x: acc + jnp.sum(jnp.square(x)),
-        params["encoder"],
-        0.0,
-    )
-    metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
-
-
-def _add_hybrid_contribution_metrics(
-    metrics: dict[str, Any],
-    *,
-    cfg: R2DreamerConfig,
-    params: dict[str, Any],
-    forward: WorldModelForward,
-    B: int,
-    T: int,
-) -> None:
-    # Reuse the already-computed fused embed instead of a second encoder
-    # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
-    # leading cnn_dim columns are the CNN branch and the rest are the
-    # gated VGGT branch. The raw gate scalar is read straight from params.
-    embed_flat = forward.embed.reshape(B * T, -1)
-    cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
-    cnn_e = embed_flat[:, :cnn_dim]
-    vggt_e = embed_flat[:, cnn_dim:]
-    gate = params["encoder"]["params"]["gate"]
-    cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e**2, axis=-1)))
-    vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e**2, axis=-1)))
-    denom = cnn_l2 + vggt_l2 + 1e-8
-    metrics["hybrid/gate"] = gate
-    metrics["hybrid/cnn_l2"] = cnn_l2
-    metrics["hybrid/vggt_l2"] = vggt_l2
-    metrics["hybrid/cnn_std"] = jnp.std(cnn_e)
-    metrics["hybrid/vggt_std"] = jnp.std(vggt_e)
-    metrics["hybrid/cnn_frac"] = cnn_l2 / denom
-    metrics["hybrid/vggt_frac"] = vggt_l2 / denom
 
 
 # ---------------------------------------------------------------------------
@@ -602,127 +197,22 @@ class R2DreamerAgent:
         self.checkpoint_step = -1
         self.twohot = R2TwoHotDist(num_bins=config.twohot_bins)
 
-        # ---- Instantiate Flax modules (for .apply) ----
-        self.encoder_mod = _make_encoder(config)
-        self.rssm_mod = _make_rssm(config)
+        # ---- Flax modules + initialized params (agent_modules.py) ----
+        built = build_agent_modules(config, rng_key)
+        self.encoder_mod = built.encoder_mod
+        self.rssm_mod = built.rssm_mod
+        self.proj_mod = built.proj_mod
+        self.reward_mod = built.reward_mod
+        self.cont_mod = built.cont_mod
+        self.actor_mod = built.actor_mod
+        self.critic_mod = built.critic_mod
+        self.decoder_mod = built.decoder_mod
+        self.embed_size = built.embed_size
+        self._modules = built.modules
+        params = built.params
 
-        # Dummy forward to discover embed_size
-        rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        dummy_obs = _dummy_encoder_obs(config)
-        enc_params = self.encoder_mod.init(k1, dummy_obs)
-        embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, dummy_obs))
-        self.embed_size = embed.shape[-1]
-
-        # RSSM
-        stoch0 = jnp.zeros((1, config.stoch_classes, config.stoch_discrete))
-        deter0 = jnp.zeros((1, config.deter_size))
-        action0 = jnp.zeros((1, config.num_actions))
-        embed0 = jnp.zeros((1, self.embed_size))
-        rng_key, k_sample = jax.random.split(rng_key)
-        rssm_params = self.rssm_mod.init(
-            {"params": k2, "sample": k_sample}, stoch0, deter0, action0, embed0
-        )
-
-        # Projector: feat_size -> embed_size
-        self.proj_mod = Projector(out_dim=self.embed_size)
-        feat0 = jnp.zeros((1, config.feat_size))
-        proj_params = self.proj_mod.init(k3, feat0)
-
-        # MLP heads (outscale matches PyTorch: 0.0 for reward/critic, 0.01 for actor)
-        rng_key, k_rew, k_con, k_act, k_cri = jax.random.split(rng_key, 5)
-        self.reward_mod = R2MLP(
-            hidden=config.mlp_units,
-            layers=config.mlp_layers_reward,
-            out_dim=config.twohot_bins,
-            outscale=0.0,
-        )
-        rew_params = self.reward_mod.init(k_rew, feat0)
-
-        self.cont_mod = R2MLP(
-            hidden=config.mlp_units,
-            layers=config.mlp_layers_cont,
-            out_dim=1,
-        )
-        con_params = self.cont_mod.init(k_con, feat0)
-
-        self.actor_mod = R2MLP(
-            hidden=config.mlp_units,
-            layers=config.mlp_layers_actor,
-            out_dim=config.num_actions,
-            outscale=0.01,
-        )
-        act_params = self.actor_mod.init(k_act, feat0)
-
-        self.critic_mod = R2MLP(
-            hidden=config.mlp_units,
-            layers=config.mlp_layers_critic,
-            out_dim=config.twohot_bins,
-            outscale=0.0,
-        )
-        cri_params = self.critic_mod.init(k_cri, feat0)
-
-        # ---- Debug decoder probe (3D-51): built ONLY when cfg.decoder ----
-        # Reconstructs RGB from stop-gradient `feat` for visual verification.
-        # Left unbuilt by default so the params pytree (and thus checkpoints) of
-        # CNN/VGGT runs is unchanged.
-        self.decoder_mod = None
-        dec_params = None
-        if config.decoder:
-            if config.encoder_type not in (
-                "cnn",
-                "hybrid",
-                "vggt_house_context",
-                "vggt_house_full_tokens_nogate",
-                "vggt_house_global_tokens_nogate",
-                "vggt_house_global_embedding",
-            ):
-                raise ValueError(
-                    "decoder=True requires an RGB-bearing encoder_type — the "
-                    "ConvDecoder reconstructs an RGB image, but "
-                    f"{config.encoder_type!r} carries no RGB modality to reconstruct."
-                )
-            rng_key, k_dec = jax.random.split(rng_key)
-            self.decoder_mod = ConvDecoder(
-                depth=config.encoder_depth,
-                kernel_size=config.encoder_kernel,
-                mults=config.encoder_mults,
-            )
-            dec_params = self.decoder_mod.init(k_dec, feat0)
-
-        # ---- Bundle all params ----
-        params = {
-            "encoder": enc_params,
-            "rssm": rssm_params,
-            "projector": proj_params,
-            "reward": rew_params,
-            "cont": con_params,
-            "actor": act_params,
-            "critic": cri_params,
-        }
-
-        # Module bundle passed to sub-loss functions
-        self._modules = {
-            "encoder": self.encoder_mod,
-            "rssm": self.rssm_mod,
-            "projector": self.proj_mod,
-            "reward": self.reward_mod,
-            "cont": self.cont_mod,
-            "actor": self.actor_mod,
-            "critic": self.critic_mod,
-        }
-
-        if config.decoder:
-            params["decoder"] = dec_params
-            self._modules["decoder"] = self.decoder_mod
-
-        # ---- Optimizer: LaProp with linear warmup ----
-        self.tx = laprop(
-            lr=config.lr,
-            b1=config.beta1,
-            b2=config.beta2,
-            eps=config.eps,
-            warmup=config.warmup_steps,
-        )
+        # ---- Optimizer: LaProp with linear warmup (agent_optim.py) ----
+        self.tx = make_optimizer(config)
         opt_state = self.tx.init(params)
 
         # ---- Slow target critic (EMA) ----
@@ -1002,7 +492,7 @@ class R2DreamerAgent:
         return new_state, metrics
 
     # ------------------------------------------------------------------
-    # Composition root: shared forward + 3 sub-losses
+    # Composition root: shared forward + total loss (agent_loss.py)
     # ------------------------------------------------------------------
 
     def _world_model_forward(self, params, batch, rng_key) -> WorldModelForward:
@@ -1082,90 +572,15 @@ class R2DreamerAgent:
             (total_loss, aux) — `aux` carries metrics and the imagination
             returns used for the post-step `ReturnEMA` update.
         """
-        cfg = self.cfg
-        B, T = replay_batch_shape(batch)
-
-        rng_key, k_fwd = jax.random.split(rng_key)
-        forward = self._world_model_forward(params, batch, k_fwd)
-
-        wm_result = world_model_loss(
-            forward=forward,
-            params=params,
-            batch=batch,
+        return compose_agent_loss(
+            cfg=self.cfg,
             modules=self._modules,
-            cfg=cfg,
             twohot=self.twohot,
-        )
-
-        rng_key, k_behavior = jax.random.split(rng_key)
-        behavior_result = behavior_loss(
-            forward=forward,
+            return_ema=self.return_ema,
+            world_model_forward=self._world_model_forward,
             params=params,
-            modules=self._modules,
-            cfg=cfg,
-            twohot=self.twohot,
             slow_critic_params=slow_critic_params,
             ema_state=ema_state,
-            return_ema=self.return_ema,
-            rng_key=k_behavior,
-            B=B,
-            T=T,
-        )
-
-        rep_result = representation_loss(
-            forward=forward,
             batch=batch,
-            params=params,
-            modules=self._modules,
-            cfg=cfg,
-            twohot=self.twohot,
-            slow_critic_params=slow_critic_params,
-            imag_ret=behavior_result.imag_returns,
-            B=B,
-            T=T,
+            rng_key=rng_key,
         )
-
-        losses = {
-            **wm_result.losses,
-            **behavior_result.losses,
-            **rep_result.losses,
-        }
-        agent_loss = _weighted_total_loss(cfg, losses)
-        # The decoder is a stop-gradient visualisation probe. Add its detached
-        # reconstruction loss only to the optimiser objective so the decoder
-        # learns to read the current latent, while the agent/RSSM/encoder see
-        # exactly the same objective as decoder-free runs.
-        total_loss = agent_loss
-        if cfg.decoder:
-            total_loss = total_loss + cfg.scale_decoder * losses["decoder"]
-
-        # ---- Metrics ----
-        metrics = {
-            **wm_result.metrics,
-            **behavior_result.metrics,
-            **rep_result.metrics,
-        }
-        _add_loss_metrics(metrics, losses)
-        _add_encoder_l2_metric(metrics, params)
-
-        # ---- Hybrid contribution diagnostics (3D-50) ----
-        # Re-split the fused embed into its CNN and gated-VGGT branches via the
-        # encoder's `branches` method (shares params with the forward pass) and
-        # log how much each modality drives the latent. `gate` starts at 0 and
-        # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type in ("hybrid", "vggt_house_context"):
-            _add_hybrid_contribution_metrics(
-                metrics,
-                cfg=cfg,
-                params=params,
-                forward=forward,
-                B=B,
-                T=T,
-            )
-
-        aux = AgentLossAux(
-            metrics=metrics,
-            imag_returns=behavior_result.imag_returns.reshape(-1),
-            agent_loss=agent_loss,
-        )
-        return total_loss, aux

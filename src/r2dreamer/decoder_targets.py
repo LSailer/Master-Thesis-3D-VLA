@@ -25,15 +25,16 @@ def replay_batch_shape(batch: ReplayBatch) -> tuple[int, int]:
 
 def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
+    # Imported lazily to avoid a module-level import cycle: registry.py pulls in
+    # encoders.cnn -> world_model -> world_model.loss -> back to this module.
+    from src.r2dreamer.encoders.registry import RGB_BEARING_ENCODER_TYPES
+
     obs = batch.obs
     B, T = replay_batch_shape(batch)
-    if encoder_type in (
-        "hybrid",
-        "vggt_house_context",
-        "vggt_house_full_tokens_nogate",
-        "vggt_house_global_tokens_nogate",
-        "vggt_house_global_embedding",
-    ):
+    # "cnn" is RGB-bearing too but takes the flat else-branch reshape below
+    # (single flat obs, not a Mapping / RGB-prefix split), so it is excluded
+    # here — preserving the historical CNN fall-through exactly.
+    if encoder_type in RGB_BEARING_ENCODER_TYPES and encoder_type != "cnn":
         if isinstance(obs, Mapping):
             image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])
             return image.reshape(B * T, 3, 64, 64)

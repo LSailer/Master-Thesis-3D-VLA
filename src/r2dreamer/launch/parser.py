@@ -6,6 +6,29 @@ from src.configs.config import LATENT_PRESETS
 from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
 
 
+def _add_curriculum_args(p: argparse.ArgumentParser) -> None:
+    """Add the Habitat curriculum selection flags shared by train and eval.
+
+    Both parsers expose ``--curriculum`` / ``--curriculum_path`` with identical
+    type, default, and help text; this keeps the single definition in one place.
+
+    Args:
+      p: The argparse parser to add the flags to.
+    """
+    p.add_argument(
+        "--curriculum",
+        type=str,
+        default=None,
+        help="Habitat curriculum level name (L1..L4).",
+    )
+    p.add_argument(
+        "--curriculum_path",
+        type=str,
+        default=None,
+        help="Explicit Habitat curriculum JSON path.",
+    )
+
+
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
@@ -21,18 +44,7 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Comma-separated tags (appended to shim defaults)",
     )
-    p.add_argument(
-        "--curriculum",
-        type=str,
-        default=None,
-        help="Habitat curriculum level name (L1..L4).",
-    )
-    p.add_argument(
-        "--curriculum_path",
-        type=str,
-        default=None,
-        help="Explicit Habitat curriculum JSON path.",
-    )
+    _add_curriculum_args(p)
     p.add_argument("--curriculum_mode", type=str, default="train")
     p.add_argument(
         "--render_resolution",
@@ -372,18 +384,7 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         "--output_dir", type=str, default=None, help="Directory to write results JSON"
     )
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument(
-        "--curriculum",
-        type=str,
-        default=None,
-        help="Habitat curriculum level name (L1..L4).",
-    )
-    p.add_argument(
-        "--curriculum_path",
-        type=str,
-        default=None,
-        help="Explicit Habitat curriculum JSON path.",
-    )
+    _add_curriculum_args(p)
     p.add_argument(
         "--render_resolution",
         type=int,

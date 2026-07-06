@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass
-class TrainerConfig:
+class TrainerConfig(BaseModel):
     """Controls the training loop outside ``R2DreamerAgent``.
 
     This config owns replay capacity, sequence sampling, prefill, W&B, resume,
     validation, and diagnostic loops. It intentionally does not own neural
     network architecture, optimizer, or loss fields.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     output_dir: str = "output/runs/r2dreamer"
     total_steps: int = 10_000_000
@@ -41,7 +42,7 @@ class TrainerConfig:
     # WandB (None = disabled)
     wandb_project: str | None = "3d-vla-objectnav"
     wandb_name: str | None = None
-    wandb_tags: list[str] = field(default_factory=lambda: ["r2dreamer"])
+    wandb_tags: list[str] = Field(default_factory=lambda: ["r2dreamer"])
     # Resume an existing W&B run (e.g. "87u0l6dy"). Requires the run to exist.
     wandb_id: str | None = None
     video_log_every: int = 0

@@ -16,8 +16,6 @@ hybrid buffer layout = RGB branch + VGGT branch.
 
 from __future__ import annotations
 
-import dataclasses
-
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
 from src.configs.config import R2DreamerConfig
@@ -25,7 +23,7 @@ from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
 
 
 def _field_default(cls, name: str):
-    return next(f for f in dataclasses.fields(cls) if f.name == name).default
+    return cls.model_fields[name].default
 
 
 def test_encoder_vggt_slice_matches_adapter_feature_dim():

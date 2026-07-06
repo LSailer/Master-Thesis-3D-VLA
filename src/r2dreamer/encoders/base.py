@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 import flax.linen as nn
 
@@ -15,6 +15,74 @@ from src.vggt.jax.feature_extractor import ResetMode
 if TYPE_CHECKING:
     from src.r2dreamer.adapters.obs_adapter import ObsAdapter
     from src.r2dreamer.adapters.vggt_adapter import VGGTFeatureKind
+
+
+class VGGTExtractorFactory(Protocol):
+    """Callable that builds a VGGT feature extractor for a launcher encoder.
+
+    This is the injection seam crossing the ``r2dreamer -> vggt`` boundary.
+    ``VGGTEncoder`` depends only on this structural callable, never on the
+    concrete GPU-heavy extractor class, so CPU-only environments (and tests)
+    can supply a lightweight stand-in without importing GPU deps. The keyword
+    arguments mirror the concrete extractor's constructor.
+    """
+
+    def __call__(
+        self,
+        *,
+        total_budget: int,
+        budgets_static: tuple[int, ...],
+        compute_heads: bool,
+        wp_pool_size: int,
+        reset_mode: ResetMode,
+    ) -> Any:
+        """Build and return a VGGT feature extractor instance.
+
+        Args:
+          total_budget: Total streaming token budget for the aggregator.
+          budgets_static: Per-block static token budgets.
+          compute_heads: Whether the point/camera heads must run.
+          wp_pool_size: World-point pooling side length.
+          reset_mode: Streaming-cache reset policy at episode boundaries.
+
+        Returns:
+          The constructed feature extractor (an object the VGGT observation
+          adapter knows how to drive).
+        """
+
+
+def _default_vggt_extractor_factory(
+    *,
+    total_budget: int,
+    budgets_static: tuple[int, ...],
+    compute_heads: bool,
+    wp_pool_size: int,
+    reset_mode: ResetMode,
+) -> Any:
+    """Build the production ``JAXVGGTFeatureExtractor`` via a lazy import.
+
+    The import is deferred to call time (not module import) so importing this
+    launcher module never pulls in GPU-heavy VGGT dependencies; CPU-only
+    environments only trigger the import when an extractor is actually built.
+
+    Args:
+      total_budget: Total streaming token budget for the aggregator.
+      budgets_static: Per-block static token budgets.
+      compute_heads: Whether the point/camera heads must run.
+      wp_pool_size: World-point pooling side length.
+      reset_mode: Streaming-cache reset policy at episode boundaries.
+
+    Returns:
+      A configured ``JAXVGGTFeatureExtractor`` instance.
+    """
+    extractor_module = import_module("src.vggt.jax.feature_extractor")
+    return extractor_module.JAXVGGTFeatureExtractor(
+        total_budget=total_budget,
+        budgets_static=budgets_static,
+        compute_heads=compute_heads,
+        wp_pool_size=wp_pool_size,
+        reset_mode=reset_mode,
+    )
 
 
 @dataclass(frozen=True)
@@ -161,6 +229,16 @@ class VGGTEncoder(Encoder):
     # docs/notes/visible-house-context-snapshot.md). Override on subclasses.
     vggt_reset_mode: ResetMode = ResetMode.FULL
 
+    # Injection seam crossing the r2dreamer->vggt boundary. Class-level default
+    # (template-method style, like ``module_cls``/``vggt_reset_mode``) that
+    # lazily builds the production extractor; overridable per subclass or per
+    # instance via the ``extractor_factory`` constructor kwarg. Kept as a
+    # ``staticmethod`` so instance lookup does not bind ``self`` as the first
+    # positional argument (the factory is keyword-only).
+    extractor_factory: VGGTExtractorFactory = staticmethod(
+        _default_vggt_extractor_factory
+    )
+
     variant_key = "vggt"
     variant = _VariantDescriptor()
 
@@ -204,13 +282,38 @@ class VGGTEncoder(Encoder):
         """Build a VGGT encoder selection from parsed training arguments."""
         return cls(resolution=args.render_resolution)
 
-    def __init__(self, resolution: int = 518, *, build_extractor: bool = True):
+    def __init__(
+        self,
+        resolution: int = 518,
+        *,
+        build_extractor: bool = True,
+        extractor_factory: VGGTExtractorFactory | None = None,
+    ):
+        """Configure the VGGT launcher encoder.
+
+        Args:
+          resolution: Environment render resolution fed to the extractor.
+          build_extractor: Whether to eagerly build the cached extractor.
+          extractor_factory: Optional override for the extractor-building
+            seam. When ``None`` the class-level ``extractor_factory`` (the
+            lazy production factory) is used, preserving default behavior.
+        """
         self.env_render_resolution = resolution
+        if extractor_factory is not None:
+            # Instance attribute: the descriptor protocol only binds ``self``
+            # for class attributes, so a plain callable stored here stays
+            # unbound and keyword-only, shadowing the class-level default.
+            self.extractor_factory = extractor_factory
         self._extractor = self._make_extractor() if build_extractor else None
 
     def _make_extractor(self):
-        extractor_module = import_module("src.vggt.jax.feature_extractor")
-        return extractor_module.JAXVGGTFeatureExtractor(
+        """Build a VGGT feature extractor via the injected factory.
+
+        Returns:
+          A feature extractor produced by ``extractor_factory`` with this
+          encoder's budget/head/reset configuration.
+        """
+        return self.extractor_factory(
             total_budget=self.VGGT_TOTAL_BUDGET,
             budgets_static=self.VGGT_STATIC_BUDGETS,
             compute_heads=self.vggt_compute_heads,
