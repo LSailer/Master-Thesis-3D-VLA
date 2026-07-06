@@ -53,6 +53,7 @@ from .encoders.mlp import (
 )
 from .encoders.mlp import (
     HousePointsCameraEncoder,
+    HybridHousePointsCameraEncoder,
     WP64CNNCPMLPEncoder,
 )
 from .encoders.mlp import (
@@ -152,6 +153,7 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
             "vggt_house_points_pose": HousePointsCameraEncoder,
+            "vggt_hybrid_house_points_pose": HybridHousePointsCameraEncoder,
             "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
             "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
             "vggt_house_global_embedding": WMHouseGlobalEmbeddingEncoder,
@@ -256,13 +258,20 @@ def _make_house_points_camera_encoder(
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return cls(**kwargs)
-    return cls(
+    kwargs = dict(
         embed_dim=cfg.vggt_embed_dim,
         camera_hidden=cfg.mlp_vggt_hidden,
         camera_layers=cfg.mlp_vggt_layers,
         point_hidden=cfg.mlp_vggt_hidden,
         point_layers=cfg.mlp_vggt_layers,
     )
+    if issubclass(cls, HybridHousePointsCameraEncoder):
+        kwargs.update(
+            cnn_depth=cfg.encoder_depth,
+            cnn_kernel=cfg.encoder_kernel,
+            cnn_mults=cfg.encoder_mults,
+        )
+    return cls(**kwargs)
 
 
 def _make_house_global_embedding_encoder(
@@ -408,18 +417,22 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         }
     if cfg.encoder_type in (
         "vggt_house_points_pose",
+        "vggt_hybrid_house_points_pose",
         "gnn_house_points_pose",
         "gnn_edge_house_points_pose",
     ):
         if not isinstance(cfg.obs_shape, Mapping):
             raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")
-        return {
+        dummy = {
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
             HOUSE_CONTEXT_KEY: jnp.zeros(
                 (1, *cfg.obs_shape[HOUSE_CONTEXT_KEY]), dtype=jnp.float32
             ),
             HOUSE_CONTEXT_SIZE_KEY: jnp.zeros((), dtype=jnp.int32),
         }
+        if cfg.encoder_type == "vggt_hybrid_house_points_pose":
+            dummy[HYBRID_IMAGE_KEY] = jnp.zeros((1, 3, 64, 64), dtype=jnp.float32)
+        return dummy
     return jnp.zeros((1, *cfg.obs_shape))
 
 

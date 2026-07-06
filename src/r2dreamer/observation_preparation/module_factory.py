@@ -15,7 +15,11 @@ import jax.numpy as jnp
 
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
-from src.r2dreamer.encoders.mlp import HouseGlobalEmbeddingEncoder, HousePointsCameraEncoder
+from src.r2dreamer.encoders.mlp import (
+    HouseGlobalEmbeddingEncoder,
+    HousePointsCameraEncoder,
+    HybridHousePointsCameraEncoder,
+)
 from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 from src.r2dreamer.observation_preparation.cnn import CNNObservationPreparation
 from src.r2dreamer.observation_preparation.contracts import (
@@ -64,6 +68,8 @@ def _encoder_module_cls_from_config(cfg: R2DreamerConfig):
         return CNNObservationPreparation().contract.encoder_module_cls
     if cfg.encoder_type == "vggt_house_points_pose":
         return HousePointsCameraEncoder
+    if cfg.encoder_type == "vggt_hybrid_house_points_pose":
+        return HybridHousePointsCameraEncoder
     if cfg.encoder_type == "vggt_house_global_embedding":
         return HouseGlobalEmbeddingEncoder
     spec = VGGT_DREAMER_SPECS.get(cfg.encoder_type)

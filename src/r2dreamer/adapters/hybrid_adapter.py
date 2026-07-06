@@ -606,14 +606,7 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         self._env_steps = 0
         self._growth_history: list[tuple[int, int]] = []
         super().__init__(
-            buffer_dtype={CAMERA_POSE_KEY: "float16"},
-            buffer_shape={CAMERA_POSE_KEY: CAMERA_POSE_SHAPE},
-            normalize_on_sample={CAMERA_POSE_KEY: False},
-            agent_obs_shape={
-                CAMERA_POSE_KEY: CAMERA_POSE_SHAPE,
-                HOUSE_CONTEXT_KEY: (self._max_points, HOUSE_POINT_DIM),
-                HOUSE_CONTEXT_SIZE_KEY: (),
-            },
+            **self._observation_contract_kwargs(),
             on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(scene_id),
         )
         # Scene-aware episode reset. The trainer calls the callback above at
@@ -633,6 +626,29 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         # frame (the train loop). Only the point buffer persists across
         # episodes; the VGGT cache is saved/restored per scene.
         self._extractor = extractor
+
+    def _observation_contract_kwargs(self) -> dict[str, Any]:
+        """Return the replay/agent observation contract for ``ObsAdapter``.
+
+        Subclasses extend the returned dicts to replay extra per-step fields
+        alongside ``camera_pose`` (the house context itself is injected live,
+        never stored).
+
+        Returns:
+          Keyword arguments (``buffer_dtype``, ``buffer_shape``,
+          ``normalize_on_sample``, ``agent_obs_shape``) for
+          ``ObsAdapter.__init__``.
+        """
+        return {
+            "buffer_dtype": {CAMERA_POSE_KEY: "float16"},
+            "buffer_shape": {CAMERA_POSE_KEY: CAMERA_POSE_SHAPE},
+            "normalize_on_sample": {CAMERA_POSE_KEY: False},
+            "agent_obs_shape": {
+                CAMERA_POSE_KEY: CAMERA_POSE_SHAPE,
+                HOUSE_CONTEXT_KEY: (self._max_points, HOUSE_POINT_DIM),
+                HOUSE_CONTEXT_SIZE_KEY: (),
+            },
+        }
 
     @staticmethod
     def _load_seed(house_points_path: str | None) -> jnp.ndarray | None:
@@ -778,3 +794,37 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         obs[HOUSE_CONTEXT_KEY] = self._latest_house_context
         obs[HOUSE_CONTEXT_SIZE_KEY] = self._latest_house_context_size
         return dataclasses.replace(batch, obs=obs)
+
+
+class VGGTHybridHousePointsPoseObsAdapter(VGGTHousePointsPoseObsAdapter):
+    """House-points-pose pipeline plus the rgb64 frame in replay.
+
+    Identical live-buffer/PERSIST_SCENE behaviour to the parent; additionally
+    resizes each env frame to 64x64 and stores it per step so the additive
+    hybrid encoder (``HybridHousePointsCameraEncoder``) can run its CNN
+    baseline branch on replayed images. The house context stays
+    live-injected — only ``camera_pose`` and the image are replayed.
+    """
+
+    def _observation_contract_kwargs(self) -> dict[str, Any]:
+        """Extend the parent contract with the rgb64 replay/agent field.
+
+        Returns:
+          ``ObsAdapter.__init__`` kwargs with ``HYBRID_IMAGE_KEY`` added to
+          every observation form (uint8 in replay, normalized on sample).
+        """
+        kwargs = super()._observation_contract_kwargs()
+        kwargs["buffer_dtype"][HYBRID_IMAGE_KEY] = "uint8"
+        kwargs["buffer_shape"][HYBRID_IMAGE_KEY] = IMAGE_SHAPE
+        kwargs["normalize_on_sample"][HYBRID_IMAGE_KEY] = True
+        kwargs["agent_obs_shape"][HYBRID_IMAGE_KEY] = IMAGE_SHAPE
+        return kwargs
+
+    def transform(
+        self, env_obs: ObservationFrame
+    ) -> tuple[dict[str, np.ndarray], dict]:
+        replay, agent_obs = super().transform(env_obs)
+        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        replay[HYBRID_IMAGE_KEY] = image64
+        agent_obs[HYBRID_IMAGE_KEY] = image64
+        return replay, agent_obs

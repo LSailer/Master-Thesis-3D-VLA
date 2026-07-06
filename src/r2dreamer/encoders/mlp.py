@@ -203,6 +203,65 @@ class HousePointsCameraEncoder(nn.Module):
         return self._branches(obs)
 
 
+class HybridHousePointsCameraEncoder(HousePointsCameraEncoder):
+    """Additive hybrid: RGB CNN backbone plus gated pose/house-points branches.
+
+    Extends ``HousePointsCameraEncoder`` with the image-only CNN baseline as
+    an ungated backbone branch and puts zero-initialized scalar gates (the
+    ``HybridEncoder`` pattern) on the camera-pose and pooled house-points
+    branches. At initialization the embedding therefore equals
+    ``[cnn_embed | 0 | 0]`` — exactly the information the CNN baseline sees —
+    and training must learn to admit the extra 3D context, so any gain over
+    the baseline is attributable to the map/pose rather than to architecture
+    drift (docs/notes/2026-07-06-house-points-vs-cnn-baseline-review.md §5).
+
+    Consumes ``HYBRID_IMAGE_KEY`` (rgb64) in addition to the parent's
+    ``camera_pose`` / ``house_context`` (+ size) keys; the fused embedding is
+    ``[cnn | gate_camera * camera | gate_house * house]`` of width
+    ``1024 + 2 * embed_dim``.
+    """
+
+    cnn_depth: int = 16
+    cnn_kernel: int = 5
+    cnn_mults: tuple[int, ...] = (2, 3, 4, 4)
+
+    def _hybrid_branches(
+        self, obs: dict[str, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Return ``(cnn, gated_camera, gated_house, gate_camera, gate_house)``."""
+        if not isinstance(obs, Mapping):
+            raise TypeError("HybridHousePointsCameraEncoder expects structured obs")
+        cnn_embed = make_rgb_conv_encoder(
+            depth=self.cnn_depth,
+            kernel_size=self.cnn_kernel,
+            mults=self.cnn_mults,
+            name="cnn",
+        )(jnp.asarray(obs[HYBRID_IMAGE_KEY]))
+        camera_embed, house_embed = self._branches(obs)
+        gate_camera = self.param("gate_camera", nn.initializers.zeros, ())
+        gate_house = self.param("gate_house", nn.initializers.zeros, ())
+        return (
+            cnn_embed,
+            gate_camera * camera_embed,
+            gate_house * house_embed,
+            gate_camera,
+            gate_house,
+        )
+
+    @nn.compact
+    def __call__(self, obs: dict[str, jnp.ndarray]) -> jnp.ndarray:
+        """Return fused ``[cnn | gated camera_pose | gated house_points]``."""
+        cnn_embed, camera_embed, house_embed, _, _ = self._hybrid_branches(obs)
+        return jnp.concatenate([cnn_embed, camera_embed, house_embed], axis=-1)
+
+    @nn.compact
+    def branches(
+        self, obs: dict[str, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Diagnostic split: ``(cnn, gated_camera, gated_house, gate_camera, gate_house)``."""
+        return self._hybrid_branches(obs)
+
+
 class HouseGlobalEmbeddingEncoder(nn.Module):
     """PointNet-reducer encoder over VGGT global patch tokens + camera token.
 

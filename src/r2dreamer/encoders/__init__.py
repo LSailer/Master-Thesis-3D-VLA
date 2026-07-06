@@ -25,7 +25,10 @@ from src.r2dreamer.encoders.gnn_house import (
 from src.r2dreamer.encoders.house_global_embedding import (
     VGGTHouseGlobalEmbeddingEncoder,
 )
-from src.r2dreamer.encoders.house_points_pose import VGGTHousePointsPoseEncoder
+from src.r2dreamer.encoders.house_points_pose import (
+    VGGTHousePointsPoseEncoder,
+    VGGTHybridHousePointsPoseEncoder,
+)
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 if TYPE_CHECKING:

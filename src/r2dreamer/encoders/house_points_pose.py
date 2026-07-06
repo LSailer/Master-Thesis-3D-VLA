@@ -12,6 +12,7 @@ import flax.linen as nn
 from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
     HousePointsCameraEncoder as ModelHousePointsCameraEncoder,
+    HybridHousePointsCameraEncoder as ModelHybridHousePointsCameraEncoder,
 )
 from src.vggt.jax.feature_extractor import ResetMode
 
@@ -79,6 +80,41 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
     def _build_adapter_for_extractor(self, extractor):
         adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
         return adapter_module.VGGTHousePointsPoseObsAdapter(
+            extractor,
+            house_points_path=self._house_points_path,
+        )
+
+
+class VGGTHybridHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
+    """Additive hybrid: rgb64 CNN backbone plus gated live house points + pose.
+
+    Reuses the whole live house-points-pose pipeline (per-scene buffer,
+    PERSIST_SCENE, camera-pose replay) and additionally replays the 64x64
+    frame so the agent-side module can run the image-only CNN baseline as an
+    ungated backbone branch. Zero-init gates on the pose/house branches make
+    the encoder start exactly at the CNN baseline (see
+    docs/notes/2026-07-06-house-points-vs-cnn-baseline-review.md §5).
+    """
+
+    @property
+    def encoder_type(self) -> str:
+        return "vggt_hybrid_house_points_pose"
+
+    @property
+    def module_cls(self) -> type[nn.Module]:
+        return ModelHybridHousePointsCameraEncoder
+
+    @property
+    def design_notes(self) -> str:
+        return (
+            "RGB64 CNN backbone concatenated with zero-init-gated camera-pose "
+            "and pooled live house-points branches; house context injected "
+            "live, image + camera pose replayed."
+        )
+
+    def _build_adapter_for_extractor(self, extractor):
+        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
+        return adapter_module.VGGTHybridHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
         )

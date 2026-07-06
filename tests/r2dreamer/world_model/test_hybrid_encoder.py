@@ -10,9 +10,17 @@ import pytest
 
 from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM, HYBRID_VGGT_DIM
 from src.r2dreamer.encoders.decoder import ConvDecoder
-from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder, HybridEncoder
+from src.r2dreamer.encoders.mlp import (
+    HousePointsCameraEncoder,
+    HybridEncoder,
+    HybridHousePointsCameraEncoder,
+)
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
-from src.r2dreamer.observation_keys import CAMERA_POSE_KEY, HOUSE_CONTEXT_KEY
+from src.r2dreamer.observation_keys import (
+    CAMERA_POSE_KEY,
+    HOUSE_CONTEXT_KEY,
+    HYBRID_IMAGE_KEY,
+)
 
 
 @pytest.fixture
@@ -105,6 +113,77 @@ class TestHousePointsCameraEncoder:
         assert fused.shape == (3, 16)
         assert jnp.allclose(house_embed[0], house_embed[1])
         assert jnp.allclose(house_embed[0], house_embed[2])
+
+
+class TestHybridHousePointsCameraEncoder:
+    def _make(self):
+        return HybridHousePointsCameraEncoder(
+            embed_dim=8,
+            camera_hidden=8,
+            camera_layers=1,
+            point_hidden=8,
+            point_layers=1,
+            cnn_depth=2,
+            cnn_kernel=3,
+            cnn_mults=(1, 1),
+        )
+
+    def _obs(self, rng, batch=3):
+        k1, k2 = jax.random.split(rng)
+        return {
+            HYBRID_IMAGE_KEY: jax.random.uniform(k1, (batch, 3, 64, 64)),
+            CAMERA_POSE_KEY: jax.random.normal(k2, (batch, 9)).astype(jnp.float16),
+            HOUSE_CONTEXT_KEY: jnp.ones((1, 5, 6), dtype=jnp.float16),
+        }
+
+    def test_output_is_cnn_plus_two_gated_branches(self, rng):
+        enc = self._make()
+        obs = self._obs(rng)
+        params = enc.init(rng, obs)
+
+        fused = enc.apply(params, obs)
+        cnn_e, cam_e, house_e, _, _ = enc.apply(params, obs, method=enc.branches)
+
+        cnn_dim = _cnn_dim(depth=2, mults=(1, 1))
+        assert cnn_e.shape == (3, cnn_dim * 16)  # 2 stages: 64 -> 16 spatial
+        assert cam_e.shape == (3, 8)
+        assert house_e.shape == (3, 8)
+        assert fused.shape == (3, cnn_e.shape[-1] + 16)
+        assert jnp.allclose(fused, jnp.concatenate([cnn_e, cam_e, house_e], axis=-1))
+
+    def test_gates_zero_at_init_so_output_equals_cnn_baseline(self, rng):
+        enc = self._make()
+        obs = self._obs(rng)
+        params = enc.init(rng, obs)
+
+        cnn_e, cam_e, house_e, gate_cam, gate_house = enc.apply(
+            params, obs, method=enc.branches
+        )
+
+        assert float(gate_cam) == 0.0
+        assert float(gate_house) == 0.0
+        assert float(jnp.max(jnp.abs(cam_e))) == 0.0
+        assert float(jnp.max(jnp.abs(house_e))) == 0.0
+        assert float(jnp.max(jnp.abs(cnn_e))) > 0.0
+
+        # Pose/house content is invisible at init: only the image matters.
+        obs_other = dict(obs)
+        obs_other[CAMERA_POSE_KEY] = obs[CAMERA_POSE_KEY] + 1.0
+        obs_other[HOUSE_CONTEXT_KEY] = obs[HOUSE_CONTEXT_KEY] * 2.0
+        assert jnp.allclose(enc.apply(params, obs), enc.apply(params, obs_other))
+
+    def test_singleton_house_cloud_broadcasts_over_batch(self, rng):
+        enc = self._make()
+        obs = self._obs(rng)
+        params = enc.init(rng, obs)
+        # Force the house gate open so the branch is observable.
+        params = jax.tree_util.tree_map(lambda x: x, params)
+        params["params"]["gate_house"] = jnp.ones(())
+
+        _, _, house_e, _, _ = enc.apply(params, obs, method=enc.branches)
+        assert house_e.shape == (3, 8)
+        assert jnp.allclose(house_e[0], house_e[1])
+        assert jnp.allclose(house_e[0], house_e[2])
 
 
 class TestRGBGlobalTokenTransformerEncoder:
