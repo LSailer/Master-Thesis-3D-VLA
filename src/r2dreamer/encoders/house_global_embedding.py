@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from importlib import import_module
 from types import MappingProxyType
 from typing import Any
 
 import flax.linen as nn
 
+from src.r2dreamer.adapters.token_adapters import VGGTHouseGlobalEmbeddingObsAdapter
 from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.constants import (
     AGG_TOKEN_TOKENS,
@@ -134,8 +134,7 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
           The :class:`VGGTHouseGlobalEmbeddingObsAdapter` wired with the dump
           knob/directory.
         """
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
-        return adapter_module.VGGTHouseGlobalEmbeddingObsAdapter(
+        return VGGTHouseGlobalEmbeddingObsAdapter(
             extractor,
             pointcloud_dump_every=self._pointcloud_dump_every,
             pointcloud_dump_dir=self._pointcloud_dump_dir,

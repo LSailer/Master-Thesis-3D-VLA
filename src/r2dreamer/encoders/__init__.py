@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from importlib import import_module
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +29,12 @@ from src.r2dreamer.encoders.house_points_pose import (
     VGGTHybridHousePointsPoseEncoder,
 )
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
+from src.r2dreamer.adapters.house_context_adapter import VGGTHouseContextObsAdapter
+from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+from src.r2dreamer.adapters.token_adapters import (
+    VGGTHouseFullTokenObsAdapter,
+    VGGTHouseGlobalTokenObsAdapter,
+)
 
 if TYPE_CHECKING:
     from src.r2dreamer.adapters.obs_adapter import ObsAdapter
@@ -54,8 +59,7 @@ class HybridEncoder(VGGTEncoder):
     variant_key = "hybrid"
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
-        return adapter_module.HybridObsAdapter(
+        return HybridObsAdapter(
             extractor,
             env_render_resolution=self.env_render_resolution,
             encoder_module_cls=self.module_cls,
@@ -140,8 +144,7 @@ class VGGTHouseContextEncoder(VGGTEncoder):
         return super().new_adapter()
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
-        return adapter_module.VGGTHouseContextObsAdapter(
+        return VGGTHouseContextObsAdapter(
             extractor,
             context_transformer=self._context_transformer,
             static_house_context_path=self._static_house_context_path,
@@ -154,8 +157,7 @@ class VGGTHouseFullTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant_key = "vggt_house_full_tokens_nogate"
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
-        return adapter_module.VGGTHouseFullTokenObsAdapter(extractor)
+        return VGGTHouseFullTokenObsAdapter(extractor)
 
 
 class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
@@ -164,5 +166,4 @@ class VGGTHouseGlobalTokenNoGateEncoder(VGGTHouseContextEncoder):
     variant_key = "vggt_house_global_tokens_nogate"
 
     def _build_adapter_for_extractor(self, extractor) -> ObsAdapter:
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
-        return adapter_module.VGGTHouseGlobalTokenObsAdapter(extractor)
+        return VGGTHouseGlobalTokenObsAdapter(extractor)

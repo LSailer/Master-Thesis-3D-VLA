@@ -13,13 +13,15 @@ import pytest
 from src.buffer.replay_buffer import ReplayBatch
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters import ObsAdapter, VGGTObsAdapter
-from src.r2dreamer.adapters.hybrid_adapter import (
-    HybridObsAdapter,
-    VGGTHouseContextObsAdapter,
-    VGGTHouseFullTokenObsAdapter,
-    VGGTHouseGlobalEmbeddingObsAdapter,
+from src.r2dreamer.adapters.house_context_adapter import VGGTHouseContextObsAdapter
+from src.r2dreamer.adapters.house_points_adapter import (
     VGGTHousePointsPoseObsAdapter,
     VGGTHybridHousePointsPoseObsAdapter,
+)
+from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter
+from src.r2dreamer.adapters.token_adapters import (
+    VGGTHouseFullTokenObsAdapter,
+    VGGTHouseGlobalEmbeddingObsAdapter,
 )
 from src.r2dreamer.encoders import (
     VGGT_VARIANTS,
@@ -95,6 +97,82 @@ def _write_minimal_static_house_ply(path: Path) -> None:
     )
 
 
+class _StubExtractor:
+    """Minimal stand-in for ``JAXVGGTFeatureExtractor`` in construction/spec tests.
+
+    Records the constructor kwargs on ``self.kwargs`` (so a test can assert the
+    budgets/reset-mode the encoder passed), derives ``wp_pool_size`` from them,
+    and remembers the last ``reset_for_scene`` id. Per-test overrides such as a
+    different ``aggregator_feature_shape`` go through the ``patch_vggt`` fixture.
+    """
+
+    aggregator_feature_shape = (1374, 1024)
+    image_size = 518
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.wp_pool_size = int(kwargs.get("wp_pool_size", 37))
+        self.last_scene_id = None
+
+    def reset(self):
+        pass
+
+    def reset_for_scene(self, scene_id="scene"):
+        self.last_scene_id = scene_id
+
+
+@pytest.fixture
+def patch_vggt(monkeypatch):
+    """Patch ``JAXVGGTFeatureExtractor`` with :class:`_StubExtractor`.
+
+    Returns a callable that installs the stub and returns the installed class;
+    keyword arguments override stub class attributes for one test, e.g.
+    ``patch_vggt(aggregator_feature_shape=(86, 128))``.
+    """
+
+    def install(**attrs):
+        stub = type("_PatchedStub", (_StubExtractor,), attrs) if attrs else _StubExtractor
+        monkeypatch.setattr(
+            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", stub
+        )
+        return stub
+
+    return install
+
+
+class _WorldPoints64Extractor:
+    """Fake extractor whose ``extract`` returns a (64, 64, 3) world map + pose."""
+
+    wp_pool_size = 64
+
+    def reset(self):
+        pass
+
+    def extract(self, image):
+        import jax.numpy as jnp
+
+        return {
+            "world_points": jnp.ones((64, 64, 3), jnp.float32),
+            "camera_pose": jnp.arange(9, dtype=jnp.float32),
+        }
+
+
+class _AggregatorTokensExtractor:
+    """Fake extractor whose ``extract`` returns arange(40) aggregator tokens."""
+
+    aggregator_feature_shape = (10, 4)
+
+    def reset(self):
+        pass
+
+    def extract(self, image):
+        import jax.numpy as jnp
+
+        return {
+            "aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(10, 4)
+        }
+
+
 def test_encoder_specs_module_was_folded_into_package_init():
     assert not (_REPO_ROOT / "src/r2dreamer/encoders/specs.py").exists()
     assert VGGTEncoder.variant is VGGT_VARIANTS["vggt"]
@@ -130,28 +208,14 @@ class TestCNNEncoder:
 
 
 class TestVGGTEncoderConfiguration:
-    def test_vggt_encoder_uses_static_jax_budgets(self, monkeypatch):
+    def test_vggt_encoder_uses_static_jax_budgets(self, patch_vggt):
         """R2Dreamer training must use the fast JAX static-budget VGGT path."""
-        constructed_kwargs = {}
+        patch_vggt()
 
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                constructed_kwargs.update(kwargs)
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
-
-        enc = VGGTEncoder()
-        adapter = enc.make_adapter()
+        adapter = VGGTEncoder().make_adapter()
 
         assert isinstance(adapter, VGGTObsAdapter)
-        assert constructed_kwargs == {
+        assert adapter._extractor.kwargs == {
             "total_budget": 1_200_000,
             "budgets_static": tuple([50_000] * 24),
             "compute_heads": True,
@@ -159,52 +223,23 @@ class TestVGGTEncoderConfiguration:
             "reset_mode": ResetMode.FULL,
         }
 
-    def test_house_points_pose_encoder_uses_persist_scene(self, monkeypatch):
+    def test_house_points_pose_encoder_uses_persist_scene(self, patch_vggt):
         """The live per-scene house-point path must persist the VGGT cache per
         scene so episodes of one house share one world frame (no ghost copies).
         """
-        constructed_kwargs = {}
+        patch_vggt()
 
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
+        adapter = VGGTHousePointsPoseEncoder().make_adapter()
 
-            def __init__(self, **kwargs):
-                constructed_kwargs.update(kwargs)
+        assert adapter._extractor.kwargs["reset_mode"] is ResetMode.PERSIST_SCENE
 
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
-
-        enc = VGGTHousePointsPoseEncoder()
-        enc.make_adapter()
-
-        assert constructed_kwargs["reset_mode"] is ResetMode.PERSIST_SCENE
-
-    def test_house_points_adapter_episode_reset_is_scene_aware(self, monkeypatch):
+    def test_house_points_adapter_episode_reset_is_scene_aware(self, patch_vggt):
         """The adapter's on_episode_reset must call reset_for_scene with the
         incoming scene_id (and fall back to "scene" when called with no arg,
         so standalone profiling scripts that call it no-arg still work). This
         is the fix for the prefill-doesn't-fire-reset_for_scene gap.
         """
-
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                pass
-
-            def reset(self):
-                pass
-
-            def reset_for_scene(self, scene_id):
-                self.last_scene_id = scene_id
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+        patch_vggt()
 
         enc = VGGTHousePointsPoseEncoder()
         adapter = enc.make_adapter()
@@ -217,19 +252,8 @@ class TestVGGTEncoderConfiguration:
         adapter.on_episode_reset()
         assert adapter._extractor.last_scene_id == "scene"
 
-    def test_vggt_encoder_exposes_wp_cp_spec(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                pass
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_vggt_encoder_exposes_wp_cp_spec(self, patch_vggt):
+        patch_vggt()
 
         enc = VGGTEncoder(resolution=518)
         adapter = enc.make_adapter()
@@ -249,20 +273,9 @@ class TestVGGTEncoderConfiguration:
         assert spec.agent_overrides == {"buffer_capacity": 1_000_000}
 
     def test_aggregator_encoder_spec_uses_pooled_extractor_feature_dim(
-        self, monkeypatch
+        self, patch_vggt
     ):
-        class FakeExtractor:
-            aggregator_feature_shape = (86, 128)
-
-            def __init__(self, **kwargs):
-                pass
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+        patch_vggt(aggregator_feature_shape=(86, 128))
 
         enc = VGGTAggregatorMLPEncoder(resolution=256)
         adapter = enc.make_adapter()
@@ -285,19 +298,8 @@ class TestVGGTEncoderConfiguration:
         }
         assert "camera token" in spec.design_notes
 
-    def test_agg_token_transformer_spec_keeps_full_tokens_fp16(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (10, 4)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_agg_token_transformer_spec_keeps_full_tokens_fp16(self, patch_vggt):
+        patch_vggt(aggregator_feature_shape=(10, 4))
 
         enc = VGGTAggTokenTransformerEncoder(resolution=256)
         adapter = enc.make_adapter()
@@ -318,20 +320,8 @@ class TestVGGTEncoderConfiguration:
         }
         assert "1374" in spec.design_notes
 
-    def test_dense_wp_encoder_exposes_image_shaped_spec(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-            image_size = 518
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_dense_wp_encoder_exposes_image_shaped_spec(self, patch_vggt):
+        patch_vggt()
 
         enc = VGGTDenseWPEncoder(resolution=518)
         adapter = enc.make_adapter()
@@ -401,19 +391,8 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
-    def test_wp_cp_64_encoder_spec(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.wp_pool_size = int(kwargs.get("wp_pool_size", 37))
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_wp_cp_64_encoder_spec(self, patch_vggt):
+        patch_vggt()
 
         enc = VGGTWPCP64Encoder(resolution=518)
         adapter = enc.make_adapter()
@@ -457,21 +436,7 @@ class TestVGGTEncoderConfiguration:
         assert np.isfinite(np.asarray(p64)).all()
 
     def test_wp_cp_64_adapter_flattens_world_points_plus_pose(self):
-        import jax.numpy as jnp
-
-        class FakeExtractor:
-            wp_pool_size = 64
-
-            def reset(self):
-                pass
-
-            def extract(self, image):
-                return {
-                    "world_points": jnp.ones((64, 64, 3), jnp.float32),
-                    "camera_pose": jnp.arange(9, dtype=jnp.float32),
-                }
-
-        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_cp")
+        adapter = VGGTObsAdapter(_WorldPoints64Extractor(), feature_kind="wp_cp")
         assert adapter.buffer_shape == {
             WORLD_POINTS_KEY: (3, 64, 64),
             CAMERA_POSE_KEY: (9,),
@@ -486,22 +451,8 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp64_cnn_cp_mlp_adapter_emits_float16_world_points_and_pose(self):
-        import jax.numpy as jnp
-
-        class FakeExtractor:
-            wp_pool_size = 64
-
-            def reset(self):
-                pass
-
-            def extract(self, image):
-                return {
-                    "world_points": jnp.ones((64, 64, 3), jnp.float32),
-                    "camera_pose": jnp.arange(9, dtype=jnp.float32),
-                }
-
         adapter = VGGTObsAdapter(
-            FakeExtractor(),
+            _WorldPoints64Extractor(),
             feature_kind="wp64_cp",
             encoder_type="vggt_wp64_cnn_cp_mlp",
             encoder_module_cls=WP64CNNCPMLPEncoder,
@@ -525,19 +476,8 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
-    def test_wp64_cnn_cp_mlp_encoder_spec_uses_structured_obs_shape(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.wp_pool_size = int(kwargs.get("wp_pool_size", 37))
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_wp64_cnn_cp_mlp_encoder_spec_uses_structured_obs_shape(self, patch_vggt):
+        patch_vggt()
 
         enc = VGGTWP64CNNCPMLPEncoder(resolution=518)
         adapter = enc.make_adapter()
@@ -573,22 +513,7 @@ class TestVGGTEncoderConfiguration:
     def test_aggregator_adapter_emits_cam_mean_max_pools(self):
         # Fake extractor with 1 cam + 4 register + 5 patch tokens, D = 4.
         # tokens = arange(40).reshape(10, 4); patches = tokens[5:].
-        class FakeExtractor:
-            aggregator_feature_shape = (10, 4)
-
-            def reset(self):
-                pass
-
-            def extract(self, image):
-                import jax.numpy as jnp
-
-                return {
-                    "aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(
-                        10, 4
-                    )
-                }
-
-        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="aggregator")
+        adapter = VGGTObsAdapter(_AggregatorTokensExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform(
             ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
@@ -606,22 +531,7 @@ class TestVGGTEncoderConfiguration:
         assert agent_obs["features"].dtype.name == "float32"
 
     def test_agg_token_adapter_keeps_camera_register_and_patch_tokens(self):
-        class FakeExtractor:
-            aggregator_feature_shape = (10, 4)
-
-            def reset(self):
-                pass
-
-            def extract(self, image):
-                import jax.numpy as jnp
-
-                return {
-                    "aggregator_features": jnp.arange(40, dtype=jnp.float32).reshape(
-                        10, 4
-                    )
-                }
-
-        adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="agg_tokens")
+        adapter = VGGTObsAdapter(_AggregatorTokensExtractor(), feature_kind="agg_tokens")
         replay_features, agent_obs = adapter.transform(
             ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
         )
@@ -642,19 +552,8 @@ class TestHybridEncoder:
     whose ``.extract()`` returns world_points (37,37,3) + camera_pose (9,).
     """
 
-    def test_hybrid_encoder_exposes_spec(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                pass
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_hybrid_encoder_exposes_spec(self, patch_vggt):
+        patch_vggt()
 
         enc = HybridEncoder()
         adapter = enc.make_adapter()
@@ -760,19 +659,8 @@ class TestVGGTHouseContextEncoder:
         assert replay[HOUSE_CONTEXT_KEY].dtype == np.float16
         assert agent_obs[HOUSE_CONTEXT_KEY].shape == (1024,)
 
-    def test_house_context_encoder_exposes_rgb_replay_spec(self, monkeypatch):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+    def test_house_context_encoder_exposes_rgb_replay_spec(self, patch_vggt):
+        patch_vggt()
 
         enc = VGGTHouseContextEncoder()
         adapter = enc.make_adapter()
@@ -1133,20 +1021,9 @@ class TestVGGTHybridHousePointsPoseEncoder:
 
 class TestVGGTHouseFullTokenNoGateEncoder:
     def test_full_token_nogate_encoder_exposes_image_replay_and_token_obs(
-        self, monkeypatch
+        self, patch_vggt
     ):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+        patch_vggt()
 
         enc = VGGTHouseFullTokenNoGateEncoder()
         adapter = enc.make_adapter()
@@ -1215,23 +1092,12 @@ class TestVGGTHouseFullTokenNoGateEncoder:
 
 class TestVGGTHouseGlobalTokenNoGateEncoder:
     def test_global_token_nogate_encoder_exposes_rgb_replay_and_token_obs(
-        self, monkeypatch
+        self, patch_vggt
     ):
-        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+        from src.r2dreamer.adapters.token_adapters import VGGTHouseGlobalTokenObsAdapter
         from src.r2dreamer.encoders import VGGTHouseGlobalTokenNoGateEncoder
 
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def reset(self):
-                pass
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+        patch_vggt()
 
         enc = VGGTHouseGlobalTokenNoGateEncoder()
         adapter = enc.make_adapter()
@@ -1254,7 +1120,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         assert adapter.on_episode_reset is None
 
     def test_global_token_adapter_stores_rgb_and_tokens_in_replay(self):
-        from src.r2dreamer.adapters.hybrid_adapter import VGGTHouseGlobalTokenObsAdapter
+        from src.r2dreamer.adapters.token_adapters import VGGTHouseGlobalTokenObsAdapter
 
         global_tokens = (
             np.arange(1374 * 1024, dtype=np.float32).reshape(1374, 1024) / 1000.0
@@ -1309,24 +1175,9 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
 
 class TestVGGTHouseGlobalEmbeddingEncoder:
     def test_global_embedding_encoder_exposes_split_token_replay_spec(
-        self, monkeypatch
+        self, patch_vggt
     ):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-                self.last_scene_id = None
-
-            def reset(self):
-                pass
-
-            def reset_for_scene(self, scene_id):
-                self.last_scene_id = scene_id
-
-        monkeypatch.setattr(
-            "src.vggt.jax.feature_extractor.JAXVGGTFeatureExtractor", FakeExtractor
-        )
+        patch_vggt()
 
         enc = VGGTHouseGlobalEmbeddingEncoder()
         adapter = enc.make_adapter()
@@ -1359,17 +1210,10 @@ class TestVGGTHouseGlobalEmbeddingEncoder:
         assert adapter._dump_enabled is False
 
     def test_global_embedding_adapter_dumps_when_knob_set(self, monkeypatch, tmp_path):
-        class FakeExtractor:
-            aggregator_feature_shape = (1374, 1024)
-
+        class FakeExtractor(_StubExtractor):
             def __init__(self, **kwargs):
+                super().__init__(**kwargs)
                 self.ply_dumps = []
-
-            def reset(self):
-                pass
-
-            def reset_for_scene(self, scene_id):
-                pass
 
             def extract(self, obs):
                 import jax.numpy as jnp
