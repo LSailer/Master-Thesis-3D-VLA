@@ -111,6 +111,22 @@ class R2DTrainState(NamedTuple):
 # ---------------------------------------------------------------------------
 
 
+def _model_compute_dtype(cfg: R2DreamerConfig):
+    """Resolve the model-wide compute dtype for the ``full_bf16`` gate.
+
+    Args:
+      cfg: Agent config supplying ``full_bf16`` and ``compute_dtype``.
+
+    Returns:
+      ``compute_dtype`` as a jnp dtype when ``cfg.full_bf16`` is set,
+      otherwise ``jnp.float32`` (the historical behavior, where only the
+      token transformer and replay scalars honored ``compute_dtype``).
+    """
+    if getattr(cfg, "full_bf16", False):
+        return compute_jnp_dtype(cfg.compute_dtype)
+    return jnp.float32
+
+
 def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
     return R2RSSM(
         deter_size=cfg.deter_size,
@@ -123,6 +139,7 @@ def _make_rssm(cfg: R2DreamerConfig) -> R2RSSM:
         obs_layers=cfg.obs_layers,
         img_layers=cfg.img_layers,
         unimix_ratio=cfg.unimix_ratio,
+        compute_dtype=_model_compute_dtype(cfg),
     )
 
 
@@ -192,6 +209,7 @@ def _make_conv_encoder(cfg: R2DreamerConfig):
         depth=cfg.encoder_depth,
         kernel_size=cfg.encoder_kernel,
         mults=cfg.encoder_mults,
+        compute_dtype=_model_compute_dtype(cfg),
     )
 
 
@@ -266,6 +284,7 @@ def _make_house_points_camera_encoder(
         camera_layers=cfg.mlp_vggt_layers,
         point_hidden=cfg.mlp_vggt_hidden,
         point_layers=cfg.mlp_vggt_layers,
+        compute_dtype=_model_compute_dtype(cfg),
     )
     if issubclass(cls, HybridHousePointsCameraEncoder):
         kwargs.update(
@@ -646,11 +665,13 @@ class R2DreamerAgent:
 
         # MLP heads (outscale matches PyTorch: 0.0 for reward/critic, 0.01 for actor)
         rng_key, k_rew, k_con, k_act, k_cri = jax.random.split(rng_key, 5)
+        head_dtype = _model_compute_dtype(config)
         self.reward_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_reward,
             out_dim=config.twohot_bins,
             outscale=0.0,
+            compute_dtype=head_dtype,
         )
         rew_params = self.reward_mod.init(k_rew, feat0)
 
@@ -658,6 +679,7 @@ class R2DreamerAgent:
             hidden=config.mlp_units,
             layers=config.mlp_layers_cont,
             out_dim=1,
+            compute_dtype=head_dtype,
         )
         con_params = self.cont_mod.init(k_con, feat0)
 
@@ -666,6 +688,7 @@ class R2DreamerAgent:
             layers=config.mlp_layers_actor,
             out_dim=config.num_actions,
             outscale=0.01,
+            compute_dtype=head_dtype,
         )
         act_params = self.actor_mod.init(k_act, feat0)
 
@@ -674,6 +697,7 @@ class R2DreamerAgent:
             layers=config.mlp_layers_critic,
             out_dim=config.twohot_bins,
             outscale=0.0,
+            compute_dtype=head_dtype,
         )
         cri_params = self.critic_mod.init(k_cri, feat0)
 
