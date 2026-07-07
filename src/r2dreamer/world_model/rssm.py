@@ -83,6 +83,12 @@ class Deter(nn.Module):
     @nn.compact
     def __call__(self, stoch, deter, action):
         # stoch: (B, stoch_size), deter: (B, deter_size), action: (B, act_dim)
+        # Keep the deterministic recurrent state as a float32 master (like
+        # DreamerV3 mixed precision): compute the GRU internally in
+        # compute_dtype for speed, but carry `deter` across timesteps in its
+        # original dtype so the recurrence stays stable and the jitted acting
+        # cond (initial vs. carried state) sees matching dtypes.
+        deter_dtype = deter.dtype
         stoch = stoch.astype(self.compute_dtype)
         deter = deter.astype(self.compute_dtype)
         action = action.astype(self.compute_dtype)
@@ -145,7 +151,8 @@ class Deter(nn.Module):
         cand = gate_chunks[1].reshape(gates.shape[0], -1)
         update = jax.nn.sigmoid(gate_chunks[2].reshape(gates.shape[0], -1) - 1.0)
 
-        return update * jnp.tanh(reset * cand) + (1.0 - update) * deter
+        new_deter = update * jnp.tanh(reset * cand) + (1.0 - update) * deter
+        return new_deter.astype(deter_dtype)
 
 
 class R2RSSM(nn.Module):
