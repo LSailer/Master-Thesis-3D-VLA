@@ -1,0 +1,16 @@
+extends: house_points_pose_l1_live
+job_name: pointnet-house-points-pose-l1-live
+output_dir: output/runs/r2dreamer-curriculum-l1-pointnet-house-points-pose
+run_id: habitat-l1-pointnet-house-points-pose
+comments:
+  - "Classic PointNet house branch (src/r2dreamer/encoders/pointnet.py): even-stride subsample to 16384 points, input T-Net (3x3) -> shared MLP (64,64) -> feature T-Net (64x64) -> shared MLP (64,128,1024) -> max pool to one 1024-d global feature (Qi et al., arXiv:1612.00593; RMSNorm+SiLU instead of BatchNorm+ReLU)."
+  - "Same live per-scene buffer + PERSIST_SCENE pipeline as the parent; only the agent-side house-branch Flax module differs."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l1-pointnet-house-points-pose/run-${SLURM_JOB_ID}
+  wandb_name: l1_pointnet_house_points_pose-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,pointnet,tnet,persist-scene,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/pointnet-house-points-pose-live-${TIMESTAMP}
+    wandb_name: pointnet-house-points-pose-live-smoke-${TIMESTAMP}
+    wandb_tags: house-points,live-buffer,smoke,camera-pose-replay,pointnet,tnet,persist-scene

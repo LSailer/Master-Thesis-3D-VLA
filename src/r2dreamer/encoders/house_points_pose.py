@@ -11,7 +11,6 @@ import flax.linen as nn
 
 from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
-    HousePointsCameraEncoder as ModelHousePointsCameraEncoder,
     HybridHousePointsCameraEncoder as ModelHybridHousePointsCameraEncoder,
 )
 from src.vggt.jax.feature_extractor import ResetMode
@@ -23,7 +22,10 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
     House-context points are accumulated live from VGGT world points into one
     buffer per scene; the encoder emits a fixed-size resampled snapshot each
     step. ``house_points_path`` is an optional warm-start seed (static PLY) and
-    is no longer required.
+    is no longer required. The agent-side house branch is the classic PointNet
+    module (``PointNetHousePointsCameraEncoder``); the earlier per-point-MLP
+    branch (``HousePointsCameraEncoder``) remains available as its parent
+    class but is no longer selected here.
 
     The VGGT streaming cache persists per ``scene_id`` (``PERSIST_SCENE``) so
     all episodes of one house share one world frame and the per-scene point
@@ -60,7 +62,11 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
 
     @property
     def module_cls(self) -> type[nn.Module]:
-        return ModelHousePointsCameraEncoder
+        # Imported lazily: pointnet.py imports this module for the launcher
+        # subclass, so a top-level import here would be circular.
+        from src.r2dreamer.encoders.pointnet import PointNetHousePointsCameraEncoder
+
+        return PointNetHousePointsCameraEncoder
 
     @property
     def agent_overrides(self) -> Mapping[str, Any]:
@@ -70,7 +76,9 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
     def design_notes(self) -> str:
         return (
             "Replay current camera pose plus a live per-scene house point buffer "
-            "accumulated from VGGT world points (optional static PLY warm-start)."
+            "accumulated from VGGT world points (optional static PLY warm-start); "
+            "house branch is classic PointNet (input/feature T-Nets, shared MLPs, "
+            "max pool — src/r2dreamer/encoders/pointnet.py)."
         )
 
     @property
