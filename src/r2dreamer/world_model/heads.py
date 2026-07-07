@@ -12,6 +12,7 @@ fine — actor/critic share the same head primitive as reward.
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from jax.typing import DTypeLike
 
 from .rssm import RMSNorm
 
@@ -129,17 +130,23 @@ def onehot_mode_st(logits: jnp.ndarray, unimix_ratio: float = 0.0) -> jnp.ndarra
 
 
 class R2MLP(nn.Module):
-    """MLP with RMSNorm, matching PyTorch R2-Dreamer's MLP + MLPHead."""
+    """MLP with RMSNorm, matching PyTorch R2-Dreamer's MLP + MLPHead.
+
+    ``compute_dtype`` sets the Dense computation dtype (params stay float32
+    masters); the output logits are always returned float32 so downstream
+    losses and distributions are full-precision regardless of the gate.
+    """
 
     hidden: int = 256
     layers: int = 2
     out_dim: int = 1
     outscale: float = 1.0
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         for i in range(self.layers):
-            x = nn.Dense(self.hidden, name=f"fc{i}")(x)
+            x = nn.Dense(self.hidden, name=f"fc{i}", dtype=self.compute_dtype)(x)
             x = RMSNorm(name=f"norm{i}")(x)
             x = nn.silu(x)
         if self.outscale == 0.0:
@@ -151,5 +158,7 @@ class R2MLP(nn.Module):
                 return base_init(key, shape, dtype) * self.outscale
         else:
             out_init = nn.initializers.lecun_normal()
-        x = nn.Dense(self.out_dim, kernel_init=out_init, name="out")(x)
-        return x
+        x = nn.Dense(
+            self.out_dim, kernel_init=out_init, name="out", dtype=self.compute_dtype
+        )(x)
+        return x.astype(jnp.float32)

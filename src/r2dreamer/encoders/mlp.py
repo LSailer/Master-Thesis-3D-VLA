@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 import flax.linen as nn
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 
 from src.r2dreamer.encoders.cnn import ConvEncoder, make_rgb_conv_encoder
 from src.r2dreamer.encoders.constants import (
@@ -119,6 +120,7 @@ class HousePointsCameraEncoder(nn.Module):
     point_layers: int = 2
     camera_pose_dim: int = 9
     house_point_dim: int = 6
+    compute_dtype: DTypeLike = jnp.float32
 
     def _camera_embedding(self, camera_pose: jnp.ndarray) -> jnp.ndarray:
         if camera_pose.ndim < 1 or camera_pose.shape[-1] != self.camera_pose_dim:
@@ -126,12 +128,14 @@ class HousePointsCameraEncoder(nn.Module):
                 f"camera_pose must have shape (..., {self.camera_pose_dim}), "
                 f"got {camera_pose.shape}"
             )
-        x = camera_pose.astype(jnp.float32)
+        x = camera_pose.astype(self.compute_dtype)
         for i in range(self.camera_layers):
-            x = nn.Dense(self.camera_hidden, name=f"camera_hidden{i}")(x)
+            x = nn.Dense(
+                self.camera_hidden, name=f"camera_hidden{i}", dtype=self.compute_dtype
+            )(x)
             x = RMSNorm(name=f"camera_norm{i}")(x)
             x = nn.silu(x)
-        return nn.Dense(self.embed_dim, name="camera_proj")(x)
+        return nn.Dense(self.embed_dim, name="camera_proj", dtype=self.compute_dtype)(x)
 
     def _house_embedding(
         self,
@@ -146,9 +150,11 @@ class HousePointsCameraEncoder(nn.Module):
                 "house_points must have shape (N, 6) or (S, N, 6), "
                 f"got {house_points.shape}"
             )
-        x = house_points.astype(jnp.float32)
+        x = house_points.astype(self.compute_dtype)
         for i in range(self.point_layers):
-            x = nn.Dense(self.point_hidden, name=f"point_hidden{i}")(x)
+            x = nn.Dense(
+                self.point_hidden, name=f"point_hidden{i}", dtype=self.compute_dtype
+            )(x)
             x = RMSNorm(name=f"point_norm{i}")(x)
             x = nn.silu(x)
         # Rows >= house_size are zero padding from the fixed-shape snapshot;
@@ -166,7 +172,9 @@ class HousePointsCameraEncoder(nn.Module):
         maxp = jnp.where(valid, x, -jnp.inf).max(axis=1)
         maxp = jnp.where((size > 0)[:, None], maxp, jnp.zeros_like(maxp))
         pooled = jnp.concatenate([mean, maxp], axis=-1)
-        house_embed = nn.Dense(self.embed_dim, name="house_proj")(pooled)
+        house_embed = nn.Dense(
+            self.embed_dim, name="house_proj", dtype=self.compute_dtype
+        )(pooled)
         if house_embed.shape[0] == 1 and batch_size != 1:
             house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))
         elif house_embed.shape[0] != batch_size:
@@ -236,14 +244,18 @@ class HybridHousePointsCameraEncoder(HousePointsCameraEncoder):
             kernel_size=self.cnn_kernel,
             mults=self.cnn_mults,
             name="cnn",
+            compute_dtype=self.compute_dtype,
         )(jnp.asarray(obs[HYBRID_IMAGE_KEY]))
         camera_embed, house_embed = self._branches(obs)
         gate_camera = self.param("gate_camera", nn.initializers.zeros, ())
         gate_house = self.param("gate_house", nn.initializers.zeros, ())
+        # Cast the float32 scalar gates down so the gated products (and the
+        # fused concat) keep the branches' compute dtype instead of promoting
+        # the whole embedding back to float32.
         return (
             cnn_embed,
-            gate_camera * camera_embed,
-            gate_house * house_embed,
+            gate_camera.astype(camera_embed.dtype) * camera_embed,
+            gate_house.astype(house_embed.dtype) * house_embed,
             gate_camera,
             gate_house,
         )

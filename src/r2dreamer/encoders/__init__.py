@@ -28,6 +28,7 @@ from src.r2dreamer.encoders.house_points_pose import (
     VGGTHousePointsPoseEncoder,
     VGGTHybridHousePointsPoseEncoder,
 )
+from src.r2dreamer.encoders.pointnet import PointNetHousePointsPoseEncoder
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.r2dreamer.adapters.house_context_adapter import VGGTHouseContextObsAdapter
 from src.r2dreamer.adapters.hybrid_adapter import HybridObsAdapter

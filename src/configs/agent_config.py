@@ -109,6 +109,12 @@ class R2DreamerConfig:
     design_notes: str = ""
     encoder_input_contract: dict[str, Any] | None = None
     compute_dtype: str = "bfloat16"
+    # Extend compute_dtype from the token transformer + replay scalars to the
+    # whole JAX model (encoders, RSSM, heads) — mixed precision with float32
+    # master params and float32-pinned logits. Off by default because
+    # compute_dtype was historically a near no-op for CNN/house encoders and
+    # existing runs compare against that behavior.
+    full_bf16: bool = False
 
     # --- MLP heads ---
     mlp_units: int = 256
