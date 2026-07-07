@@ -7,11 +7,12 @@ setup:
 comments:
   - "L1 LIVE per-scene house-points buffer (no static PLY sidecar): VGGT world points accumulate into a per-scene voxel buffer that persists across episodes of one house."
   - "ResetMode.PERSIST_SCENE (set on VGGTHousePointsPoseEncoder) keeps every episode of one house in a single VGGT world frame, so the buffer builds one coherent map instead of ghost copies (fixes the 3.4M-points-in-1200-steps misalignment of job 5706115)."
-  - "Replay stores only current camera_pose; the encoder gets a fixed-shape (max_points,6) XYZRGB snapshot + HOUSE_CONTEXT_SIZE_KEY valid count for masked pooling. The trainer logs the per-scene buffer growth curve (house_buffer/points_growth) — the go/no-go for PERSIST is that it saturates rather than climbs linearly."
+  - "Replay stores only current camera_pose; the encoder gets a fixed-shape (max_points,6) XYZRGB snapshot + HOUSE_CONTEXT_SIZE_KEY valid count for the valid-prefix subsample. The trainer logs the per-scene buffer growth curve (house_buffer/points_growth) — the go/no-go for PERSIST is that it saturates rather than climbs linearly."
+  - "House branch is classic PointNet (src/r2dreamer/encoders/pointnet.py): even-stride subsample to 16384 points, input/feature T-Nets, shared MLPs (64,64)/(64,128,1024), max pool to one 1024-d global feature."
 args:
   output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose-live/run-${SLURM_JOB_ID}
   wandb_name: l1_live_house_points_pose-${SLURM_JOB_ID}
-  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,point-mlp,persist-scene,jax,3d-encoder
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,pointnet,tnet,persist-scene,jax,3d-encoder
 smoke:
   time: "00:30:00"
   args:
@@ -30,4 +31,4 @@ smoke:
     checkpoint_every: 1000000
     output_dir: output/smoke/vggt-house-points-pose-live-${TIMESTAMP}
     wandb_name: vggt-house-points-pose-live-smoke-${TIMESTAMP}
-    wandb_tags: house-points,live-buffer,smoke,camera-pose-replay,point-mlp,persist-scene
+    wandb_tags: house-points,live-buffer,smoke,camera-pose-replay,pointnet,tnet,persist-scene
