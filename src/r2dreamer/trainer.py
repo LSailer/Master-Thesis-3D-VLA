@@ -615,14 +615,17 @@ class Trainer:
             # --- Train ---
             if self.buffer.size >= batch_steps:
                 train_credit += acfg.train_ratio / batch_steps
+                will_log = step % tcfg.log_every == 0
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
                     batch = self.obs_adapter.augment_replay_batch(batch)
-                    metrics = self.agent.train_step(batch, train_key)
+                    metrics = self.agent.train_step(
+                        batch, train_key, materialize=will_log
+                    )
                     train_credit -= 1.0
 
-                if step % tcfg.log_every == 0 and metrics:
+                if will_log and metrics:
                     self._log_train_metrics(metrics, step, writer, f)
                     if getattr(acfg, "decoder", False):
                         self._maybe_log_recon(batch, step)
