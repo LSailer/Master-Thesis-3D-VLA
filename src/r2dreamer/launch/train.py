@@ -161,6 +161,8 @@ def _agent_overrides_from_args(
         elif dtype == "fp16":
             dtype = "float16"
         agent_overrides["compute_dtype"] = dtype
+    if getattr(args, "full_bf16", False):
+        agent_overrides["full_bf16"] = True
     return agent_overrides
 
 

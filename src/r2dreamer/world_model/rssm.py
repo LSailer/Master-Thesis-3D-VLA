@@ -11,18 +11,27 @@ RSSM's deterministic head; encoders and MLP heads have their own conventions.
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+from jax.typing import DTypeLike
 
 
 class RMSNorm(nn.Module):
-    """Root Mean Square Layer Normalization."""
+    """Root Mean Square Layer Normalization.
+
+    Follows the input dtype: statistics are accumulated in float32 for
+    stability, then the normalized output is returned in ``x.dtype`` so
+    reduced-precision activations stay reduced through the norm.
+    """
 
     eps: float = 1e-4
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         scale = self.param("scale", nn.initializers.ones, (x.shape[-1],))
-        rms = jnp.sqrt(jnp.mean(x**2, axis=-1, keepdims=True) + self.eps)
-        return (x / rms) * scale
+        rms = jnp.sqrt(
+            jnp.mean(jnp.square(x.astype(jnp.float32)), axis=-1, keepdims=True)
+            + self.eps
+        )
+        return (x / rms.astype(x.dtype)) * scale.astype(x.dtype)
 
 
 class BlockLinear(nn.Module):
@@ -33,6 +42,7 @@ class BlockLinear(nn.Module):
 
     out_features: int
     blocks: int = 8
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -47,6 +57,11 @@ class BlockLinear(nn.Module):
         )
         bias = self.param("bias", nn.initializers.zeros, (self.out_features,))
 
+        # Params stay float32 masters; the einsum runs in compute_dtype
+        # (mixed precision when the full_bf16 gate sets it to bfloat16).
+        x = x.astype(self.compute_dtype)
+        kernel = kernel.astype(self.compute_dtype)
+        bias = bias.astype(self.compute_dtype)
         batch_shape = x.shape[:-1]
         x = x.reshape(*batch_shape, self.blocks, in_per_block)
         x = jnp.einsum("...gi,oig->...go", x, kernel)
@@ -63,19 +78,36 @@ class Deter(nn.Module):
     hidden: int = 256
     blocks: int = 8
     dyn_layers: int = 1
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, stoch, deter, action):
         # stoch: (B, stoch_size), deter: (B, deter_size), action: (B, act_dim)
+        # Keep the deterministic recurrent state as a float32 master (like
+        # DreamerV3 mixed precision): compute the GRU internally in
+        # compute_dtype for speed, but carry `deter` across timesteps in its
+        # original dtype so the recurrence stays stable and the jitted acting
+        # cond (initial vs. carried state) sees matching dtypes.
+        deter_dtype = deter.dtype
+        stoch = stoch.astype(self.compute_dtype)
+        deter = deter.astype(self.compute_dtype)
+        action = action.astype(self.compute_dtype)
 
         # Normalize action magnitude
         action = action / jnp.clip(jnp.abs(action), min=1.0)
 
         # Three input projections
-        x0 = nn.silu(RMSNorm(name="in_norm0")(nn.Dense(self.hidden, name="in0")(deter)))
-        x1 = nn.silu(RMSNorm(name="in_norm1")(nn.Dense(self.hidden, name="in1")(stoch)))
+        dt = self.compute_dtype
+        x0 = nn.silu(
+            RMSNorm(name="in_norm0")(nn.Dense(self.hidden, name="in0", dtype=dt)(deter))
+        )
+        x1 = nn.silu(
+            RMSNorm(name="in_norm1")(nn.Dense(self.hidden, name="in1", dtype=dt)(stoch))
+        )
         x2 = nn.silu(
-            RMSNorm(name="in_norm2")(nn.Dense(self.hidden, name="in2")(action))
+            RMSNorm(name="in_norm2")(
+                nn.Dense(self.hidden, name="in2", dtype=dt)(action)
+            )
         )
 
         # Concatenate: (B, 3*hidden)
@@ -97,12 +129,19 @@ class Deter(nn.Module):
         for i in range(self.dyn_layers):
             x = nn.silu(
                 RMSNorm(name=f"hid_norm{i}")(
-                    BlockLinear(self.deter_size, self.blocks, name=f"hid{i}")(x)
+                    BlockLinear(
+                        self.deter_size,
+                        self.blocks,
+                        compute_dtype=dt,
+                        name=f"hid{i}",
+                    )(x)
                 )
             )
 
         # GRU gates: (B, 3*deter_size)
-        gates = BlockLinear(3 * self.deter_size, self.blocks, name="gru")(x)
+        gates = BlockLinear(
+            3 * self.deter_size, self.blocks, compute_dtype=dt, name="gru"
+        )(x)
 
         # Split block-wise: reshape to (B, blocks, 3*dpb), then chunk
         dpb = self.deter_size // self.blocks
@@ -112,7 +151,8 @@ class Deter(nn.Module):
         cand = gate_chunks[1].reshape(gates.shape[0], -1)
         update = jax.nn.sigmoid(gate_chunks[2].reshape(gates.shape[0], -1) - 1.0)
 
-        return update * jnp.tanh(reset * cand) + (1.0 - update) * deter
+        new_deter = update * jnp.tanh(reset * cand) + (1.0 - update) * deter
+        return new_deter.astype(deter_dtype)
 
 
 class R2RSSM(nn.Module):
@@ -133,6 +173,7 @@ class R2RSSM(nn.Module):
     obs_layers: int = 1
     img_layers: int = 2
     unimix_ratio: float = 0.01
+    compute_dtype: DTypeLike = jnp.float32
 
     @property
     def stoch_size(self):
@@ -150,24 +191,28 @@ class R2RSSM(nn.Module):
             hidden=self.hidden,
             blocks=self.blocks,
             dyn_layers=self.dyn_layers,
+            compute_dtype=self.compute_dtype,
         )
 
         # Posterior head (obs_net): obs_layers Dense+RMSNorm+SiLU then Dense→logits
+        dt = self.compute_dtype
         self.obs_fcs = [
-            nn.Dense(self.hidden, name=f"obs_fc{i}") for i in range(self.obs_layers)
+            nn.Dense(self.hidden, name=f"obs_fc{i}", dtype=dt)
+            for i in range(self.obs_layers)
         ]
         self.obs_norms = [RMSNorm(name=f"obs_norm{i}") for i in range(self.obs_layers)]
         self.obs_out = nn.Dense(
-            self.stoch_classes * self.stoch_discrete, name="obs_out"
+            self.stoch_classes * self.stoch_discrete, name="obs_out", dtype=dt
         )
 
         # Prior head (img_net): img_layers Dense+RMSNorm+SiLU then Dense→logits
         self.img_fcs = [
-            nn.Dense(self.hidden, name=f"img_fc{i}") for i in range(self.img_layers)
+            nn.Dense(self.hidden, name=f"img_fc{i}", dtype=dt)
+            for i in range(self.img_layers)
         ]
         self.img_norms = [RMSNorm(name=f"img_norm{i}") for i in range(self.img_layers)]
         self.img_out = nn.Dense(
-            self.stoch_classes * self.stoch_discrete, name="img_out"
+            self.stoch_classes * self.stoch_discrete, name="img_out", dtype=dt
         )
 
     def __call__(self, stoch, deter, action, embed):
@@ -192,10 +237,16 @@ class R2RSSM(nn.Module):
         self._prior(deter)
 
         # Posterior: condition on deter + embed
-        x = jnp.concatenate([deter, embed], axis=-1)
+        x = jnp.concatenate([deter, embed.astype(deter.dtype)], axis=-1)
         for fc, norm in zip(self.obs_fcs, self.obs_norms):
             x = nn.silu(norm(fc(x)))
-        logit = self.obs_out(x).reshape(B, self.stoch_classes, self.stoch_discrete)
+        # Logits are pinned float32 so sampling, KL, and entropy stay
+        # full-precision even when the layers above compute in bfloat16.
+        logit = (
+            self.obs_out(x)
+            .astype(jnp.float32)
+            .reshape(B, self.stoch_classes, self.stoch_discrete)
+        )
         stoch = self._sample(logit)
         return stoch, deter, logit
 
@@ -223,7 +274,12 @@ class R2RSSM(nn.Module):
         x = deter
         for fc, norm in zip(self.img_fcs, self.img_norms):
             x = nn.silu(norm(fc(x)))
-        logit = self.img_out(x).reshape(B, self.stoch_classes, self.stoch_discrete)
+        # Same float32 logit pin as the posterior head (see __call__).
+        logit = (
+            self.img_out(x)
+            .astype(jnp.float32)
+            .reshape(B, self.stoch_classes, self.stoch_discrete)
+        )
         stoch = self._sample(logit)
         return stoch, logit
 

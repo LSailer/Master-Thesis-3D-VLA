@@ -1,0 +1,21 @@
+extends: hybrid_house_points_pose_l1_live
+job_name: vggt-hybrid-hpp-prodshape-probe
+output_dir: output/probes/step-time-opt/hybrid-control-prodshape
+comments:
+  - "Step-time optimization control probe (baseline fvwuoux3 = 184.3 ms/step median): unmodified hybrid house-points-pose at explicit production shape, short walltime. Probe-vs-probe partner of hybrid_hpp_bf16_prodshape_probe; see .scratch/optimize-step-time/fvwuoux3.md."
+sbatch:
+  time: "01:00:00"
+args:
+  steps: 8000
+  prefill: 5000
+  batch_size: 16
+  seq_len: 64
+  train_ratio: 512
+  seed: 42
+  log_every: 100
+  checkpoint_every: 1000000
+  video_log_every: 0
+  val_every: 0
+  output_dir: output/probes/step-time-opt/hybrid-control-prodshape/run-${SLURM_JOB_ID}
+  wandb_name: hybrid-control-prodshape-probe-${SLURM_JOB_ID}
+  wandb_tags: step-time-opt,prodshape-probe,control,hybrid,b16,t64,ratio512,seed-42

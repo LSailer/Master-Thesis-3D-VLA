@@ -5,6 +5,7 @@ from typing import Literal
 
 import flax.linen as nn
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 
 from src.r2dreamer.encoders.shape_utils import (
     flatten_event,
@@ -40,6 +41,7 @@ class ConvEncoder(nn.Module):
     mults: tuple[int, ...] = (2, 3, 4, 4)
     input_kind: Literal["rgb", "world_points"] = "rgb"
     embed_dim: int | None = None
+    compute_dtype: DTypeLike = jnp.float32
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
@@ -55,9 +57,9 @@ class ConvEncoder(nn.Module):
                 obs = obs[HYBRID_IMAGE_KEY]
         x, leading_shape = flatten_event(obs, event_ndims=3)
         if self.input_kind == "rgb":
-            x = normalize_image_obs(x) - 0.5
+            x = normalize_image_obs(x, dtype=self.compute_dtype) - 0.5
         elif self.input_kind == "world_points":
-            x = _symlog(x.astype(jnp.float32))
+            x = _symlog(x.astype(self.compute_dtype))
         else:
             raise ValueError(
                 f"input_kind must be 'rgb' or 'world_points', got {self.input_kind!r}"
@@ -70,6 +72,7 @@ class ConvEncoder(nn.Module):
                 (self.kernel_size, self.kernel_size),
                 padding="SAME",
                 name=f"conv{i}",
+                dtype=self.compute_dtype,
             )(x)
             x = nn.max_pool(x, (2, 2), strides=(2, 2))
             x = RMSNorm(name=f"norm{i}")(x)
@@ -78,12 +81,23 @@ class ConvEncoder(nn.Module):
         x = jnp.transpose(x, (0, 3, 1, 2))
         x = x.reshape(x.shape[0], -1)
         if self.embed_dim is not None:
-            x = nn.Dense(self.embed_dim, name="proj")(x)
+            x = nn.Dense(self.embed_dim, name="proj", dtype=self.compute_dtype)(x)
         return restore_leading(x, leading_shape)
 
 
 def make_rgb_conv_encoder(
-    *, depth: int, kernel_size: int, mults: tuple[int, ...], name: str
+    *,
+    depth: int,
+    kernel_size: int,
+    mults: tuple[int, ...],
+    name: str,
+    compute_dtype: DTypeLike = jnp.float32,
 ) -> ConvEncoder:
     """Create a named RGB ``ConvEncoder`` submodule with shared defaults."""
-    return ConvEncoder(depth=depth, kernel_size=kernel_size, mults=mults, name=name)
+    return ConvEncoder(
+        depth=depth,
+        kernel_size=kernel_size,
+        mults=mults,
+        name=name,
+        compute_dtype=compute_dtype,
+    )

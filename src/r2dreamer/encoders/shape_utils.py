@@ -6,16 +6,24 @@ from typing import Any
 import jax.numpy as jnp
 
 
-def normalize_image_obs(image: Any) -> jnp.ndarray:
-    """Return CHW image observations as float32 in ``[0, 1]``.
+def normalize_image_obs(image: Any, dtype: Any = jnp.float32) -> jnp.ndarray:
+    """Return CHW image observations as ``dtype`` in ``[0, 1]``.
 
     Accepts either uint8 images or already-normalized floating arrays and
     preserves all leading dimensions before the final ``(3, H, W)`` axes.
+
+    Args:
+        image: uint8 or floating image array with trailing ``(3, H, W)`` axes.
+        dtype: Floating dtype of the returned array (default float32; encoders
+            pass their compute dtype under the full_bf16 gate).
+
+    Returns:
+        Image array in ``[0, 1]`` with dtype ``dtype`` and unchanged shape.
     """
     image = jnp.asarray(image)
     if image.dtype == jnp.uint8:
-        return image.astype(jnp.float32) / 255.0
-    return image.astype(jnp.float32)
+        return image.astype(dtype) / 255.0
+    return image.astype(dtype)
 
 
 def flatten_event(x: Any, event_ndims: int) -> tuple[jnp.ndarray, tuple[int, ...]]:
