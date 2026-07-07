@@ -6,6 +6,32 @@ from src.configs.config import LATENT_PRESETS
 from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
 
 
+def _str2bool(value: str | bool) -> bool:
+    """Parse a boolean CLI value.
+
+    The Slurm launcher renders YAML ``args`` as ``--flag value`` pairs, so
+    boolean flags must accept an explicit value (``--full_bf16 True``) in
+    addition to bare ``--full_bf16`` usage.
+
+    Args:
+      value: Raw CLI token (or an already-parsed bool from ``const=True``).
+
+    Returns:
+      The parsed boolean.
+
+    Raises:
+      argparse.ArgumentTypeError: If the token is not a recognized boolean.
+    """
+    if isinstance(value, bool):
+        return value
+    lowered = value.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"expected a boolean, got {value!r}")
+
+
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
@@ -309,6 +335,18 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Override cfg.compute_dtype for large encoder activations. "
         "Use bfloat16 for full-token memory ablations.",
+    )
+    p.add_argument(
+        "--full_bf16",
+        nargs="?",
+        const=True,
+        default=False,
+        type=_str2bool,
+        help="Run the whole JAX model (encoders, RSSM, heads) in "
+        "cfg.compute_dtype instead of only the token transformer — mixed "
+        "precision with float32 master params and float32-pinned logits. "
+        "Accepts bare --full_bf16 or an explicit value (launcher YAML "
+        "renders 'full_bf16: true' as '--full_bf16 True').",
     )
 
 
