@@ -13,6 +13,10 @@ args:
   seq_len: 64
   train_ratio: 512
   compute_dtype: bfloat16
+  # Pinned explicitly (inherited value is 518 via house_context_l1) so the
+  # probe's render shape stays locked to the fvwuoux3 baseline even if an
+  # ancestor config changes; keeps the ms/step comparison apples-to-apples.
+  render_resolution: 518
   log_every: 100
   checkpoint_every: 1000000
   seed: 42
