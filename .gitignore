@@ -70,3 +70,7 @@ tests/prototyp/
 .scratch/
 .agents/
 skills-lock.json
+
+# Local scratch/design notes — keep out of git (already-tracked notes are
+# unaffected; use `git add -f` to force-track a note you do want to commit)
+docs/notes/*.md
