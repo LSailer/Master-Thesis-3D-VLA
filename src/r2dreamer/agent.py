@@ -287,6 +287,7 @@ def _make_house_points_camera_encoder(
         camera_layers=cfg.mlp_vggt_layers,
         point_hidden=cfg.mlp_vggt_hidden,
         point_layers=cfg.mlp_vggt_layers,
+        house_point_norm=cfg.house_point_norm,
         **_compute_dtype_kwargs(cfg),
     )
     if issubclass(cls, HybridHousePointsCameraEncoder):

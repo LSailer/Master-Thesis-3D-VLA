@@ -6,7 +6,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 
-from src.r2dreamer.encoders.cnn import ConvEncoder, make_rgb_conv_encoder
+from src.r2dreamer.encoders.cnn import ConvEncoder, _symlog, make_rgb_conv_encoder
 from src.r2dreamer.encoders.constants import (
     AGG_RAW_DIM,
     HYBRID_RGB_DIM,
@@ -111,6 +111,13 @@ class HousePointsCameraEncoder(nn.Module):
     broadcast across all camera poses after the house branch is pooled. When
     ``HOUSE_CONTEXT_SIZE_KEY`` is present in the obs, rows past that count are
     treated as zero padding and masked out of the mean/max pooling.
+
+    Attributes:
+        house_point_norm: Normalization applied to the house-point metric XYZ
+            channels ``[:3]`` before the point MLP. ``"symlog"`` (default)
+            compresses the unbounded metric range with ``sign(x)*log1p(|x|)``
+            and leaves the RGB channels ``[3:]`` untouched; ``"none"`` passes
+            the raw coordinates through. Any other value raises ``ValueError``.
     """
 
     embed_dim: int = 1024
@@ -120,6 +127,7 @@ class HousePointsCameraEncoder(nn.Module):
     point_layers: int = 2
     camera_pose_dim: int = 9
     house_point_dim: int = 6
+    house_point_norm: str = "symlog"
     compute_dtype: DTypeLike = jnp.float32
 
     def _camera_embedding(self, camera_pose: jnp.ndarray) -> jnp.ndarray:
@@ -151,6 +159,15 @@ class HousePointsCameraEncoder(nn.Module):
                 f"got {house_points.shape}"
             )
         x = house_points.astype(self.compute_dtype)
+        # Normalize the metric XYZ channels [:3] before the point MLP; RGB
+        # channels [3:] are already in [0, 1] and pass through untouched.
+        if self.house_point_norm == "symlog":
+            x = jnp.concatenate([_symlog(x[..., :3]), x[..., 3:]], axis=-1)
+        elif self.house_point_norm != "none":
+            raise ValueError(
+                "house_point_norm must be 'symlog' or 'none', got "
+                f"{self.house_point_norm!r}"
+            )
         for i in range(self.point_layers):
             x = nn.Dense(
                 self.point_hidden, name=f"point_hidden{i}", dtype=self.compute_dtype

@@ -172,6 +172,7 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         "vggt_token_count",
         "vggt_token_dim",
         "mlp_vggt_layers",
+        "house_point_norm",
         "mlp_units",
         "mlp_layers_reward",
         "mlp_layers_cont",

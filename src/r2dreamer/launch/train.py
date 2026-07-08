@@ -140,6 +140,7 @@ def _agent_overrides_from_args(
         "stoch_discrete",
         "mlp_vggt_hidden",
         "mlp_vggt_layers",
+        "house_point_norm",
         "scale_decoder",
         "vggt_token_transformer_layers",
         "vggt_token_transformer_heads",
