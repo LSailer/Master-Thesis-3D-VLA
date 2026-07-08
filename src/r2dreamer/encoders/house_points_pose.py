@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib import import_module
 from types import MappingProxyType
 from typing import Any
 
 import flax.linen as nn
 
-from src.r2dreamer.adapters.house_points_adapter import (
-    VGGTHousePointsPoseObsAdapter,
-    VGGTHybridHousePointsPoseObsAdapter,
-)
 from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
     HybridHousePointsCameraEncoder as ModelHybridHousePointsCameraEncoder,
@@ -89,7 +86,8 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
         return True
 
     def _build_adapter_for_extractor(self, extractor):
-        return VGGTHousePointsPoseObsAdapter(
+        adapter_module = import_module("src.r2dreamer.adapters.house_points_adapter")
+        return adapter_module.VGGTHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
         )
@@ -123,7 +121,8 @@ class VGGTHybridHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
         )
 
     def _build_adapter_for_extractor(self, extractor):
-        return VGGTHybridHousePointsPoseObsAdapter(
+        adapter_module = import_module("src.r2dreamer.adapters.house_points_adapter")
+        return adapter_module.VGGTHybridHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
         )
