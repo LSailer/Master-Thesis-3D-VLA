@@ -288,6 +288,14 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).",
     )
+    p.add_argument(
+        "--house_point_norm",
+        type=str,
+        default=None,
+        choices=["symlog", "none"],
+        help="Override cfg.house_point_norm: house-branch metric XYZ "
+        "normalization for MLP/Hybrid house-points encoders.",
+    )
 
 
 def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:

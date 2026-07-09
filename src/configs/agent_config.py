@@ -104,6 +104,10 @@ class R2DreamerConfig:
     vggt_token_dim: int = 1024
     mlp_vggt_hidden: int = 1024
     mlp_vggt_layers: int = 2
+    # House-branch metric XYZ normalization for the MLP/Hybrid house-points
+    # encoders: "symlog" compresses channels [:3] (default), "none" passes raw
+    # coordinates. PointNet/GNN house encoders ignore this knob.
+    house_point_norm: str = "symlog"
     decoder: bool = False
     scale_decoder: float = 1.0
     design_notes: str = ""
