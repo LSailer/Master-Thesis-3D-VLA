@@ -134,7 +134,7 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
           The :class:`VGGTHouseGlobalEmbeddingObsAdapter` wired with the dump
           knob/directory.
         """
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
+        adapter_module = import_module("src.r2dreamer.adapters.token_adapters")
         return adapter_module.VGGTHouseGlobalEmbeddingObsAdapter(
             extractor,
             pointcloud_dump_every=self._pointcloud_dump_every,

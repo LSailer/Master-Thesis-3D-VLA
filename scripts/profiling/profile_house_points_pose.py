@@ -90,7 +90,7 @@ def _timed_method(orig, phase_times, phase, block=None):
 
 def _block_vggt_output(out) -> None:
     """Force-sync the VGGT output fields the adapter consumes."""
-    from src.r2dreamer.adapters.hybrid_adapter import _vggt_output_field
+    from src.r2dreamer.adapters.house_points_adapter import _vggt_output_field
 
     for field in ("world_points", "confidence", "camera_pose", "extrinsics"):
         value = _vggt_output_field(out, field)

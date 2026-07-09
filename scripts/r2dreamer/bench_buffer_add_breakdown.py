@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
-from src.r2dreamer.adapters.hybrid_adapter import VGGTHousePointsPoseObsAdapter
+from src.r2dreamer.adapters.house_points_adapter import VGGTHousePointsPoseObsAdapter
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 

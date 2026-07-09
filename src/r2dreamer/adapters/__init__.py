@@ -6,8 +6,15 @@ from src.r2dreamer.adapters.vggt_adapter import (
 )
 from src.r2dreamer.adapters.hybrid_adapter import (
     HybridObsAdapter,
-    VGGTHouseContextObsAdapter,
-    VGGTHouseGlobalTokenObsAdapter,
-    VGGTHousePointsPoseObsAdapter,
     HYBRID_FEATURE_DIM,
+)
+from src.r2dreamer.adapters.house_context_adapter import VGGTHouseContextObsAdapter
+from src.r2dreamer.adapters.house_points_adapter import (
+    VGGTHybridHousePointsPoseObsAdapter,
+    VGGTHousePointsPoseObsAdapter,
+)
+from src.r2dreamer.adapters.token_adapters import (
+    VGGTHouseFullTokenObsAdapter,
+    VGGTHouseGlobalEmbeddingObsAdapter,
+    VGGTHouseGlobalTokenObsAdapter,
 )

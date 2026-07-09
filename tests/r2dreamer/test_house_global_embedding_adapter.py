@@ -1,6 +1,6 @@
 """CPU tests for the L1 house-global-embedding obs adapter.
 
-Covers src/r2dreamer/adapters/hybrid_adapter.py::VGGTHouseGlobalEmbeddingObsAdapter
+Covers src/r2dreamer/adapters/token_adapters.py::VGGTHouseGlobalEmbeddingObsAdapter
 — RGB + two split VGGT global-half token replay fields, scene-aware reset, and
 the optional PLY dump trigger (src/prototyp/house_global_embedding/IDEA.md).
 """
@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.adapters.hybrid_adapter import (
+from src.r2dreamer.adapters.token_adapters import (
     VGGTHouseGlobalEmbeddingObsAdapter,
 )
 from src.r2dreamer.observation_keys import (
