@@ -961,14 +961,36 @@ class R2DreamerAgent:
     # Training
     # ------------------------------------------------------------------
 
-    def train_step(self, batch: ReplayBatch , rng_key: jnp.ndarray) -> Dict[str, float]:
-        """One LaProp step on `batch`. Returns Python-float metrics."""
+    def train_step(
+        self,
+        batch: ReplayBatch,
+        rng_key: jnp.ndarray,
+        *,
+        materialize: bool = True,
+    ) -> Dict[str, Any]:
+        """One LaProp step on `batch`.
+
+        Args:
+          batch: The replay batch to train on.
+          rng_key: PRNG key for the step.
+          materialize: When ``True`` (default), block and return Python-float
+            metrics. When ``False``, return the raw device-array metrics
+            without forcing a device->host sync. The hot training loop passes
+            ``False`` on non-logging steps so JAX async dispatch is not
+            serialized ~every step for metrics that would be discarded.
+
+        Returns:
+          A dict of metric name to value. Python floats when ``materialize``,
+          otherwise device ``jax.Array`` scalars.
+        """
         self.train_state, metrics = self._jitted_train_step.__call__(
             self.train_state,
             batch,
             rng_key,
         )
-        return {k: float(v) for k, v in metrics.items()}
+        if materialize:
+            return {k: float(v) for k, v in metrics.items()}
+        return dict(metrics)
 
     def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
         """Evaluate the current objective on a batch without updating state."""
