@@ -46,27 +46,22 @@ class _FlattenedFrame:
     confidence: jax.Array
 
     def __post_init__(self) -> None:
-        """Validates that all three fields share one row count.
+        """Validates that ``rgb`` shares ``xyz``'s row count.
 
         ``rgb`` comes from the camera image while ``xyz`` comes from the VGGT
         point map, so nothing upstream guarantees they share a row count; this
-        catches a point-map/image resolution mismatch. ``confidence`` is
-        checked too because frames are also built directly from raw arrays
-        (``seed_xyzrgb``, the benchmark harness), where no upstream check runs.
+        catches a point-map/image resolution mismatch. ``confidence`` always
+        matches ``xyz`` by construction (``VGGTExtractOutput`` owns that
+        invariant on the VGGT path; ``seed_xyzrgb`` builds both from one seed),
+        so it is trusted from upstream rather than re-checked here.
 
         Raises:
-          ValueError: If ``rgb`` or ``confidence`` has a different row count
-            than ``xyz``.
+          ValueError: If ``rgb`` has a different row count than ``xyz``.
         """
         if self.rgb.shape[0] != self.xyz.shape[0]:
             raise ValueError(
                 "points/RGB pixel count mismatch: "
                 f"{self.xyz.shape[0]} != {self.rgb.shape[0]}"
-            )
-        if self.confidence.shape[0] != self.xyz.shape[0]:
-            raise ValueError(
-                "points/confidence pixel count mismatch: "
-                f"{self.xyz.shape[0]} != {self.confidence.shape[0]}"
             )
 
 
