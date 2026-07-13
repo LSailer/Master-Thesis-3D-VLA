@@ -27,6 +27,49 @@ class _VoxelContextConfig:
     max_probe_count: int
 
 
+# Registered as a pytree so the frame can cross the jit boundary as its
+# three arrays (jit unflattening re-runs __post_init__ on tracers, which is
+# fine: the row-alignment check only reads static shapes).
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True, slots=True)
+class _FlattenedFrame:
+    """One flattened VGGT frame with row-aligned XYZ, RGB and confidence.
+
+    Attributes:
+      xyz: ``(P, 3)`` world points.
+      rgb: ``(P, 3)`` colours.
+      confidence: ``(P,)`` per-point VGGT confidence.
+    """
+
+    xyz: jax.Array
+    rgb: jax.Array
+    confidence: jax.Array
+
+    def __post_init__(self) -> None:
+        """Validates that all three fields share one row count.
+
+        ``rgb`` comes from the camera image while ``xyz`` comes from the VGGT
+        point map, so nothing upstream guarantees they share a row count; this
+        catches a point-map/image resolution mismatch. ``confidence`` is
+        checked too because frames are also built directly from raw arrays
+        (``seed_xyzrgb``, the benchmark harness), where no upstream check runs.
+
+        Raises:
+          ValueError: If ``rgb`` or ``confidence`` has a different row count
+            than ``xyz``.
+        """
+        if self.rgb.shape[0] != self.xyz.shape[0]:
+            raise ValueError(
+                "points/RGB pixel count mismatch: "
+                f"{self.xyz.shape[0]} != {self.rgb.shape[0]}"
+            )
+        if self.confidence.shape[0] != self.xyz.shape[0]:
+            raise ValueError(
+                "points/confidence pixel count mismatch: "
+                f"{self.xyz.shape[0]} != {self.confidence.shape[0]}"
+            )
+
+
 class _VoxelContextState(NamedTuple):
     """Fixed-shape device state for exact voxel occupancy and point storage."""
 
@@ -46,7 +89,6 @@ class _UniqueFrameVoxels(NamedTuple):
     rgb: jax.Array  # (P, 3) uint8 representative colours
     key_xyz: jax.Array  # (P, 3) int32 voxel keys
     active: jax.Array  # (P,) bool, true only for valid first representatives
-    first_slot: jax.Array  # (P,) int32 first hash-table slot per key
 
 
 class _ProbeLoopState(NamedTuple):
@@ -59,19 +101,6 @@ class _ProbeLoopState(NamedTuple):
 
 def _is_power_of_two(value: int) -> bool:
     return value > 0 and value & (value - 1) == 0
-
-
-def _empty_state(hash_table_size: int, capacity: int) -> _VoxelContextState:
-    """Create an empty fixed-shape voxel context state on the default device."""
-    return _VoxelContextState(
-        key_xyz=jnp.zeros((hash_table_size, 3), dtype=jnp.int32),
-        occupied=jnp.zeros((hash_table_size,), dtype=jnp.bool_),
-        store_xyz=jnp.zeros((capacity, 3), dtype=jnp.bfloat16),
-        store_rgb=jnp.zeros((capacity, 3), dtype=jnp.uint8),
-        size=jnp.asarray(0, dtype=jnp.int32),
-        overflow_count=jnp.asarray(0, dtype=jnp.int32),
-        failed_insert_count=jnp.asarray(0, dtype=jnp.int32),
-    )
 
 
 def _hash_voxel_keys(keys_xyz: jax.Array, hash_table_size: int) -> jax.Array:
@@ -98,14 +127,14 @@ def _unique_frame_voxels(
     flat_rgb: jax.Array,
     valid: jax.Array,
     voxel_keys: jax.Array,
-    hash_table_size: int,
 ) -> _UniqueFrameVoxels:
     """Sort rows by voxel key and keep the first valid input row per voxel."""
-    invalid_key = jnp.iinfo(jnp.int32).max
-    sort_keys = jnp.where(valid[:, None], voxel_keys, invalid_key)
+    # Validity is the most-significant sort key, so invalid rows sort last.
     # lexsort is stable, so equal keys keep input order and the first valid
     # input row per voxel wins without an explicit tie-break key.
-    sort_order = jnp.lexsort((sort_keys[:, 2], sort_keys[:, 1], sort_keys[:, 0]))
+    sort_order = jnp.lexsort(
+        (voxel_keys[:, 2], voxel_keys[:, 1], voxel_keys[:, 0], ~valid)
+    )
     sorted_keys = voxel_keys[sort_order]
     sorted_valid = valid[sort_order]
     same_as_previous = jnp.concatenate(
@@ -120,7 +149,6 @@ def _unique_frame_voxels(
         rgb=flat_rgb[sort_order],
         key_xyz=sorted_keys,
         active=active,
-        first_slot=_hash_voxel_keys(sorted_keys, hash_table_size),
     )
 
 
@@ -155,11 +183,12 @@ def _store_winning_voxels(
 def _probe_round(
     loop_state: _ProbeLoopState,
     frame: _UniqueFrameVoxels,
+    first_slot: jax.Array,
     config: _VoxelContextConfig,
 ) -> _ProbeLoopState:
     """Run one vectorized linear-probing round for all active frame keys."""
     table_mask = jnp.int32(config.hash_table_size - 1)
-    slots = (frame.first_slot + loop_state.probe_index) & table_mask
+    slots = (first_slot + loop_state.probe_index) & table_mask
     slot_occupied = loop_state.voxel_state.occupied[slots]
     same_key = (
         loop_state.active
@@ -197,6 +226,7 @@ def _insert_unique_voxels(
     config: _VoxelContextConfig,
 ) -> _VoxelContextState:
     """Insert sorted unique frame voxels with bounded vectorized probing."""
+    first_slot = _hash_voxel_keys(frame.key_xyz, config.hash_table_size)
     initial = _ProbeLoopState(
         probe_index=jnp.asarray(0, dtype=jnp.int32),
         voxel_state=state,
@@ -209,7 +239,7 @@ def _insert_unique_voxels(
         )
 
     def probe_once(loop_state: _ProbeLoopState) -> _ProbeLoopState:
-        return _probe_round(loop_state, frame, config)
+        return _probe_round(loop_state, frame, first_slot, config)
 
     result = jax.lax.while_loop(should_probe, probe_once, initial)
     return result.voxel_state._replace(
@@ -218,37 +248,40 @@ def _insert_unique_voxels(
     )
 
 
-@functools.partial(jax.jit, static_argnums=(4,), donate_argnums=(0,))
+@functools.partial(jax.jit, static_argnums=(2,), donate_argnums=(0,))
 def _add_frame_to_state(
     state: _VoxelContextState,
-    flat_xyz: jax.Array,
-    flat_rgb: jax.Array,
-    confidence_flat: jax.Array,
+    frame: _FlattenedFrame,
     config: _VoxelContextConfig,
 ) -> _VoxelContextState:
-    """Add one fixed-shape frame to the voxel context state.
+    """Fold one flattened frame into the voxel context state.
+
+    The kernel normalizes dtypes itself, so frames may carry any convertible
+    arrays.
 
     Per-frame representatives are selected by a static lexicographic sort of
-    int32 voxel keys. Cross-frame novelty is resolved by exact key comparison in
-    a vectorized open-addressed table; hash collisions only add probe rounds.
+    int32 voxel keys. Cross-frame novelty is resolved by exact key comparison
+    in a vectorized open-addressed table; hash collisions only add probe rounds.
+
+    Args:
+      state: Current voxel context state to extend; donated to the kernel.
+      frame: Row-aligned XYZ/RGB/confidence frame to fold in.
+      config: Static voxel context configuration.
+
+    Returns:
+      The updated voxel context state.
     """
-    flat_xyz = jnp.asarray(flat_xyz, dtype=jnp.float32)
-    flat_rgb = jnp.asarray(flat_rgb, dtype=jnp.uint8)
-    confidence_flat = jnp.asarray(confidence_flat, dtype=jnp.float32)
+    flat_xyz = jnp.asarray(frame.xyz, dtype=jnp.float32)
+    flat_rgb = jnp.asarray(frame.rgb, dtype=jnp.uint8)
+    confidence = jnp.asarray(frame.confidence, dtype=jnp.float32)
     finite_xyz, voxel_keys = _quantize_points(flat_xyz, config.voxel_size_m)
     valid = (
         finite_xyz
-        & jnp.isfinite(confidence_flat)
-        & (confidence_flat >= config.confidence_score)
+        & jnp.isfinite(confidence)
+        & (confidence >= config.confidence_score)
     )
-    frame = _unique_frame_voxels(
-        flat_xyz,
-        flat_rgb,
-        valid,
-        voxel_keys,
-        config.hash_table_size,
-    )
-    return _insert_unique_voxels(state, frame, config)
+    unique = _unique_frame_voxels(flat_xyz, flat_rgb, valid, voxel_keys)
+    return _insert_unique_voxels(state, unique, config)
 
 
 @functools.partial(jax.jit, static_argnums=(1, 2))
@@ -335,7 +368,15 @@ class HouseContextPoseBuffer:
             capacity=self.capacity,
             max_probe_count=self.DEFAULT_MAX_PROBE_COUNT,
         )
-        self._state = _empty_state(self.hash_table_size, self.capacity)
+        self._state = _VoxelContextState(
+            key_xyz=jnp.zeros((self.hash_table_size, 3), dtype=jnp.int32),
+            occupied=jnp.zeros((self.hash_table_size,), dtype=jnp.bool_),
+            store_xyz=jnp.zeros((self.capacity, 3), dtype=jnp.bfloat16),
+            store_rgb=jnp.zeros((self.capacity, 3), dtype=jnp.uint8),
+            size=jnp.asarray(0, dtype=jnp.int32),
+            overflow_count=jnp.asarray(0, dtype=jnp.int32),
+            failed_insert_count=jnp.asarray(0, dtype=jnp.int32),
+        )
 
     @staticmethod
     def _validate_config(
@@ -410,17 +451,8 @@ class HouseContextPoseBuffer:
             The fixed-capacity backing XYZ array with shape ``(capacity, 3)`` and
             bfloat16 dtype. The logical prefix length is ``point_count``.
         """
-        flat_points, flat_rgb, confidence_flat = self._flatten_aligned_inputs(
-            vggt_output,
-            observation,
-        )
-        self._state = _add_frame_to_state(
-            self._state,
-            flat_points,
-            flat_rgb,
-            confidence_flat,
-            self._config,
-        )
+        frame = self._flatten_aligned_inputs(vggt_output, observation)
+        self._state = _add_frame_to_state(self._state, frame, self._config)
         return self._state.store_xyz
 
     def seed_xyzrgb(self, xyzrgb: jax.Array) -> None:
@@ -434,7 +466,8 @@ class HouseContextPoseBuffer:
         rgb01 = jnp.clip(seed[:, self.XYZ_CHANNELS :], 0.0, 1.0)
         rgb = jnp.rint(rgb01 * 255.0).astype(jnp.uint8)
         confidence = jnp.full((seed.shape[0],), self.confidence_score, dtype=jnp.float32)
-        self._state = _add_frame_to_state(self._state, xyz, rgb, confidence, self._config)
+        frame = _FlattenedFrame(xyz=xyz, rgb=rgb, confidence=confidence)
+        self._state = _add_frame_to_state(self._state, frame, self._config)
 
     def house_context_array(
         self, max_points: int, dtype: jnp.dtype = jnp.float32
@@ -478,25 +511,18 @@ class HouseContextPoseBuffer:
         self,
         vggt_output: VGGTExtractOutput,
         observation: ObservationFrame,
-    ) -> tuple[jax.Array, jax.Array, jax.Array]:
-        """Return aligned flat ``(P, 3)`` points/RGB and ``(P,)`` confidence."""
-        points = jnp.asarray(vggt_output.world_points, dtype=jnp.float32)
-        confidence_map = jnp.asarray(vggt_output.confidence, dtype=jnp.float32)
+    ) -> _FlattenedFrame:
+        """Return one row-aligned flattened frame from a VGGT output and image.
+
+        ``_FlattenedFrame.__post_init__`` documents and enforces the
+        alignment contract.
+        """
         rgb_hwc = np.moveaxis(observation.image, 0, -1)
-        flat_points = points.reshape(-1, self.XYZ_CHANNELS)
-        flat_rgb = jnp.asarray(rgb_hwc, dtype=jnp.uint8).reshape(-1, self.RGB_CHANNELS)
-        confidence_flat = confidence_map.reshape(-1)
-        if flat_points.shape[0] != flat_rgb.shape[0]:
-            raise ValueError(
-                "points/RGB pixel count mismatch: "
-                f"{flat_points.shape[0]} != {flat_rgb.shape[0]}"
-            )
-        if flat_points.shape[0] != confidence_flat.shape[0]:
-            raise ValueError(
-                "points/confidence pixel count mismatch: "
-                f"{flat_points.shape[0]} != {confidence_flat.shape[0]}"
-            )
-        return flat_points, flat_rgb, confidence_flat
+        return _FlattenedFrame(
+            xyz=vggt_output.world_points.reshape(-1, self.XYZ_CHANNELS),
+            rgb=jnp.asarray(rgb_hwc, dtype=jnp.uint8).reshape(-1, self.RGB_CHANNELS),
+            confidence=vggt_output.confidence.reshape(-1),
+        )
 
     def save(self, output_path: str | PathLike[str]) -> Path:
         """Save accumulated colored house context as a PLY snapshot.

@@ -72,6 +72,30 @@ class VGGTExtractOutput:
     frame_tokens: jnp.ndarray
     global_tokens: jnp.ndarray
 
+    def __post_init__(self) -> None:
+        """Normalizes point-map fields and validates their alignment.
+
+        ``world_points`` and ``confidence`` are coerced to float32 ``jnp``
+        arrays (via ``object.__setattr__``, since the dataclass is frozen), so
+        consumers can use them without re-converting.
+
+        Raises:
+          ValueError: If confidence does not share world_points' spatial layout.
+        """
+        if self.world_points is None or self.confidence is None:
+            return
+        object.__setattr__(
+            self, "world_points", jnp.asarray(self.world_points, dtype=jnp.float32)
+        )
+        object.__setattr__(
+            self, "confidence", jnp.asarray(self.confidence, dtype=jnp.float32)
+        )
+        if self.world_points.shape[:-1] != self.confidence.shape:
+            raise ValueError(
+                "world_points/confidence spatial layout mismatch: "
+                f"{self.world_points.shape} vs {self.confidence.shape}"
+            )
+
 
 ExtractOutput = VGGTExtractOutput
 
@@ -779,19 +803,6 @@ class JAXVGGTFeatureExtractor:
         )
         return pts3d[:, 0], conf[:, 0], camera_pose
 
-    def _pool_head_outputs(
-        self,
-        pts3d: jnp.ndarray,
-        conf: jnp.ndarray,
-        camera_pose: jnp.ndarray,
-    ) -> HeadOutputs:
-        """Unwrap full-resolution single-frame head outputs."""
-        return HeadOutputs(
-            world_points=pts3d[0].astype(jnp.float32),
-            confidence=conf[0].astype(jnp.float32),
-            camera_pose=camera_pose[0].astype(jnp.float32),
-        )
-
     def _aggregator_full_tokens(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
         """Expose final full-width frame+global aggregator tokens."""
         final_tokens = out_list[-1]
@@ -818,7 +829,7 @@ class JAXVGGTFeatureExtractor:
             camera_pose,
             phase_times,
         )
-        head_outputs = self._pool_head_outputs(pts3d, conf, camera_pose)
+        head_outputs = HeadOutputs(pts3d, conf, camera_pose)
         self._record_head_profile(phase_times, forward_start, wrapper_start)
         return head_outputs
 
