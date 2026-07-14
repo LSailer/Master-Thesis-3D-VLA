@@ -20,19 +20,23 @@ handled by VGGT's own KV cache under `ResetMode.PERSIST_SCENE`
 An encoder for this path already exists — `HouseGlobalEmbeddingEncoder`
 (`src/r2dreamer/encoders/mlp.py:294`, type `"vggt_house_global_embedding"`) — but
 it keeps a camera-token side branch and concatenates to `2048`. This change
-narrows it to the patch tokens only.
+**replaces** the camera-token side branch with an RGB conv branch (hybrid),
+keeping the concat-to-`2048` shape: RGB conv `(…, 1024)` ⊕ patch-token PointNet
+`(…, 1024)`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 - Use VGGT Aggregator **global patch tokens** as the live house-context signal for
   the world model, replacing the external point-cloud path.
-- Reduce the `(1369, 1024)` patch tokens to a single `(1, 1024)` house-context
-  embedding with a permutation-invariant PointNet-style reducer (max-pool only).
+- Reduce the `(1369, 1024)` patch tokens to a single `(1, 1024)` house embedding
+  with a permutation-invariant PointNet-style reducer (max-pool only).
+- **Fuse that house embedding with an RGB conv embedding** (hybrid), matching the
+  `live-house-context` diagram: RGB `(…, 1024)` ⊕ house `(…, 1024)` → `(…, 2048)`.
 - Rely on `ResetMode.PERSIST_SCENE` (heads-off) for cross-episode scene memory —
   no external accumulation buffer.
-- Keep the RSSM/fusion contract unchanged: `(1, 1024)` is just another obs
-  embedding.
+- Keep the RSSM/fusion contract unchanged: the `(…, 2048)` fused embedding is just
+  another obs embedding.
 
 **Non-Goals:**
 - No change to the training loop, action head, or `R2RSSM` internals.
@@ -57,10 +61,11 @@ The 4 register tokens are already dropped upstream (`constants.py:12-15`). The
 **camera token** is dropped here: the patch tokens carry the spatial scene content;
 the camera token encodes viewpoint, which is (a) not "house context" and (b)
 available to the agent through other observations if needed. Dropping it makes the
-reducer a clean set-over-patches and the output `(1, 1024)` instead of `2048`.
+reducer a clean set-over-patches with a `(1, 1024)` house branch; the encoder's
+second branch is the RGB conv (D7), not the camera token.
 *Alternative (rejected):* keep the camera side branch (current
-`HouseGlobalEmbeddingEncoder` behavior) → `2048`. Rejected to keep the house
-context a single pure scene vector; camera-token value is a candidate ablation.
+`HouseGlobalEmbeddingEncoder` behavior). Rejected to keep the house branch a single
+pure scene vector; camera-token value is a candidate ablation.
 
 ### D3 — Reducer = PointNet shared-MLP + single max-pool (no mean, no flatten)
 Patch tokens are an unordered *set* of scene locations, so the reducer must be
@@ -86,25 +91,39 @@ unused point-head cache to bound).
 *Alternative (rejected):* `ResetMode.FULL` — wipes per episode, defeating the
 persistent-house-context goal.
 
-### D5 — Reuse `HouseGlobalEmbeddingEncoder`, minus the camera branch
+### D5 — Reuse `HouseGlobalEmbeddingEncoder`, minus the camera branch, plus RGB
 Rather than a new encoder from scratch, start from the existing
-`"vggt_house_global_embedding"` encoder and remove the camera side branch and the
-`concat → 2048`, leaving the patch max-pool → `(1, 1024)`. Keeps the change small
-and grounded in working code.
+`"vggt_house_global_embedding"` encoder, remove the camera side branch, and add an
+RGB conv branch (`make_rgb_conv_encoder`, the same call `HybridEncoder` uses at
+`mlp.py:561`). The result is a hybrid: RGB conv `(…, 1024)` ⊕ patch max-pool
+`(…, 1024)` → `concat → (…, 2048)`. Keeps the change small and grounded in working
+code (both branches already exist in `encoders/`).
 
 ### D6 — Fusion / RSSM unchanged
-The `(1, 1024)` embedding is concatenated with the other observation embeddings and
-fed to `R2RSSM.observe` exactly as today; the posterior "MLP" is the RSSM's own
-`obs_net` head (`rssm.py:240-249`), verified identical to the `NM512/r2dreamer`
-reference. No world-model code changes.
+The `(…, 2048)` fused embedding (RGB conv ⊕ PointNet house) is concatenated with the
+other observation embeddings and fed to `R2RSSM.observe` exactly as today; the
+posterior "MLP" is the RSSM's own `obs_net` head (`rssm.py:240-249`), verified
+identical to the `NM512/r2dreamer` reference. No world-model code changes.
+
+### D7 — Hybrid: fuse an RGB conv branch with the house embedding
+The `live-house-context` diagram pairs the global-token house embedding with a
+per-step RGB conv embedding, fused before the RSSM. The RGB branch gives the model
+local, per-step visual detail that the single max-pooled house vector discards; the
+house vector stays the global scene prior. The RGB conv is projected to `1024`
+(`embed_dim=1024`) so the fused width is a clean `2048`, matching the existing
+`HouseGlobalEmbeddingEncoder` / `HybridEncoder` output width — no RSSM change.
+*Alternative (rejected):* leave RGB decode-only (encoder token-only, `(1, 1024)`)
+and let the decoder reconstruct it. Rejected: the diagram calls for RGB to be
+*encoded* into the posterior, not only reconstructed.
 
 ## Risks / Trade-offs
 
 - **Single-vector bottleneck** → collapsing a whole house to one 1024 max-pooled
-  vector discards spatial layout and all but the per-channel max. Mitigation:
-  local detail still reaches the model via the per-step RGB/other obs; the house
-  vector is a global prior. If shown insufficient, the K-token variant (Open
-  Questions) is the escalation — kept as a separate experiment, not pre-built.
+  vector discards spatial layout and all but the per-channel max. Mitigation: the
+  RGB conv branch (D7) now encodes per-step local detail directly into the
+  posterior; the house vector is a global prior. If shown insufficient, the K-token
+  variant (Open Questions) is the escalation — kept as a separate experiment, not
+  pre-built.
 - **Dropping the camera token may remove useful viewpoint signal** → Mitigation:
   camera pose is available through other observation keys; the camera-token
   contribution is a clean 1-line ablation if the loss shows up.

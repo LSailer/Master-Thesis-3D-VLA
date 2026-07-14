@@ -23,23 +23,25 @@ memory lives in VGGT's own cache and the context is a single learned embedding.
   1369 tokens → `Dense(1024)` projection → **`(1, 1024)`**. No mean branch.
 - **Reuse-with-modification:** `HouseGlobalEmbeddingEncoder`
   (`src/r2dreamer/encoders/mlp.py:294`, type `"vggt_house_global_embedding"`)
-  already implements the patch-token max-pool, but it *also* keeps a camera
-  side-branch and concatenates to `2048`. This change **drops the camera branch**
-  so the output is `(1, 1024)`, not `2048`.
+  already implements the patch-token max-pool, but its second branch is the camera
+  token. This change **drops the camera branch and adds an RGB conv branch**
+  (`make_rgb_conv_encoder`, `embed_dim=1024`), so the encoder is a hybrid: RGB
+  `(…, 1024)` ⊕ patch-token PointNet `(…, 1024)` → `concat → (…, 2048)`.
 - **Scene memory via `ResetMode.PERSIST_SCENE`** (KV cache saved/restored per
   `scene_id`), with **DPT heads OFF** — consistent, since the token path never
   touches the point head (`src/r2dreamer/adapters/token_adapters.py:148`).
-- **No world-model / RSSM change:** the `(1, 1024)` embedding is concatenated with
-  the other observation embeddings and consumed by `R2RSSM` exactly as today; the
-  posterior "MLP" is the RSSM's own `obs_net` head, not a new module.
+- **No world-model / RSSM change:** the `(…, 2048)` fused embedding is concatenated
+  with the other observation embeddings and consumed by `R2RSSM` exactly as today;
+  the posterior "MLP" is the RSSM's own `obs_net` head, not a new module.
 
 ## Capabilities
 
 ### New Capabilities
 - `global-token-house-context`: The observation-side mechanism that turns VGGT
-  Aggregator global patch tokens into a single `(1, 1024)` house-context embedding
-  for the world model — token selection (1369 patch tokens), the PointNet
-  max-pool reducer, the `PERSIST_SCENE` (heads-off) scene-memory contract, and the
+  Aggregator global patch tokens into a `(…, 1024)` house embedding and fuses it
+  with an RGB conv embedding into a `(…, 2048)` observation embedding for the world
+  model — token selection (1369 patch tokens), the PointNet max-pool reducer, the
+  RGB conv branch, the `PERSIST_SCENE` (heads-off) scene-memory contract, and the
   encoder/adapter output contract. It parallels the point-cloud house-context path
   rather than replacing it.
 
@@ -50,9 +52,10 @@ memory lives in VGGT's own cache and the context is a single learned embedding.
 
 ## Impact
 
-- **New / modified code (prototype-scoped):** a global-token house-context encoder
-  (a camera-branch-free variant of `HouseGlobalEmbeddingEncoder`) and its obs
-  adapter; prototyping under `src/prototyp/<feature>/` per project convention.
+- **New / modified code (prototype-scoped):** a hybrid house-context encoder (an
+  RGB-conv + patch-token variant of `HouseGlobalEmbeddingEncoder`, camera branch
+  removed) and its obs adapter; prototyping under `src/prototyp/<feature>/` per
+  project convention.
 - **Read / exercised, not changed:** `src/vggt/jax/feature_extractor.py`
   (Aggregator global tokens, `ResetMode.PERSIST_SCENE`, KV cache),
   `src/r2dreamer/adapters/token_adapters.py` (token extraction, heads-off path),

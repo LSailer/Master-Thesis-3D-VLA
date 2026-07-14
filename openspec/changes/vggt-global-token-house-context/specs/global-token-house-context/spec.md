@@ -19,25 +19,46 @@ SHALL NOT be required for this signal.
 - **WHEN** the house-context signal is produced for a frame
 - **THEN** no voxel buffer or point-cloud snapshot is consulted to produce it
 
-### Requirement: Patch tokens are reduced to a single (1, 1024) embedding by a permutation-invariant PointNet reducer
+### Requirement: Patch tokens are reduced to a single (1, 1024) house embedding by a permutation-invariant PointNet reducer
 
 The reducer SHALL apply a shared per-token MLP (`Dense → RMSNorm → SiLU`, identical
 weights for every token, no token-to-token interaction), then a **single max-pool**
-over the token axis, then a `Dense(1024)` projection, producing a `(…, 1024)`
+over the token axis, then a `Dense(1024)` projection, producing a `(…, 1024)` house
 embedding. The reduction SHALL be permutation-invariant over the 1369 tokens and
 SHALL NOT include a mean-pool branch, a flatten-then-Dense reduction, or a camera
 side branch.
 
-#### Scenario: Output shape and width
+#### Scenario: House-branch shape and width
 
 - **WHEN** patch tokens `(…, 1369, 1024)` are reduced
-- **THEN** the output embedding has feature width `1024` with leading dims preserved (`(…, 1024)`)
-- **AND** the output is not concatenated with a camera embedding (width is 1024, not 2048)
+- **THEN** the house embedding has feature width `1024` with leading dims preserved (`(…, 1024)`)
+- **AND** no camera-token side branch contributes to it (the RGB fusion is a separate requirement)
 
 #### Scenario: Permutation invariance
 
 - **WHEN** the 1369 patch tokens are presented in any order
-- **THEN** the reduced `(…, 1024)` embedding is unchanged
+- **THEN** the reduced `(…, 1024)` house embedding is unchanged
+
+### Requirement: The encoder fuses the house embedding with an RGB conv embedding (hybrid)
+
+The encoder SHALL encode the per-step RGB image (`hybrid_image`, `(…, 3, 64, 64)`)
+through a `ConvEncoder` branch projected to width `1024` (`embed_dim=1024`), and
+SHALL concatenate that RGB embedding with the `(…, 1024)` PointNet house embedding,
+producing a single fused observation embedding of width `2048`. The RGB conv branch
+and the patch-token PointNet branch SHALL be the only two branches; no camera-token
+branch SHALL contribute.
+
+#### Scenario: RGB and tokens both encoded and fused
+
+- **WHEN** a frame provides `hybrid_image` `(…, 3, 64, 64)` and `global_patch_tokens` `(…, 1369, 1024)`
+- **THEN** the ConvEncoder produces a `(…, 1024)` RGB embedding and the PointNet reducer produces a `(…, 1024)` house embedding
+- **AND** the encoder returns their concatenation `(…, 2048)`
+
+#### Scenario: Only two branches contribute
+
+- **WHEN** the fused embedding is built
+- **THEN** the contributing branches are exactly the RGB conv and the patch-token PointNet
+- **AND** the camera token does not contribute
 
 ### Requirement: Cross-episode scene memory uses PERSIST_SCENE with DPT heads off
 
@@ -56,15 +77,15 @@ path does not consume `world_points`.
 - **WHEN** a frame is processed on the global-token house-context path
 - **THEN** the DPT point head is not evaluated and no point-head cache is allocated
 
-### Requirement: The house-context embedding integrates with the world model unchanged
+### Requirement: The fused embedding integrates with the world model unchanged
 
-The `(1, 1024)` house-context embedding SHALL be provided to the world model as an
-observation embedding, concatenated with the other observation embeddings and
-consumed by `R2RSSM` without any change to the RSSM's deterministic size,
-stochastic size, posterior head, or prior head.
+The `(…, 2048)` fused observation embedding (RGB conv ⊕ PointNet house) SHALL be
+provided to the world model as an observation embedding, concatenated with the other
+observation embeddings and consumed by `R2RSSM` without any change to the RSSM's
+deterministic size, stochastic size, posterior head, or prior head.
 
 #### Scenario: RSSM contract unchanged
 
-- **WHEN** the house-context embedding is fed to the world model during training or acting
+- **WHEN** the fused embedding is fed to the world model during training or acting
 - **THEN** it is consumed as a standard observation embedding
 - **AND** the RSSM's `deter` (2048), `stoch` (32×16), and `feat` (2560) dimensions are unchanged
