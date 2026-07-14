@@ -17,6 +17,7 @@ import flax.linen as nn
 import numpy as np
 
 from src.configs.config import ObservationRunConfig
+from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS
 from src.r2dreamer.observation_keys import (
     FULL_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
@@ -161,10 +162,14 @@ def encoder_module_kwargs_from_config(
         # — they are fixed by the VGGT global-half token layout.
         return {
             "embed_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_patch_tokens": int(config.vggt_token_count)
+            - (1 + AGG_REGISTER_TOKENS),
             "reducer_hidden": int(config.mlp_vggt_hidden),
             "reducer_layers": int(config.mlp_vggt_layers),
             "camera_hidden": int(config.mlp_vggt_hidden),
             "camera_layers": int(config.mlp_vggt_layers),
+            "rgb_branch": getattr(config, "vggt_house_global_rgb_branch", False),
         }
     if class_name == "TokenTransformerEncoder":
         common = {

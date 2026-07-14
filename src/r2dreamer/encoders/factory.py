@@ -266,6 +266,7 @@ def _make_house_global_embedding_encoder(
         reducer_layers=cfg.mlp_vggt_layers,
         camera_hidden=cfg.mlp_vggt_hidden,
         camera_layers=cfg.mlp_vggt_layers,
+        rgb_branch=cfg.vggt_house_global_rgb_branch,
     )
 
 

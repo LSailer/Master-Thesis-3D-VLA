@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.environments.habitat import HabitatEnvConfig
 
-if TYPE_CHECKING:
-    from src.r2dreamer.trainer import Trainer
+from src.r2dreamer.trainer import Trainer
 
 
 def _effective_curriculum_inputs(

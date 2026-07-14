@@ -50,7 +50,7 @@ from src.r2dreamer.encoders.mlp import (
     HybridEncoder as ModelHybridEncoder,
 )
 from src.r2dreamer.encoders.mlp import (
-    HouseGlobalEmbeddingEncoder as ModelHouseGlobalEmbeddingEncoder,
+    encode_house_global_obs as ModelHouseGlobalEmbeddingEncoder,
 )
 from src.r2dreamer.encoders.mlp import (
     MLPEncoder,

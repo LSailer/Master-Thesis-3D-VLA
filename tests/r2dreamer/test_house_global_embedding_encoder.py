@@ -1,6 +1,6 @@
 """CPU tests for the PointNet-reducer house global embedding encoder.
 
-Covers src/r2dreamer/encoders/mlp.py::HouseGlobalEmbeddingEncoder — the run-1
+
 vanilla PointNet reducer over VGGT global patch tokens with the camera token on
 its own side branch (src/prototyp/house_global_embedding/IDEA.md).
 """
