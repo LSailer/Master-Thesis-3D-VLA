@@ -10,6 +10,7 @@ from src.environments.habitat import (
     resolve_habitat_curriculum_path,
 )
 from src.r2dreamer.encoders import Encoder, HybridEncoder
+from src.r2dreamer.encoders.factory import _make_encoder
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.observation_preparation.contracts import (
     encoder_module_kwargs_from_config,
@@ -83,6 +84,34 @@ class TestEncoderRegistry:
         module = module_cls(**kwargs)
 
         assert isinstance(module, module_cls)
+
+    @pytest.mark.parametrize(
+        "encoder_type",
+        [
+            # A variant-driven (VGGT dispatch) and a standalone launcher
+            # encoder. Neither applies a compute_dtype overlay when
+            # ``full_bf16`` is off, so the factory fresh-build kwargs must
+            # equal the contract-snapshot resolver kwargs exactly.
+            "vggt",
+            "vggt_house_global_embedding",
+        ],
+    )
+    def test_factory_and_resolver_agree_on_kwargs(self, encoder_type):
+        # Regression for the encoder-kwargs consolidation: the factory
+        # ``_make_*`` builders delegate to the launcher
+        # ``module_kwargs_from_config`` (the same path the contract-snapshot
+        # resolver takes), so the two cannot diverge on no-dtype encoders.
+        config = R2DreamerConfig(encoder_type=encoder_type)
+        assert config.full_bf16 is False  # no compute_dtype overlay below
+
+        module = _make_encoder(config)
+        resolver_kwargs = encoder_module_kwargs_from_config(config)
+
+        for key, value in resolver_kwargs.items():
+            assert getattr(module, key) == value, (
+                f"{encoder_type}: module.{key}={getattr(module, key)!r} "
+                f"!= resolver {value!r}"
+            )
 
 
 class TestEnvRegistry:

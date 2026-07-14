@@ -17,12 +17,6 @@ import flax.linen as nn
 import numpy as np
 
 from src.configs.config import ObservationRunConfig
-from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS
-from src.r2dreamer.observation_keys import (
-    FULL_TOKENS_KEY,
-    GLOBAL_TOKENS_KEY,
-    HYBRID_IMAGE_KEY,
-)
 
 ObservationValue = np.ndarray | dict[str, np.ndarray]
 ContractSnapshot = dict[str, Any]
@@ -46,173 +40,45 @@ def _import_class(path: str) -> type:
     return resolved
 
 
-def _tuple_value(config: Any, name: str) -> tuple[int, ...]:
-    return tuple(getattr(config, name))
-
-
-# Encoder Module classes with a dedicated kwargs branch below. Matched by
-# name (not issubclass) so this module stays import-free of the encoder
-# packages, which import contract machinery themselves.
-_HANDLED_ENCODER_CLASS_NAMES = frozenset(
-    {
-        "ConvEncoder",
-        "WP64CNNCPMLPEncoder",
-        "HybridEncoder",
-        "HousePointsCameraEncoder",
-        "HybridHousePointsCameraEncoder",
-        "HouseGlobalEmbeddingEncoder",
-        "TokenTransformerEncoder",
-    }
-)
-
-
-def _kwargs_dispatch_name(encoder_module_cls: type) -> str:
-    """Return the nearest handled class name along the MRO.
-
-    Subclasses (e.g. the GNN variants of ``HousePointsCameraEncoder``)
-    inherit their parent's constructor kwargs, so dispatch walks the MRO
-    and picks the first ancestor with a dedicated kwargs branch — the
-    name-matching equivalent of an ``issubclass`` chain ordered
-    most-derived-first.
-
-    Args:
-      encoder_module_cls: The Encoder Module class to resolve kwargs for.
-
-    Returns:
-      The matched ancestor's class name, or the class's own name when no
-      ancestor has a dedicated branch (falls through to the MLP tail).
-    """
-    for base in encoder_module_cls.__mro__:
-        if base.__name__ in _HANDLED_ENCODER_CLASS_NAMES:
-            return base.__name__
-    return encoder_module_cls.__name__
-
-
 def encoder_module_kwargs_from_config(
     config: Any,
-    encoder_module_cls: type,
+    encoder_module_cls: type | None = None,
 ) -> dict[str, Any]:
     """Resolve Encoder Module constructor kwargs from an effective config.
 
-    Dispatch is subclass-aware: a class without its own branch inherits the
-    kwargs of its nearest handled ancestor (see ``_kwargs_dispatch_name``).
+    Thin delegating shim: the config->kwargs formula lives on the launcher
+    ``Encoder`` selection as ``module_kwargs_from_config``, co-located with
+    its ``module_cls`` so the constructor signature and the resolved kwargs
+    cannot desync (the structural fix for the Cause A drift). This function
+    dispatches by ``config.encoder_type`` to the registered selection and
+    returns its kwargs.
+
+    ``encoder_module_cls`` is accepted for backwards compatibility — the
+    launcher path and the unit tests still pass the resolved module class —
+    and ignored; the launcher selection is the single source of truth.
 
     Args:
-      config: Effective agent config (``R2DreamerConfig`` or equivalent).
-      encoder_module_cls: The Encoder Module class to be constructed.
+      config: Effective agent config (``R2DreamerConfig`` or equivalent)
+        carrying ``encoder_type`` and the encoder knob values.
+      encoder_module_cls: Deprecated, ignored. Retained so existing call sites
+        (``train.py``, ``checkpointing.py``, ``module_factory.py``) need no
+        change.
 
     Returns:
-      Constructor kwargs for ``encoder_module_cls``.
+      Constructor kwargs for the selected Encoder Module.
+
+    Raises:
+      ValueError: If ``config.encoder_type`` is not a registered encoder.
     """
-    class_name = _kwargs_dispatch_name(encoder_module_cls)
-    if class_name == "ConvEncoder":
-        kwargs = {
-            "depth": int(config.encoder_depth),
-            "kernel_size": int(config.encoder_kernel),
-            "mults": _tuple_value(config, "encoder_mults"),
-        }
-        if getattr(config, "encoder_type", None) == "vggt_wp_dense_cnn":
-            kwargs.update(
-                {
-                    "input_kind": "world_points",
-                    "embed_dim": int(config.vggt_embed_dim),
-                }
-            )
-        return kwargs
-    if class_name == "WP64CNNCPMLPEncoder":
-        return {
-            "embed_dim": int(config.vggt_embed_dim),
-            "conv_depth": int(config.encoder_depth),
-            "conv_kernel": int(config.encoder_kernel),
-            "conv_mults": _tuple_value(config, "encoder_mults"),
-            "cp_hidden": int(config.mlp_vggt_hidden),
-            "cp_layers": int(config.mlp_vggt_layers),
-        }
-    if class_name == "HybridEncoder":
-        return {
-            "cnn_depth": int(config.encoder_depth),
-            "cnn_kernel": int(config.encoder_kernel),
-            "cnn_mults": _tuple_value(config, "encoder_mults"),
-            "vggt_embed_dim": int(config.vggt_embed_dim),
-            "mlp_hidden": int(config.mlp_vggt_hidden),
-            "mlp_layers": int(config.mlp_vggt_layers),
-            "vggt_dim": int(config.vggt_feature_dim),
-        }
-    if class_name == "HousePointsCameraEncoder":
-        return {
-            "embed_dim": int(config.vggt_embed_dim),
-            "camera_hidden": int(config.mlp_vggt_hidden),
-            "camera_layers": int(config.mlp_vggt_layers),
-            "point_hidden": int(config.mlp_vggt_hidden),
-            "point_layers": int(config.mlp_vggt_layers),
-        }
-    if class_name == "HybridHousePointsCameraEncoder":
-        return {
-            "embed_dim": int(config.vggt_embed_dim),
-            "camera_hidden": int(config.mlp_vggt_hidden),
-            "camera_layers": int(config.mlp_vggt_layers),
-            "point_hidden": int(config.mlp_vggt_hidden),
-            "point_layers": int(config.mlp_vggt_layers),
-            "cnn_depth": int(config.encoder_depth),
-            "cnn_kernel": int(config.encoder_kernel),
-            "cnn_mults": _tuple_value(config, "encoder_mults"),
-        }
-    if class_name == "HouseGlobalEmbeddingEncoder":
-        # token_dim (1024) and num_patch_tokens (1369) use the module defaults
-        # — they are fixed by the VGGT global-half token layout.
-        return {
-            "embed_dim": int(config.vggt_embed_dim),
-            "token_dim": int(config.vggt_token_dim),
-            "num_patch_tokens": int(config.vggt_token_count)
-            - (1 + AGG_REGISTER_TOKENS),
-            "reducer_hidden": int(config.mlp_vggt_hidden),
-            "reducer_layers": int(config.mlp_vggt_layers),
-            "camera_hidden": int(config.mlp_vggt_hidden),
-            "camera_layers": int(config.mlp_vggt_layers),
-            "rgb_branch": getattr(config, "vggt_house_global_rgb_branch", False),
-        }
-    if class_name == "TokenTransformerEncoder":
-        common = {
-            "embed_dim": int(config.vggt_embed_dim),
-            "token_dim": int(config.vggt_token_dim),
-            "num_tokens": int(config.vggt_token_count),
-            "layers": int(config.vggt_token_transformer_layers),
-            "heads": int(config.vggt_token_transformer_heads),
-            "mlp_ratio": int(config.vggt_token_transformer_mlp_ratio),
-            "dropout": float(config.vggt_token_transformer_dropout),
-        }
-        if getattr(config, "encoder_type", None) == "vggt_agg_token_transformer":
-            return {
-                **common,
-                "model_dim": int(config.vggt_token_projection_dim),
-                "readout": "camera_register_patch",
-                "norm_kind": "rms",
-                "activation": "silu",
-                "keep_register_tokens": bool(config.vggt_keep_register_tokens),
-            }
-        token_key = FULL_TOKENS_KEY
-        singleton_tokens = False
-        if getattr(config, "encoder_type", None) == "vggt_house_global_tokens_nogate":
-            token_key = GLOBAL_TOKENS_KEY
-            singleton_tokens = True
-        return {
-            **common,
-            "model_dim": None,
-            "readout": "mean",
-            "norm_kind": "layer",
-            "activation": "gelu",
-            "token_key": token_key,
-            "image_key": HYBRID_IMAGE_KEY,
-            "singleton_tokens": singleton_tokens,
-            "cnn_depth": int(config.encoder_depth),
-            "cnn_kernel": int(config.encoder_kernel),
-            "cnn_mults": _tuple_value(config, "encoder_mults"),
-        }
-    return {
-        "embed_dim": int(config.vggt_embed_dim),
-        "hidden": int(config.vggt_embed_dim),
-        "num_layers": int(config.vggt_mlp_layers),
-    }
+    from src.r2dreamer.launch.registries import encoder_registry
+
+    encoder_type = getattr(config, "encoder_type", None)
+    launcher_cls = encoder_registry.get(encoder_type)
+    if launcher_cls is None:
+        raise ValueError(
+            f"no launcher Encoder registered for encoder_type {encoder_type!r}"
+        )
+    return launcher_cls.module_kwargs_from_config(config)
 
 
 def normalize_encoder_module_kwargs(kwargs: Mapping[str, Any]) -> dict[str, Any]:

@@ -25,6 +25,7 @@ import flax.linen as nn
 
 from src.r2dreamer.encoders.base import VGGTEncoder
 
+from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS
 from src.r2dreamer.encoders.mlp import HouseGlobalEmbeddingEncoder
 from src.vggt.jax.feature_extractor import ResetMode
 
@@ -89,6 +90,32 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
     @property
     def module_cls(self) -> type[nn.Module]:
         return HouseGlobalEmbeddingEncoder
+
+    @classmethod
+    def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
+        """Resolve HouseGlobalEmbeddingEncoder kwargs from config.
+
+        ``num_patch_tokens`` is fixed by the VGGT global-half token layout:
+        ``vggt_token_count`` minus the camera token and the aggregator
+        register tokens. ``compute_dtype`` is a factory-only overlay (not
+        snapshot-serializable) and is not emitted here.
+
+        Args:
+          config: Effective agent config supplying token/embed widths.
+
+        Returns:
+          Constructor kwargs for ``HouseGlobalEmbeddingEncoder``.
+        """
+        num_patch_tokens = int(config.vggt_token_count) - (1 + AGG_REGISTER_TOKENS)
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "token_dim": int(config.vggt_token_dim),
+            "num_patch_tokens": num_patch_tokens,
+            "reducer_hidden": int(config.mlp_vggt_hidden),
+            "reducer_layers": int(config.mlp_vggt_layers),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+        }
 
     @property
     def design_notes(self) -> str:

@@ -8,28 +8,11 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
 from src.r2dreamer.encoders.base import (
-    CNNEncoder,
-    ConvEncoder,
-    Encoder,
-    EncoderSpec,
     HouseContextTransformerConfig,
     VGGTEncoder,
-    VGGT_VARIANTS,
     variant_encoder_class,
 )
 from src.r2dreamer.encoders.constants import AGG_TOKEN_TOKENS, HOUSE_CONTEXT_DIM
-from src.r2dreamer.encoders.gnn_house import (
-    GnnEdgeHousePointsPoseEncoder,
-    GnnHousePointsPoseEncoder,
-)
-from src.r2dreamer.encoders.house_global_embedding import (
-    VGGTHouseGlobalEmbeddingEncoder,
-)
-from src.r2dreamer.encoders.house_points_pose import (
-    VGGTHousePointsPoseEncoder,
-    VGGTHybridHousePointsPoseEncoder,
-)
-from src.r2dreamer.encoders.pointnet import PointNetHousePointsPoseEncoder
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 if TYPE_CHECKING:
@@ -39,6 +22,7 @@ if TYPE_CHECKING:
 VGGTAggregatorMLPEncoder = variant_encoder_class(
     "VGGTAggregatorMLPEncoder", "vggt_aggregator_mlp"
 )
+VGGTAggRawEncoder = variant_encoder_class("VGGTAggRawEncoder", "vggt_agg_raw")
 VGGTAggTokenTransformerEncoder = variant_encoder_class(
     "VGGTAggTokenTransformerEncoder", "vggt_agg_token_transformer"
 )

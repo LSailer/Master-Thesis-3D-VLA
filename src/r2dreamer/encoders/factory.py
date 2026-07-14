@@ -23,7 +23,7 @@ import jax.numpy as jnp
 from src.configs.config import R2DreamerConfig
 from src.shared.dtypes import compute_jnp_dtype
 
-from .constants import AGG_REGISTER_TOKENS, HYBRID_RGB_DIM
+from .constants import HYBRID_RGB_DIM
 from .cnn import ConvEncoder
 from .mlp import (
     HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
@@ -58,7 +58,10 @@ from ..observation_keys import (
     HYBRID_IMAGE_KEY,
     WORLD_POINTS_KEY,
 )
-from ..observation_preparation.contracts import normalize_encoder_module_kwargs
+from ..observation_preparation.contracts import (
+    encoder_module_kwargs_from_config,
+    normalize_encoder_module_kwargs,
+)
 from ..world_model.rssm import R2RSSM
 
 
@@ -155,26 +158,21 @@ def _make_conv_encoder(cfg: R2DreamerConfig):
     if kwargs:
         return ConvEncoder(**kwargs)
     return ConvEncoder(
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-        **_compute_dtype_kwargs(cfg),
+        **{
+            **encoder_module_kwargs_from_config(cfg, ConvEncoder),
+            **_compute_dtype_kwargs(cfg),
+        }
     )
 
 
 def _make_wp_conv_encoder(cfg: R2DreamerConfig):
     # Full-res world-point map -> conv stack -> embed_dim (3D-53). Reuses the
     # RGB conv hyperparameters; symlog (not /255) handles the metric XYZ range.
+    # No compute_dtype overlay: this conv path stays float32 by default.
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return ConvEncoder(**kwargs)
-    return ConvEncoder(
-        input_kind="world_points",
-        embed_dim=cfg.vggt_embed_dim,
-        depth=cfg.encoder_depth,
-        kernel_size=cfg.encoder_kernel,
-        mults=cfg.encoder_mults,
-    )
+    return ConvEncoder(**encoder_module_kwargs_from_config(cfg, ConvEncoder))
 
 
 def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
@@ -182,12 +180,7 @@ def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
     if kwargs:
         return WP64CNNCPMLPEncoder(**kwargs)
     return WP64CNNCPMLPEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        conv_depth=cfg.encoder_depth,
-        conv_kernel=cfg.encoder_kernel,
-        conv_mults=cfg.encoder_mults,
-        cp_hidden=cfg.mlp_vggt_hidden,
-        cp_layers=cfg.mlp_vggt_layers,
+        **encoder_module_kwargs_from_config(cfg, WP64CNNCPMLPEncoder)
     )
 
 
@@ -210,15 +203,7 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return WMHybridEncoder(**kwargs)
-    return WMHybridEncoder(
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
-        vggt_embed_dim=cfg.vggt_embed_dim,
-        mlp_hidden=cfg.mlp_vggt_hidden,
-        mlp_layers=cfg.mlp_vggt_layers,
-        vggt_dim=cfg.vggt_feature_dim,
-    )
+    return WMHybridEncoder(**encoder_module_kwargs_from_config(cfg, WMHybridEncoder))
 
 
 def _make_house_points_camera_encoder(
@@ -227,22 +212,15 @@ def _make_house_points_camera_encoder(
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return cls(**kwargs)
-    kwargs = dict(
-        embed_dim=cfg.vggt_embed_dim,
-        camera_hidden=cfg.mlp_vggt_hidden,
-        camera_layers=cfg.mlp_vggt_layers,
-        point_hidden=cfg.mlp_vggt_hidden,
-        point_layers=cfg.mlp_vggt_layers,
-        house_point_norm=cfg.house_point_norm,
-        **_compute_dtype_kwargs(cfg),
+    # The launcher module_kwargs_from_config owns the config->kwargs formula
+    # (incl. house_point_norm and the hybrid CNN knobs). compute_dtype is the
+    # only factory-only overlay — a JAX dtype, not snapshot-serializable.
+    return cls(
+        **{
+            **encoder_module_kwargs_from_config(cfg, cls),
+            **_compute_dtype_kwargs(cfg),
+        }
     )
-    if issubclass(cls, HybridHousePointsCameraEncoder):
-        kwargs.update(
-            cnn_depth=cfg.encoder_depth,
-            cnn_kernel=cfg.encoder_kernel,
-            cnn_mults=cfg.encoder_mults,
-        )
-    return cls(**kwargs)
 
 
 def _make_house_global_embedding_encoder(
@@ -250,24 +228,11 @@ def _make_house_global_embedding_encoder(
 ):
     # PointNet reducer over VGGT global patch tokens + camera side branch.
     # token_dim and num_patch_tokens are fixed by the VGGT global-half token
-    # layout (camera token + 4 registers dropped): num_patch_tokens =
-    # vggt_token_count - (1 camera + AGG_REGISTER_TOKENS). Prod sets
-    # vggt_token_dim=1024 / vggt_token_count=1374 via agent_overrides; tests
-    # may inject small dims.
+    # layout and resolved on the launcher (next to the module_cls).
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return cls(**kwargs)
-    num_patch_tokens = int(cfg.vggt_token_count) - (1 + AGG_REGISTER_TOKENS)
-    return cls(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_patch_tokens=num_patch_tokens,
-        reducer_hidden=cfg.mlp_vggt_hidden,
-        reducer_layers=cfg.mlp_vggt_layers,
-        camera_hidden=cfg.mlp_vggt_hidden,
-        camera_layers=cfg.mlp_vggt_layers,
-        rgb_branch=cfg.vggt_house_global_rgb_branch,
-    )
+    return cls(**encoder_module_kwargs_from_config(cfg, cls))
 
 
 def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
@@ -275,55 +240,26 @@ def _make_mlp_encoder(cfg: R2DreamerConfig, cls):
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return cls(**kwargs)
-    return cls(
-        embed_dim=cfg.vggt_embed_dim,
-        hidden=cfg.vggt_embed_dim,
-        num_layers=cfg.vggt_mlp_layers,
-    )
+    return cls(**encoder_module_kwargs_from_config(cfg, cls))
 
 
 def _make_rgb_token_encoder(cfg: R2DreamerConfig):
-    token_key = FULL_TOKENS_KEY
-    singleton_tokens = False
-    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        token_key = GLOBAL_TOKENS_KEY
-        singleton_tokens = True
+    # RGB-replay no-gate transformer: compute_dtype is always applied (the
+    # module opted into bfloat16 by default), unlike the full_bf16-gated path.
     return WMTokenTransformerEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        model_dim=None,
-        layers=cfg.vggt_token_transformer_layers,
-        heads=cfg.vggt_token_transformer_heads,
-        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        dropout=cfg.vggt_token_transformer_dropout,
-        readout="mean",
-        norm_kind="layer",
-        activation="gelu",
-        token_key=token_key,
-        image_key=HYBRID_IMAGE_KEY,
-        singleton_tokens=singleton_tokens,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
-        cnn_depth=cfg.encoder_depth,
-        cnn_kernel=cfg.encoder_kernel,
-        cnn_mults=cfg.encoder_mults,
+        **{
+            **encoder_module_kwargs_from_config(cfg, WMTokenTransformerEncoder),
+            "compute_dtype": compute_jnp_dtype(cfg.compute_dtype),
+        }
     )
 
 
 def _make_token_transformer_encoder(cfg: R2DreamerConfig):
     return WMTokenTransformerEncoder(
-        embed_dim=cfg.vggt_embed_dim,
-        token_dim=cfg.vggt_token_dim,
-        num_tokens=cfg.vggt_token_count,
-        model_dim=cfg.vggt_token_projection_dim,
-        layers=cfg.vggt_token_transformer_layers,
-        heads=cfg.vggt_token_transformer_heads,
-        mlp_ratio=cfg.vggt_token_transformer_mlp_ratio,
-        readout="camera_register_patch",
-        norm_kind="rms",
-        activation="silu",
-        keep_register_tokens=cfg.vggt_keep_register_tokens,
-        compute_dtype=compute_jnp_dtype(cfg.compute_dtype),
+        **{
+            **encoder_module_kwargs_from_config(cfg, WMTokenTransformerEncoder),
+            "compute_dtype": compute_jnp_dtype(cfg.compute_dtype),
+        }
     )
 
 

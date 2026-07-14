@@ -102,7 +102,6 @@ class R2DreamerConfig:
     vggt_keep_register_tokens: bool = True
     vggt_token_count: int = 1374
     vggt_token_dim: int = 1024
-    vggt_house_global_rgb_branch: bool = False
     mlp_vggt_hidden: int = 1024
     mlp_vggt_layers: int = 2
     # House-branch metric XYZ normalization for the MLP/Hybrid house-points
