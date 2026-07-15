@@ -10,6 +10,9 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
 import pytest
+
+pytest.importorskip("habitat", reason="habitat-lab installs on Linux only")
+
 from habitat.tasks.nav.shortest_path_follower import ShortestPathFollower
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 
