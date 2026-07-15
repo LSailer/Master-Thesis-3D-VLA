@@ -5,7 +5,7 @@ tokens instead of a 3D point map; cross-episode house memory comes from the
 extractor running ``ResetMode.PERSIST_SCENE``. The adapter splits the
 global-half aggregator tokens into ``camera_token_global`` (1, 1024) and
 ``global_patch_tokens`` (1369, 1024); the PointNet reducer encoder
-(:class:`encode_house_global_obs`) max-pools the patches and keeps the
+(:class:`HouseGlobalEmbeddingEncoder`) max-pools the patches and keeps the
 camera token on its own side branch.
 
 Design: ``src/prototyp/house_global_embedding/IDEA.md`` ("Final design",
@@ -25,7 +25,11 @@ import flax.linen as nn
 
 from src.r2dreamer.encoders.base import VGGTEncoder
 
-from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS
+from src.r2dreamer.encoders.constants import (
+    AGG_REGISTER_TOKENS,
+    AGG_TOKEN_TOKENS,
+    VGGT_AGGREGATOR_EMBED_DIM,
+)
 from src.r2dreamer.encoders.mlp import HouseGlobalEmbeddingEncoder
 from src.vggt.jax.feature_extractor import ResetMode
 
@@ -90,6 +94,24 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
     @property
     def module_cls(self) -> type[nn.Module]:
         return HouseGlobalEmbeddingEncoder
+
+    @property
+    def agent_overrides(self) -> Mapping[str, Any]:
+        # Same small-replay budget as the global-token no-gate variant: replay
+        # stores ~2.8 MB/step of float16 tokens (1370*1024*2), so a large
+        # buffer is infeasible. vggt_token_dim/vggt_token_count fix the module
+        # token layout to the VGGT global-half (camera + 4 registers + 1369
+        # patches). Smoke/prod YAML may override these.
+        return MappingProxyType(
+            {
+                "buffer_capacity": 5_000,
+                "batch_size": 4,
+                "seq_len": 32,
+                "train_ratio": 128,
+                "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
+                "vggt_token_count": AGG_TOKEN_TOKENS,
+            }
+        )
 
     @classmethod
     def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
