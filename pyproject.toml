@@ -33,8 +33,11 @@ dependencies = [
     "wandb",
     "moviepy",
     # DreamerV3 / JAX
-    "jax[cuda12]==0.6.2; python_version < '3.11'",
-    "jax[cuda12]==0.10.2; python_version >= '3.11'",
+    # CUDA wheels are Linux-only; macOS resolves the plain CPU build.
+    "jax==0.6.2; python_version < '3.11'",
+    "jax==0.10.2; python_version >= '3.11'",
+    "jax[cuda12]==0.6.2; python_version < '3.11' and sys_platform == 'linux'",
+    "jax[cuda12]==0.10.2; python_version >= '3.11' and sys_platform == 'linux'",
     "flax>=0.10",
     "optax>=0.2",
     "pydantic>=2",
@@ -42,8 +45,9 @@ dependencies = [
     "gym>=0.22",
     "tensorboard",
     # Habitat
-    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main",
-    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab",
+    # Built from source; the CMake build only succeeds on the Linux cluster.
+    "habitat-sim @ git+https://github.com/facebookresearch/habitat-sim.git@main ; sys_platform == 'linux'",
+    "habitat-lab @ git+https://github.com/facebookresearch/habitat-lab.git@main#subdirectory=habitat-lab ; sys_platform == 'linux'",
     # dev
     "pytest",
     "pylint",
@@ -51,7 +55,8 @@ dependencies = [
     "transformers>=5.3.0",
     "pyvista>=0.47.1",
     "open3d>=0.19.0",
-    "jaxkd[cuda]>=0.1.2",
+    "jaxkd>=0.1.2",
+    "jaxkd[cuda]>=0.1.2; sys_platform == 'linux'",
 ]
 
 [tool.setuptools.packages.find]
