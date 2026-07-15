@@ -126,6 +126,13 @@ class TestEnvRegistry:
 
 class TestHabitatCurricula:
     def test_all_curriculum_paths_exist(self):
+        # data/ is gitignored and the curricula are generated locally by
+        # scripts/environments/generate_curriculum.py, which needs Habitat
+        # (Linux-only). Where the directory is provisioned, every registered
+        # path must resolve — that still catches partial/misnamed generation.
+        directories = {path.parent for path in HABITAT_CURRICULA.values()}
+        if not any(directory.exists() for directory in directories):
+            pytest.skip("curriculum data not provisioned; see generate_curriculum.py")
         for name, path in HABITAT_CURRICULA.items():
             assert path.exists(), f"Curriculum {name!r} path does not exist: {path}"
 

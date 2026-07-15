@@ -122,6 +122,10 @@ def test_l1_vggt_dry_run_matches_legacy_sbatch() -> None:
     assert rendered == expected
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="BSD wc left-pads the fake sbatch job id; the launcher targets the Linux cluster",
+)
 def test_smoke_then_prod_uses_afterok_dependency_before_prod_submit(tmp_path: Path) -> None:
     calls_file = tmp_path / "sbatch-calls.txt"
     fake_sbatch = tmp_path / "sbatch"
