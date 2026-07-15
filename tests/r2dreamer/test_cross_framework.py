@@ -22,6 +22,10 @@ sys.path.insert(0, EXT)
 
 import jax
 import jax.numpy as jnp
+
+pytest.importorskip("omegaconf", reason="omegaconf ships with habitat-lab, which installs on Linux only")
+pytest.importorskip("rssm", reason="requires the PyTorch R2-Dreamer clone in external/r2dreamer")
+
 from omegaconf import OmegaConf
 
 # -- PyTorch imports --
