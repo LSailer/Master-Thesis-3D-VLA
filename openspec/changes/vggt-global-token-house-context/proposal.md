@@ -15,18 +15,21 @@ memory lives in VGGT's own cache and the context is a single learned embedding.
 
 - **New house-context path from Aggregator global tokens** instead of DPT
   `world_points`. Input is the global half of the Aggregator output,
-  `(1374, 1024)` (`src/vggt/jax/feature_extractor.py:944`).
+  `(1374, 1024)` (`src/vggt/jax/feature_extractor.py:947`).
 - **Token selection:** drop the 4 register tokens and the camera token; keep only
   the **1369 patch tokens** `(1369, 1024)` (`src/r2dreamer/encoders/constants.py:12-15`).
+  The obs contract is exactly `image` + `global_patch_tokens`.
 - **Reducer:** PointNet-style — shared per-token MLP (`Dense → RMSNorm → SiLU`,
   same weights every token, no token interaction) → **single max-pool** over the
-  1369 tokens → `Dense(1024)` projection → **`(1, 1024)`**. No mean branch.
+  1369 tokens → `Dense(1024)` projection → **`(…, 1024)`**. No mean branch.
 - **Reuse-with-modification:** `HouseGlobalEmbeddingEncoder`
-  (`src/r2dreamer/encoders/mlp.py:294`, type `"vggt_house_global_embedding"`)
-  already implements the patch-token max-pool, but its second branch is the camera
-  token. This change **drops the camera branch and adds an RGB conv branch**
-  (`make_rgb_conv_encoder`, `embed_dim=1024`), so the encoder is a hybrid: RGB
-  `(…, 1024)` ⊕ patch-token PointNet `(…, 1024)` → `concat → (…, 2048)`.
+  (`src/r2dreamer/encoders/mlp.py:348`, type `"vggt_house_global_embedding"`)
+  already implements the patch-token max-pool **and** an RGB conv branch
+  (`ConvEncoder(name="rgb")`, width `1024`). This change **drops the camera branch**,
+  leaving the RGB conv as the second branch, so the encoder is a hybrid: RGB
+  `(…, 1024)` ⊕ patch-token PointNet `(…, 1024)` → `concat → (…, 2048)`. Today the
+  camera branch is only shadowed by the RGB branch, and its token is still emitted
+  into replay unread — both go.
 - **Scene memory via `ResetMode.PERSIST_SCENE`** (KV cache saved/restored per
   `scene_id`), with **DPT heads OFF** — consistent, since the token path never
   touches the point head (`src/r2dreamer/adapters/token_adapters.py:148`).

@@ -5,7 +5,7 @@ VGGT's Aggregator ("alternating frame/global attention tower",
 `(1374, 2048)` = `1 camera + 4 register + 1369 patch` tokens (37×37 patch grid).
 The extractor splits each token on the channel axis into a frame half and a
 **global half**; `global_tokens = (1374, 1024)` is that global half
-(`src/vggt/jax/feature_extractor.py:944`), cast to f32 at the boundary and stored
+(`src/vggt/jax/feature_extractor.py:947`), cast to f32 at the boundary and stored
 as f16 in replay (`token_adapters.py:69`).
 
 Today the agent's persistent house context comes from a *different* VGGT output —
@@ -18,11 +18,11 @@ handled by VGGT's own KV cache under `ResetMode.PERSIST_SCENE`
 (`feature_extractor.py:611`, saved/restored per `scene_id`).
 
 An encoder for this path already exists — `HouseGlobalEmbeddingEncoder`
-(`src/r2dreamer/encoders/mlp.py:294`, type `"vggt_house_global_embedding"`) — but
-it keeps a camera-token side branch and concatenates to `2048`. This change
-**replaces** the camera-token side branch with an RGB conv branch (hybrid),
-keeping the concat-to-`2048` shape: RGB conv `(…, 1024)` ⊕ patch-token PointNet
-`(…, 1024)`.
+(`src/r2dreamer/encoders/mlp.py:348`, type `"vggt_house_global_embedding"`) — which
+carries both a camera-token side branch and an RGB conv branch, concatenating to
+`2048`. This change makes the **RGB conv branch** the second contributing branch in
+place of the camera token, keeping the concat-to-`2048` shape: RGB conv `(…, 1024)`
+⊕ patch-token PointNet `(…, 1024)`.
 
 ## Goals / Non-Goals
 
@@ -61,18 +61,26 @@ The 4 register tokens are already dropped upstream (`constants.py:12-15`). The
 **camera token** is dropped here: the patch tokens carry the spatial scene content;
 the camera token encodes viewpoint, which is (a) not "house context" and (b)
 available to the agent through other observations if needed. Dropping it makes the
-reducer a clean set-over-patches with a `(1, 1024)` house branch; the encoder's
+reducer a clean set-over-patches with a `(…, 1024)` house branch; the encoder's
 second branch is the RGB conv (D7), not the camera token.
-*Alternative (rejected):* keep the camera side branch (current
-`HouseGlobalEmbeddingEncoder` behavior). Rejected to keep the house branch a single
-pure scene vector; camera-token value is a candidate ablation.
+
+The obs contract is therefore exactly **`image` + `global_patch_tokens`**: the
+camera token is not emitted into replay, not declared in the agent obs shape, and
+has no branch in the module. Today the branch is merely *shadowed* by the RGB branch
+(`mlp.py:379-381`) while the adapter still emits the token (`token_adapters.py:294`)
+— that intermediate state is what task 2.3 removes.
+*Alternative (rejected):* keep the camera side branch, or keep emitting the token
+while leaving the branch inert. Rejected: a shadowed branch is dead code that still
+costs ~2 KB/step f16 of replay for a key nothing reads, and it makes the obs contract
+lie about what the encoder consumes. Re-adding the token for the deferred camera A/B
+is a contained change.
 
 ### D3 — Reducer = PointNet shared-MLP + single max-pool (no mean, no flatten)
 Patch tokens are an unordered *set* of scene locations, so the reducer must be
 permutation-invariant. Chosen: shared per-token MLP (`Dense → RMSNorm → SiLU`,
 identical weights per token, no token interaction) → **max-pool over the 1369
 tokens** → `Dense(1024)`. This is PointNet (Qi et al., arXiv:1612.00593 Eq.1),
-already implemented at `mlp.py:369-395`.
+already implemented as `TokenReducer` at `mlp.py:312-345`.
 *Alternatives considered:*
 - **Mean pool** — permutation-invariant too, but averages away salient structure;
   max keeps the strongest evidence per channel. Max-only is the deliberate choice.
@@ -93,11 +101,13 @@ persistent-house-context goal.
 
 ### D5 — Reuse `HouseGlobalEmbeddingEncoder`, minus the camera branch, plus RGB
 Rather than a new encoder from scratch, start from the existing
-`"vggt_house_global_embedding"` encoder, remove the camera side branch, and add an
-RGB conv branch (`make_rgb_conv_encoder`, the same call `HybridEncoder` uses at
-`mlp.py:561`). The result is a hybrid: RGB conv `(…, 1024)` ⊕ patch max-pool
-`(…, 1024)` → `concat → (…, 2048)`. Keeps the change small and grounded in working
-code (both branches already exist in `encoders/`).
+`"vggt_house_global_embedding"` encoder, remove the camera side branch, and keep its
+RGB conv branch. The result is a hybrid: RGB conv `(…, 1024)` ⊕ patch
+max-pool `(…, 1024)` → `concat → (…, 2048)`. Keeps the change small and grounded in
+working code (both branches already exist in `encoders/`). Note the RGB branch here
+is a direct `ConvEncoder(name="rgb")` (`mlp.py:380`), *not* the
+`make_rgb_conv_encoder` helper that `HybridEncoder` uses at `mlp.py:498` — so the
+conv knobs threaded there are not threaded here (D7).
 
 ### D6 — Fusion / RSSM unchanged
 The `(…, 2048)` fused embedding (RGB conv ⊕ PointNet house) is concatenated with the
@@ -109,9 +119,16 @@ identical to the `NM512/r2dreamer` reference. No world-model code changes.
 The `live-house-context` diagram pairs the global-token house embedding with a
 per-step RGB conv embedding, fused before the RSSM. The RGB branch gives the model
 local, per-step visual detail that the single max-pooled house vector discards; the
-house vector stays the global scene prior. The RGB conv is projected to `1024`
-(`embed_dim=1024`) so the fused width is a clean `2048`, matching the existing
-`HouseGlobalEmbeddingEncoder` / `HybridEncoder` output width — no RSSM change.
+house vector stays the global scene prior. The RGB conv emits `1024` so the fused
+width is a clean `2048`, matching the existing `HouseGlobalEmbeddingEncoder` /
+`HybridEncoder` output width — no RSSM change.
+*Implementation note:* that `1024` is **not** a projection. The branch is
+`ConvEncoder(name="rgb")` at defaults (`mlp.py:380`); `embed_dim is None`, so the
+`proj` Dense is skipped and the width falls out of the conv stack itself
+(`depth 16 × mults[-1] 4` = 64 channels × 4 × 4 spatial = 1024, `cnn.py:68-85`).
+`make_rgb_conv_encoder` takes no `embed_dim` (`cnn.py:88-103`). The two branch widths
+are independent defaults that happen to agree; task 2.6a pins the RGB branch to
+`(…, 1024)` so the fusion cannot silently desync.
 *Alternative (rejected):* leave RGB decode-only (encoder token-only, `(1, 1024)`)
 and let the decoder reconstruct it. Rejected: the diagram calls for RGB to be
 *encoded* into the posterior, not only reconstructed.

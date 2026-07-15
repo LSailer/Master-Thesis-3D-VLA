@@ -5,8 +5,9 @@
 The system SHALL derive the live house-context signal from VGGT's Aggregator
 **global tokens** (the global half of the `(1374, 1024)` token set), and SHALL
 select **only the 1369 patch tokens**, discarding the 4 register tokens and the 1
-camera token. The point-cloud path (`world_points` → `HouseContextPoseBuffer`)
-SHALL NOT be required for this signal.
+camera token. The camera token SHALL NOT be emitted into replay nor declared in the
+agent observation contract. The point-cloud path (`world_points` →
+`HouseContextPoseBuffer`) SHALL NOT be required for this signal.
 
 #### Scenario: Patch tokens selected from global tokens
 
@@ -42,11 +43,11 @@ side branch.
 ### Requirement: The encoder fuses the house embedding with an RGB conv embedding (hybrid)
 
 The encoder SHALL encode the per-step RGB image (`hybrid_image`, `(…, 3, 64, 64)`)
-through a `ConvEncoder` branch projected to width `1024` (`embed_dim=1024`), and
-SHALL concatenate that RGB embedding with the `(…, 1024)` PointNet house embedding,
+through a `ConvEncoder` branch whose output width SHALL be `1024`, and SHALL
+concatenate that RGB embedding with the `(…, 1024)` PointNet house embedding,
 producing a single fused observation embedding of width `2048`. The RGB conv branch
 and the patch-token PointNet branch SHALL be the only two branches; no camera-token
-branch SHALL contribute.
+branch SHALL exist in the module.
 
 #### Scenario: RGB and tokens both encoded and fused
 
@@ -58,7 +59,8 @@ branch SHALL contribute.
 
 - **WHEN** the fused embedding is built
 - **THEN** the contributing branches are exactly the RGB conv and the patch-token PointNet
-- **AND** the camera token does not contribute
+- **AND** no camera-token branch exists in the module
+- **AND** the agent observation contract is exactly `hybrid_image` + `global_patch_tokens`
 
 ### Requirement: Cross-episode scene memory uses PERSIST_SCENE with DPT heads off
 
