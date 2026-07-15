@@ -59,6 +59,24 @@ def _obs(batch, *, image=False, camera=False, n_patches=N_PATCHES, key=0):
 # --- Edge case 1: the obs dict carries an image ---------------------------
 
 
+def test_image_obs_broadcasts_singleton_patch_tokens():
+    """Live augment injects (N, D) patches alongside (B, T, 3, H, W) RGB."""
+    enc = _make_encoder()
+    k_img, k_patch = jax.random.split(jax.random.PRNGKey(9))
+    obs = {
+        HYBRID_IMAGE_KEY: jax.random.uniform(
+            k_img, (2, 4, 3, 64, 64), dtype=jnp.float32
+        ),
+        GLOBAL_PATCH_TOKENS_KEY: jax.random.normal(
+            k_patch, (N_PATCHES, TOKEN_DIM), dtype=jnp.float32
+        ),
+    }
+    params = enc.init(jax.random.PRNGKey(1), obs)
+    out = enc.apply(params, obs)
+    assert out.shape == (2, 4, 2 * BRANCH_DIM)
+    assert bool(jnp.isfinite(out).all())
+
+
 def test_image_obs_uses_the_rgb_branch():
     enc = _make_encoder()
     obs = _obs(5, image=True)

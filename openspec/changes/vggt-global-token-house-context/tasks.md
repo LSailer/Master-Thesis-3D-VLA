@@ -11,14 +11,7 @@
       `image` + `global_patch_tokens`. Today the branch is only *shadowed* by the RGB
       branch (`mlp.py:379-381`), not removed, and the token is still emitted unread
       (~2 KB/step f16)
-- [ ] 2.3a Delete the camera branch from the module (`mlp.py:382-389`) and the
-      `camera_token_global` field from `HouseGlobalObs` (`mlp.py:296-309`)
-- [ ] 2.3b Stop the adapter emitting `camera_token_global` (`token_adapters.py:294`)
-      and drop it from `buffer_dtype`/`buffer_shape`/`normalize_on_sample`/
-      `agent_obs_shape` (`token_adapters.py:174-193`)
-- [ ] 2.3c Drop `CAMERA_TOKEN_GLOBAL_KEY` from the factory dummy obs
-      (`factory.py:314`) and from the asserted `spec.obs_shape`
-      (`test_encoders.py:1190-1202`)
+
 - [ ] 2.3d Replace `test_image_shadows_the_camera_token_when_both_are_present`
       (`test_house_global_embedding_encoder.py:72-85`) — it pins the shadowing
       behavior this task deletes — and drop

@@ -5,8 +5,8 @@ per step, store one slice of the VGGT aggregator's token stream for the agent:
 
 * :class:`VGGTHouseFullTokenObsAdapter` — the full ``(1374, 2048)`` token map.
 * :class:`VGGTHouseGlobalTokenObsAdapter` — the singleton global-half tokens.
-* :class:`VGGTHouseGlobalEmbeddingObsAdapter` — the global-half tokens split
-  into the camera token and the patch tokens for the PointNet reducer.
+* :class:`VGGTHouseGlobalEmbeddingObsAdapter` — global patch tokens for the
+  PointNet reducer, live-injected at train time (RGB-only replay).
 
 The first two share the :class:`_RGBLiveTokenObsAdapter` base (single token
 field, fixed shape check); the third stores two split fields and drives
@@ -15,16 +15,17 @@ optional diagnostic PLY dumps.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from collections.abc import Mapping
 
 import jax.numpy as jnp
 import numpy as np
 
+from src.buffer.replay_buffer import ReplayBatch
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
 from src.r2dreamer.observation_keys import (
-    CAMERA_TOKEN_GLOBAL_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_PATCH_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
@@ -50,9 +51,7 @@ from src.shared.video_utils import resize_chw_uint8
 
 FULL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_FULL_TOKEN_EMBED_DIM)
 GLOBAL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_AGGREGATOR_EMBED_DIM)
-# House-global-embedding L1 split of the global-half tokens (1374, 1024):
-# camera token [0:1] and patch tokens [5:] (4 registers dropped).
-CAMERA_TOKEN_GLOBAL_SHAPE = (1, VGGT_AGGREGATOR_EMBED_DIM)
+# House-global-embedding L1: patch tokens [5:] of global-half (4 registers dropped).
 GLOBAL_PATCH_TOKENS_SHAPE = (
     VGGT_AGGREGATOR_TOKEN_COUNT - VGGT_AGGREGATOR_PATCH_START_IDX,
     VGGT_AGGREGATOR_EMBED_DIM,
@@ -135,14 +134,15 @@ class VGGTHouseGlobalTokenObsAdapter(_RGBLiveTokenObsAdapter):
 
 
 class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
-    """RGB replay plus the two split VGGT global-half token fields (L1).
+    """RGB replay plus live-injected VGGT global patch tokens (L1).
 
-    Replay stores the 64x64 RGB frame plus two float16 token fields split from
-    the extractor's ``global_tokens`` ``(1374, 1024)``: the camera token
-    ``camera_token_global`` ``(1, 1024)`` — the Position Signal — and the patch
-    tokens ``global_patch_tokens`` ``(1369, 1024)``, dropping the 4 register
-    tokens (Darcet et al. arXiv:2309.16588). The PointNet reducer encoder pools
-    only the patches and keeps the camera token on its own side branch.
+    Replay stores only the 64x64 RGB frame. Each env step runs the extractor,
+    splits ``global_tokens`` ``(1374, 1024)`` into patch tokens
+    ``global_patch_tokens`` ``(1369, 1024)`` (camera + 4 register tokens
+    dropped), and caches the latest patch map on the adapter. Sampled replay
+    batches are augmented via :meth:`augment_replay_batch` so training sees the
+    current live token snapshot broadcast over every sequence, mirroring the
+    house-points-pose live-context injection path.
 
     The extractor runs ``ResetMode.PERSIST_SCENE`` with heads off (the agent
     reads global tokens, not a point map); the scene-aware
@@ -171,24 +171,11 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
         pointcloud_dump_dir: str | None = None,
     ):
         super().__init__(
-            buffer_dtype={
-                HYBRID_IMAGE_KEY: "uint8",
-                CAMERA_TOKEN_GLOBAL_KEY: "float16",
-                GLOBAL_PATCH_TOKENS_KEY: "float16",
-            },
-            buffer_shape={
-                HYBRID_IMAGE_KEY: IMAGE_SHAPE,
-                CAMERA_TOKEN_GLOBAL_KEY: CAMERA_TOKEN_GLOBAL_SHAPE,
-                GLOBAL_PATCH_TOKENS_KEY: GLOBAL_PATCH_TOKENS_SHAPE,
-            },
-            normalize_on_sample={
-                HYBRID_IMAGE_KEY: True,
-                CAMERA_TOKEN_GLOBAL_KEY: False,
-                GLOBAL_PATCH_TOKENS_KEY: False,
-            },
+            buffer_dtype={HYBRID_IMAGE_KEY: "uint8"},
+            buffer_shape={HYBRID_IMAGE_KEY: IMAGE_SHAPE},
+            normalize_on_sample={HYBRID_IMAGE_KEY: True},
             agent_obs_shape={
                 HYBRID_IMAGE_KEY: IMAGE_SHAPE,
-                CAMERA_TOKEN_GLOBAL_KEY: CAMERA_TOKEN_GLOBAL_SHAPE,
                 GLOBAL_PATCH_TOKENS_KEY: GLOBAL_PATCH_TOKENS_SHAPE,
             },
             on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(
@@ -196,6 +183,9 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
             ),
         )
         self._extractor = extractor
+        self._latest_global_patch_tokens = jnp.zeros(
+            GLOBAL_PATCH_TOKENS_SHAPE, dtype=jnp.float32
+        )
         self._dump_every = int(pointcloud_dump_every)
         self._dump_dir = pointcloud_dump_dir
         self._dump_enabled = (
@@ -217,35 +207,26 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
             return jnp.asarray(tokens)
         return out.global_tokens
 
-    def _split_tokens(
-        self, out: VGGTOutputLike
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Return ``(camera_token (1, D), patch_tokens (1369, D))`` from one frame.
+    def _patch_tokens_from_output(self, out: VGGTOutputLike) -> jnp.ndarray:
+        """Return patch tokens ``(1369, D)`` from one VGGT global-half map.
 
         Args:
-          out: VGGT extractor output (object or mapping) carrying
-            ``global_tokens`` (1374, 1024).
+          out: VGGT extractor output carrying ``global_tokens`` (1374, 1024).
 
         Returns:
-          ``(camera_token, patch_tokens)`` split at the camera/register boundary.
+          Patch tokens with camera and register slots dropped.
 
         Raises:
-          ValueError: If the split shapes do not match the expected layout.
+          ValueError: If the patch slice shape does not match the layout.
         """
         global_tokens = self._global_tokens_from_output(out)
-        camera_token = global_tokens[0:1]
         patch_tokens = global_tokens[VGGT_AGGREGATOR_PATCH_START_IDX:]
-        if tuple(camera_token.shape) != CAMERA_TOKEN_GLOBAL_SHAPE:
-            raise ValueError(
-                f"expected camera_token_global shape {CAMERA_TOKEN_GLOBAL_SHAPE}, "
-                f"got {camera_token.shape}"
-            )
         if tuple(patch_tokens.shape) != GLOBAL_PATCH_TOKENS_SHAPE:
             raise ValueError(
                 f"expected global_patch_tokens shape {GLOBAL_PATCH_TOKENS_SHAPE}, "
                 f"got {patch_tokens.shape}"
             )
-        return camera_token, patch_tokens
+        return patch_tokens
 
     def _maybe_dump_pointcloud(self, label: str) -> None:
         """Write a PLY snapshot via the extractor if dumping is enabled.
@@ -263,14 +244,14 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, np.ndarray], dict]:
-        """Extract, split, and store the global tokens; trigger PLY dumps.
+        """Extract patch tokens, cache them for train augmentation; trigger PLY dumps.
 
         Args:
           env_obs: One environment observation frame.
 
         Returns:
-          ``(replay, agent_obs)``: replay holds the 64x64 RGB and the two
-          float16 token fields; agent_obs holds the same as float32 plus
+          ``(replay, agent_obs)``: replay holds only the 64x64 RGB frame;
+          agent_obs adds the live ``global_patch_tokens`` float32 field and
           ``is_first``.
         """
         # End-of-first-episode snapshot: on the second is_first (start of
@@ -289,17 +270,15 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
 
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         out = self._extractor.extract(env_obs)
-        camera_token, patch_tokens = self._split_tokens(out)
+        patch_tokens = jnp.asarray(
+            self._patch_tokens_from_output(out), dtype=jnp.float32
+        )
+        self._latest_global_patch_tokens = patch_tokens
 
-        replay = {
-            HYBRID_IMAGE_KEY: image64,
-            CAMERA_TOKEN_GLOBAL_KEY: np.asarray(camera_token, dtype=np.float16),
-            GLOBAL_PATCH_TOKENS_KEY: np.asarray(patch_tokens, dtype=np.float16),
-        }
+        replay = {HYBRID_IMAGE_KEY: image64}
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,
-            CAMERA_TOKEN_GLOBAL_KEY: jnp.asarray(camera_token, dtype=jnp.float32),
-            GLOBAL_PATCH_TOKENS_KEY: jnp.asarray(patch_tokens, dtype=jnp.float32),
+            GLOBAL_PATCH_TOKENS_KEY: patch_tokens,
             "is_first": env_obs.is_first,
         }
 
@@ -307,6 +286,21 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
         if self._dump_enabled and self._env_steps % self._dump_every == 0:
             self._maybe_dump_pointcloud(f"step{self._env_steps}")
         return replay, agent_obs
+
+    def augment_replay_batch(self, batch: ReplayBatch) -> ReplayBatch:
+        """Inject the latest live global patch tokens into a sampled batch.
+
+        Args:
+          batch: Sampled replay batch (as returned by ``ReplayBuffer.sample``).
+
+        Returns:
+          The batch with ``GLOBAL_PATCH_TOKENS_KEY`` added to its observation
+          mapping. The token array has no ``(B, T)`` prefix and broadcasts over
+          the sampled sequences.
+        """
+        obs = dict(batch.obs)
+        obs[GLOBAL_PATCH_TOKENS_KEY] = self._latest_global_patch_tokens
+        return dataclasses.replace(batch, obs=obs)
 
     def diagnostics(self) -> dict[str, float]:
         """Return PLY-dump and extractor-cache diagnostics for the run summary.

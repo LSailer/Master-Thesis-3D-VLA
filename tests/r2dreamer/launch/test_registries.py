@@ -65,6 +65,33 @@ class TestEncoderRegistry:
         assert "vggt_house_full_tokens_nogate" in encoder_registry
         assert "vggt_house_global_tokens_nogate" in encoder_registry
 
+    def test_exact_key_set(self):
+        # Pins the registry's full key set, so once the dict literal gives way
+        # to decorator registration a dropped import fails here rather than
+        # surfacing as an "unknown encoder" KeyError at launch. Also pins the
+        # absence of pointnet2: encoders/pointnet2.py is a skeleton for the
+        # external TF1 repo and defines no launcher Encoder.
+        assert set(encoder_registry) == {
+            "cnn",
+            "vggt",
+            "vggt_aggregator_mlp",
+            "vggt_agg_raw",
+            "vggt_agg_token_transformer",
+            "vggt_wp_dense_cnn",
+            "vggt_wp_cp_64",
+            "vggt_wp64_cnn_cp_mlp",
+            "hybrid",
+            "vggt_house_context",
+            "vggt_house_points_pose",
+            "vggt_hybrid_house_points_pose",
+            "gnn_house_points_pose",
+            "gnn_edge_house_points_pose",
+            "pointnet",
+            "vggt_house_full_tokens_nogate",
+            "vggt_house_global_tokens_nogate",
+            "vggt_house_global_embedding",
+        }
+
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
         assert encoder_registry["hybrid"] is HybridEncoder
 
@@ -122,6 +149,11 @@ class TestEnvRegistry:
     def test_known_keys_present(self):
         assert "habitat" in env_registry
         assert "crafter" in env_registry
+
+    def test_exact_key_set(self):
+        # env_registry stays a plain dict — two entries, no duplication to
+        # remove — so this pins it against accidental growth or loss.
+        assert set(env_registry) == {"habitat", "crafter"}
 
 
 class TestHabitatCurricula:

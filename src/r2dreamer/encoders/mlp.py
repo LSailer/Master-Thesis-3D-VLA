@@ -346,12 +346,7 @@ class TokenReducer(nn.Module):
 
 
 class HouseGlobalEmbeddingEncoder(nn.Module):
-    """Flax module wrapper around the house-global-embedding encoder logic.
-
-    This class keeps the encoder callable through the standard Flax
-    ``init``/``apply`` API while exposing the implementation under the
-    requested snake_case name. The functional logic is delegated to
-    :func:`_encode_house_global_obs_impl`.
+    """Fuse RGB conv features with a PointNet-reduced global patch map.
 
     Attributes:
         mlp_layers: Number of hidden ``Dense -> RMSNorm -> silu`` blocks in
@@ -363,30 +358,39 @@ class HouseGlobalEmbeddingEncoder(nn.Module):
     hidden_dim: int = 1024
 
     @nn.compact
-    def __call__(self, obs: HouseGlobalObs | Mapping[str, jnp.ndarray] ) -> jnp.ndarray:
+    def __call__(self, obs: HouseGlobalObs | Mapping[str, jnp.ndarray]) -> jnp.ndarray:
         """Encode a :class:`HouseGlobalObs` into an RSSM embedding."""
         if isinstance(obs, Mapping):
-              obs = HouseGlobalObs(
-                  global_patch_tokens=obs[GLOBAL_PATCH_TOKENS_KEY],
-                  image=obs.get(HYBRID_IMAGE_KEY),
-                  camera_token_global=obs.get(CAMERA_TOKEN_GLOBAL_KEY),
-              )
+            obs = HouseGlobalObs(
+                global_patch_tokens=obs[GLOBAL_PATCH_TOKENS_KEY],
+                image=obs.get(HYBRID_IMAGE_KEY),
+                camera_token_global=obs.get(CAMERA_TOKEN_GLOBAL_KEY),
+            )
         house_embed = TokenReducer(
             hidden=self.hidden_dim,
             layers=self.mlp_layers,
             name="house",
         )(obs.global_patch_tokens)
         if obs.image is not None:
-            first_embed = ConvEncoder(name="rgb")(obs.image)
-            return jnp.concatenate([first_embed, house_embed], axis=-1)
+            rgb_embed = ConvEncoder(name="rgb")(obs.image)
+            if house_embed.shape[:-1] != rgb_embed.shape[:-1]:
+                house_embed = jnp.broadcast_to(
+                    house_embed, (*rgb_embed.shape[:-1], house_embed.shape[-1])
+                )
+            return jnp.concatenate([rgb_embed, house_embed], axis=-1)
         if obs.camera_token_global is not None:
-            first_embed = TokenReducer(
+            camera_embed = TokenReducer(
                 hidden=self.hidden_dim,
                 layers=self.mlp_layers,
                 pool_tokens=False,
                 name="camera",
             )(obs.camera_token_global)
-            return jnp.concatenate([first_embed, house_embed], axis=-1)
+            if house_embed.shape[:-1] != camera_embed.shape[:-1]:
+                house_embed = jnp.broadcast_to(
+                    house_embed,
+                    (*camera_embed.shape[:-1], house_embed.shape[-1]),
+                )
+            return jnp.concatenate([camera_embed, house_embed], axis=-1)
         return house_embed
 
 

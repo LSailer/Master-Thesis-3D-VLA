@@ -1187,21 +1187,18 @@ class TestVGGTHouseGlobalEmbeddingEncoder:
         assert spec.encoder_type == "vggt_house_global_embedding"
         assert enc.vggt_reset_mode is ResetMode.PERSIST_SCENE
         assert enc.vggt_compute_heads is False
-        expected_shape = {
+        expected_replay_shape = {HYBRID_IMAGE_KEY: (3, 64, 64)}
+        expected_encoder_shape = {
             HYBRID_IMAGE_KEY: (3, 64, 64),
-            CAMERA_TOKEN_GLOBAL_KEY: (1, 1024),
             GLOBAL_PATCH_TOKENS_KEY: (1369, 1024),
         }
-        assert adapter.buffer_shape == expected_shape
-        assert adapter.buffer_dtype == {
-            HYBRID_IMAGE_KEY: "uint8",
-            CAMERA_TOKEN_GLOBAL_KEY: "float16",
-            GLOBAL_PATCH_TOKENS_KEY: "float16",
-        }
-        assert spec.obs_shape == expected_shape
+        assert adapter.buffer_shape == expected_replay_shape
+        assert adapter.buffer_dtype == {HYBRID_IMAGE_KEY: "uint8"}
+        assert adapter.encoder_obs_shape == expected_encoder_shape
+        assert spec.obs_shape == expected_encoder_shape
         assert spec.module_cls is ModelHouseGlobalEmbeddingEncoder
         assert spec.env_render_resolution == 518
-        assert spec.agent_overrides["buffer_capacity"] == 5_000
+        assert spec.agent_overrides["buffer_capacity"] == 1_000_000
         # Scene-aware reset fires during prefill (prefill-orphaning fix).
         assert adapter.on_episode_reset is not None
         adapter.on_episode_reset("house-7")

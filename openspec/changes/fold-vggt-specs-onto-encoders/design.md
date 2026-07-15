@@ -114,6 +114,28 @@ the eager cost is bounded. Confirm import time does not regress; if it does,
 keep `module_cls` behind a per-class `classmethod` rather than a class
 attribute.
 
+**Measured baseline (task 1.5).** `python -X importtime -c "import
+src.r2dreamer.encoders"`, cumulative for `src.r2dreamer.encoders`, five warm
+runs on the mac: 554 / 436 / 321 / 330 / 382 ms — median ~382 ms, spread ~±30%
+run to run. Task 2.8 should treat anything inside ~600 ms as noise and compare
+medians, not single runs.
+
+The baseline also **retires most of this risk**. Of the ~331 ms in a
+representative run, `flax.linen` accounts for ~265 ms (~80%), reached through
+`encoders.base` → `encoders.cnn` → `world_model/rssm.py`. And after `import
+src.r2dreamer.encoders`, `sys.modules` already contains
+`src.r2dreamer.encoders.mlp` and `src.r2dreamer.encoders.transformer` — the
+package `__init__.py` imports `TokenTransformerEncoder` directly, and `mlp.py`
+arrives transitively. So the eager imports Decision 2 worries about load **no
+module that is not already loaded**; only the import order inside the package
+changes. `observation_preparation` is correctly absent from `sys.modules` —
+that, and only that, is what the lazy mapping defers, and it is what the fold
+removes.
+
+Expect 2.8 to be a formality. The `classmethod module_cls` fallback should not
+be needed; if 2.8 shows a median regression anyway, suspect a new import edge
+rather than the mlp/transformer ones.
+
 ## Key Decision 3 — decorator registration, scoped honestly
 
 Registration removes exactly one duplication: the `registries.py` dict key.

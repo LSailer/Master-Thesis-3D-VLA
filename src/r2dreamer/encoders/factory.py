@@ -49,7 +49,6 @@ from .pointnet import PointNetHousePointsCameraEncoder
 from .transformer import TokenTransformerEncoder as WMTokenTransformerEncoder
 from ..observation_keys import (
     CAMERA_POSE_KEY,
-    CAMERA_TOKEN_GLOBAL_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_PATCH_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,
@@ -310,9 +309,6 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         return {
             HYBRID_IMAGE_KEY: jnp.zeros(
                 (1, *cfg.obs_shape[HYBRID_IMAGE_KEY]), dtype=jnp.float32
-            ),
-            CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros(
-                (1, *cfg.obs_shape[CAMERA_TOKEN_GLOBAL_KEY]), dtype=jnp.float32
             ),
             GLOBAL_PATCH_TOKENS_KEY: jnp.zeros(
                 (1, *cfg.obs_shape[GLOBAL_PATCH_TOKENS_KEY]), dtype=jnp.float32
