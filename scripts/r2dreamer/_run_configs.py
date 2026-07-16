@@ -179,19 +179,6 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "jax", "3d-encoder",
         ],
     ),
-    # L1 live house points + classic PointNet house branch (encoders/pointnet.py).
-    "habitat-l1-pointnet-house-points-pose": dict(
-        env="habitat",
-        encoder="pointnet",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-pointnet-house-points-pose",
-        wandb_name="l1_pointnet_house_points_pose",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-points", "live-buffer", "camera-pose-replay",
-            "pointnet", "tnet", "jax", "3d-encoder",
-        ],
-    ),
     # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
     "habitat-l1-vggt-house-full-tokens-nogate": dict(
         env="habitat",

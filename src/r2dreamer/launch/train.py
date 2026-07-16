@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from src.environments.habitat import HabitatEnvConfig
 
@@ -312,7 +312,6 @@ def train(
     from src.configs.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
     from src.r2dreamer.launch.parser import _build_parser_train
     from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer
     from src.environments.habitat_metrics import HabitatEpisodeMetrics
 
     parser = _build_parser_train()

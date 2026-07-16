@@ -15,6 +15,10 @@ import jax.numpy as jnp
 
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders.constants import HYBRID_RGB_DIM
+from src.r2dreamer.encoder_types import (
+    FLAT_VGGT_ENCODER_TYPES,
+    RGB_BEARING_ENCODER_TYPES,
+)
 from src.r2dreamer.encoders.mlp import (
     HouseGlobalEmbeddingEncoder,
     HousePointsCameraEncoder,
@@ -33,16 +37,7 @@ from src.r2dreamer.observation_preparation.contracts import (
 from src.r2dreamer.observation_preparation.vggt import VGGT_DREAMER_SPECS
 from src.r2dreamer.world_model.rssm import R2RSSM
 
-_DECODER_RGB_ENCODERS = frozenset(
-    {
-        "cnn",
-        "hybrid",
-        "vggt_house_context",
-        "vggt_house_full_tokens_nogate",
-        "vggt_house_global_tokens_nogate",
-        "vggt_house_global_embedding",
-    }
-)
+_DECODER_RGB_ENCODERS = frozenset(RGB_BEARING_ENCODER_TYPES)
 
 
 def make_rssm_module(cfg: R2DreamerConfig) -> R2RSSM:
@@ -110,13 +105,7 @@ def _legacy_env_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
 
 
 def _legacy_agent_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
-    if cfg.encoder_type in (
-        "vggt",
-        "vggt_wp_cp_64",
-        "vggt_aggregator_mlp",
-        "vggt_agg_token_transformer",
-        "vggt_wp_dense_cnn",
-    ):
+    if cfg.encoder_type in FLAT_VGGT_ENCODER_TYPES:
         return ObservationFormContract(
             {
                 "features": _field(tuple(cfg.obs_shape)),  # type: ignore[arg-type]

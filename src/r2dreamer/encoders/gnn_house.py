@@ -31,6 +31,10 @@ import jax.numpy as jnp
 
 from src.r2dreamer.encoders.house_points_pose import VGGTHousePointsPoseEncoder
 from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder, RMSNorm
+from src.r2dreamer.encoders.shape_utils import (
+    singleton_house_cloud,
+    validate_house_points,
+)
 
 
 class GnnHousePointsCameraEncoder(HousePointsCameraEncoder):
@@ -60,23 +64,8 @@ class GnnHousePointsCameraEncoder(HousePointsCameraEncoder):
         batch_size: int,
         house_size: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        if house_points.ndim == 2:
-            house_points = house_points[None]
-        if house_points.ndim != 3 or house_points.shape[-1] != self.house_point_dim:
-            raise ValueError(
-                "house_points must have shape (N, 6) or (S, N, 6), "
-                f"got {house_points.shape}"
-            )
-        if house_points.shape[0] != 1:
-            raise ValueError(
-                "GNN house branch expects a singleton house cloud (S=1), "
-                f"got S={house_points.shape[0]}"
-            )
-        points = house_points[0].astype(jnp.float32)
-        n_points = points.shape[0]
-        if house_size is None:
-            house_size = n_points
-        size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)[0]
+        house_points = validate_house_points(house_points, self.house_point_dim)
+        points, n_points, size = singleton_house_cloud(house_points, house_size, "GNN")
 
         m = min(self.num_graph_nodes, n_points)
         k = min(self.knn_k, m - 1)

@@ -86,7 +86,6 @@ class TestEncoderRegistry:
             "vggt_hybrid_house_points_pose",
             "gnn_house_points_pose",
             "gnn_edge_house_points_pose",
-            "pointnet",
             "vggt_house_full_tokens_nogate",
             "vggt_house_global_tokens_nogate",
             "vggt_house_global_embedding",

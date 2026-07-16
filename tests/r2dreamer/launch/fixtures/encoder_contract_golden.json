@@ -255,28 +255,6 @@
       ]
     }
   },
-  "pointnet": {
-    "contract_snapshot": null,
-    "spec": {
-      "agent_overrides": {
-        "buffer_capacity": 1000000
-      },
-      "design_notes": "Classic PointNet house branch \u2014 input/feature T-Nets, shared MLPs (64,64) and (64,128,1024), max pool to one 1024-d global feature \u2014 over an even-stride subset of the live house snapshot (src/r2dreamer/encoders/pointnet.py).",
-      "encoder_module": "src.r2dreamer.encoders.pointnet.PointNetHousePointsCameraEncoder",
-      "encoder_type": "pointnet",
-      "env_render_resolution": 518,
-      "obs_shape": {
-        "camera_pose": [
-          9
-        ],
-        "house_context": [
-          262144,
-          6
-        ],
-        "house_context_size": []
-      }
-    }
-  },
   "vggt": {
     "contract_snapshot": {
       "agent_observation": {

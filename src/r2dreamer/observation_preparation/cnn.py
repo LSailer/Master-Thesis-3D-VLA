@@ -73,10 +73,6 @@ class CNNObservationPreparation(ObsAdapter):
 
     def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
         image = np.asarray(env_obs.image)
-        step_obs = {
-            "image": image,
-            "is_first": env_obs.is_first,
-        }
         return PreparedObservation(
             replay_obs=image,
             encoder_obs={"image": image},

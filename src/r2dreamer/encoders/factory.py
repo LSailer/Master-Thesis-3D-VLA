@@ -122,7 +122,6 @@ def _resolve_encoder_cls(cfg: R2DreamerConfig):
             "hybrid": WMHybridEncoder,
             "vggt_house_context": WMHybridEncoder,
             "vggt_house_points_pose": PointNetHousePointsCameraEncoder,
-            "pointnet": PointNetHousePointsCameraEncoder,
             "vggt_hybrid_house_points_pose": HybridHousePointsCameraEncoder,
             "vggt_house_full_tokens_nogate": WMTokenTransformerEncoder,
             "vggt_house_global_tokens_nogate": WMTokenTransformerEncoder,
@@ -324,7 +323,6 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         "vggt_hybrid_house_points_pose",
         "gnn_house_points_pose",
         "gnn_edge_house_points_pose",
-        "pointnet",
     ):
         if not isinstance(cfg.obs_shape, Mapping):
             raise TypeError(f"{cfg.encoder_type} expects structured obs_shape")

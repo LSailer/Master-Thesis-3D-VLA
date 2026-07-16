@@ -6,11 +6,11 @@
     "external",
     "output",
     "wandb",
-    "tests/r2dreamer",
-    "tests/r2dreamer/launch"
+    "tests/*",
+    "scripts/*"
   ],
-  "typeCheckingMode": "basic",
-  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "pythonVersion": "3.12",
   "venvPath": ".",
   "venv": ".venv",
   "reportMissingImports": "none",
