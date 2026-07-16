@@ -1,3 +1,4 @@
+
 """Tests for src/r2dreamer/trainer.py — replay_batch_to_arrays and checkpoint."""
 
 import json
@@ -741,7 +742,7 @@ class TestTrainLoopCadences:
 
         _run_loop(trainer)
 
-        assert called == []
+        assert not called
 
 
 class TestTrainLoopEpisodeHandoff:

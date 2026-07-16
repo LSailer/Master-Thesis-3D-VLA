@@ -1,3 +1,4 @@
+
 """CPU tests for the PointNet house encoder (src/r2dreamer/encoders/pointnet.py)."""
 
 import jax
@@ -25,15 +26,15 @@ def _make_obs(batch: int, n_points: int, size: int, key=0):
 
 
 def _make_encoder(**overrides):
-    kwargs = dict(
-        embed_dim=32,
-        camera_hidden=16,
-        num_points=64,
-        tnet_mlp=(8, 16, 32),
-        tnet_fc=(16, 8),
-        mlp1=(8, 8),
-        mlp2=(8, 16, 32),
-    )
+    kwargs = {
+        "embed_dim": 32,
+        "camera_hidden": 16,
+        "num_points": 64,
+        "tnet_mlp": (8, 16, 32),
+        "tnet_fc": (16, 8),
+        "mlp1": (8, 8),
+        "mlp2": (8, 16, 32),
+    }
     kwargs.update(overrides)
     return PointNetHousePointsCameraEncoder(**kwargs)
 

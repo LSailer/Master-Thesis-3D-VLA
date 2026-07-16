@@ -27,16 +27,16 @@ def replay_batch_shape(batch: ReplayBatch) -> tuple[int, int]:
 def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch.obs
-    B, T = replay_batch_shape(batch)
+    batch_size, time_steps = replay_batch_shape(batch)
     if encoder_type in COMPOSITE_RGB_ENCODER_TYPES:
         if isinstance(obs, Mapping):
             image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])
-            return image.reshape(B * T, 3, 64, 64)
+            return image.reshape(batch_size * time_steps, 3, 64, 64)
         rgb_dim = 3 * 64 * 64
         return (
             jnp.asarray(obs, dtype=jnp.float32)
-            .reshape(B * T, -1)[:, :rgb_dim]
-            .reshape(B * T, 3, 64, 64)
+            .reshape(batch_size * time_steps, -1)[:, :rgb_dim]
+            .reshape(batch_size * time_steps, 3, 64, 64)
         )
     image = obs[HYBRID_IMAGE_KEY] if isinstance(obs, Mapping) else obs
-    return _normalize_image_obs(image).reshape(B * T, 3, 64, 64)
+    return _normalize_image_obs(image).reshape(batch_size * time_steps, 3, 64, 64)

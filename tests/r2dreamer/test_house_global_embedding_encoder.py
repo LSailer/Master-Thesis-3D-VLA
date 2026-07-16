@@ -32,7 +32,7 @@ N_PATCHES = 64
 
 
 def _make_encoder(**overrides):
-    kwargs = dict(mlp_layers=1, hidden_dim=16)
+    kwargs = {"mlp_layers": 1, "hidden_dim": 16}
     kwargs.update(overrides)
     return HouseGlobalEmbeddingEncoder(**kwargs)
 

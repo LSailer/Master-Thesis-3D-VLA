@@ -87,7 +87,7 @@ class VGGTFeatureExtractor:
                 ]
             )
         else:
-            self._flash_sdp_ctx_factory = lambda: nullcontext()
+            self._flash_sdp_ctx_factory = nullcontext
         self._prefer_flash_sdp = prefer_flash_sdp
 
         # Camera cache management (keep most recent frames).
@@ -261,16 +261,34 @@ class VGGTFeatureExtractor:
 
         # === BP #1 (debug walkthrough — uncomment to re-enable) ===
         # print(f"\n[BP#1] frame_idx (post-incr)={self._frame_idx}", flush=True)
-        # print(f"[BP#1] world_points: shape={world_points_np.shape} dtype={world_points_np.dtype}", flush=True)
+        # print(
+        #     f"[BP#1] world_points: shape={world_points_np.shape} "
+        #     f"dtype={world_points_np.dtype}",
+        #     flush=True,
+        # )
         # print(f"[BP#1] world_points stats: "
         #       f"min={world_points_np.min():.3f} max={world_points_np.max():.3f} "
         #       f"mean={world_points_np.mean():.3f} std={world_points_np.std():.3f}", flush=True)
-        # print(f"[BP#1] per-axis ranges: "
-        #       f"x[{world_points_np[..., 0].min():.2f},{world_points_np[..., 0].max():.2f}] "
-        #       f"y[{world_points_np[..., 1].min():.2f},{world_points_np[..., 1].max():.2f}] "
-        #       f"z[{world_points_np[..., 2].min():.2f},{world_points_np[..., 2].max():.2f}]", flush=True)
-        # print(f"[BP#1] NaN={np.isnan(world_points_np).any()} Inf={np.isinf(world_points_np).any()}", flush=True)
-        # print(f"[BP#1] camera_pose: shape={camera_pose_np.shape} values={camera_pose_np}", flush=True)
+        # print(
+        #     f"[BP#1] per-axis ranges: "
+        #     f"x[{world_points_np[..., 0].min():.2f},"
+        #     f"{world_points_np[..., 0].max():.2f}] "
+        #     f"y[{world_points_np[..., 1].min():.2f},"
+        #     f"{world_points_np[..., 1].max():.2f}] "
+        #     f"z[{world_points_np[..., 2].min():.2f},"
+        #     f"{world_points_np[..., 2].max():.2f}]",
+        #     flush=True,
+        # )
+        # print(
+        #     f"[BP#1] NaN={np.isnan(world_points_np).any()} "
+        #     f"Inf={np.isinf(world_points_np).any()}",
+        #     flush=True,
+        # )
+        # print(
+        #     f"[BP#1] camera_pose: shape={camera_pose_np.shape} "
+        #     f"values={camera_pose_np}",
+        #     flush=True,
+        # )
         return {
             "world_points": world_points_np,  # (37, 37, 3) float32
             "camera_pose": camera_pose_np,  # (9,)        float32

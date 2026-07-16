@@ -12,17 +12,21 @@ import argparse
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from src.shared.profiling import make_synthetic_rgb_frame
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
 
+def _make_synthetic_rgb_frame(seed: int, size: int = 518) -> np.ndarray:
+    """Return a deterministic ``(3, size, size)`` uint8 RGB frame."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 256, size=(3, size, size), dtype=np.uint8)
+
+
 def main() -> None:
+    """Extract VGGT world points from a synthetic frame and write them to NPZ."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--out", required=True, type=Path, help="Output .npz path")
     p.add_argument("--seed", type=int, default=0)
@@ -30,7 +34,7 @@ def main() -> None:
 
     ext = JAXVGGTFeatureExtractor(device="cuda")
     ext.reset()
-    out = ext.extract(make_synthetic_rgb_frame(args.seed))
+    out = ext.extract(_make_synthetic_rgb_frame(args.seed))
 
     # Materialize to host for storage.
     world_points = np.asarray(out["world_points"])

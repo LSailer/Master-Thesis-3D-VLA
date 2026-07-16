@@ -1,3 +1,5 @@
+
+"""Tests for video frame composition and W&B episode logging."""
 import numpy as np
 
 from src.shared.video_utils import (

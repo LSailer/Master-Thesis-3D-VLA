@@ -1,8 +1,9 @@
 """VGGT variant loading and registry."""
 
-import torch
 import importlib
 from typing import Optional
+
+import torch
 
 
 VARIANTS = {

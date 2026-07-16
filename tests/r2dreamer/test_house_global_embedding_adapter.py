@@ -153,7 +153,7 @@ def test_dump_disabled_by_default():
     adapter = VGGTHouseGlobalEmbeddingObsAdapter(extractor)
     for s in range(6):
         adapter.transform(_frame(s, is_first=(s == 0)))
-    assert extractor.ply_dumps == []
+    assert not extractor.ply_dumps
     assert adapter.diagnostics()["house_global_embedding/dump_count"] == 0.0
 
 

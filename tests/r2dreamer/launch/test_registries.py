@@ -1,3 +1,4 @@
+
 """L1 structural tests — registry contents and curriculum paths."""
 
 import inspect

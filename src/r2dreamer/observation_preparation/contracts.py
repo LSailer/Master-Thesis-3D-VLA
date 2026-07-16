@@ -42,7 +42,7 @@ def _import_class(path: str) -> type:
 
 def encoder_module_kwargs_from_config(
     config: Any,
-    encoder_module_cls: type | None = None,
+    _encoder_module_cls: type | None = None,
 ) -> dict[str, Any]:
     """Resolve Encoder Module constructor kwargs from an effective config.
 
@@ -103,6 +103,7 @@ class ObservationField:
     normalize_on_sample: bool = False
 
     def to_snapshot(self) -> ContractSnapshot:
+        """Serialize this field to a JSON-friendly snapshot."""
         return {
             "shape": list(self.shape),
             "dtype": self.dtype,
@@ -111,6 +112,7 @@ class ObservationField:
 
     @classmethod
     def from_snapshot(cls, snapshot: Mapping[str, Any]) -> "ObservationField":
+        """Reconstruct an observation field from a snapshot mapping."""
         return cls(
             shape=tuple(int(dim) for dim in snapshot["shape"]),
             dtype=str(snapshot["dtype"]),
@@ -126,18 +128,21 @@ class ObservationFormContract:
 
     @property
     def shape(self) -> tuple[int, ...]:
+        """Return the flat observation shape for single-field contracts."""
         if isinstance(self.fields, Mapping):
             raise ValueError("structured observation forms do not have one shape")
         return self.fields.shape
 
     @property
     def dtype(self) -> str:
+        """Return the storage dtype for single-field contracts."""
         if isinstance(self.fields, Mapping):
             raise ValueError("structured observation forms do not have one dtype")
         return self.fields.dtype
 
     @property
     def normalize_on_sample(self) -> bool:
+        """Return whether replay sampling should normalize this field."""
         if isinstance(self.fields, Mapping):
             raise ValueError(
                 "structured observation forms do not have one normalize flag"
@@ -145,16 +150,19 @@ class ObservationFormContract:
         return self.fields.normalize_on_sample
 
     def buffer_shape(self) -> tuple[int, ...] | dict[str, tuple[int, ...]]:
+        """Return replay-buffer storage shape(s) for this contract."""
         if isinstance(self.fields, Mapping):
             return {key: field.shape for key, field in self.fields.items()}
         return self.fields.shape
 
     def buffer_dtype(self) -> str | dict[str, str]:
+        """Return replay-buffer storage dtype(s) for this contract."""
         if isinstance(self.fields, Mapping):
             return {key: field.dtype for key, field in self.fields.items()}
         return self.fields.dtype
 
     def buffer_normalize(self) -> bool | dict[str, bool]:
+        """Return replay sampling normalization flags for this contract."""
         if isinstance(self.fields, Mapping):
             return {
                 key: field.normalize_on_sample for key, field in self.fields.items()
@@ -162,6 +170,7 @@ class ObservationFormContract:
         return self.fields.normalize_on_sample
 
     def to_snapshot(self) -> ContractSnapshot:
+        """Serialize this observation form to a JSON-friendly snapshot."""
         if isinstance(self.fields, Mapping):
             return {
                 "kind": "structured",
@@ -176,6 +185,7 @@ class ObservationFormContract:
         cls,
         snapshot: Mapping[str, Any],
     ) -> "ObservationFormContract":
+        """Reconstruct an observation form contract from a snapshot."""
         kind = snapshot["kind"]
         if kind == "single":
             return cls(ObservationField.from_snapshot(snapshot["field"]))
@@ -223,6 +233,7 @@ class EncoderInputContract:
     design_notes: str = ""
 
     def to_snapshot(self) -> ContractSnapshot:
+        """Serialize the full encoder-input contract to a snapshot."""
         return {
             "version": 1,
             "observation_preparation_type": self.observation_preparation_type,
@@ -248,6 +259,7 @@ class EncoderInputContract:
         cls,
         snapshot: Mapping[str, Any],
     ) -> "EncoderInputContract":
+        """Reconstruct an encoder-input contract from a versioned snapshot."""
         if int(snapshot.get("version", 1)) != 1:
             raise ValueError(
                 f"unsupported Encoder Input Contract snapshot version "

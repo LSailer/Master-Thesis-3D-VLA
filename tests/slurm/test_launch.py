@@ -1,3 +1,5 @@
+
+"""SLURM launch-script regression tests."""
 from __future__ import annotations
 
 import importlib.util
@@ -176,7 +178,10 @@ def test_sweep_submits_every_variant(tmp_path: Path) -> None:
     calls_file = tmp_path / "calls.txt"
     fake_sbatch = tmp_path / "sbatch"
     fake_sbatch.write_text(
-        "#!/usr/bin/env bash\ncat >/dev/null\nprintf 'x\\n' >> \"$SBATCH_CALLS\"\nwc -l < \"$SBATCH_CALLS\"\n"
+        "#!/usr/bin/env bash\n"
+        "cat >/dev/null\n"
+        "printf 'x\\n' >> \"$SBATCH_CALLS\"\n"
+        "wc -l < \"$SBATCH_CALLS\"\n"
     )
     fake_sbatch.chmod(0o755)
 

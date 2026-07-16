@@ -1,5 +1,5 @@
+
 """Tests for deterministic static RGB point-cloud house context encoding."""
-# pylint: disable=missing-function-docstring
 
 import numpy as np
 import pytest

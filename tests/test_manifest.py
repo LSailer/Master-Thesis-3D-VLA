@@ -1,3 +1,4 @@
+
 """Unit tests for src.r2dreamer.manifest."""
 
 from __future__ import annotations

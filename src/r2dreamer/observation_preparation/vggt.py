@@ -508,7 +508,7 @@ def _feature_replay_config(
     )
 
 
-def build_vggt_contract(  # pylint: disable=too-many-arguments,too-many-locals
+def build_vggt_contract(
     extractor: Any,
     *,
     feature_kind: VGGTFeatureKind,

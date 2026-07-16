@@ -26,7 +26,6 @@ Regenerate after an intended change with:
 
 and review the resulting diff — a diff here means the durable contract moved.
 """
-# pylint: disable=missing-function-docstring
 
 from __future__ import annotations
 

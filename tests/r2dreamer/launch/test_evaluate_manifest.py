@@ -1,3 +1,5 @@
+
+"""Tests for evaluate-launcher manifest discovery and arch overrides."""
 import json
 from types import SimpleNamespace
 

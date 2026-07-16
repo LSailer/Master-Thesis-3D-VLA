@@ -1,3 +1,4 @@
+
 """Tests for random-agent observation-action plumbing."""
 
 from typing import cast

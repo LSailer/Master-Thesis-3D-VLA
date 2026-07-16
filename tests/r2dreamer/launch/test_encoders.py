@@ -1,8 +1,5 @@
+
 """L2 (construction) and L3 (adapter behavior) tests for Encoder classes."""
-# pylint: disable=missing-class-docstring,missing-function-docstring
-# pylint: disable=too-few-public-methods,import-outside-toplevel,unused-argument
-# pylint: disable=line-too-long,use-implicit-booleaness-not-comparison
-# pylint: disable=protected-access,consider-using-enumerate
 
 import json
 from pathlib import Path
@@ -59,7 +56,6 @@ from src.r2dreamer.encoders.mlp import (
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
-    CAMERA_TOKEN_GLOBAL_KEY,
     FULL_TOKENS_KEY,
     GLOBAL_PATCH_TOKENS_KEY,
     GLOBAL_TOKENS_KEY,

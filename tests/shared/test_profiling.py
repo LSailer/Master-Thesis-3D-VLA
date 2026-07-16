@@ -1,3 +1,5 @@
+
+"""Tests for shared profiling helpers."""
 import json
 
 import pytest
@@ -5,7 +7,6 @@ import pytest
 from src.shared.profiling import (
     block_until_ready_tree,
     init_phase_times,
-    make_synthetic_rgb_frame,
     measure_ms,
     render_phase_table,
     summarize_phase_times,
@@ -74,7 +75,7 @@ def test_block_until_ready_tree_walks_nested_containers():
 
 def test_write_json_creates_parent_directory(tmp_path):
     out = write_json(tmp_path / "nested" / "payload.json", {"ok": True})
-    assert json.loads(out.read_text()) == {"ok": True}
+    assert json.loads(out.read_text(encoding="utf-8")) == {"ok": True}
 
 
 def test_render_phase_table_formats_requested_columns():
@@ -87,12 +88,3 @@ def test_render_phase_table_formats_requested_columns():
     assert "   phase |     mean |    calls" in table
     assert "env_step |     1.23 |        2" in table
 
-
-def test_make_synthetic_rgb_frame_is_deterministic_uint8_chw():
-    first = make_synthetic_rgb_frame(7, size=4)
-    second = make_synthetic_rgb_frame(7, size=4)
-    other = make_synthetic_rgb_frame(8, size=4)
-    assert first.shape == (3, 4, 4)
-    assert first.dtype.name == "uint8"
-    assert (first == second).all()
-    assert not (first == other).all()

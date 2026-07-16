@@ -1,3 +1,4 @@
+
 """Tests for LaProp optimizer and AGC gradient clipping."""
 
 import jax

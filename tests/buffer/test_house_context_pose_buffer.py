@@ -1,3 +1,4 @@
+
 """Behavior checks for ``HouseContextPoseBuffer.add`` voxel accumulation."""
 
 from __future__ import annotations

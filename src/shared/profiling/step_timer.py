@@ -30,9 +30,11 @@ class StepTimer:
         self._t: float | None = None
 
     def start(self) -> None:
+        """Start timing a new step."""
         self._t = time.perf_counter()
 
     def lap(self, phase: str) -> None:
+        """Accumulate elapsed time for ``phase`` since the last lap/start."""
         if self._t is None:
             raise RuntimeError("StepTimer.start() not called")
         now = time.perf_counter()
@@ -41,9 +43,11 @@ class StepTimer:
         self._t = now
 
     def end_step(self) -> None:
+        """Advance the step counter after finishing timing."""
         self.step += 1
 
     def summary(self) -> dict[str, Any]:
+        """Return per-phase means in milliseconds and percentage shares."""
         active = max(self.step - self.warmup, 0)
         if active <= 0:
             return {"active_steps": 0, "warmup_steps": self.warmup}

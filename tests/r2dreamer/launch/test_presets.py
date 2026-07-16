@@ -1,3 +1,4 @@
+
 """L4 preset-matrix tests — verify every active sbatch combo resolves through registries."""
 
 import pytest

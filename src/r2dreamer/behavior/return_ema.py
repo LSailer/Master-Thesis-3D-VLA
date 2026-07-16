@@ -16,9 +16,11 @@ class ReturnEMA:
         self.alpha = alpha
 
     def init_state(self):
+        """Return zeroed EMA state ``[p05, p95]``."""
         return jnp.zeros(2)
 
     def update(self, state, returns):
+        """Update percentile EMAs from imagined returns."""
         quantiles = jnp.array(
             [
                 jnp.percentile(returns, 5),
@@ -28,6 +30,7 @@ class ReturnEMA:
         return self.alpha * quantiles + (1 - self.alpha) * state
 
     def get_stats(self, state):
+        """Return offset/scale pair used to normalize policy advantages."""
         offset = state[0]
         scale = jnp.maximum(state[1] - state[0], 1.0)
         return offset, scale

@@ -74,8 +74,45 @@ markers = [
     "integration: tests that exercise external simulators or datasets",
 ]
 
+[tool.pylint.main]
+py-version = "3.12"
+jobs = 0
+init-hook = '''
+import sys
+from pathlib import Path
+root = Path(".").resolve()
+for candidate in (
+    root / "external" / "r2dreamer",
+    root / "external" / "InfiniteVGGT" / "src",
+):
+    if candidate.is_dir():
+        path = str(candidate)
+        if path not in sys.path:
+            sys.path.insert(0, path)
+'''
+
+[tool.pylint.imports]
+ignored-modules = [
+    "crafter",
+    "habitat",
+    "habitat_sim",
+    "habitat.tasks.nav.shortest_path_follower",
+    "omegaconf",
+    "streamvggt",
+]
+
+[tool.pylint.typecheck]
+extension-pkg-allow-list = ["jax", "jaxlib"]
+
 [tool.uv]
 python-preference = "only-managed"
 override-dependencies = [
     "numpy>=2.0",
+]
+
+[tool.pylint]
+ignore-paths = [
+    "^scripts/",
+    "^tests/",
+    "^external/",
 ]

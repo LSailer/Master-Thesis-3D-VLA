@@ -1,3 +1,4 @@
+
 """Smoke tests for R2DreamerAgent."""
 
 import jax
@@ -16,12 +17,16 @@ from src.r2dreamer.encoders.constants import (
 )
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
-    CAMERA_TOKEN_GLOBAL_KEY,
     GLOBAL_PATCH_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
 )
+
+
+def _params_allclose(a, b):
+    """Return whether two parameter leaves are numerically close."""
+    return jnp.allclose(a, b)
 
 
 @pytest.fixture
@@ -231,7 +236,7 @@ class TestR2DreamerAgent:
             assert tree_allclose(state, agent.snapshot_act_state())
 
         compiled = jax.jit(agent.act_with_state_pure)
-        action, _state = compiled.__call__(
+        action, _state = compiled(
             agent.params,
             {"image": image[None]},
             agent.initial_act_state(),
@@ -435,7 +440,7 @@ class TestR2DreamerAgent:
         assert "block0" in after["params"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
-                lambda a, b: jnp.allclose(a, b),
+                _params_allclose,
                 before["params"],
                 after["params"],
             )
@@ -504,7 +509,7 @@ class TestR2DreamerAgent:
         assert "conv0" in after["params"]["rgb"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
-                lambda a, b: jnp.allclose(a, b),
+                _params_allclose,
                 before["params"],
                 after["params"],
             )

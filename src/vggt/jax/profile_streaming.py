@@ -29,7 +29,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from src.shared.profiling import make_synthetic_rgb_frame
 from src.vggt.jax.feature_extractor import (
     JAXVGGTFeatureExtractor,
     _pool_dense_world_points,
@@ -37,6 +36,12 @@ from src.vggt.jax.feature_extractor import (
 
 WARMUP_FRAMES = 3
 PHASES = ("input_prep", "aggregator", "camera_head", "point_head", "pool_transfer")
+
+
+def _make_synthetic_rgb_frame(seed: int, size: int = 518) -> np.ndarray:
+    """Return a deterministic ``(3, size, size)`` uint8 RGB frame."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 256, size=(3, size, size), dtype=np.uint8)
 
 
 def _profile_one_frame(
@@ -134,6 +139,7 @@ def _profile_one_frame(
 
 
 def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
+    """Profile streaming extraction over ``n_frames`` synthetic RGB inputs."""
     dtype = {"bf16": jnp.bfloat16, "fp32": jnp.float32}[dtype_name]
     print(f"Building extractor (dtype={dtype_name}) ...", flush=True)
     ext = JAXVGGTFeatureExtractor(device="cuda", dtype=dtype)
@@ -142,20 +148,20 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
     print(f"Warmup ({WARMUP_FRAMES} frames) ...", flush=True)
     ext.reset()
     for i in range(WARMUP_FRAMES):
-        _profile_one_frame(ext, make_synthetic_rgb_frame(i))
+        _profile_one_frame(ext, _make_synthetic_rgb_frame(i))
 
     # Optional trace capture (one extra frame, after warmup is hot).
     if trace_dir is not None:
         trace_dir.mkdir(parents=True, exist_ok=True)
         print(f"Capturing JAX profile trace -> {trace_dir} ...", flush=True)
         with jax.profiler.trace(str(trace_dir)):
-            _profile_one_frame(ext, make_synthetic_rgb_frame(999))
+            _profile_one_frame(ext, _make_synthetic_rgb_frame(999))
 
     # Measurement: fresh cache, then n_frames timed frames.
     ext.reset()
     rows: list[dict[str, float]] = []
     for i in range(n_frames):
-        rows.append(_profile_one_frame(ext, make_synthetic_rgb_frame(1000 + i)))
+        rows.append(_profile_one_frame(ext, _make_synthetic_rgb_frame(1000 + i)))
         print(
             f"  frame {i + 1}/{n_frames}: total={sum(rows[-1].values()):.1f}ms",
             flush=True,
@@ -163,7 +169,7 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
 
     # Aggregate.
     print(
-        "\nPer-phase wall time (ms), n={} frames, dtype={}".format(n_frames, dtype_name)
+        f"\nPer-phase wall time (ms), n={n_frames} frames, dtype={dtype_name}"
     )
     print("-" * 78)
     print(
@@ -189,6 +195,7 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
 
 
 def main() -> None:
+    """CLI entrypoint for streaming VGGT phase profiling."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--n-frames", type=int, default=10, help="Frames to time after warmup."

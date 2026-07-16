@@ -23,14 +23,23 @@ sys.path.insert(0, EXT)
 import jax
 import jax.numpy as jnp
 
-pytest.importorskip("omegaconf", reason="omegaconf ships with habitat-lab, which installs on Linux only")
-pytest.importorskip("rssm", reason="requires the PyTorch R2-Dreamer clone in external/r2dreamer")
+pytest.importorskip(
+    "omegaconf",
+    reason="omegaconf ships with habitat-lab, which installs on Linux only",
+)
+pytest.importorskip(
+    "rssm",
+    reason="requires the PyTorch R2-Dreamer clone in external/r2dreamer",
+)
 
 from omegaconf import OmegaConf
 
 # -- PyTorch imports --
-from rssm import RSSM as PT_RSSM
-from networks import ConvEncoder as PT_ConvEncoder, MLPHead as PT_MLPHead
+from rssm import RSSM as PT_RSSM  # pylint: disable=import-error
+from networks import (  # pylint: disable=import-error
+    ConvEncoder as PT_ConvEncoder,
+    MLPHead as PT_MLPHead,
+)
 
 # -- JAX imports --
 from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear, R2RSSM
@@ -77,7 +86,8 @@ def _to_np(t):
 
 def transfer_encoder(pt_enc, jax_params):
     """Copy PyTorch ConvEncoder weights into JAX ConvEncoder param dict."""
-    p = jax_params["params"].copy() if isinstance(jax_params["params"], dict) else dict(jax_params["params"])
+    raw_params = jax_params["params"]
+    p = raw_params.copy() if isinstance(raw_params, dict) else dict(raw_params)
 
     # PyTorch layers: [Conv(0), MaxPool(1), RMSNorm2D(2), SiLU(3), Conv(4), ...]
     # Indices: conv at 0,4,8,12; norm at 2,6,10,14
@@ -275,7 +285,7 @@ class TestBlockLinear:
         x_np = random_input["deter"]  # (2, 2048)
 
         # PyTorch
-        from networks import BlockLinear as PT_BlockLinear
+        from networks import BlockLinear as PT_BlockLinear  # pylint: disable=import-error
         pt_bl = PT_BlockLinear(DETER, DETER, BLOCKS)
         with torch.no_grad():
             torch.nn.init.ones_(pt_bl.weight)
@@ -297,8 +307,8 @@ class TestBlockLinear:
         """Transfer random PyTorch weights and verify outputs match."""
         x_np = random_input["deter"]
 
-        from networks import BlockLinear as PT_BlockLinear
-        from tools import weight_init_
+        from networks import BlockLinear as PT_BlockLinear  # pylint: disable=import-error
+        from tools import weight_init_  # pylint: disable=import-error
         torch.manual_seed(SEED)
         pt_bl = PT_BlockLinear(DETER, DETER, BLOCKS)
         pt_bl.apply(weight_init_)
@@ -416,7 +426,7 @@ class TestRSSMPriorStep:
         pt_rssm.eval()
 
         with torch.no_grad():
-            pt_prior_stoch, pt_prior_logit = pt_rssm.prior(torch.tensor(deter_np))
+            _pt_prior_stoch, pt_prior_logit = pt_rssm.prior(torch.tensor(deter_np))
 
         pt_logit_np = _to_np(pt_prior_logit)
 
@@ -467,7 +477,7 @@ class TestRSSMObserveRollout:
         stoch0, deter0 = pt_rssm.initial(B)
 
         with torch.no_grad():
-            pt_stochs, pt_deters, pt_logits = pt_rssm.observe(
+            _pt_stochs, pt_deters, pt_logits = pt_rssm.observe(
                 torch.tensor(embeds), torch.tensor(actions),
                 (stoch0, deter0),
                 torch.tensor(is_first, dtype=torch.bool),
@@ -490,7 +500,7 @@ class TestRSSMObserveRollout:
         jax_params = jax_rssm.init({"params": k1, "sample": k2}, s0, d0, a0, e0)
         jax_params = transfer_rssm(pt_rssm, jax_params)
 
-        jax_stochs, jax_deters, jax_logits = jax_rssm.apply(
+        _jax_stochs, jax_deters, jax_logits = jax_rssm.apply(
             jax_params,
             jnp.array(embeds), jnp.array(actions),
             (jnp.array(_to_np(stoch0)), jnp.array(_to_np(deter0))),
@@ -524,7 +534,7 @@ class TestKLLoss:
         kl_free = 1.0
 
         # PyTorch
-        from distributions import kl as pt_kl_fn
+        from distributions import kl as pt_kl_fn  # pylint: disable=import-error
         pt_post = torch.tensor(post_logits)
         pt_prior = torch.tensor(prior_logits)
 
@@ -558,7 +568,7 @@ class TestOneHotModeST:
 
     @pytest.mark.parametrize("unimix", [0.0, 0.01])
     def test_forward_and_gradient(self, unimix):
-        from distributions import OneHotDist as PT_OneHotDist
+        from distributions import OneHotDist as PT_OneHotDist  # pylint: disable=import-error
 
         np.random.seed(SEED)
         logits_np = np.random.randn(8, 16).astype(np.float32)

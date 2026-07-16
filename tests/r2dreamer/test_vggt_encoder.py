@@ -1,3 +1,4 @@
+
 """Shape and integration tests for VGGT encoder + replay buffer."""
 
 import jax

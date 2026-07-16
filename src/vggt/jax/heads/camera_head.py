@@ -139,7 +139,7 @@ class CameraHead(nn.Module):
             With cache:    ``(pred_pose_enc_list, new_past_kvs_camera)``.
         """
         tokens = aggregated_tokens_list[-1]
-        B, S, P, C = tokens.shape
+        B, S, _patch, C = tokens.shape
         if C != self.dim_in:
             raise ValueError(f"aggregator token dim {C} != dim_in {self.dim_in}")
         if use_cache and S != 1:

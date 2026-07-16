@@ -1,3 +1,4 @@
+
 """Tests for VGGT variant comparison (issue #2)."""
 
 import pytest

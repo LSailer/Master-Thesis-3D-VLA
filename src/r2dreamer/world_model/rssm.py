@@ -177,13 +177,16 @@ class R2RSSM(nn.Module):
 
     @property
     def stoch_size(self):
+        """Return total stochastic latent dimensionality."""
         return self.stoch_classes * self.stoch_discrete
 
     @property
     def feat_size(self):
+        """Return RSSM feature size (stochastic + deterministic)."""
         return self.stoch_size + self.deter_size
 
     def setup(self):
+        """Create deterministic core and prior/posterior heads."""
         self.deter_net = Deter(
             deter_size=self.deter_size,
             stoch_size=self.stoch_classes * self.stoch_discrete,

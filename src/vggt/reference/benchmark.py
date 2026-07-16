@@ -1,9 +1,10 @@
 """Benchmarking utilities for VGGT variants."""
 
 import time
-import torch
-import pandas as pd
 from typing import Any
+
+import pandas as pd
+import torch
 
 
 def run_inference(model: torch.nn.Module, rgb: torch.Tensor) -> dict[str, torch.Tensor]:

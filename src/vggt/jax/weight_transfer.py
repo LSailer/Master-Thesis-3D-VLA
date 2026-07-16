@@ -512,7 +512,9 @@ def verify_per_leaf_roundtrip(
         got = node[leaf_name]
         if got.shape != expected.shape:
             raise AssertionError(
-                f"Shape mismatch at {out_path}/{leaf_name}: got {got.shape}, expected {expected.shape} (from {key})"
+                "Shape mismatch at "
+                f"{out_path}/{leaf_name}: got {got.shape}, "
+                f"expected {expected.shape} (from {key})"
             )
         if not np.array_equal(got, expected):
             raise AssertionError(
@@ -521,6 +523,7 @@ def verify_per_leaf_roundtrip(
 
 
 def count_leaves(tree: dict[str, Any]) -> int:
+    """Count non-dict leaves in a nested parameter tree."""
     n = 0
     stack = [tree]
     while stack:
@@ -534,6 +537,7 @@ def count_leaves(tree: dict[str, Any]) -> int:
 
 
 def sum_numel(tree: dict[str, Any]) -> int:
+    """Sum element counts across all leaves in a nested parameter tree."""
     s = 0
     stack = [tree]
     while stack:
