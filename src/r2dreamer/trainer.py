@@ -19,6 +19,7 @@ from typing import Any, Callable, Protocol, TypeAlias, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+import wandb
 
 from src.buffer.replay_buffer import (
     HybridObservation,
@@ -49,7 +50,8 @@ from src.shared.video_utils import (
 
 
 class Env(Protocol):
-    _env: Any
+    """Minimal environment interface used by the trainer loop."""
+
     current_episode: Any
 
     def reset(self) -> ObservationFrame: ...
@@ -297,6 +299,9 @@ class Trainer:
         self.val_env = val_env
         self.val_obs_adapter = val_obs_adapter
         self.val_episode_metrics_fn = val_episode_metrics_fn
+        self._t0 = 0.0
+        self._last_log_time = 0.0
+        self._last_log_step = 0
 
         # Replay shape and dtype are inferred lazily from the first prepared
         # observation; normalization belongs to Observation Preparation.
@@ -329,8 +334,6 @@ class Trainer:
         # Optional WandB
         self._wandb = None
         if trainer_config.wandb_project is not None:
-            import wandb
-
             self._wandb = wandb
             init_kwargs: dict[str, Any] = {
                 "project": trainer_config.wandb_project,
@@ -414,7 +417,7 @@ class Trainer:
         prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.encoder_obs, prepared.is_first
 
-    def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+    def _prefill(self, rng_key: jnp.ndarray, _writer: Any, _f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
@@ -656,7 +659,7 @@ class Trainer:
             and self.tcfg.video_log_every > 0
             and self.tcfg.video_log_episodes > 0
             and step >= next_video_step
-            and hasattr(self.env, "_env")
+            and hasattr(self.env, "agent_state")
         )
 
     def _goal_positions(self, env: Env) -> list[list[float]]:
@@ -670,7 +673,12 @@ class Trainer:
         return positions
 
     def _agent_position(self, env: Env) -> list[float]:
-        pos = env._env.sim.get_agent_state().position
+        agent_state = getattr(env, "agent_state", None)
+        if agent_state is None:
+            raise AttributeError(
+                f"{type(env).__name__} does not expose agent_state for video logging"
+            )
+        pos = agent_state.position
         return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 
     def _start_video_recording(self, env: Env, obs: ObservationFrame) -> dict[str, Any]:

@@ -12,9 +12,9 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import numpy as np
 
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
@@ -37,8 +37,8 @@ def main() -> None:
     out = ext.extract(_make_synthetic_rgb_frame(args.seed))
 
     # Materialize to host for storage.
-    world_points = np.asarray(out["world_points"])
-    camera_pose = np.asarray(out["camera_pose"])
+    world_points = np.asarray(out.world_points)
+    camera_pose = np.asarray(out.camera_pose)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez(args.out, world_points=world_points, camera_pose=camera_pose)

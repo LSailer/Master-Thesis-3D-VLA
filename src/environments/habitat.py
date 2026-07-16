@@ -297,6 +297,11 @@ class HabitatObjectNavEnv:
         return getattr(self._env, "current_episode", None)
 
     @property
+    def agent_state(self) -> Any:
+        """Current habitat-sim agent state (position and rotation)."""
+        return self._env.sim.get_agent_state()
+
+    @property
     def episode_count(self) -> int:
         """Number of episodes in the wrapped Habitat dataset."""
         dataset = getattr(self._env, "_dataset")
