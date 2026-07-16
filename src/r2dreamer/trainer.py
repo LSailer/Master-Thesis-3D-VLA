@@ -72,8 +72,12 @@ class R2DreamerAgentLike(Protocol):
     ema_state: Any
 
     def train_step(
-        self, batch: ReplayBatch, rng_key: jnp.ndarray
-    ) -> dict[str, float]: ...
+        self,
+        batch: ReplayBatch,
+        rng_key: jnp.ndarray,
+        *,
+        materialize: bool = True,
+    ) -> dict[str, Any]: ...
 
     def act(
         self,
@@ -328,12 +332,12 @@ class Trainer:
             import wandb
 
             self._wandb = wandb
-            init_kwargs: dict[str, Any] = dict(
-                project=trainer_config.wandb_project,
-                name=trainer_config.wandb_name,
-                config=config_snapshot(agent_config),
-                tags=trainer_config.wandb_tags,
-            )
+            init_kwargs: dict[str, Any] = {
+                "project": trainer_config.wandb_project,
+                "name": trainer_config.wandb_name,
+                "config": config_snapshot(agent_config),
+                "tags": trainer_config.wandb_tags,
+            }
             if trainer_config.wandb_id is not None:
                 # resume="must" fails loudly if the run-id does not exist,
                 # which is what we want — silent re-creation orphans runs.
@@ -357,7 +361,7 @@ class Trainer:
             # Append to existing CSV when resuming so the prior rows survive.
             is_resume = self._resume_step > 0
             csv_mode = "a" if is_resume else "w"
-            with open(csv_path, csv_mode, newline="") as f:
+            with open(csv_path, csv_mode, newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not is_resume:
                     writer.writerow(["step", "metric", "value"])

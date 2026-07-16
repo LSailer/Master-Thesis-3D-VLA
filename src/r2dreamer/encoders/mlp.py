@@ -13,7 +13,11 @@ from src.r2dreamer.encoders.constants import (
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
 )
-from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
+from src.r2dreamer.encoders.shape_utils import (
+    flatten_event,
+    restore_leading,
+    validate_house_points,
+)
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     CAMERA_TOKEN_GLOBAL_KEY,
@@ -152,13 +156,7 @@ class HousePointsCameraEncoder(nn.Module):
         batch_size: int,
         house_size: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        if house_points.ndim == 2:
-            house_points = house_points[None]
-        if house_points.ndim != 3 or house_points.shape[-1] != self.house_point_dim:
-            raise ValueError(
-                "house_points must have shape (N, 6) or (S, N, 6), "
-                f"got {house_points.shape}"
-            )
+        house_points = validate_house_points(house_points, self.house_point_dim)
         x = house_points.astype(self.compute_dtype)
         # Normalize the metric XYZ channels [:3] before the point MLP; RGB
         # channels [3:] are already in [0, 1] and pass through untouched.

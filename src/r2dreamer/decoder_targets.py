@@ -6,6 +6,7 @@ from typing import Any
 import jax.numpy as jnp
 
 from src.buffer.replay_buffer import ReplayBatch
+from src.r2dreamer.encoder_types import COMPOSITE_RGB_ENCODER_TYPES
 from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 
 
@@ -27,13 +28,7 @@ def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
     """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
     obs = batch.obs
     B, T = replay_batch_shape(batch)
-    if encoder_type in (
-        "hybrid",
-        "vggt_house_context",
-        "vggt_house_full_tokens_nogate",
-        "vggt_house_global_tokens_nogate",
-        "vggt_house_global_embedding",
-    ):
+    if encoder_type in COMPOSITE_RGB_ENCODER_TYPES:
         if isinstance(obs, Mapping):
             image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])
             return image.reshape(B * T, 3, 64, 64)

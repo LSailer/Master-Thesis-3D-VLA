@@ -25,6 +25,7 @@ import optax
 from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
+from src.r2dreamer.encoder_types import RGB_BEARING_ENCODER_TYPES
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.shared.optim import agc, laprop
 
@@ -329,14 +330,7 @@ class R2DreamerAgent:
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in (
-                "cnn",
-                "hybrid",
-                "vggt_house_context",
-                "vggt_house_full_tokens_nogate",
-                "vggt_house_global_tokens_nogate",
-                "vggt_house_global_embedding",
-            ):
+            if config.encoder_type not in RGB_BEARING_ENCODER_TYPES:
                 raise ValueError(
                     "decoder=True requires an RGB-bearing encoder_type — the "
                     "ConvDecoder reconstructs an RGB image, but "
@@ -450,7 +444,7 @@ class R2DreamerAgent:
         """
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
         batched_obs = batch_live_observation(encoder_obs)
-        action_int, self._act_state = self._jit_act_with_state.__call__(
+        action_int, self._act_state = self._jit_act_with_state(
             self.params, batched_obs, self._act_state, reset, rng_key, training
         )
 
@@ -471,7 +465,7 @@ class R2DreamerAgent:
         """Functional acting wrapper for one raw live encoder observation."""
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
         batched_obs = batch_live_observation(encoder_obs)
-        action_int, new_state = self._jit_act_with_state.__call__(
+        action_int, new_state = self._jit_act_with_state(
             self.params, batched_obs, state, reset, rng_key, training
         )
         # As in ``act``: return a host int action (state pytree passes through
@@ -600,7 +594,7 @@ class R2DreamerAgent:
           A dict of metric name to value. Python floats when ``materialize``,
           otherwise device ``jax.Array`` scalars.
         """
-        self.train_state, metrics = self._jitted_train_step.__call__(
+        self.train_state, metrics = self._jitted_train_step(
             self.train_state,
             batch,
             rng_key,
