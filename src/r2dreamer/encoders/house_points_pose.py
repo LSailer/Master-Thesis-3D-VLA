@@ -13,6 +13,9 @@ from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
     HybridHousePointsCameraEncoder as ModelHybridHousePointsCameraEncoder,
 )
+from src.r2dreamer.encoders.pointnet import (
+    PointNetHousePointsCameraEncoder as ModelPointNetHousePointsCameraEncoder,
+)
 from src.vggt.jax.feature_extractor import ResetMode
 
 
@@ -62,11 +65,7 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
 
     @property
     def module_cls(self) -> type[nn.Module]:
-        # Imported lazily: pointnet.py imports this module for the launcher
-        # subclass, so a top-level import here would be circular.
-        from src.r2dreamer.encoders.pointnet import PointNetHousePointsCameraEncoder
-
-        return PointNetHousePointsCameraEncoder
+        return ModelPointNetHousePointsCameraEncoder
 
     @property
     def agent_overrides(self) -> Mapping[str, Any]:
@@ -78,9 +77,9 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
 
         The PointNet and GNN house modules inherit ``HousePointsCameraEncoder``
         and take the same base kwargs (their extra attrs — graph knots, T-Net
-        widths — use module defaults), so the ``GnnHousePointsPoseEncoder``,
-        ``GnnEdgeHousePointsPoseEncoder``, and ``PointNetHousePointsPoseEncoder``
-        selections inherit this formula unchanged.
+        widths — use module defaults), so the ``GnnHousePointsPoseEncoder`` and
+        ``GnnEdgeHousePointsPoseEncoder`` selections inherit this formula
+        unchanged.
 
         ``house_point_norm`` is part of the formula (not a factory overlay) so
         the durable snapshot carries it and eval-from-checkpoint reproduces the

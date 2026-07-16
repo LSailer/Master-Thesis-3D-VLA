@@ -41,7 +41,6 @@ import flax.linen as nn
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 
-from src.r2dreamer.encoders.house_points_pose import VGGTHousePointsPoseEncoder
 from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder, RMSNorm
 from src.r2dreamer.encoders.shape_utils import (
     singleton_house_cloud,
@@ -211,30 +210,3 @@ class PointNetHousePointsCameraEncoder(HousePointsCameraEncoder):
         if batch_size != 1:
             house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))
         return house_embed
-
-
-class PointNetHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
-    """Launcher-side selection for the PointNet house encoder.
-
-    Reuses the whole VGGT house-points-pose pipeline (adapter, live buffer,
-    camera pose replay). The parent selection now defaults to the same
-    PointNet module; this named selection pins it explicitly under the
-    ``pointnet`` encoder type.
-    """
-
-    @property
-    def encoder_type(self) -> str:
-        return "pointnet"
-
-    @property
-    def module_cls(self) -> type[nn.Module]:
-        return PointNetHousePointsCameraEncoder
-
-    @property
-    def design_notes(self) -> str:
-        return (
-            "Classic PointNet house branch — input/feature T-Nets, shared "
-            "MLPs (64,64) and (64,128,1024), max pool to one 1024-d global "
-            "feature — over an even-stride subset of the live house snapshot "
-            "(src/r2dreamer/encoders/pointnet.py)."
-        )

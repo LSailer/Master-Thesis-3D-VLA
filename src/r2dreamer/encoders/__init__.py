@@ -29,7 +29,6 @@ from src.r2dreamer.encoders.house_points_pose import (
     VGGTHousePointsPoseEncoder,
     VGGTHybridHousePointsPoseEncoder,
 )
-from src.r2dreamer.encoders.pointnet import PointNetHousePointsPoseEncoder
 from src.r2dreamer.encoders.transformer import TokenTransformerEncoder
 
 if TYPE_CHECKING:
