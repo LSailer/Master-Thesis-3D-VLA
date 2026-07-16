@@ -179,9 +179,10 @@ class HousePointsCameraEncoder(nn.Module):
         # scalar governs every row; callers without the size key (legacy
         # paths) get an all-valid mask, i.e. plain mean/max pooling.
         n_points = house_points.shape[1]
-        if house_size is None:
-            house_size = n_points
-        size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)[:1]
+        size_source: jnp.ndarray | int = (
+            n_points if house_size is None else house_size
+        )
+        size = jnp.asarray(size_source, dtype=jnp.int32).reshape(-1)[:1]
         valid = (jnp.arange(n_points)[None, :] < size[:, None])[..., None]
         denom = jnp.maximum(size, 1).astype(x.dtype)[:, None]
         mean = (x * valid).sum(axis=1) / denom
@@ -222,7 +223,7 @@ class HousePointsCameraEncoder(nn.Module):
         return jnp.concatenate([camera_embed, house_embed], axis=-1)
 
     @nn.compact
-    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, ...]:
         """Diagnostic split: ``(camera_pose_embedding, house_points_embedding)``."""
         return self._branches(obs)
 
@@ -283,9 +284,7 @@ class HybridHousePointsCameraEncoder(HousePointsCameraEncoder):
         return jnp.concatenate([cnn_embed, camera_embed, house_embed], axis=-1)
 
     @nn.compact
-    def branches(
-        self, obs: dict[str, jnp.ndarray]
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, ...]:
         """Diagnostic split: ``(cnn, gated_camera, gated_house, gate_camera, gate_house)``."""
         return self._hybrid_branches(obs)
 

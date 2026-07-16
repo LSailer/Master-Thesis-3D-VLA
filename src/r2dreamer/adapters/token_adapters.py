@@ -234,10 +234,11 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
         Args:
           label: Filename label inserted into ``pointcloud_<label>.ply``.
         """
-        if not self._dump_enabled:
+        dump_dir = self._dump_dir
+        if not self._dump_enabled or dump_dir is None:
             return
-        os.makedirs(self._dump_dir, exist_ok=True)
-        path = os.path.join(self._dump_dir, f"pointcloud_{label}.ply")
+        os.makedirs(dump_dir, exist_ok=True)
+        path = os.path.join(dump_dir, f"pointcloud_{label}.ply")
         self._extractor.write_point_cloud_ply(path)
         self._dump_count += 1
 

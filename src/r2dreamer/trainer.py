@@ -561,7 +561,6 @@ class Trainer:
         self._last_log_step = start_step - 1
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
-        metrics: dict[str, Any] = {}
         video_next_step = start_step
         video_recording = None
         if self._should_record_video(start_step, video_next_step):
@@ -620,6 +619,8 @@ class Trainer:
             if self.buffer.size >= batch_steps:
                 train_credit += acfg.train_ratio / batch_steps
                 will_log = step % tcfg.log_every == 0
+                batch = None
+                metrics = None
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
@@ -629,9 +630,9 @@ class Trainer:
                     )
                     train_credit -= 1.0
 
-                if will_log and metrics:
+                if will_log and metrics is not None:
                     self._log_train_metrics(metrics, step, writer, f)
-                    if getattr(acfg, "decoder", False):
+                    if getattr(acfg, "decoder", False) and batch is not None:
                         self._maybe_log_recon(batch, step)
 
             # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---

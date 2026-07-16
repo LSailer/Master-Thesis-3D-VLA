@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import import_module
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import flax.linen as nn
 
@@ -182,13 +182,33 @@ def _vggt_module_kwargs(module_cls: type, config: Any) -> dict[str, Any]:
 class Encoder:
     """Base launcher-side input mode."""
 
-    encoder_type: str = ""
-    module_cls: type[nn.Module] | None = None
+    _encoder_type: ClassVar[str] = ""
+    _module_cls: ClassVar[type[nn.Module] | None] = None
+    _agent_overrides: ClassVar[Mapping[str, Any]] = {}
+    _design_notes: ClassVar[str] = ""
     env_render_resolution: int = 64
-    agent_overrides: Mapping[str, Any] = {}
-    design_notes: str = ""
 
     _adapter: ObsAdapter | None = None
+
+    @property
+    def encoder_type(self) -> str:
+        """Return the agent encoder type string."""
+        return type(self)._encoder_type
+
+    @property
+    def module_cls(self) -> type[nn.Module] | None:
+        """Return the low-level Flax encoder module class."""
+        return type(self)._module_cls
+
+    @property
+    def agent_overrides(self) -> Mapping[str, Any]:
+        """Return config overrides implied by this encoder selection."""
+        return type(self)._agent_overrides
+
+    @property
+    def design_notes(self) -> str:
+        """Return human-readable design notes for manifests."""
+        return type(self)._design_notes
 
     @classmethod
     def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
@@ -259,8 +279,8 @@ class Encoder:
 class CNNEncoder(Encoder):
     """CNN Observation Preparation feeding the internal ConvEncoder."""
 
-    encoder_type = "cnn"
-    module_cls = ConvEncoder
+    _encoder_type = "cnn"
+    _module_cls = ConvEncoder
 
     @classmethod
     def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:

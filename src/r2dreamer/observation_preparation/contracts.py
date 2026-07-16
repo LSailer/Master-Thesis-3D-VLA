@@ -73,6 +73,10 @@ def encoder_module_kwargs_from_config(
     from src.r2dreamer.launch.registries import encoder_registry
 
     encoder_type = getattr(config, "encoder_type", None)
+    if not isinstance(encoder_type, str):
+        raise ValueError(
+            f"no launcher Encoder registered for encoder_type {encoder_type!r}"
+        )
     launcher_cls = encoder_registry.get(encoder_type)
     if launcher_cls is None:
         raise ValueError(

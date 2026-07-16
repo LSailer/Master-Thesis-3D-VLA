@@ -42,6 +42,7 @@ def benchmark_variant(
         # Measure
         torch.cuda.reset_peak_memory_stats(device)
         start = time.perf_counter()
+        output: Any = None
         for _ in range(n_frames):
             with torch.no_grad():
                 output = model(dummy)

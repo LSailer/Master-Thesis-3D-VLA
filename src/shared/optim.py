@@ -7,7 +7,7 @@ import optax
 
 
 class LaPropState(NamedTuple):
-    count: jnp.ndarray
+    step: jnp.ndarray
     exp_avg: optax.Updates
     exp_avg_sq: optax.Updates
     exp_avg_lr1: jnp.ndarray
@@ -17,7 +17,7 @@ class LaPropState(NamedTuple):
 def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
     def init_fn(params):
         return LaPropState(
-            count=jnp.zeros([], jnp.int32),
+            step=jnp.zeros([], jnp.int32),
             exp_avg=jax.tree.map(jnp.zeros_like, params),
             exp_avg_sq=jax.tree.map(jnp.zeros_like, params),
             exp_avg_lr1=jnp.zeros([]),
@@ -25,13 +25,13 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
         )
 
     def update_fn(updates, state, params=None):
-        count = state.count + 1
+        step = state.step + 1
 
         # Linear warmup: scale effective LR from 0 to lr over `warmup` steps
         # Matches PyTorch: LambdaLR(optimizer, lambda step: min(1, (step+1)/warmup))
         warmup_factor = jnp.where(
             warmup > 0,
-            jnp.minimum(1.0, count.astype(jnp.float32) / warmup),
+            jnp.minimum(1.0, step.astype(jnp.float32) / warmup),
             1.0,
         )
         effective_lr = lr * warmup_factor
@@ -65,7 +65,7 @@ def laprop(lr=4e-4, b1=0.9, b2=0.999, eps=1e-15, warmup=0):
         # Final update: -step_size * exp_avg
         final = jax.tree.map(lambda m: -step_size * m, exp_avg)
 
-        return final, LaPropState(count, exp_avg, exp_avg_sq, exp_avg_lr1, exp_avg_lr2)
+        return final, LaPropState(step, exp_avg, exp_avg_sq, exp_avg_lr1, exp_avg_lr2)
 
     return optax.GradientTransformation(init_fn, update_fn)
 

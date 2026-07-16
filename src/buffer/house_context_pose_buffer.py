@@ -109,6 +109,16 @@ def _hash_voxel_keys(keys_xyz: jax.Array, hash_table_size: int) -> jax.Array:
     return (hashed & jnp.uint32(hash_table_size - 1)).astype(jnp.int32)
 
 
+def _quantize_points(
+    flat_xyz: jax.Array, voxel_size_m: float
+) -> tuple[jax.Array, jax.Array]:
+    """Return finite mask and int32 voxel keys for ``(P, 3)`` XYZ points."""
+    finite_xyz = jnp.isfinite(flat_xyz).all(axis=1)
+    safe_xyz = jnp.where(jnp.isfinite(flat_xyz), flat_xyz, jnp.float32(0.0))
+    voxel_keys = jnp.floor(safe_xyz / voxel_size_m).astype(jnp.int32)
+    return finite_xyz, voxel_keys
+
+
 def _unique_frame_voxels(
     flat_xyz: jax.Array,
     flat_rgb: jax.Array,
@@ -258,13 +268,16 @@ def _add_frame_to_state(
     Returns:
       The updated voxel context state.
     """
-    voxel_keys = jnp.floor(frame.xyz /  config.voxel_size_m)
+    flat_xyz = jnp.asarray(frame.xyz, dtype=jnp.float32)
+    flat_rgb = jnp.asarray(frame.rgb, dtype=jnp.uint8)
+    confidence = jnp.asarray(frame.confidence, dtype=jnp.float32)
+    finite_xyz, voxel_keys = _quantize_points(flat_xyz, config.voxel_size_m)
     valid = (
-        frame.xyz
-        & jnp.isfinite(frame.confidence)
-        & (frame.confidence >= config.confidence_score)
+        finite_xyz
+        & jnp.isfinite(confidence)
+        & (confidence >= config.confidence_score)
     )
-    unique = _unique_frame_voxels(frame.xyz, flat_rgb, valid, voxel_keys)
+    unique = _unique_frame_voxels(flat_xyz, flat_rgb, valid, voxel_keys)
     return _insert_unique_voxels(state, unique, config)
 
 

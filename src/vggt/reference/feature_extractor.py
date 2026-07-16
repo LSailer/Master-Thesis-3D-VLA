@@ -165,6 +165,7 @@ class VGGTFeatureExtractor:
               "camera_pose": (9,) float32}``
         """
         profiling = phase_times is not None
+        fwd_start = fwd_end = wrap_start = wrap_end = None
         if profiling:
             fwd_start = torch.cuda.Event(enable_timing=True)
             fwd_end = torch.cuda.Event(enable_timing=True)
@@ -225,6 +226,7 @@ class VGGTFeatureExtractor:
                 pts3d = pts3d[:, 0]  # (B, H, W, 3)  — remove sequence dim
 
         if profiling:
+            assert fwd_end is not None and wrap_start is not None
             fwd_end.record()
             wrap_start.record()
 
@@ -242,6 +244,13 @@ class VGGTFeatureExtractor:
         camera_pose_np = camera_pose.squeeze(0).cpu().float().numpy()
 
         if profiling:
+            assert (
+                fwd_start is not None
+                and fwd_end is not None
+                and wrap_start is not None
+                and wrap_end is not None
+                and phase_times is not None
+            )
             wrap_end.record()
             torch.cuda.synchronize()
             phase_times["vggt_forward"].append(fwd_start.elapsed_time(fwd_end))

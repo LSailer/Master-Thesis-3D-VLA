@@ -109,10 +109,10 @@ class PointNet2Encoder(Encoder):
     the encoder input and ``PointNet2FeatureEncoder`` as the module class.
     """
 
-    encoder_type = "pointnet2"
-    module_cls = PointNet2FeatureEncoder
+    _encoder_type = "pointnet2"
+    _module_cls = PointNet2FeatureEncoder
     env_render_resolution = 64
-    design_notes = (
+    _design_notes = (
         "Skeleton for adapting external TensorFlow PointNet++ point-cloud "
         "features into the R2Dreamer encoder pipeline."
     )

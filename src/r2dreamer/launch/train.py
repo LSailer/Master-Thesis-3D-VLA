@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import replace
+from collections.abc import Mapping
 from typing import Any
 
+from src.configs.agent_config import LatentPreset
 from src.environments.habitat import HabitatEnvConfig
 
 from src.r2dreamer.trainer import Trainer
@@ -106,7 +108,7 @@ def _make_env_instances(
 
 
 def _agent_overrides_from_args(
-    args: Any, encoder_spec: Any, latent_presets: dict[str, dict]
+    args: Any, encoder_spec: Any, latent_presets: Mapping[str, LatentPreset]
 ):
     agent_overrides = dict(encoder_spec.agent_overrides)
     # Diagnostic CLI overrides (None => keep config default / encoder override).
