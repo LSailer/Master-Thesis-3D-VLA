@@ -59,18 +59,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _with_curriculum_path_arg(args, rest: list[str]) -> list[str]:
-    """Forward main-level curriculum path to the workflow parser."""
-    if args.curriculum_path is None:
-        return rest
-    return [*rest, "--curriculum_path", args.curriculum_path]
-
 
 def make_env(
     env: str,
     *,
     curriculum: str | None = None,
-    curriculum_path: str | None = None,
     mode: str = "train",
 ) -> HabitatObjectNavEnv | CrafterEnv:
     """Build an env instance for notebook / CLI experimentation."""
@@ -78,7 +71,6 @@ def make_env(
         return HabitatObjectNavEnv(
             config=HabitatEnvConfig(
                 curriculum=curriculum,
-                curriculum_path=curriculum_path,
                 mode=mode,
             ),
             seed=0,
@@ -91,9 +83,9 @@ def main(argv: Sequence[str] | None = None) -> object:
     """Dispatch to train/evaluate while forwarding workflow-specific flags."""
     parser = _build_parser()
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
-    rest = _with_curriculum_path_arg(args, rest)
-    # Instant of Environment
 
+    # Instant of Environment
+    env = make_env(args.env, curriculum=args.curriculum, curriculum_path=args.curriculum_path, mode=args.mode)
     if args.command == "train":
         # Trainer Object
         # run function

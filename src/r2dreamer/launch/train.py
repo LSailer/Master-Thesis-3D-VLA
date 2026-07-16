@@ -95,8 +95,7 @@ def _make_env_instances(
             ),
             max_episode_steps=500,
             reward_type="geodesic_delta",
-            curriculum=curriculum,
-            curriculum_path=curriculum_path,
+            curriculum=curriculum if curriculum is not None else "L1",
             mode=args.mode,
         )
         env_instance = env_fn(config=env_config, seed=args.seed)

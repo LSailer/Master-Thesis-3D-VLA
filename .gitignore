@@ -70,3 +70,4 @@ tests/prototyp/
 .scratch/
 .agents/
 skills-lock.json
+__archiv__/

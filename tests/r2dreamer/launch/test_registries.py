@@ -7,9 +7,8 @@ import pytest
 from src.configs.agent_config import R2DreamerConfig
 from src.environments.habitat import (
     HABITAT_CURRICULA,
-    HabitatEnvConfig,
     resolve_habitat_curriculum_path,
-    resolve_habitat_episode_mode,
+    validate_habitat_mode,
 )
 from src.r2dreamer.encoders import Encoder, HybridEncoder
 from src.r2dreamer.encoders.factory import _make_encoder
@@ -173,28 +172,16 @@ class TestHabitatCurricula:
         assert set(HABITAT_CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
 
     def test_config_resolves_named_curriculum(self):
-        config = HabitatEnvConfig(curriculum="L1")
+        assert resolve_habitat_curriculum_path("L1") == HABITAT_CURRICULA["L1"]
 
-        assert resolve_habitat_curriculum_path(config) == HABITAT_CURRICULA["L1"]
+    def test_unknown_curriculum_raises(self):
+        with pytest.raises(ValueError, match="Unknown Habitat curriculum"):
+            resolve_habitat_curriculum_path("L99")
 
-    def test_config_curriculum_path_overrides_name(self, tmp_path):
-        override = tmp_path / "curriculum.json"
-        config = HabitatEnvConfig(curriculum="L1", curriculum_path=override)
+    def test_mode_accepts_train_and_eval(self):
+        validate_habitat_mode("train")
+        validate_habitat_mode("eval")
 
-        assert resolve_habitat_curriculum_path(config) == override
-
-    def test_episode_mode_with_curriculum_uses_train_split(self):
-        config = HabitatEnvConfig(curriculum="L1", mode="eval")
-
-        assert resolve_habitat_episode_mode(config) == ("train", "eval")
-
-    def test_episode_mode_without_curriculum_is_habitat_split(self):
-        config = HabitatEnvConfig(mode="val_mini")
-
-        assert resolve_habitat_episode_mode(config) == ("val_mini", None)
-
-    def test_episode_mode_rejects_val_with_curriculum(self):
-        config = HabitatEnvConfig(curriculum="L1", mode="val")
-
+    def test_mode_rejects_habitat_split_names(self):
         with pytest.raises(ValueError, match="train' or 'eval"):
-            resolve_habitat_episode_mode(config)
+            validate_habitat_mode("val")

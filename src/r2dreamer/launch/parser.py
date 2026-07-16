@@ -444,9 +444,8 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     p.add_argument(
         "--mode",
         type=str,
-        default="val",
-        help="Episode set: eval with a curriculum; Habitat split otherwise "
-        "(default val).",
+        default="eval",
+        help="Episode set: train/eval curriculum keys (default eval).",
     )
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")

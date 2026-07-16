@@ -36,7 +36,7 @@ echo ""
 echo "=== Step 1/4: Collect val replay data ==="
 uv run python scripts/environments/collect_val_data.py \
     --episodes 5 \
-    --mode val \
+    --mode eval \
     --max_geodesic 5.0 \
     --max_episode_steps 200 \
     --obs_size 64 \
@@ -86,7 +86,7 @@ EVAL_OUTPUT="${EVAL_DIR}/eval_results.json"
 uv run python scripts/r2dreamer/eval_habitat.py \
     --checkpoint "$CHECKPOINT" \
     --episodes 2 \
-    --mode val \
+    --mode eval \
     --semantic \
     --render_topdown \
     --output_dir "$EVAL_DIR"

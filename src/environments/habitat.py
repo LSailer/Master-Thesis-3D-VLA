@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any, TypedDict, cast
 
 import numpy as np
-
 from src.environments.observation import ObservationFrame
 
 # Discrete actions: STOP is a no-op (no movement), kept for action-space parity
@@ -37,11 +36,9 @@ GOAL_RADIUS = 0.2
 class HabitatEnvConfig:
     """Environment-only configuration for Habitat ObjectNav.
 
-    ``mode`` selects the episode set:
-    - With a curriculum: ``"train"`` / ``"eval"`` picks
-      ``{mode}_episode_keys``; Habitat's dataset split is always ``train``.
-    - Without a curriculum: ``mode`` is the Habitat dataset split
-      (``"train"``, ``"val"``, ``"val_mini"``, …).
+    ``mode`` is ``"train"`` or ``"eval"`` and selects
+    ``{mode}_episode_keys`` from the curriculum JSON. Habitat's dataset
+    split is always ``train`` (curriculum episodes live there).
     """
 
     obs_shape: tuple[int, int, int] = (3, 518, 518)
@@ -49,9 +46,11 @@ class HabitatEnvConfig:
     reward_type: str = "geodesic_delta"
     step_penalty: float = -0.01
     success_bonus: float = 10.0
-    curriculum: str | None = None
-    curriculum_path: str | Path | None = None
+    curriculum: str = "L1"
     mode: str = "train"
+    max_geodesic: float | None = None
+    step_counts_path: str | None = None
+    semantic: bool = False
 
 
 class EpisodeEndMetrics(TypedDict):
@@ -62,44 +61,32 @@ class EpisodeEndMetrics(TypedDict):
     collision_rate: float
 
 
-def resolve_habitat_curriculum_path(config: HabitatEnvConfig) -> Path | None:
-    """Resolve the curriculum JSON path declared by ``config``.
+def resolve_habitat_curriculum_path(curriculum: str) -> Path:
+    """Resolve the curriculum JSON path.
 
-    ``curriculum_path`` is the explicit override. Otherwise ``curriculum`` names one
-    of the built-in Habitat ObjectNav levels (``L1``..``L4``).
+    ``curriculum`` names one of the built-in Habitat ObjectNav levels (``L1``..``L4``).
     """
-    if config.curriculum_path is not None:
-        return Path(config.curriculum_path)
-    if config.curriculum is None:
-        return None
-    if config.curriculum not in HABITAT_CURRICULA:
-        raise KeyError(
-            f"Unknown Habitat curriculum {config.curriculum!r}. "
-            f"Available: {list(HABITAT_CURRICULA)}"
+    if curriculum not in HABITAT_CURRICULA:
+        raise ValueError(
+            f"Unknown Habitat curriculum {curriculum!r}. "
+            f"Available: {list(HABITAT_CURRICULA.keys())}"
         )
-    return HABITAT_CURRICULA[config.curriculum]
+    return HABITAT_CURRICULA[curriculum]
 
 
-def resolve_habitat_episode_mode(config: HabitatEnvConfig) -> tuple[str, str | None]:
-    """Derive Habitat dataset split and optional curriculum key mode.
+def validate_habitat_mode(mode: str) -> None:
+    """Require ``mode`` to be ``train`` or ``eval`` for curriculum runs.
 
     Args:
-        config: Habitat env config with ``mode`` and optional curriculum.
-
-    Returns:
-        ``(habitat_split, curriculum_key_mode)``. ``curriculum_key_mode`` is
-        ``"train"`` / ``"eval"`` when a curriculum is set, else ``None``.
+        mode: Episode-key mode from ``HabitatEnvConfig.mode``.
 
     Raises:
-        ValueError: If a curriculum is set and ``mode`` is not ``train``/``eval``.
+        ValueError: If ``mode`` is not ``train`` or ``eval``.
     """
-    if resolve_habitat_curriculum_path(config) is not None:
-        if config.mode not in ("train", "eval"):
-            raise ValueError(
-                f"Curriculum runs need mode 'train' or 'eval', got {config.mode!r}"
-            )
-        return "train", config.mode
-    return config.mode, None
+    if mode not in ("train", "eval"):
+        raise ValueError(
+            f"Curriculum runs need mode 'train' or 'eval', got {mode!r}"
+        )
 
 
 def _validate_goal_distance(dist: float) -> float:
@@ -181,39 +168,34 @@ class HabitatObjectNavEnv:
     def __init__(
         self,
         config: HabitatEnvConfig,
-        max_geodesic: float | None = None,
-        step_counts_path: str | None = None,
-        semantic: bool = False,
         seed: int | None = None,
     ):
-        import habitat
-        from omegaconf import OmegaConf
+        import habitat  # pylint: disable=wrong-import-position
+        from omegaconf import OmegaConf  # pylint: disable=wrong-import-position
 
         habitat_module = cast(Any, habitat)
         self._cfg = config
         height, width = config.obs_shape[1], config.obs_shape[2]
-        habitat_split, curriculum_key_mode = resolve_habitat_episode_mode(config)
+        validate_habitat_mode(config.mode)
 
-        curriculum_path = resolve_habitat_curriculum_path(config)
-        curriculum = None
-        if curriculum_path is not None:
-            with curriculum_path.open(encoding="utf-8") as f:
-                curriculum = json.load(f)
+        with resolve_habitat_curriculum_path(config.curriculum).open(
+            encoding="utf-8"
+        ) as f:
+            curriculum = json.load(f)
 
         hab_cfg = habitat_module.get_config(
             "benchmark/nav/objectnav/objectnav_hm3d.yaml"
         )
         with habitat_module.config.read_write(hab_cfg):
-            hab_cfg.habitat.dataset.split = habitat_split
+            # Curriculum episodes always come from the Habitat train split.
+            hab_cfg.habitat.dataset.split = "train"
             if seed is not None:
                 hab_cfg.habitat.seed = int(seed)
             hab_cfg.habitat.dataset.data_path = str(
                 DATA_DIR / "{split}" / "{split}.json.gz"
             )
             hab_cfg.habitat.dataset.scenes_dir = "data/scene_datasets"
-            # Pre-filter: only load scene files listed in curriculum
-            if curriculum is not None:
-                hab_cfg.habitat.dataset.content_scenes = curriculum["scenes"]
+            hab_cfg.habitat.dataset.content_scenes = curriculum["scenes"]
             scene_cfg = next(SCENE_DIR.rglob("*scene_dataset_config.json"), None)
             if scene_cfg:
                 hab_cfg.habitat.simulator.scene_dataset = str(scene_cfg)
@@ -223,85 +205,84 @@ class HabitatObjectNavEnv:
             hab_cfg.habitat.environment.max_episode_steps = config.max_episode_steps
             # load_semantic_mesh is a habitat-sim attr not in the OmegaConf schema
             OmegaConf.set_struct(hab_cfg.habitat.simulator, False)
-            hab_cfg.habitat.simulator.load_semantic_mesh = semantic
+            hab_cfg.habitat.simulator.load_semantic_mesh = config.semantic
             OmegaConf.set_struct(hab_cfg.habitat.simulator, True)
 
         self._env = habitat_module.Env(config=hab_cfg)
         if seed is not None and hasattr(self._env, "seed"):
             self._env.seed(int(seed))
 
-        if curriculum is not None:
-            # Keys are [episode_id, object_category, scene_name] triples
-            assert curriculum_key_mode is not None
-            key_set = {
-                (k[0], k[1], k[2])
-                for k in curriculum[f"{curriculum_key_mode}_episode_keys"]
-            }
+        # Keys are [episode_id, object_category, scene_name] triples
+        key_set = {
+            (k[0], k[1], k[2])
+            for k in curriculum[f"{config.mode}_episode_keys"]
+        }
+        dataset = self._env._dataset
+        before = len(dataset.episodes)
+        dataset.episodes = [
+            ep
+            for ep in dataset.episodes
+            if (
+                ep.episode_id,
+                getattr(ep, "object_category", None),
+                ep.scene_id.split("/")[-1].replace(".basis.glb", ""),
+            )
+            in key_set
+        ]
+        after = len(dataset.episodes)
+        assert after > 0, (
+            "Curriculum filter matched 0 episodes for "
+            f"mode='{config.mode}'. Check that curriculum JSON "
+            "keys match the dataset split."
+        )
+        self._env._setup_episode_iterator()
+        self._env.current_episode = next(self._env.episode_iterator)
+        print(
+            f"Curriculum [{curriculum['name']}] {config.mode}: "
+            f"{before} → {after} episodes"
+        )
+
+        if config.max_geodesic is not None:
             dataset = self._env._dataset
             before = len(dataset.episodes)
             dataset.episodes = [
                 ep
                 for ep in dataset.episodes
-                if (
-                    ep.episode_id,
-                    getattr(ep, "object_category", None),
-                    ep.scene_id.split("/")[-1].replace(".basis.glb", ""),
-                )
-                in key_set
+                if ep.info is not None
+                and ep.info.get("geodesic_distance", float("inf"))
+                < config.max_geodesic
             ]
             after = len(dataset.episodes)
             assert after > 0, (
-                "Curriculum filter matched 0 episodes for "
-                f"mode='{curriculum_key_mode}'. Check that curriculum JSON "
-                "keys match the dataset split."
+                f"max_geodesic={config.max_geodesic} filtered out all episodes."
             )
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
             print(
-                f"Curriculum [{curriculum['name']}] {curriculum_key_mode}: "
-                f"{before} → {after} episodes"
+                f"Filtered: {before} → {after} "
+                f"episodes (geodesic < {config.max_geodesic}m)"
             )
-        else:
-            if max_geodesic is not None:
-                dataset = self._env._dataset
-                before = len(dataset.episodes)
-                dataset.episodes = [
-                    ep
-                    for ep in dataset.episodes
-                    if ep.info is not None
-                    and ep.info.get("geodesic_distance", float("inf")) < max_geodesic
-                ]
-                after = len(dataset.episodes)
-                assert after > 0, (
-                    f"max_geodesic={max_geodesic} filtered out all episodes."
-                )
-                self._env._setup_episode_iterator()
-                self._env.current_episode = next(self._env.episode_iterator)
-                print(
-                    f"Filtered: {before} → {after} "
-                    f"episodes (geodesic < {max_geodesic}m)"
-                )
 
-            if step_counts_path is not None:
-                with open(step_counts_path, encoding="utf-8") as f:
-                    step_counts = json.load(f)
-                split_counts = step_counts.get(habitat_split, {})
-                dataset = self._env._dataset
-                before = len(dataset.episodes)
-                dataset.episodes = [
-                    ep
-                    for ep in dataset.episodes
-                    if split_counts.get(ep.episode_id, 0) < 200
-                ]
-                after = len(dataset.episodes)
-                assert after > 0, (
-                    "step_counts filter removed all episodes — check split key in JSON."
-                )
-                self._env._setup_episode_iterator()
-                self._env.current_episode = next(self._env.episode_iterator)
-                print(
-                    f"Filtered (step count): {before} → {after} episodes (steps < 200)"
-                )
+        if config.step_counts_path is not None:
+            with open(config.step_counts_path, encoding="utf-8") as f:
+                step_counts = json.load(f)
+            split_counts = step_counts.get("train", {})
+            dataset = self._env._dataset
+            before = len(dataset.episodes)
+            dataset.episodes = [
+                ep
+                for ep in dataset.episodes
+                if split_counts.get(ep.episode_id, 0) < 200
+            ]
+            after = len(dataset.episodes)
+            assert after > 0, (
+                "step_counts filter removed all episodes — check split key in JSON."
+            )
+            self._env._setup_episode_iterator()
+            self._env.current_episode = next(self._env.episode_iterator)
+            print(
+                f"Filtered (step count): {before} → {after} episodes (steps < 200)"
+            )
 
         self._prev_dist = 0.0
         self._step_count = 0
@@ -541,33 +522,4 @@ class HabitatObjectNavEnv:
     def close(self):
         """Close the wrapped Habitat environment."""
         self._env.close()
-
-
-def build_habitat_env(
-    obs_shape: tuple[int, int, int],
-    *,
-    max_episode_steps: int = 500,
-    mode: str = "train",
-    curriculum: str | None = None,
-    curriculum_path: str | Path | None = None,
-    semantic: bool = False,
-    seed: int | None = None,
-    reward_type: str = "geodesic_delta",
-    max_geodesic: float | None = None,
-) -> "HabitatObjectNavEnv":
-    """Build a ``HabitatObjectNavEnv`` with a config derived from ``obs_shape``."""
-    config = HabitatEnvConfig(
-        obs_shape=obs_shape,
-        max_episode_steps=max_episode_steps,
-        reward_type=reward_type,
-        curriculum=curriculum,
-        curriculum_path=curriculum_path,
-        mode=mode,
-    )
-    return HabitatObjectNavEnv(
-        config,
-        semantic=semantic,
-        seed=seed,
-        max_geodesic=max_geodesic,
-    )
 
