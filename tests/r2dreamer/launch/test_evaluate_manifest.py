@@ -86,7 +86,10 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
                 "success": float(self.step_count),
                 "spl": float(self.step_count) / 1000.0,
             }
-
+        @property
+        def agent_state(self):
+            return self._env.sim.get_agent_state()
+            
     class _FakeAdapter:
         def transform(self, obs):
             return None, f"agent-{obs['id']}"
@@ -134,7 +137,6 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
         adapter=_FakeAdapter(),
         agent=agent,
         rng_key=jax.random.PRNGKey(0),
-        config=SimpleNamespace(num_actions=4),
         wandb_module=None,
         output_dir=str(tmp_path),
     )

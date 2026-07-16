@@ -9,6 +9,7 @@ from src.environments.habitat import (
     HABITAT_CURRICULA,
     HabitatEnvConfig,
     resolve_habitat_curriculum_path,
+    resolve_habitat_episode_mode,
 )
 from src.r2dreamer.encoders import Encoder, HybridEncoder
 from src.r2dreamer.encoders.factory import _make_encoder
@@ -181,3 +182,19 @@ class TestHabitatCurricula:
         config = HabitatEnvConfig(curriculum="L1", curriculum_path=override)
 
         assert resolve_habitat_curriculum_path(config) == override
+
+    def test_episode_mode_with_curriculum_uses_train_split(self):
+        config = HabitatEnvConfig(curriculum="L1", mode="eval")
+
+        assert resolve_habitat_episode_mode(config) == ("train", "eval")
+
+    def test_episode_mode_without_curriculum_is_habitat_split(self):
+        config = HabitatEnvConfig(mode="val_mini")
+
+        assert resolve_habitat_episode_mode(config) == ("val_mini", None)
+
+    def test_episode_mode_rejects_val_with_curriculum(self):
+        config = HabitatEnvConfig(curriculum="L1", mode="val")
+
+        with pytest.raises(ValueError, match="train' or 'eval"):
+            resolve_habitat_episode_mode(config)

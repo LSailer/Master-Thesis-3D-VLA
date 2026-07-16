@@ -256,7 +256,7 @@ def run_random_baseline(
         (3, 64, 64),
         max_episode_steps=max_episode_steps,
         curriculum_path=curriculum_path,
-        curriculum_mode="eval",
+        mode="eval",
         seed=seed,
     )
     agent = RandomAgent(env=env, num_actions=len(ACTIONS), seed=seed)

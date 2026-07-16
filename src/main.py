@@ -6,6 +6,8 @@ import argparse
 import sys
 from typing import Sequence
 
+from src.environments.crafter import CrafterEnv
+from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.r2dreamer.launch.evaluate import evaluate
 from src.r2dreamer.launch.train import train
 
@@ -64,13 +66,37 @@ def _with_curriculum_path_arg(args, rest: list[str]) -> list[str]:
     return [*rest, "--curriculum_path", args.curriculum_path]
 
 
+def make_env(
+    env: str,
+    *,
+    curriculum: str | None = None,
+    curriculum_path: str | None = None,
+    mode: str = "train",
+) -> HabitatObjectNavEnv | CrafterEnv:
+    """Build an env instance for notebook / CLI experimentation."""
+    if env == "habitat":
+        return HabitatObjectNavEnv(
+            config=HabitatEnvConfig(
+                curriculum=curriculum,
+                curriculum_path=curriculum_path,
+                mode=mode,
+            ),
+            seed=0,
+        )
+    if env == "crafter":
+        return CrafterEnv(seed=0)
+    raise ValueError(f"Unknown environment: {env}")
+
 def main(argv: Sequence[str] | None = None) -> object:
     """Dispatch to train/evaluate while forwarding workflow-specific flags."""
     parser = _build_parser()
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
     rest = _with_curriculum_path_arg(args, rest)
+    # Instant of Environment
 
     if args.command == "train":
+        # Trainer Object
+        # run function
         return train(
             env=args.env,
             encoder=args.encoder,

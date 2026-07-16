@@ -68,7 +68,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--curriculum_path", type=str, default=None)
     p.add_argument("--render_resolution", type=int, default=518)
-    p.add_argument("--split", type=str, default="val")
+    p.add_argument("--mode", type=str, default="eval")
     p.add_argument("--semantic", action="store_true")
     return p
 
@@ -120,10 +120,9 @@ def main(argv: list[str] | None = None) -> dict:
     # --- env ---
     env_instance = build_habitat_env(
         obs_shape=(3, render_resolution, render_resolution),
-        split=args.split,
+        mode=args.mode,
         semantic=args.semantic,
         curriculum_path=curriculum_path,
-        curriculum_mode="eval",
     )
 
     # --- encoder + adapter (VGGT) ---
@@ -343,7 +342,7 @@ def main(argv: list[str] | None = None) -> dict:
         "num_episodes_completed": len(results),
         "encoder": "vggt",
         "render_resolution": render_resolution,
-        "split": "val (overridden by curriculum_mode='eval' inside HabitatObjectNavEnv)",
+        "mode": args.mode,
         "dumped_episodes": sorted(dump_set),
         "bytes_per_step_avg": int(bytes_per_step_avg),
         "total_dump_bytes": int(total_dump_bytes),

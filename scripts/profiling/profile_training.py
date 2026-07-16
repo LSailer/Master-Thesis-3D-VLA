@@ -81,7 +81,7 @@ def _build_cnn(
     env = build_habitat_env(
         obs_shape=(3, 64, 64),
         curriculum_path=curriculum_path,
-        curriculum_mode="train",
+        mode="train",
     )
     buffer = ReplayBuffer(
         capacity=agent_cfg.buffer_capacity,
@@ -132,7 +132,7 @@ def _build_vggt(
     env = build_habitat_env(
         obs_shape=(3, render_resolution, render_resolution),
         curriculum_path=curriculum_path,
-        curriculum_mode="train",
+        mode="train",
     )
     print(
         f"Loading InfiniteVGGT model (compile={compile}, compile_mode={compile_mode!r})..."

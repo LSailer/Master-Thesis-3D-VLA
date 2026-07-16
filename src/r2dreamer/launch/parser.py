@@ -59,7 +59,12 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Explicit Habitat curriculum JSON path.",
     )
-    p.add_argument("--curriculum_mode", type=str, default="train")
+    p.add_argument(
+        "--mode",
+        type=str,
+        default="train",
+        help="Episode set: train/eval with a curriculum; Habitat split otherwise.",
+    )
     p.add_argument(
         "--render_resolution",
         type=int,
@@ -436,7 +441,13 @@ def _build_parser_eval() -> argparse.ArgumentParser:
         default=None,
         help="Render resolution (default: 518 for vggt, 64 for cnn)",
     )
-    p.add_argument("--split", type=str, default="val")
+    p.add_argument(
+        "--mode",
+        type=str,
+        default="val",
+        help="Episode set: eval with a curriculum; Habitat split otherwise "
+        "(default val).",
+    )
     p.add_argument("--save_frames", action="store_true")
     p.add_argument("--semantic", action="store_true")
     p.add_argument("--render_topdown", action="store_true")

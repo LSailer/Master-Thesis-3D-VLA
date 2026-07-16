@@ -110,14 +110,19 @@ def _make_eval_env(*, args, curriculum: str | None, eff_encoder: str):
     effective_curriculum = (
         args.curriculum if args.curriculum is not None else curriculum
     )
+    has_curriculum = (
+        effective_curriculum is not None or args.curriculum_path is not None
+    )
+    # Curriculum eval always uses eval keys; otherwise ``args.mode`` is the
+    # Habitat dataset split (default ``val``).
+    mode = "eval" if has_curriculum else args.mode
     hab_config = HabitatEnvConfig(
         obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
-        split=args.split,
         reward_type="geodesic_delta",
         curriculum=effective_curriculum,
         curriculum_path=args.curriculum_path,
-        curriculum_mode="eval",
+        mode=mode,
     )
     env_instance = HabitatObjectNavEnv(
         hab_config,

@@ -24,7 +24,7 @@ def test_spl_with_shortest_path():
     config = HabitatEnvConfig(
         obs_shape=(3, 64, 64),
         max_episode_steps=500,
-        split="val_mini",
+        mode="val_mini",
         reward_type="geodesic_delta",
     )
     env = HabitatObjectNavEnv(config)

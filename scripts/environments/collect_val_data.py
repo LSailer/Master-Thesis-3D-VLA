@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--episodes", type=int, default=200)
     parser.add_argument("--output", type=str, default="data/val_replay/val_200ep.npz")
-    parser.add_argument("--split", type=str, default="val")
+    parser.add_argument("--mode", type=str, default="val")
     parser.add_argument("--max_geodesic", type=float, default=5.0)
     parser.add_argument("--max_episode_steps", type=int, default=500)
     parser.add_argument("--obs_size", type=int, default=64)
@@ -29,7 +29,7 @@ def main():
     env = build_habitat_env(
         obs_shape=(3, args.obs_size, args.obs_size),
         max_episode_steps=args.max_episode_steps,
-        split=args.split,
+        mode=args.mode,
         max_geodesic=args.max_geodesic,
     )
 

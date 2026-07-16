@@ -39,7 +39,7 @@ def fixture_habitat_env():
         env = build_habitat_env(
             (3, 64, 64),
             max_episode_steps=50,
-            split="val_mini",
+            mode="val_mini",
         )
     except (FileNotFoundError, OSError, RuntimeError, AssertionError) as exc:
         pytest.skip(f"Habitat dataset/scene unavailable: {exc}")

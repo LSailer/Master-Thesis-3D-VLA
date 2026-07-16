@@ -225,7 +225,7 @@ def main():
 
     env = build_habitat_env(
         obs_shape=(3, OBS_HW, OBS_HW), curriculum_path=args.curriculum,
-        curriculum_mode="train", seed=args.seed,
+        mode="train", seed=args.seed,
     )
     follower = ShortestPathFollower(env._env.sim, args.goal_radius, return_one_hot=False)
 
