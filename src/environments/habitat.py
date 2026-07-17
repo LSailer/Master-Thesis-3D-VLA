@@ -499,7 +499,7 @@ class HabitatObjectNavEnv:
     def sample_navmesh(self, resolution: float = 0.05) -> dict:
         """Sample navigable area. Delegates to module-level function."""
         return sample_navmesh(self._env, resolution)
-
+    #TODO: I want to return the HWC image instead of the CHW image
     def _obs_to_image(self, obs) -> np.ndarray:
         rgb = obs["rgb"][:, :, :3]  # (H, W, 3) uint8
         return np.transpose(rgb, (2, 0, 1))  # (3, H, W)

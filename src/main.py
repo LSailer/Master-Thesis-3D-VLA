@@ -51,8 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "hybrid",
         ],
     )
-    eval_parser.add_argument("--curriculum", default=None)
-    eval_parser.add_argument("--curriculum_path", default=None)
+    eval_parser.add_argument("--curriculum", default="")
     eval_parser.add_argument("--checkpoint", default=None)
     eval_parser.add_argument("--output_dir", default=None)
 
@@ -63,7 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def make_env(
     env: str,
     *,
-    curriculum: str | None = None,
+    curriculum: str,
     mode: str = "train",
 ) -> HabitatObjectNavEnv | CrafterEnv:
     """Build an env instance for notebook / CLI experimentation."""
@@ -85,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> object:
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
 
     # Instant of Environment
-    env = make_env(args.env, curriculum=args.curriculum, curriculum_path=args.curriculum_path, mode=args.mode)
+    env = make_env(args.env, curriculum=args.curriculum,  mode=args.mode)
     if args.command == "train":
         # Trainer Object
         # run function
