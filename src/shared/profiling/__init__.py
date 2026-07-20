@@ -7,7 +7,6 @@ R2Dreamer, or VGGT internals are imported at module import time.
 
 from src.shared.profiling.artifacts import write_json
 from src.shared.profiling.step_timer import StepTimer
-from src.shared.profiling.synthetic import make_synthetic_rgb_frame
 from src.shared.profiling.timing import (
     PhaseTimes,
     block_until_ready_tree,

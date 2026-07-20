@@ -1,3 +1,4 @@
+
 """Smoke tests for VGGTFeatureExtractor streaming inference."""
 
 import numpy as np
@@ -10,13 +11,14 @@ try:
 except ImportError:
     HAS_CUDA = False
 
+
 gpu = pytest.mark.skipif(not HAS_CUDA, reason="requires CUDA GPU")
 
 
 def _make_frame(seed: int = 0) -> np.ndarray:
     """Create a synthetic 518x518 RGB frame (CHW, uint8)."""
-    rng = np.random.RandomState(seed)
-    return rng.randint(0, 256, size=(3, 518, 518), dtype=np.uint8)
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
 
 
 @gpu
@@ -31,7 +33,7 @@ class TestVGGTFeatureExtractor:
         yield ext
         # Cleanup GPU memory after all tests in this class.
         del ext
-        torch.cuda.empty_cache()
+
 
     # ---- shape & dtype tests ------------------------------------------------
 

@@ -273,16 +273,12 @@ class TestDecoderGuard:
         )
 
     def test_vggt_plus_decoder_raises(self):
-        import jax
-
         from src.r2dreamer.agent import R2DreamerAgent
 
         with pytest.raises(ValueError, match="decoder=True requires"):
             R2DreamerAgent(self._cfg("vggt", (4116,)), jax.random.PRNGKey(0))
 
     def test_cnn_and_hybrid_plus_decoder_build(self):
-        import jax
-
         from src.r2dreamer.agent import R2DreamerAgent
 
         # Both RGB-bearing encoders must construct with a decoder.
@@ -296,8 +292,6 @@ class TestDecoderGuard:
         assert "decoder" in c.params
 
     def test_hybrid_split_mismatch_raises_value_error(self):
-        import jax
-
         from src.r2dreamer.agent import R2DreamerAgent
 
         cfg = self._cfg("hybrid", (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,))

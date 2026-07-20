@@ -1,9 +1,10 @@
 """Benchmarking utilities for VGGT variants."""
 
 import time
-import torch
-import pandas as pd
 from typing import Any
+
+import pandas as pd
+import torch
 
 
 def run_inference(model: torch.nn.Module, rgb: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -42,6 +43,7 @@ def benchmark_variant(
         # Measure
         torch.cuda.reset_peak_memory_stats(device)
         start = time.perf_counter()
+        output: Any = None
         for _ in range(n_frames):
             with torch.no_grad():
                 output = model(dummy)

@@ -113,9 +113,16 @@ def main() -> None:
     frame_rgb = jax.random.randint(key, (FRAME_PIXELS, 3), 0, 256, dtype=jnp.int32)
     frame_conf = jnp.full((FRAME_PIXELS,), 5.0, dtype=jnp.float32)
 
-    from src.buffer.house_context_pose_buffer import _add_frame_to_state
+    from src.buffer.house_context_pose_buffer import (
+        _add_frame_to_state,
+        _FlattenedFrame,
+    )
 
-    frame_rgb_u8 = frame_rgb.astype(jnp.uint8)
+    frame = _FlattenedFrame(
+        xyz=frame_xyz,
+        rgb=frame_rgb.astype(jnp.uint8),
+        confidence=frame_conf,
+    )
     state_holder = {"state": buffer._state}
 
     def buffer_add():
@@ -124,9 +131,7 @@ def main() -> None:
         # so subsequent calls measure the steady-state pure-dedup path.
         state_holder["state"] = _add_frame_to_state(
             state_holder["state"],
-            frame_xyz,
-            frame_rgb_u8,
-            frame_conf,
+            frame,
             buffer._config,
         )
         return state_holder["state"].size

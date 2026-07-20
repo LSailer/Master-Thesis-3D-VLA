@@ -278,13 +278,6 @@ class ReplayBuffer:
         """
         ring = self._sample_ring_indices(batch_size, seq_len)
 
-        obs_fields = {
-            key: jnp.asarray(store[ring]) for key, store in self._obs_store.items()
-        }
-        obs: ReplayObservationBatch = (
-            obs_fields[_ARRAY_FIELD] if self._obs_kind == "array" else obs_fields
-        )
-
         episode_ends = self._is_episode_end[ring]
         # A window resets sequence state at its start, at stored episode
         # starts, and on the frame after an episode end.
@@ -292,15 +285,33 @@ class ReplayBuffer:
         is_first[:, 0] = True
         is_first[:, 1:] |= episode_ends[:, :-1]
 
-        actions = jax.nn.one_hot(
-            jnp.asarray(self._actions[ring]), self.num_actions, dtype=self.float_dtype
+        # Gather every sampled leaf host-side, then move it to the device with
+        # a single ``device_put`` instead of one ``jnp.asarray`` per field. The
+        # per-field variant paid fixed transfer/dispatch overhead once per leaf
+        # (six times for a hybrid-image adapter); fusing them into one pytree
+        # transfer cuts that to a single dispatch on the hot sampling path.
+        payload = jax.device_put(
+            {
+                "obs": {key: store[ring] for key, store in self._obs_store.items()},
+                "actions": self._actions[ring],
+                "rewards": self._rewards[ring],
+                "is_first": is_first,
+                "is_episode_end": episode_ends,
+            }
+        )
+
+        obs_fields = payload["obs"]
+        obs: ReplayObservationBatch = (
+            obs_fields[_ARRAY_FIELD] if self._obs_kind == "array" else obs_fields
         )
         return ReplayBatch(
             obs=obs,
-            actions=actions,
-            rewards=jnp.asarray(self._rewards[ring], dtype=self.float_dtype),
-            is_first=jnp.asarray(is_first, dtype=self.float_dtype),
-            is_episode_end=jnp.asarray(episode_ends, dtype=self.float_dtype),
+            actions=jax.nn.one_hot(
+                payload["actions"], self.num_actions, dtype=self.float_dtype
+            ),
+            rewards=payload["rewards"].astype(self.float_dtype),
+            is_first=payload["is_first"].astype(self.float_dtype),
+            is_episode_end=payload["is_episode_end"].astype(self.float_dtype),
         )
 
     def sample_transitions(

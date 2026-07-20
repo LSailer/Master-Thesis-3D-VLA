@@ -259,7 +259,7 @@ class Attention(nn.Module):
     ):
         """Padded-cache path: dynamic_update_slice writes + SDPA with bool mask."""
         past_k_pad, past_v_pad, valid_len = past_kv
-        _, _, MAX, Dh = past_k_pad.shape
+        _, _, max_seq, _ = past_k_pad.shape
         cache_dtype = (
             past_k_pad.dtype
         )  # honour whatever dtype the cache was allocated in
@@ -331,8 +331,8 @@ class Attention(nn.Module):
                 implementation="cudnn",
             )
         else:
-            pos = jnp.arange(MAX, dtype=jnp.int32)
-            mask_xla = (pos < new_valid_len).reshape(1, 1, 1, MAX)
+            pos = jnp.arange(max_seq, dtype=jnp.int32)
+            mask_xla = (pos < new_valid_len).reshape(1, 1, 1, max_seq)
             out_tnhd = jax.nn.dot_product_attention(
                 q_tnhd,
                 k_tnhd,

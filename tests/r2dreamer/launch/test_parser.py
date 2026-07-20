@@ -1,5 +1,5 @@
+
 """Parser behavior tests for r2dreamer train launch flags."""
-# pylint: disable=missing-function-docstring
 
 from types import SimpleNamespace
 

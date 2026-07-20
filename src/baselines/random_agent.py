@@ -13,8 +13,27 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.environments.habitat import ACTIONS, HabitatObjectNavEnv, build_habitat_env
+from src.environments.habitat import (
+    ACTIONS,
+    HABITAT_CURRICULA,
+    HabitatEnvConfig,
+    HabitatObjectNavEnv,
+)
 from src.environments.observation import ObservationFrame
+
+
+def _curriculum_name(curriculum_path: str) -> str:
+    """Map a curriculum JSON path to a named level."""
+    from pathlib import Path
+
+    path = Path(curriculum_path)
+    for name, known in HABITAT_CURRICULA.items():
+        if path == known or path.resolve() == known.resolve():
+            return name
+    raise ValueError(
+        f"Unknown curriculum path {curriculum_path!r}. "
+        f"Expected one of: {list(HABITAT_CURRICULA.values())}"
+    )
 
 
 class RandomAgent:
@@ -252,11 +271,13 @@ def run_random_baseline(
 
     Returns aggregate metrics dict.
     """
-    env = build_habitat_env(
-        (3, 64, 64),
-        max_episode_steps=max_episode_steps,
-        curriculum_path=curriculum_path,
-        curriculum_mode="eval",
+    env = HabitatObjectNavEnv(
+        HabitatEnvConfig(
+            obs_shape=(3, 64, 64),
+            max_episode_steps=max_episode_steps,
+            curriculum=_curriculum_name(curriculum_path),
+            mode="eval",
+        ),
         seed=seed,
     )
     agent = RandomAgent(env=env, num_actions=len(ACTIONS), seed=seed)

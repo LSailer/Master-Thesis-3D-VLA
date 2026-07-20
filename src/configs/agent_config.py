@@ -4,11 +4,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 # Model-size presets from the R2-Dreamer table. Each row scales the RSSM width,
 # stochastic latent shape, CNN encoder depth, and prediction-head MLP width.
-LATENT_PRESETS: dict[str, dict[str, int]] = {
+
+
+class LatentPreset(TypedDict):
+    """Named width knobs for one R2-Dreamer size table row."""
+
+    deter_size: int
+    hidden_size: int
+    stoch_classes: int
+    stoch_discrete: int
+    encoder_depth: int
+    mlp_units: int
+
+
+LATENT_PRESETS: dict[str, LatentPreset] = {
     "12m": {
         "deter_size": 2048,
         "hidden_size": 256,
@@ -104,6 +117,10 @@ class R2DreamerConfig:
     vggt_token_dim: int = 1024
     mlp_vggt_hidden: int = 1024
     mlp_vggt_layers: int = 2
+    # House-branch metric XYZ normalization for the MLP/Hybrid house-points
+    # encoders: "symlog" compresses channels [:3] (default), "none" passes raw
+    # coordinates. PointNet/GNN house encoders ignore this knob.
+    house_point_norm: str = "symlog"
     decoder: bool = False
     scale_decoder: float = 1.0
     design_notes: str = ""

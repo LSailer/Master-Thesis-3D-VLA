@@ -1,5 +1,11 @@
+
+"""Shape-contract tests for R2Dreamer modules."""
 import pytest
+import jax
+import jax.numpy as jnp
+
 from src.configs.config import LATENT_PRESETS, R2DreamerConfig
+from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear
 
 
 class TestR2DreamerConfig:
@@ -38,10 +44,6 @@ class TestR2DreamerConfig:
         assert cfg.stoch_size == 768
         assert cfg.encoder_depth == 24
 
-
-import jax
-import jax.numpy as jnp
-from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear
 
 @pytest.fixture
 def rng():

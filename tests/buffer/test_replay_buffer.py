@@ -1,7 +1,9 @@
+
 """Behavior checks for the replay buffer implementation."""
 
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -147,6 +149,29 @@ class TestReplayBufferUnitBehavior:
         np.testing.assert_allclose(np.asarray(batch.rewards), np.array([[3.0]]))
         np.testing.assert_allclose(np.asarray(batch.is_episode_end), np.array([[1.0]]))
         np.testing.assert_allclose(np.asarray(batch.is_first), np.array([[1.0]]))
+
+    def test_sample_preserves_configured_float_dtype(self) -> None:
+        """Sampled float leaves must carry the buffer's configured float_dtype.
+
+        Locks the dtype invariant the fused single-``device_put`` sample path
+        relies on: actions, rewards, is_first and is_episode_end are cast to
+        ``float_dtype`` on-device. A regression that dropped the per-leaf cast
+        (e.g. leaving rewards as the stored float32 or is_first as bool) would
+        silently change model-input precision, so assert bfloat16 end-to-end.
+        """
+        buffer = ReplayBuffer(
+            capacity=4, num_actions=10, float_dtype=jnp.bfloat16
+        )
+        buffer.add(_transition(0, is_first=True))
+        buffer.add(_transition(1))
+        buffer.add(_transition(2))
+
+        batch = buffer.sample(batch_size=2, seq_len=2)
+
+        assert batch.actions.dtype == jnp.bfloat16
+        assert batch.rewards.dtype == jnp.bfloat16
+        assert batch.is_first.dtype == jnp.bfloat16
+        assert batch.is_episode_end.dtype == jnp.bfloat16
 
     def test_invalid_capacity_raises(self) -> None:
         """Capacity must be positive."""

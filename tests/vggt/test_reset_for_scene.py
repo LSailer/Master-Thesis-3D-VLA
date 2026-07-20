@@ -10,7 +10,6 @@ node under ``JAX_PLATFORMS=cpu``.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 import jax.numpy as jnp
 
@@ -108,7 +107,7 @@ class TestResetForScenePersist:
         ext.reset_for_scene("A")
         assert ext._current_scene_id == "A"
         assert _is_reset(ext)
-        assert ext._scene_cache_store == {}
+        assert not ext._scene_cache_store
 
     def test_save_restore_roundtrip_across_scenes(self):
         ext = _make_extractor(ResetMode.PERSIST_SCENE)
@@ -137,7 +136,7 @@ class TestResetForScenePersist:
         _populate(ext, 4)
         ext.reset_for_scene("A")
         assert _is_reset(ext)
-        assert ext._scene_cache_store == {}  # nothing saved under FULL
+        assert not ext._scene_cache_store  # nothing saved under FULL
         # The FULL path does not update _current_scene_id.
         assert ext._current_scene_id is None
 
@@ -183,4 +182,4 @@ class TestImageFromExtractInputWiring:
         calls: list[str] = []
         monkeypatch.setattr(ext, "reset_for_scene", lambda sid: calls.append(sid))
         ext._image_from_extract_input(self._frame(False, "house-42"))
-        assert calls == []
+        assert not calls

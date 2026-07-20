@@ -19,6 +19,7 @@ from typing import Any, Callable, Protocol, TypeAlias, cast
 import jax
 import jax.numpy as jnp
 import numpy as np
+import wandb
 
 from src.buffer.replay_buffer import (
     HybridObservation,
@@ -49,7 +50,8 @@ from src.shared.video_utils import (
 
 
 class Env(Protocol):
-    _env: Any
+    """Minimal environment interface used by the trainer loop."""
+
     current_episode: Any
 
     def reset(self) -> ObservationFrame: ...
@@ -72,8 +74,12 @@ class R2DreamerAgentLike(Protocol):
     ema_state: Any
 
     def train_step(
-        self, batch: ReplayBatch, rng_key: jnp.ndarray
-    ) -> dict[str, float]: ...
+        self,
+        batch: ReplayBatch,
+        rng_key: jnp.ndarray,
+        *,
+        materialize: bool = True,
+    ) -> dict[str, Any]: ...
 
     def act(
         self,
@@ -293,6 +299,9 @@ class Trainer:
         self.val_env = val_env
         self.val_obs_adapter = val_obs_adapter
         self.val_episode_metrics_fn = val_episode_metrics_fn
+        self._t0 = 0.0
+        self._last_log_time = 0.0
+        self._last_log_step = 0
 
         # Replay shape and dtype are inferred lazily from the first prepared
         # observation; normalization belongs to Observation Preparation.
@@ -325,15 +334,13 @@ class Trainer:
         # Optional WandB
         self._wandb = None
         if trainer_config.wandb_project is not None:
-            import wandb
-
             self._wandb = wandb
-            init_kwargs: dict[str, Any] = dict(
-                project=trainer_config.wandb_project,
-                name=trainer_config.wandb_name,
-                config=config_snapshot(agent_config),
-                tags=trainer_config.wandb_tags,
-            )
+            init_kwargs: dict[str, Any] = {
+                "project": trainer_config.wandb_project,
+                "name": trainer_config.wandb_name,
+                "config": config_snapshot(agent_config),
+                "tags": trainer_config.wandb_tags,
+            }
             if trainer_config.wandb_id is not None:
                 # resume="must" fails loudly if the run-id does not exist,
                 # which is what we want — silent re-creation orphans runs.
@@ -357,7 +364,7 @@ class Trainer:
             # Append to existing CSV when resuming so the prior rows survive.
             is_resume = self._resume_step > 0
             csv_mode = "a" if is_resume else "w"
-            with open(csv_path, csv_mode, newline="") as f:
+            with open(csv_path, csv_mode, newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if not is_resume:
                     writer.writerow(["step", "metric", "value"])
@@ -410,7 +417,7 @@ class Trainer:
         prepared = adapter.prepare_env_step(obs)
         return prepared.replay_obs, prepared.encoder_obs, prepared.is_first
 
-    def _prefill(self, rng_key: jnp.ndarray, writer: Any, f: Any) -> jnp.ndarray:
+    def _prefill(self, rng_key: jnp.ndarray, _writer: Any, _f: Any) -> jnp.ndarray:
         acfg, tcfg = self.acfg, self.tcfg
         print(f"Prefilling {tcfg.prefill_steps} steps...")
 
@@ -557,7 +564,6 @@ class Trainer:
         self._last_log_step = start_step - 1
         batch_steps = acfg.batch_size * acfg.seq_len
         train_credit = 0.0
-        metrics: dict[str, Any] = {}
         video_next_step = start_step
         video_recording = None
         if self._should_record_video(start_step, video_next_step):
@@ -615,16 +621,21 @@ class Trainer:
             # --- Train ---
             if self.buffer.size >= batch_steps:
                 train_credit += acfg.train_ratio / batch_steps
+                will_log = step % tcfg.log_every == 0
+                batch = None
+                metrics = None
                 while train_credit >= 1.0:
                     rng_key, train_key = jax.random.split(rng_key)
                     batch = self.buffer.sample(acfg.batch_size, acfg.seq_len)
                     batch = self.obs_adapter.augment_replay_batch(batch)
-                    metrics = self.agent.train_step(batch, train_key)
+                    metrics = self.agent.train_step(
+                        batch, train_key, materialize=will_log
+                    )
                     train_credit -= 1.0
 
-                if step % tcfg.log_every == 0 and metrics:
+                if will_log and metrics is not None:
                     self._log_train_metrics(metrics, step, writer, f)
-                    if getattr(acfg, "decoder", False):
+                    if getattr(acfg, "decoder", False) and batch is not None:
                         self._maybe_log_recon(batch, step)
 
             # --- Val-Episode-Loop (3D-36): deterministic held-out rollouts ---
@@ -648,7 +659,7 @@ class Trainer:
             and self.tcfg.video_log_every > 0
             and self.tcfg.video_log_episodes > 0
             and step >= next_video_step
-            and hasattr(self.env, "_env")
+            and hasattr(self.env, "agent_state")
         )
 
     def _goal_positions(self, env: Env) -> list[list[float]]:
@@ -662,7 +673,12 @@ class Trainer:
         return positions
 
     def _agent_position(self, env: Env) -> list[float]:
-        pos = env._env.sim.get_agent_state().position
+        agent_state = getattr(env, "agent_state", None)
+        if agent_state is None:
+            raise AttributeError(
+                f"{type(env).__name__} does not expose agent_state for video logging"
+            )
+        pos = agent_state.position
         return pos.tolist() if hasattr(pos, "tolist") else list(pos)
 
     def _start_video_recording(self, env: Env, obs: ObservationFrame) -> dict[str, Any]:

@@ -13,6 +13,9 @@ from src.r2dreamer.encoders.base import VGGTEncoder
 from src.r2dreamer.encoders.mlp import (
     HybridHousePointsCameraEncoder as ModelHybridHousePointsCameraEncoder,
 )
+from src.r2dreamer.encoders.pointnet import (
+    PointNetHousePointsCameraEncoder as ModelPointNetHousePointsCameraEncoder,
+)
 from src.vggt.jax.feature_extractor import ResetMode
 
 
@@ -62,15 +65,42 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
 
     @property
     def module_cls(self) -> type[nn.Module]:
-        # Imported lazily: pointnet.py imports this module for the launcher
-        # subclass, so a top-level import here would be circular.
-        from src.r2dreamer.encoders.pointnet import PointNetHousePointsCameraEncoder
-
-        return PointNetHousePointsCameraEncoder
+        return ModelPointNetHousePointsCameraEncoder
 
     @property
     def agent_overrides(self) -> Mapping[str, Any]:
         return MappingProxyType({"buffer_capacity": 1_000_000})
+
+    @classmethod
+    def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
+        """Resolve house-points Encoder Module kwargs from config.
+
+        The PointNet and GNN house modules inherit ``HousePointsCameraEncoder``
+        and take the same base kwargs (their extra attrs — graph knots, T-Net
+        widths — use module defaults), so the ``GnnHousePointsPoseEncoder`` and
+        ``GnnEdgeHousePointsPoseEncoder`` selections inherit this formula
+        unchanged.
+
+        ``house_point_norm`` is part of the formula (not a factory overlay) so
+        the durable snapshot carries it and eval-from-checkpoint reproduces the
+        trained norm instead of the module default. ``compute_dtype`` is the
+        only factory-only overlay (not snapshot-serializable).
+
+        Args:
+          config: Effective agent config supplying embed/MLP widths and the
+            house-point normalization knob.
+
+        Returns:
+          Constructor kwargs for the house-points Encoder Module.
+        """
+        return {
+            "embed_dim": int(config.vggt_embed_dim),
+            "camera_hidden": int(config.mlp_vggt_hidden),
+            "camera_layers": int(config.mlp_vggt_layers),
+            "point_hidden": int(config.mlp_vggt_hidden),
+            "point_layers": int(config.mlp_vggt_layers),
+            "house_point_norm": config.house_point_norm,
+        }
 
     @property
     def design_notes(self) -> str:
@@ -86,7 +116,7 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
         return True
 
     def _build_adapter_for_extractor(self, extractor):
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
+        adapter_module = import_module("src.r2dreamer.adapters.house_points_adapter")
         return adapter_module.VGGTHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
@@ -112,6 +142,17 @@ class VGGTHybridHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
     def module_cls(self) -> type[nn.Module]:
         return ModelHybridHousePointsCameraEncoder
 
+    @classmethod
+    def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
+        """Resolve hybrid house-points kwargs (base house-points plus CNN knobs)."""
+        kwargs = super().module_kwargs_from_config(config)
+        kwargs.update(
+            cnn_depth=int(config.encoder_depth),
+            cnn_kernel=int(config.encoder_kernel),
+            cnn_mults=tuple(config.encoder_mults),
+        )
+        return kwargs
+
     @property
     def design_notes(self) -> str:
         return (
@@ -121,7 +162,7 @@ class VGGTHybridHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
         )
 
     def _build_adapter_for_extractor(self, extractor):
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
+        adapter_module = import_module("src.r2dreamer.adapters.house_points_adapter")
         return adapter_module.VGGTHybridHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,

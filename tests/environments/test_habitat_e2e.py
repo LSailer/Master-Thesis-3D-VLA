@@ -13,7 +13,7 @@ import os
 import numpy as np
 import pytest
 
-from src.environments.habitat import ACTIONS, build_habitat_env
+from src.environments.habitat import ACTIONS, HabitatEnvConfig, HabitatObjectNavEnv
 
 HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
 RUN_HABITAT_E2E = os.environ.get("RUN_HABITAT_E2E") == "1"
@@ -36,10 +36,12 @@ pytestmark = [
 def fixture_habitat_env():
     """Create a Habitat ObjectNav environment for e2e checks."""
     try:
-        env = build_habitat_env(
-            (3, 64, 64),
-            max_episode_steps=50,
-            split="val_mini",
+        env = HabitatObjectNavEnv(
+            HabitatEnvConfig(
+                obs_shape=(3, 64, 64),
+                max_episode_steps=50,
+                mode="train",
+            )
         )
     except (FileNotFoundError, OSError, RuntimeError, AssertionError) as exc:
         pytest.skip(f"Habitat dataset/scene unavailable: {exc}")

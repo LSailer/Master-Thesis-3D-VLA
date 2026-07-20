@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 
 
 def make_habitat_env(
     *,
     config: HabitatEnvConfig | None = None,
-    curriculum: str | None = None,
-    curriculum_path: str | Path | None = None,
-    curriculum_mode: str = "train",
+    curriculum: str = "L1",
+    mode: str = "train",
     seed: int = 0,
     render_resolution: int = 64,
     **_kwargs,
@@ -22,10 +19,8 @@ def make_habitat_env(
         config = HabitatEnvConfig(
             obs_shape=(3, render_resolution, render_resolution),
             max_episode_steps=500,
-            split="train",
             reward_type="geodesic_delta",
             curriculum=curriculum,
-            curriculum_path=curriculum_path,
-            curriculum_mode=curriculum_mode,
+            mode=mode,
         )
     return HabitatObjectNavEnv(config, seed=seed)

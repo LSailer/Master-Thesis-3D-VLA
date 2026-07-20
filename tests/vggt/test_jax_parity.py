@@ -72,7 +72,7 @@ class TestLevel1WeightTransfer:
 
     def test_no_v1_keys_unmapped(self, state_dict):
         _tree, report = load_pytorch_weights(state_dict, include_v1_only=True)
-        assert report["unmapped"] == [], (
+        assert not report["unmapped"], (
             f"Unmapped keys: {report['unmapped'][:10]}"
         )
 
@@ -230,7 +230,6 @@ class TestLevel2SharedBlockParity:
 
         # --- JAX module ---
         from src.vggt.jax.block import Block as JxBlock
-        from src.vggt.jax.weight_transfer import load_pytorch_weights
 
         jx_block = JxBlock(
             dim=dim,
@@ -247,8 +246,8 @@ class TestLevel2SharedBlockParity:
 
         # --- Inputs common to both ---
         # B=1, S=1; grid 37x37 -> P = 1 (cam) + 4 (reg) + 1369 (patch) = 1374.
-        rng = np.random.RandomState(1234)
-        x_np = rng.randn(1, 1374, dim).astype(np.float32)
+        rng = np.random.default_rng(1234)
+        x_np = rng.standard_normal((1, 1374, dim)).astype(np.float32)
 
         # Build positions the same way aggregator.forward does (aggregator.py:247-254):
         # patch positions from cartesian product of [0, 37) x [0, 37), shifted by +1,
@@ -259,16 +258,16 @@ class TestLevel2SharedBlockParity:
         special = np.zeros((5, 2), dtype=patch_pos.dtype)
         positions_np = np.concatenate([special, patch_pos], axis=0)[None]  # (1, 1374, 2)
 
-        return dict(
-            pt_block=pt_block,
-            pt_rope=pt_rope,
-            jx_block=jx_block,
-            jx_params=jx_params,
-            x_np=x_np,
-            positions_np=positions_np,
-            head_dim=head_dim,
-            rope_frequency=rope_frequency,
-        )
+        return {
+            "pt_block": pt_block,
+            "pt_rope": pt_rope,
+            "jx_block": jx_block,
+            "jx_params": jx_params,
+            "x_np": x_np,
+            "positions_np": positions_np,
+            "head_dim": head_dim,
+            "rope_frequency": rope_frequency,
+        }
 
     def test_single_frame_block_matches_pytorch(self, fixtures):
         import torch
@@ -365,9 +364,9 @@ class TestLevel2DinoV2Backbone:
     @pytest.fixture(scope="class")
     def sample_image(self):
         """Random normalized NCHW image matching the aggregator's pipeline output."""
-        rng = np.random.RandomState(4242)
+        rng = np.random.default_rng(4242)
         # Values in roughly the range of a normalized image.
-        return rng.randn(1, 3, 518, 518).astype(np.float32)
+        return rng.standard_normal((1, 3, 518, 518)).astype(np.float32)
 
     def test_patch_embed_conv_matches_pytorch(
         self, pt_backbone, jx_params, sample_image
@@ -468,7 +467,7 @@ class TestLevel2AggregatorNoCache:
     @pytest.fixture(scope="class")
     def sample_frames(self):
         # B=1, S=2 frames, 518x518, values in [0, 1] like the aggregator expects.
-        rng = np.random.RandomState(7)
+        rng = np.random.default_rng(7)
         return rng.uniform(0.0, 1.0, size=(1, 2, 3, 518, 518)).astype(np.float32)
 
     def test_aggregator_last_level_matches_pytorch(
@@ -537,8 +536,8 @@ class TestLevel2CameraHead:
     @pytest.fixture(scope="class")
     def aggregated_tokens(self):
         # (B=1, S=2, P=1374, dim_in=2048) — realistic scale.
-        rng = np.random.RandomState(17)
-        last = rng.randn(1, 2, 1374, 2048).astype(np.float32) * 0.1
+        rng = np.random.default_rng(17)
+        last = rng.standard_normal((1, 2, 1374, 2048)).astype(np.float32) * 0.1
         # head only uses the last list element; pass a singleton list.
         return last
 
@@ -611,10 +610,10 @@ class TestLevel2PointHead:
     @pytest.fixture(scope="class")
     def synthetic_inputs(self):
         # 24 aggregated levels, only 4/11/17/23 are consumed.
-        rng = np.random.RandomState(101)
+        rng = np.random.default_rng(101)
         B, S, P, dim_in = 1, 1, 1374, 2048  # 5 special + 1369 patch
         agg_list = [
-            rng.randn(B, S, P, dim_in).astype(np.float32) * 0.1
+            rng.standard_normal((B, S, P, dim_in)).astype(np.float32) * 0.1
             for _ in range(24)
         ]
         # Images are only used for H, W, B, S in the DPT forward.
@@ -719,7 +718,7 @@ class TestLevel3AggregatorCache:
     @pytest.fixture(scope="class")
     def frames(self):
         # N frames of (3, 518, 518) each; returned as numpy (N, 3, 518, 518).
-        rng = np.random.RandomState(11)
+        rng = np.random.default_rng(11)
         return rng.uniform(
             0.0, 1.0, size=(_L3_NUM_FRAMES, 3, 518, 518)
         ).astype(np.float32)
@@ -862,13 +861,13 @@ class TestLevel3CameraHeadCache:
     @pytest.fixture(scope="class")
     def agg_tokens_per_frame(self):
         # 24 aggregator levels, N frames each with S=1. Only ``[-1]`` is used.
-        rng = np.random.RandomState(29)
+        rng = np.random.default_rng(29)
         B, P, C = 1, 1374, 2048
         frames = []
         for _ in range(_L3_NUM_FRAMES):
             frames.append(
                 [
-                    rng.randn(B, 1, P, C).astype(np.float32) * 0.1
+                    rng.standard_normal((B, 1, P, C)).astype(np.float32) * 0.1
                     for _ in range(24)
                 ]
             )
@@ -968,7 +967,7 @@ class TestLevel3Eviction:
     @pytest.fixture(scope="class")
     def frames_and_budget(self):
         # 4 frames; eviction fires exactly once, on the last frame.
-        rng = np.random.RandomState(91)
+        rng = np.random.default_rng(91)
         frames = rng.uniform(0.0, 1.0, size=(4, 3, 518, 518)).astype(np.float32)
         P = 5 + (518 // 14) ** 2  # 1374
         depth = 24
@@ -1095,7 +1094,7 @@ class TestLevel3DynamicBudget:
 
         pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024)
         # Fabricate a non-uniform last_scores to exercise the allocator.
-        rng = np.random.RandomState(17)
+        rng = np.random.default_rng(17)
         last = rng.uniform(0.0, 0.9, size=(24,)).astype(np.float32)
         total_budget = 1_200_000
 
@@ -1146,7 +1145,7 @@ class TestLevel3DynamicBudget:
     def frames_and_budget(self):
         # 6 frames: eviction fires at frame 3 (still uniform), frames 4-5
         # use the dynamic budget derived from updated last_scores.
-        rng = np.random.RandomState(33)
+        rng = np.random.default_rng(33)
         frames = rng.uniform(0.0, 1.0, size=(6, 3, 518, 518)).astype(np.float32)
         P = 5 + (518 // 14) ** 2
         per_block = 3 * P
@@ -1225,9 +1224,9 @@ class TestLevel3DynamicBudget:
         """The per-block budget arrays should match frame-by-frame."""
         _, _, pt_bud, _ = pt_run
         _, _, jx_bud, _ = jx_run
-        for i in range(len(pt_bud)):
-            diff = np.abs(pt_bud[i] - jx_bud[i]).max()
-            assert diff <= 2, f"frame {i} budget diff={diff}, pt={pt_bud[i]}"
+        for i, (pt_b, jx_b) in enumerate(zip(pt_bud, jx_bud, strict=True)):
+            diff = np.abs(pt_b - jx_b).max()
+            assert diff <= 2, f"frame {i} budget diff={diff}, pt={pt_b}"
 
     def test_last_scores_match_pytorch(self, pt_run, jx_run):
         _, _, _, pt_ls = pt_run
@@ -1312,8 +1311,14 @@ class TestLevel3PaddedCacheParity:
         rng_key = jax.random.PRNGKey(0)
         x_init = jnp.zeros((1, N, dim), dtype=jnp.float32)
         params = block.init(rng_key, x_init, use_cache=False)
-        return dict(block=block, params=params, dim=dim, num_heads=num_heads,
-                    head_dim=head_dim, N=N)
+        return {
+            "block": block,
+            "params": params,
+            "dim": dim,
+            "num_heads": num_heads,
+            "head_dim": head_dim,
+            "N": N,
+        }
 
     def _empty_padded(self, B, H, MAX, Dh, dtype=jnp.float32):
         return (
@@ -1429,13 +1434,13 @@ class TestLevel3CameraHeadPaddedParity:
 
     @pytest.fixture(scope="class")
     def agg_tokens_per_frame(self):
-        rng = np.random.RandomState(31)
+        rng = np.random.default_rng(31)
         B, P, C = 1, 1374, 2048
         frames = []
         for _ in range(_L3_NUM_FRAMES):
             frames.append(
                 [
-                    rng.randn(B, 1, P, C).astype(np.float32) * 0.1
+                    rng.standard_normal((B, 1, P, C)).astype(np.float32) * 0.1
                     for _ in range(24)
                 ]
             )

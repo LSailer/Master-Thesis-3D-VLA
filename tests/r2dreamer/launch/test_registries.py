@@ -1,3 +1,4 @@
+
 """L1 structural tests — registry contents and curriculum paths."""
 
 import inspect
@@ -6,10 +7,11 @@ import pytest
 from src.configs.agent_config import R2DreamerConfig
 from src.environments.habitat import (
     HABITAT_CURRICULA,
-    HabitatEnvConfig,
     resolve_habitat_curriculum_path,
+    validate_habitat_mode,
 )
 from src.r2dreamer.encoders import Encoder, HybridEncoder
+from src.r2dreamer.encoders.factory import _make_encoder
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.observation_preparation.contracts import (
     encoder_module_kwargs_from_config,
@@ -64,6 +66,32 @@ class TestEncoderRegistry:
         assert "vggt_house_full_tokens_nogate" in encoder_registry
         assert "vggt_house_global_tokens_nogate" in encoder_registry
 
+    def test_exact_key_set(self):
+        # Pins the registry's full key set, so once the dict literal gives way
+        # to decorator registration a dropped import fails here rather than
+        # surfacing as an "unknown encoder" KeyError at launch. Also pins the
+        # absence of pointnet2: encoders/pointnet2.py is a skeleton for the
+        # external TF1 repo and defines no launcher Encoder.
+        assert set(encoder_registry) == {
+            "cnn",
+            "vggt",
+            "vggt_aggregator_mlp",
+            "vggt_agg_raw",
+            "vggt_agg_token_transformer",
+            "vggt_wp_dense_cnn",
+            "vggt_wp_cp_64",
+            "vggt_wp64_cnn_cp_mlp",
+            "hybrid",
+            "vggt_house_context",
+            "vggt_house_points_pose",
+            "vggt_hybrid_house_points_pose",
+            "gnn_house_points_pose",
+            "gnn_edge_house_points_pose",
+            "vggt_house_full_tokens_nogate",
+            "vggt_house_global_tokens_nogate",
+            "vggt_house_global_embedding",
+        }
+
     def test_hybrid_key_resolves_to_hybrid_spec_class(self):
         assert encoder_registry["hybrid"] is HybridEncoder
 
@@ -84,6 +112,34 @@ class TestEncoderRegistry:
 
         assert isinstance(module, module_cls)
 
+    @pytest.mark.parametrize(
+        "encoder_type",
+        [
+            # A variant-driven (VGGT dispatch) and a standalone launcher
+            # encoder. Neither applies a compute_dtype overlay when
+            # ``full_bf16`` is off, so the factory fresh-build kwargs must
+            # equal the contract-snapshot resolver kwargs exactly.
+            "vggt",
+            "vggt_house_global_embedding",
+        ],
+    )
+    def test_factory_and_resolver_agree_on_kwargs(self, encoder_type):
+        # Regression for the encoder-kwargs consolidation: the factory
+        # ``_make_*`` builders delegate to the launcher
+        # ``module_kwargs_from_config`` (the same path the contract-snapshot
+        # resolver takes), so the two cannot diverge on no-dtype encoders.
+        config = R2DreamerConfig(encoder_type=encoder_type)
+        assert config.full_bf16 is False  # no compute_dtype overlay below
+
+        module = _make_encoder(config)
+        resolver_kwargs = encoder_module_kwargs_from_config(config)
+
+        for key, value in resolver_kwargs.items():
+            assert getattr(module, key) == value, (
+                f"{encoder_type}: module.{key}={getattr(module, key)!r} "
+                f"!= resolver {value!r}"
+            )
+
 
 class TestEnvRegistry:
     def test_all_values_are_callable(self):
@@ -94,9 +150,21 @@ class TestEnvRegistry:
         assert "habitat" in env_registry
         assert "crafter" in env_registry
 
+    def test_exact_key_set(self):
+        # env_registry stays a plain dict — two entries, no duplication to
+        # remove — so this pins it against accidental growth or loss.
+        assert set(env_registry) == {"habitat", "crafter"}
+
 
 class TestHabitatCurricula:
     def test_all_curriculum_paths_exist(self):
+        # data/ is gitignored and the curricula are generated locally by
+        # scripts/environments/generate_curriculum.py, which needs Habitat
+        # (Linux-only). Where the directory is provisioned, every registered
+        # path must resolve — that still catches partial/misnamed generation.
+        directories = {path.parent for path in HABITAT_CURRICULA.values()}
+        if not any(directory.exists() for directory in directories):
+            pytest.skip("curriculum data not provisioned; see generate_curriculum.py")
         for name, path in HABITAT_CURRICULA.items():
             assert path.exists(), f"Curriculum {name!r} path does not exist: {path}"
 
@@ -104,12 +172,16 @@ class TestHabitatCurricula:
         assert set(HABITAT_CURRICULA.keys()) == {"L1", "L2", "L3", "L4"}
 
     def test_config_resolves_named_curriculum(self):
-        config = HabitatEnvConfig(curriculum="L1")
+        assert resolve_habitat_curriculum_path("L1") == HABITAT_CURRICULA["L1"]
 
-        assert resolve_habitat_curriculum_path(config) == HABITAT_CURRICULA["L1"]
+    def test_unknown_curriculum_raises(self):
+        with pytest.raises(ValueError, match="Unknown Habitat curriculum"):
+            resolve_habitat_curriculum_path("L99")
 
-    def test_config_curriculum_path_overrides_name(self, tmp_path):
-        override = tmp_path / "curriculum.json"
-        config = HabitatEnvConfig(curriculum="L1", curriculum_path=override)
+    def test_mode_accepts_train_and_eval(self):
+        validate_habitat_mode("train")
+        validate_habitat_mode("eval")
 
-        assert resolve_habitat_curriculum_path(config) == override
+    def test_mode_rejects_habitat_split_names(self):
+        with pytest.raises(ValueError, match="train' or 'eval"):
+            validate_habitat_mode("val")

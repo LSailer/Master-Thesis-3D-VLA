@@ -1,3 +1,4 @@
+
 """Tests for Habitat environment. Skipped if habitat-sim is not installed."""
 
 import importlib.util

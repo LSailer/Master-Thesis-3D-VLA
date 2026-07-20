@@ -125,6 +125,7 @@ class Block(nn.Module):
             cache_budget=cache_budget,
             num_anchor_tokens=num_anchor_tokens,
         )
+        new_kv: tuple | None = None
         scores = None
         if use_cache:
             if cache_budget is not None:
@@ -150,6 +151,7 @@ class Block(nn.Module):
         x = x + h
 
         if use_cache:
+            assert new_kv is not None
             if cache_budget is not None:
                 return x, new_kv, scores
             return x, new_kv

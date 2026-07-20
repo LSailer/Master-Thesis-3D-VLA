@@ -113,7 +113,7 @@ def _bilinear_align_corners(x: jnp.ndarray, out_h: int, out_w: int) -> jnp.ndarr
     sampling — not compatible with the DPT reference which explicitly uses
     align_corners=True. We implement it directly via fancy indexing.
     """
-    N, C, H, W = x.shape
+    _num, _channels, H, W = x.shape
     if H == out_h and W == out_w:
         return x
 
@@ -349,6 +349,7 @@ class _Scratch(nn.Module):
         return jnp.transpose(x, (0, 3, 1, 2))
 
     def fuse(self, features: list[jnp.ndarray]) -> jnp.ndarray:
+        """Fuse multi-scale DPT features through refinement blocks."""
         layer_1, layer_2, layer_3, layer_4 = features
 
         l1 = self._nchw_conv(self.layer1_rn, layer_1)
@@ -425,7 +426,7 @@ class DPTHead(nn.Module):
             use_bias=True,
         )
 
-        # resize_layers: ConvTranspose (idx 0,1), Identity (idx 2 -> skip), Conv 3x3 stride 2 (idx 3)
+        # resize_layers: ConvTranspose (idx 0,1), Identity (idx 2), Conv stride 2 (idx 3)
         self.resize_layers_0 = nn.ConvTranspose(
             self.out_channels[0],
             kernel_size=(4, 4),

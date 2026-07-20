@@ -58,8 +58,8 @@ Slurm logs/artifacts under `output/profiling/`:
 | `profile_training_vggt`  | `scripts/profiling/profile_training.py --encoder vggt` |
 | `profile_agg_pipeline`   | `scripts/profiling/profile_pipeline_aggregator_mlp.py` |
 
-The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) under
-`archiv/slurm-legacy-sbatch/` (see the README there). Non-migrated legacy scripts
+The legacy `*.sbatch` files these replace were archived in slice s5 (3D-34) and have
+since been deleted; recover them from git history if needed. Non-migrated legacy scripts
 (`*_actfix`, `*_rerun`, non-vggt levels, `*_resume*`, …) remain in their original
 locations pending separate evaluation.
 

@@ -9,16 +9,16 @@ from pathlib import Path
 
 import jax
 import numpy as np
+import wandb
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
 from src.baselines.random_agent import RandomAgent
-from src.configs.config import R2DreamerConfig
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.launch.parser import _build_parser_eval
-from src.r2dreamer.launch.registries import env_registry
+from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (
     compose_frame,
@@ -51,7 +51,7 @@ def _extract_goal_positions(env):
 
 def _get_agent_heading(env):
     """Extract agent heading (yaw in radians) from habitat sim state."""
-    state = env._env.sim.get_agent_state()
+    state = env.agent_state
     quat = state.rotation
     r = Rotation.from_quat([quat.x, quat.y, quat.z, quat.w])
     euler = r.as_euler("yxz")
@@ -92,8 +92,6 @@ def _resolve_eval_settings(
 def _init_eval_wandb(args):
     if args.wandb_project is None or args.log_video_episodes <= 0:
         return None
-    import wandb
-
     wandb.init(project=args.wandb_project, name=args.wandb_name)
     return wandb
 
@@ -112,25 +110,22 @@ def _make_eval_env(*, args, curriculum: str | None, eff_encoder: str):
     effective_curriculum = (
         args.curriculum if args.curriculum is not None else curriculum
     )
+    if effective_curriculum is None:
+        effective_curriculum = "L1"
     hab_config = HabitatEnvConfig(
         obs_shape=(3, render_resolution, render_resolution),
         max_episode_steps=500,
-        split=args.split,
         reward_type="geodesic_delta",
         curriculum=effective_curriculum,
-        curriculum_path=args.curriculum_path,
-        curriculum_mode="eval",
-    )
-    env_instance = HabitatObjectNavEnv(
-        hab_config,
+        mode="eval",
         semantic=args.semantic,
-        seed=args.seed,
     )
+    env_instance = HabitatObjectNavEnv(hab_config, seed=args.seed)
     return env_instance, needs_hires, render_resolution
 
 
 def _make_eval_encoder(
-    eff_encoder: str, encoder_registry: dict, needs_hires: bool, render_resolution: int
+    eff_encoder: str, needs_hires: bool, render_resolution: int
 ):
     encoder_cls = encoder_registry[eff_encoder]
     enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
@@ -172,6 +167,7 @@ def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
         "vggt_token_count",
         "vggt_token_dim",
         "mlp_vggt_layers",
+        "house_point_norm",
         "mlp_units",
         "mlp_layers_reward",
         "mlp_layers_cont",
@@ -250,7 +246,7 @@ def _start_eval_episode(env_instance, adapter):
     encoder_obs = prepared.encoder_obs
     is_first = prepared.is_first
 
-    start_pos = env_instance._env.sim.get_agent_state().position.tolist()
+    start_pos = env_instance.agent_state.position.tolist()
     goal_positions = _extract_goal_positions(env_instance)
     scene_id = env_instance.current_episode.scene_id
     object_category = env_instance.current_episode.object_category
@@ -343,7 +339,6 @@ def _run_eval_episode(
     adapter,
     agent,
     rng_key,
-    config,
     wandb_module,
     output_dir: str,
 ) -> tuple[dict, jax.Array]:
@@ -390,7 +385,7 @@ def _run_eval_episode(
         actions_taken.append(int(action))
         rewards.append(float(_obs_value(next_obs, "reward")))
 
-        pos = env_instance._env.sim.get_agent_state().position.tolist()
+        pos = env_instance.agent_state.position.tolist()
         trajectory.append(pos)
         headings.append(_get_agent_heading(env_instance))
         if record_video:
@@ -459,8 +454,6 @@ def evaluate(
 
     Returns metrics dict with 'results' and 'meta' keys.
     """
-    from src.r2dreamer.launch.registries import encoder_registry
-
     parser = _build_parser_eval()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -495,7 +488,6 @@ def evaluate(
         # --- Build encoder + adapter ---
         _enc, adapter, encoder_spec = _make_eval_encoder(
             eff_encoder,
-            encoder_registry,
             needs_hires,
             render_resolution,
         )
@@ -506,7 +498,6 @@ def evaluate(
             eff_checkpoint=eff_checkpoint,
         )
 
-        config = R2DreamerConfig(num_actions=4, **agent_config_kwargs)
         rng_key = jax.random.PRNGKey(args.seed)
 
         agent = _make_eval_agent(
@@ -527,7 +518,6 @@ def evaluate(
                 adapter=adapter,
                 agent=agent,
                 rng_key=rng_key,
-                config=config,
                 wandb_module=wandb_module,
                 output_dir=eff_output_dir,
             )

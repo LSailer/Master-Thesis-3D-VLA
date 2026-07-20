@@ -1,0 +1,28 @@
+extends: hybrid_house_points_pose_l1_live
+job_name: jax-buffer-stepopt-probe-l1
+output_dir: output/probes/stepopt/jax-buffer
+comments:
+  - "Step-time probe for the fvwuoux3 baseline (l1_hybrid_house_points_pose, 184.4 ms/step median). Measures the combined effect of two host-NumPy->JAX hot-path fixes: (1) train_step defers metric device sync to log steps (agent.py), (2) ReplayBuffer.sample fuses per-leaf host->device transfers into one device_put (replay_buffer.py)."
+  - "Prod shape matched to the baseline run (batch 16, seq 64, train_ratio 512, compute_dtype bfloat16, render 518). Enough post-prefill train steps to get a stable post-warmup median of perf/ms_per_step_interval; compare probe-vs-baseline at identical shape."
+sbatch:
+  time: "01:00:00"
+args:
+  steps: 12000
+  prefill: 5000
+  batch_size: 16
+  seq_len: 64
+  train_ratio: 512
+  compute_dtype: bfloat16
+  # Pinned explicitly (inherited value is 518 via house_context_l1) so the
+  # probe's render shape stays locked to the fvwuoux3 baseline even if an
+  # ancestor config changes; keeps the ms/step comparison apples-to-apples.
+  render_resolution: 518
+  log_every: 100
+  checkpoint_every: 1000000
+  seed: 42
+  output_dir: output/probes/stepopt/jax-buffer/run-${SLURM_JOB_ID}
+  wandb_project: 3d-vla-objectnav
+  wandb_name: jax-buffer-stepopt-probe-${SLURM_JOB_ID}
+  wandb_tags: stepopt,prodshape-probe,jax-buffer,defer-metric-sync,fused-device-put,b16,t64,bf16,seed-42
+  video_log_every: 0
+  val_every: 0

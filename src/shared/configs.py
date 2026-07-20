@@ -5,6 +5,8 @@ import dataclasses
 
 @dataclasses.dataclass
 class DreamerConfig:
+    """Flat DreamerV3 hyperparameter bundle with Habitat-oriented defaults."""
+
     # Environment
     obs_shape: tuple = (3, 256, 256)  # C, H, W
     num_actions: int = 4  # STOP, FORWARD, LEFT, RIGHT
@@ -21,6 +23,7 @@ class DreamerConfig:
 
     @property
     def stoch_size(self) -> int:
+        """Return total stochastic latent dimensionality."""
         return self.latent_classes * self.latent_dims
 
     # Networks

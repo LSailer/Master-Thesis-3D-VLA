@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from src.configs.config import R2DreamerConfig
-from src.environments.habitat import build_habitat_env
+from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.encoders import CNNEncoder
 
@@ -68,7 +68,13 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
     env = None
     try:
         try:
-            env = build_habitat_env((3, 64, 64), max_episode_steps=20, split="val_mini")
+            env = HabitatObjectNavEnv(
+                HabitatEnvConfig(
+                    obs_shape=(3, 64, 64),
+                    max_episode_steps=20,
+                    mode="train",
+                )
+            )
         except (FileNotFoundError, OSError, RuntimeError, AssertionError) as exc:
             pytest.skip(f"Habitat dataset/scene unavailable: {exc}")
 

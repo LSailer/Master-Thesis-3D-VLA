@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import jax
+
+from src.configs.agent_config import LatentPreset
+from src.configs.config import LATENT_PRESETS, R2DreamerConfig, TrainerConfig
 from src.environments.habitat import HabitatEnvConfig
-
-if TYPE_CHECKING:
-    from src.r2dreamer.trainer import Trainer
+from src.environments.habitat_metrics import HabitatEpisodeMetrics
+from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.launch.parser import _build_parser_train
+from src.r2dreamer.launch.registries import encoder_registry, env_registry
+from src.r2dreamer.trainer import Trainer
 
 
 def _effective_curriculum_inputs(
@@ -87,18 +94,16 @@ def _make_env_instances(
                 encoder_spec.env_render_resolution,
             ),
             max_episode_steps=500,
-            split="train",
             reward_type="geodesic_delta",
-            curriculum=curriculum,
-            curriculum_path=curriculum_path,
-            curriculum_mode=args.curriculum_mode,
+            curriculum=curriculum if curriculum is not None else "L1",
+            mode=args.mode,
         )
         env_instance = env_fn(config=env_config, seed=args.seed)
         # Val env: same curriculum config, eval-key set. Skip when val is off
-        # or the user is in train-of-train mode (curriculum_mode != "train").
-        if args.val_every > 0 and args.curriculum_mode == "train":
+        # or the user is not on the curriculum train set (mode != "train").
+        if args.val_every > 0 and args.mode == "train":
             val_env_instance = env_fn(
-                config=replace(env_config, curriculum_mode="eval"),
+                config=replace(env_config, mode="eval"),
                 seed=args.seed,
             )
         return env_instance, val_env_instance, 4
@@ -107,7 +112,7 @@ def _make_env_instances(
 
 
 def _agent_overrides_from_args(
-    args: Any, encoder_spec: Any, latent_presets: dict[str, dict]
+    args: Any, encoder_spec: Any, latent_presets: Mapping[str, LatentPreset]
 ):
     agent_overrides = dict(encoder_spec.agent_overrides)
     # Diagnostic CLI overrides (None => keep config default / encoder override).
@@ -140,6 +145,7 @@ def _agent_overrides_from_args(
         "stoch_discrete",
         "mlp_vggt_hidden",
         "mlp_vggt_layers",
+        "house_point_norm",
         "scale_decoder",
         "vggt_token_transformer_layers",
         "vggt_token_transformer_heads",
@@ -176,9 +182,7 @@ def _make_agent_config(
     config_cls: type,
 ):
     from src.r2dreamer.observation_preparation import (
-        encoder_module_kwargs_from_config,
-        recover_encoder_input_contract,
-    )
+        encoder_module_kwargs_from_config, recover_encoder_input_contract)
 
     config = config_cls(
         encoder_type=encoder_spec.encoder_type,
@@ -306,14 +310,6 @@ def train(
 
     Returns the Trainer for programmatic (notebook) callers.
     """
-    import jax
-
-    from src.r2dreamer.agent import R2DreamerAgent
-    from src.configs.config import R2DreamerConfig, LATENT_PRESETS, TrainerConfig
-    from src.r2dreamer.launch.parser import _build_parser_train
-    from src.r2dreamer.launch.registries import env_registry, encoder_registry
-    from src.r2dreamer.trainer import Trainer
-    from src.environments.habitat_metrics import HabitatEpisodeMetrics
 
     parser = _build_parser_train()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])

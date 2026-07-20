@@ -116,6 +116,7 @@ class _TokenLayout:
     embed_dim: int
 
     def to_frame(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        """Reshape tokens to per-frame layout when needed."""
         if tokens.shape in (
             (self.B, self.S, self.P, self.embed_dim),
             (self.B, self.S * self.P, self.embed_dim),
@@ -124,11 +125,13 @@ class _TokenLayout:
         return tokens
 
     def to_global(self, frame_tokens: jnp.ndarray) -> jnp.ndarray:
+        """Flatten frame tokens back to the global sequence layout."""
         return frame_tokens.reshape(self.B, self.S, self.P, self.embed_dim).reshape(
             self.B, self.S * self.P, self.embed_dim
         )
 
     def split_layers(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        """Split tokens into per-layer frame blocks."""
         return tokens.reshape(self.B, self.S, self.P, self.embed_dim)
 
 

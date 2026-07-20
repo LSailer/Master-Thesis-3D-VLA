@@ -4,15 +4,20 @@ from collections.abc import Mapping
 
 import flax.linen as nn
 import jax.numpy as jnp
+from flax import struct
 from jax.typing import DTypeLike
 
-from src.r2dreamer.encoders.cnn import ConvEncoder, make_rgb_conv_encoder
+from src.r2dreamer.encoders.cnn import ConvEncoder, _symlog, make_rgb_conv_encoder
 from src.r2dreamer.encoders.constants import (
     AGG_RAW_DIM,
     HYBRID_RGB_DIM,
     HYBRID_VGGT_DIM,
 )
-from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
+from src.r2dreamer.encoders.shape_utils import (
+    flatten_event,
+    restore_leading,
+    validate_house_points,
+)
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
     CAMERA_TOKEN_GLOBAL_KEY,
@@ -111,6 +116,13 @@ class HousePointsCameraEncoder(nn.Module):
     broadcast across all camera poses after the house branch is pooled. When
     ``HOUSE_CONTEXT_SIZE_KEY`` is present in the obs, rows past that count are
     treated as zero padding and masked out of the mean/max pooling.
+
+    Attributes:
+        house_point_norm: Normalization applied to the house-point metric XYZ
+            channels ``[:3]`` before the point MLP. ``"symlog"`` (default)
+            compresses the unbounded metric range with ``sign(x)*log1p(|x|)``
+            and leaves the RGB channels ``[3:]`` untouched; ``"none"`` passes
+            the raw coordinates through. Any other value raises ``ValueError``.
     """
 
     embed_dim: int = 1024
@@ -120,6 +132,7 @@ class HousePointsCameraEncoder(nn.Module):
     point_layers: int = 2
     camera_pose_dim: int = 9
     house_point_dim: int = 6
+    house_point_norm: str = "symlog"
     compute_dtype: DTypeLike = jnp.float32
 
     def _camera_embedding(self, camera_pose: jnp.ndarray) -> jnp.ndarray:
@@ -143,14 +156,17 @@ class HousePointsCameraEncoder(nn.Module):
         batch_size: int,
         house_size: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        if house_points.ndim == 2:
-            house_points = house_points[None]
-        if house_points.ndim != 3 or house_points.shape[-1] != self.house_point_dim:
-            raise ValueError(
-                "house_points must have shape (N, 6) or (S, N, 6), "
-                f"got {house_points.shape}"
-            )
+        house_points = validate_house_points(house_points, self.house_point_dim)
         x = house_points.astype(self.compute_dtype)
+        # Normalize the metric XYZ channels [:3] before the point MLP; RGB
+        # channels [3:] are already in [0, 1] and pass through untouched.
+        if self.house_point_norm == "symlog":
+            x = jnp.concatenate([_symlog(x[..., :3]), x[..., 3:]], axis=-1)
+        elif self.house_point_norm != "none":
+            raise ValueError(
+                "house_point_norm must be 'symlog' or 'none', got "
+                f"{self.house_point_norm!r}"
+            )
         for i in range(self.point_layers):
             x = nn.Dense(
                 self.point_hidden, name=f"point_hidden{i}", dtype=self.compute_dtype
@@ -163,9 +179,10 @@ class HousePointsCameraEncoder(nn.Module):
         # scalar governs every row; callers without the size key (legacy
         # paths) get an all-valid mask, i.e. plain mean/max pooling.
         n_points = house_points.shape[1]
-        if house_size is None:
-            house_size = n_points
-        size = jnp.asarray(house_size, dtype=jnp.int32).reshape(-1)[:1]
+        size_source: jnp.ndarray | int = (
+            n_points if house_size is None else house_size
+        )
+        size = jnp.asarray(size_source, dtype=jnp.int32).reshape(-1)[:1]
         valid = (jnp.arange(n_points)[None, :] < size[:, None])[..., None]
         denom = jnp.maximum(size, 1).astype(x.dtype)[:, None]
         mean = (x * valid).sum(axis=1) / denom
@@ -206,7 +223,7 @@ class HousePointsCameraEncoder(nn.Module):
         return jnp.concatenate([camera_embed, house_embed], axis=-1)
 
     @nn.compact
-    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, ...]:
         """Diagnostic split: ``(camera_pose_embedding, house_points_embedding)``."""
         return self._branches(obs)
 
@@ -267,173 +284,111 @@ class HybridHousePointsCameraEncoder(HousePointsCameraEncoder):
         return jnp.concatenate([cnn_embed, camera_embed, house_embed], axis=-1)
 
     @nn.compact
-    def branches(
-        self, obs: dict[str, jnp.ndarray]
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    def branches(self, obs: dict[str, jnp.ndarray]) -> tuple[jnp.ndarray, ...]:
         """Diagnostic split: ``(cnn, gated_camera, gated_house, gate_camera, gate_house)``."""
         return self._hybrid_branches(obs)
 
 
-class HouseGlobalEmbeddingEncoder(nn.Module):
-    """PointNet-reducer encoder over VGGT global patch tokens + camera token.
+@struct.dataclass
+class HouseGlobalObs:
+    """Structured obs for the house-global-embedding encoder (a JAX pytree).
 
-    Reduces the 1369 global-half patch tokens to one ``embed_dim`` vector via a
-    shared per-token MLP ``h`` (``Dense -> RMSNorm -> silu``) followed by a
-    feature-wise max-pool over the token axis and ``gamma = Dense(embed_dim)``
-    — Qi et al. (arXiv:1612.00593) Eq. 1, ``f({x_i}) approx g(h(x_1),...,h(x_n))``.
-    The nonlinearity before the symmetric pool is required: two linear layers
-    around a linear pool collapse to one Linear.
-
-    The camera token (``camera_token_global``, the Position Signal) rides its
-    own side branch in the ``cp_hidden`` pattern (``Dense -> RMSNorm -> silu``
-    blocks then a projection) and is concatenated with the pooled house
-    embedding; it is deliberately **not** in the pooled set — max-pool is
-    permutation-symmetric and would erase the camera token's identity
-    (PointNet's own segmentation head uses the same pool-then-concat pattern).
-
-    Register tokens are dropped upstream by the adapter (Darcet et al.
-    arXiv:2309.16588: attention scratch space); no T-Nets are used because the
-    tokens are not in a rigid coordinate frame. ~2.1 M params for the reducer
-    (``h`` + ``gamma`` at 1024-wide) plus a comparable camera side branch —
-    well under the ``vggt_wp_cp_64`` encoder budget the agent already trains.
-
-    Parameters:
-        embed_dim: Width of each branch output; the fused embedding is
-            ``2 * embed_dim`` (camera branch concat house branch).
-        token_dim: Width of each input VGGT global token (1024).
-        num_patch_tokens: Number of patch tokens fed to the reducer (1369 after
-            dropping the camera + 4 register tokens).
-        reducer_hidden: Per-token MLP width (``h``); kept at ``token_dim`` so
-            there is no channel compression before the pool.
-        reducer_layers: Number of ``Dense -> RMSNorm -> silu`` blocks in ``h``.
-        camera_hidden: Camera side-branch hidden width.
-        camera_layers: Number of ``Dense -> RMSNorm -> silu`` blocks in the
-            camera side branch before its projection.
-        camera_token_key: Obs dict key for the camera (position) token.
-        patch_tokens_key: Obs dict key for the patch-token set.
-
-    Returns:
-        ``concat([camera_embed, house_embed])`` with shape ``(..., 2*embed_dim)``.
-        Leading dimensions such as replay ``(B, T)`` are preserved.
+    Attributes:
+      global_patch_tokens: ``(…, num_patch_tokens, token_dim)`` VGGT global patch
+        tokens — always present.
+      image: ``(…, 3, 64, 64)`` per-step RGB frame; present in hybrid mode.
+      camera_token_global: ``(…, 1, token_dim)`` camera token; present in camera
+        mode.
     """
 
-    embed_dim: int = 1024
-    token_dim: int = 1024
-    num_patch_tokens: int = 1369
-    reducer_hidden: int = 1024
-    reducer_layers: int = 1
-    camera_hidden: int = 1024
-    camera_layers: int = 1
-    camera_token_key: str = CAMERA_TOKEN_GLOBAL_KEY
-    patch_tokens_key: str = GLOBAL_PATCH_TOKENS_KEY
+    global_patch_tokens: jnp.ndarray
+    image: jnp.ndarray | None = None
+    camera_token_global: jnp.ndarray | None = None
 
-    def _camera_embedding(self, camera_token: jnp.ndarray) -> jnp.ndarray:
-        """Encode the singleton camera token through the ``cp_hidden`` branch.
 
-        Args:
-          camera_token: ``(…, 1, token_dim)`` camera (position) token.
+class TokenReducer(nn.Module):
+    """PointNet-style token reducer.
 
-        Returns:
-          ``(…, embed_dim)`` camera-side embedding.
-        """
-        if camera_token.shape[-1] != self.token_dim or camera_token.shape[-2] != 1:
-            raise ValueError(
-                f"camera_token_global must have shape (..., 1, {self.token_dim}), "
-                f"got {camera_token.shape}"
-            )
-        # Squeeze the singleton token axis -> (..., token_dim).
-        x = camera_token.astype(jnp.float32)[..., 0, :]
-        for i in range(self.camera_layers):
-            x = nn.Dense(self.camera_hidden, name=f"camera_hidden{i}")(x)
-            x = RMSNorm(name=f"camera_norm{i}")(x)
-            x = nn.silu(x)
-        return nn.Dense(self.embed_dim, name="camera_proj")(x)
+    Patch tokens ``(…, N, token_dim)`` are processed by a shared per-token MLP
+    then max-pooled over the token axis. Singleton tokens ``(…, 1, token_dim)``
+    skip the pool and are squeezed to ``(…, token_dim)`` first. Both paths use
+    ``Dense -> RMSNorm -> silu`` followed by a projection to ``embed_dim``.
 
-    def _house_embedding(self, patch_tokens: jnp.ndarray) -> jnp.ndarray:
-        """Reduce the patch-token set via the PointNet ``h -> max-pool -> gamma``.
+    Attributes:
+      embed_dim: Output width.
+      hidden: MLP hidden width.
+      layers: Number of MLP blocks before projection.
+      pool_tokens: When True (default), max-pool over the token axis.
+      token_dim: Expected singleton-token width (validated when pool_tokens=False).
+    """
 
-        Args:
-          patch_tokens: ``(…, num_patch_tokens, token_dim)`` patch-token set.
-
-        Returns:
-          ``(…, embed_dim)`` pooled house embedding.
-        """
-        if patch_tokens.shape[-1] != self.token_dim:
-            raise ValueError(
-                f"global_patch_tokens must have shape (..., N, {self.token_dim}), "
-                f"got {patch_tokens.shape}"
-            )
-        if patch_tokens.shape[-2] != self.num_patch_tokens:
-            raise ValueError(
-                f"global_patch_tokens must have {self.num_patch_tokens} tokens, "
-                f"got {patch_tokens.shape[-2]}"
-            )
-        x = patch_tokens.astype(jnp.float32)
-        for i in range(self.reducer_layers):
-            x = nn.Dense(self.reducer_hidden, name=f"reducer_hidden{i}")(x)
-            x = RMSNorm(name=f"reducer_norm{i}")(x)
-            x = nn.silu(x)
-        # Feature-wise max over the token axis (PointNet's symmetric g-pool).
-        pooled = x.max(axis=-2)
-        return nn.Dense(self.embed_dim, name="house_proj")(pooled)
-
-    def _branches(
-        self, obs: dict[str, jnp.ndarray]
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Run both branches, flattening replay leading dims first.
-
-        Args:
-          obs: Structured obs with ``camera_token_key`` and ``patch_tokens_key``.
-
-        Returns:
-          ``(camera_embed, house_embed)`` with original leading dims restored.
-        """
-        if not isinstance(obs, dict):
-            raise TypeError("HouseGlobalEmbeddingEncoder expects structured obs")
-        camera_token, cam_leading = flatten_event(
-            jnp.asarray(obs[self.camera_token_key]), event_ndims=2
-        )
-        patch_tokens, patch_leading = flatten_event(
-            jnp.asarray(obs[self.patch_tokens_key]), event_ndims=2
-        )
-        if cam_leading != patch_leading:
-            raise ValueError(
-                "camera_token_global and global_patch_tokens leading dims must "
-                f"match: camera {cam_leading}, patches {patch_leading}"
-            )
-        camera_embed = self._camera_embedding(camera_token)
-        house_embed = self._house_embedding(patch_tokens)
-        return (
-            restore_leading(camera_embed, cam_leading),
-            restore_leading(house_embed, patch_leading),
-        )
+    output_dim: int = 1024
+    hidden: int = 1024
+    layers: int = 1
+    pool_tokens: bool = True
 
     @nn.compact
-    def __call__(self, obs: dict[str, jnp.ndarray]) -> jnp.ndarray:
-        """Return fused ``[camera_embedding | house_embedding]``.
+    def __call__(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        """Reduce patch or singleton tokens to ``(…, output_dim)``."""
+        x = tokens
+        for i in range(self.layers):
+            x = nn.Dense(self.hidden, name=f"hidden{i}")(x)
+            x = RMSNorm(name=f"norm{i}")(x)
+            x = nn.silu(x)
+        if self.pool_tokens:
+            x = x.max(axis=-2)  # PointNet's symmetric g-pool over the token axis
+        else:
+            x = x[..., 0, :]  # squeeze the singleton token axis
+        return nn.Dense(self.output_dim, name="proj")(x)
 
-        Args:
-          obs: Structured obs with the camera and patch-token fields.
 
-        Returns:
-          ``concat([camera_embed, house_embed])`` with shape ``(…, 2*embed_dim)``.
-        """
-        camera_embed, house_embed = self._branches(obs)
-        return jnp.concatenate([camera_embed, house_embed], axis=-1)
+class HouseGlobalEmbeddingEncoder(nn.Module):
+    """Fuse RGB conv features with a PointNet-reduced global patch map.
+
+    Attributes:
+        mlp_layers: Number of hidden ``Dense -> RMSNorm -> silu`` blocks in
+            each TokenReducer branch.
+        hidden_dim: Hidden width of each TokenReducer branch.
+    """
+
+    mlp_layers: int = 1
+    hidden_dim: int = 1024
 
     @nn.compact
-    def branches(
-        self, obs: dict[str, jnp.ndarray]
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Diagnostic split: ``(camera_embedding, house_embedding)``.
-
-        Args:
-          obs: Structured obs with the camera and patch-token fields.
-
-        Returns:
-          ``(camera_embed, house_embed)``, each ``(…, embed_dim)``.
-        """
-        return self._branches(obs)
+    def __call__(self, obs: HouseGlobalObs | Mapping[str, jnp.ndarray]) -> jnp.ndarray:
+        """Encode a :class:`HouseGlobalObs` into an RSSM embedding."""
+        if isinstance(obs, Mapping):
+            obs = HouseGlobalObs(
+                global_patch_tokens=obs[GLOBAL_PATCH_TOKENS_KEY],
+                image=obs.get(HYBRID_IMAGE_KEY),
+                camera_token_global=obs.get(CAMERA_TOKEN_GLOBAL_KEY),
+            )
+        house_embed = TokenReducer(
+            hidden=self.hidden_dim,
+            layers=self.mlp_layers,
+            name="house",
+        )(obs.global_patch_tokens)
+        if obs.image is not None:
+            rgb_embed = ConvEncoder(name="rgb")(obs.image)
+            if house_embed.shape[:-1] != rgb_embed.shape[:-1]:
+                house_embed = jnp.broadcast_to(
+                    house_embed, (*rgb_embed.shape[:-1], house_embed.shape[-1])
+                )
+            return jnp.concatenate([rgb_embed, house_embed], axis=-1)
+        if obs.camera_token_global is not None:
+            camera_embed = TokenReducer(
+                hidden=self.hidden_dim,
+                layers=self.mlp_layers,
+                pool_tokens=False,
+                name="camera",
+            )(obs.camera_token_global)
+            if house_embed.shape[:-1] != camera_embed.shape[:-1]:
+                house_embed = jnp.broadcast_to(
+                    house_embed,
+                    (*camera_embed.shape[:-1], house_embed.shape[-1]),
+                )
+            return jnp.concatenate([camera_embed, house_embed], axis=-1)
+        return house_embed
 
 
 class VGGTAggregatorMLPEncoder(nn.Module):

@@ -109,7 +109,7 @@ def setup(args):
 
     env = make_habitat_env(
         curriculum="L1",
-        curriculum_mode="train",
+        mode="train",
         seed=args.seed,
         render_resolution=spec.env_render_resolution,
     )

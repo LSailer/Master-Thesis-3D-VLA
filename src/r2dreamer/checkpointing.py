@@ -31,9 +31,12 @@ class CheckpointAgentLike(Protocol):
 
 def _missing_pickle_class(module: str, name: str) -> type:
     class MissingPickleClass:
+        """Placeholder for optimizer-state classes missing from the current tree."""
+
         def __init__(self, *args, **kwargs):
             self.args = args
             self.kwargs = kwargs
+            self.state: Any = None
 
         def __setstate__(self, state):
             self.state = state

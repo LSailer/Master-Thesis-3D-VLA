@@ -2,11 +2,11 @@
 
 L1 variant: the agent's scene understanding comes from VGGT's global patch
 tokens instead of a 3D point map; cross-episode house memory comes from the
-extractor running ``ResetMode.PERSIST_SCENE``. The adapter splits the
-global-half aggregator tokens into ``camera_token_global`` (1, 1024) and
-``global_patch_tokens`` (1369, 1024); the PointNet reducer encoder
-(:class:`HouseGlobalEmbeddingEncoder`) max-pools the patches and keeps the
-camera token on its own side branch.
+extractor running ``ResetMode.PERSIST_SCENE``. The adapter drops the camera
+and register slots from the global-half map, caches
+``global_patch_tokens`` (1369, 1024) live at act time, and replays only
+64x64 RGB; :class:`HouseGlobalEmbeddingEncoder` max-pools the patches and
+fuses with the conv branch.
 
 Design: ``src/prototyp/house_global_embedding/IDEA.md`` ("Final design",
 2026-07-04). Reuses the whole VGGT extractor pipeline; only the agent-side
@@ -16,33 +16,26 @@ Flax module and the adapter change.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
 from importlib import import_module
-from types import MappingProxyType
 from typing import Any
 
 import flax.linen as nn
 
 from src.r2dreamer.encoders.base import VGGTEncoder
-from src.r2dreamer.encoders.constants import (
-    AGG_TOKEN_TOKENS,
-    VGGT_AGGREGATOR_EMBED_DIM,
-)
+
 from src.r2dreamer.encoders.mlp import HouseGlobalEmbeddingEncoder
 from src.vggt.jax.feature_extractor import ResetMode
 
 
 class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
-    """L1 RGB replay + split VGGT global tokens -> PointNet reducer encoder.
+    """L1 RGB replay + live global patch tokens -> PointNet reducer encoder.
 
     The extractor runs ``ResetMode.PERSIST_SCENE`` with heads off: the agent
-    consumes the global-half aggregator tokens, not a 3D point map, so the
-    camera/point heads never run and the camera-head KV-cache is never
-    allocated (the unbounded-growth risk under PERSIST_SCENE is eliminated by
-    construction). The adapter splits ``global_tokens`` into the camera token
-    (1, 1024) and the patch tokens (1369, 1024) and stores both float16 in
-    replay; the reducer encoder pools the patches and keeps the camera token
-    on its own side branch.
+    consumes global patch tokens, not a 3D point map, so the camera/point
+    heads never run and the camera-head KV-cache is never allocated (the
+    unbounded-growth risk under PERSIST_SCENE is eliminated by construction).
+    Replay stores only 64x64 RGB; the latest patch map is injected into
+    sampled batches via the adapter's ``augment_replay_batch`` hook.
 
     Optional PLY snapshots (diagnostics only) are driven by the adapter from
     ``pointcloud_dump_every`` / the run ``output_dir``; the point head runs
@@ -93,31 +86,27 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
     def module_cls(self) -> type[nn.Module]:
         return HouseGlobalEmbeddingEncoder
 
-    @property
-    def agent_overrides(self) -> Mapping[str, Any]:
-        # Same small-replay budget as the global-token no-gate variant: replay
-        # stores ~2.8 MB/step of float16 tokens (1370*1024*2), so a large
-        # buffer is infeasible. vggt_token_dim/vggt_token_count fix the module
-        # token layout to the VGGT global-half (camera + 4 registers + 1369
-        # patches). Smoke/prod YAML may override these.
-        return MappingProxyType(
-            {
-                "buffer_capacity": 5_000,
-                "batch_size": 4,
-                "seq_len": 32,
-                "train_ratio": 128,
-                "vggt_token_dim": VGGT_AGGREGATOR_EMBED_DIM,
-                "vggt_token_count": AGG_TOKEN_TOKENS,
-            }
-        )
+    @classmethod
+    def module_kwargs_from_config(cls, config: Any) -> dict[str, Any]:
+        """Resolve HouseGlobalEmbeddingEncoder kwargs from config.
+
+        Args:
+          config: Effective agent config supplying MLP reducer widths.
+
+        Returns:
+          Constructor kwargs for ``HouseGlobalEmbeddingEncoder``.
+        """
+        return {
+            "mlp_layers": int(config.mlp_vggt_layers),
+            "hidden_dim": int(config.mlp_vggt_hidden),
+        }
 
     @property
     def design_notes(self) -> str:
         return (
-            "RGB replay plus split VGGT global-half tokens (camera (1,1024) + "
-            "patches (1369,1024)); PointNet reducer max-pools the patches and "
-            "keeps the camera token on its own side branch (PERSIST_SCENE, "
-            "heads off)."
+            "RGB replay plus live-injected VGGT global patch tokens "
+            "(1369,1024); PointNet reducer max-pools the patches and fuses "
+            "with the RGB conv branch (PERSIST_SCENE, heads off)."
         )
 
     @property
@@ -125,7 +114,7 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
         return False
 
     def _build_adapter_for_extractor(self, extractor):
-        """Build the L1 split-token adapter for one extractor instance.
+        """Build the L1 live-patch-token adapter for one extractor instance.
 
         Args:
           extractor: A VGGT extractor configured for PERSIST_SCENE + heads off.
@@ -134,7 +123,7 @@ class VGGTHouseGlobalEmbeddingEncoder(VGGTEncoder):
           The :class:`VGGTHouseGlobalEmbeddingObsAdapter` wired with the dump
           knob/directory.
         """
-        adapter_module = import_module("src.r2dreamer.adapters.hybrid_adapter")
+        adapter_module = import_module("src.r2dreamer.adapters.token_adapters")
         return adapter_module.VGGTHouseGlobalEmbeddingObsAdapter(
             extractor,
             pointcloud_dump_every=self._pointcloud_dump_every,

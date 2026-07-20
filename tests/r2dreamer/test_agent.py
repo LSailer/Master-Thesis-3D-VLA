@@ -1,3 +1,4 @@
+
 """Smoke tests for R2DreamerAgent."""
 
 import jax
@@ -16,12 +17,16 @@ from src.r2dreamer.encoders.constants import (
 )
 from src.r2dreamer.observation_keys import (
     CAMERA_POSE_KEY,
-    CAMERA_TOKEN_GLOBAL_KEY,
     GLOBAL_PATCH_TOKENS_KEY,
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
 )
+
+
+def _params_allclose(a, b):
+    """Return whether two parameter leaves are numerically close."""
+    return jnp.allclose(a, b)
 
 
 @pytest.fixture
@@ -231,7 +236,7 @@ class TestR2DreamerAgent:
             assert tree_allclose(state, agent.snapshot_act_state())
 
         compiled = jax.jit(agent.act_with_state_pure)
-        action, _state = compiled.__call__(
+        action, _state = compiled(
             agent.params,
             {"image": image[None]},
             agent.initial_act_state(),
@@ -435,7 +440,7 @@ class TestR2DreamerAgent:
         assert "block0" in after["params"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
-                lambda a, b: jnp.allclose(a, b),
+                _params_allclose,
                 before["params"],
                 after["params"],
             )
@@ -448,7 +453,6 @@ class TestR2DreamerAgent:
             encoder_type="vggt_house_global_embedding",
             obs_shape={
                 "image": (3, 64, 64),
-                CAMERA_TOKEN_GLOBAL_KEY: (1, 8),
                 GLOBAL_PATCH_TOKENS_KEY: (6, 8),
             },
             num_actions=4,
@@ -477,13 +481,14 @@ class TestR2DreamerAgent:
             warmup_steps=0,
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
-        # Fused embed = concat([camera_embed, house_embed]) = 2 * vggt_embed_dim.
-        assert agent.embed_size == 2 * cfg.vggt_embed_dim
+        # Fused embed = concat([rgb_embed, house_embed]); branch widths come from
+        # the embedded ConvEncoder defaults and TokenReducer output_dim (1024).
+        assert agent.embed_size == 2048
         batch = ReplayBatch(
             obs={
                 "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
-                CAMERA_TOKEN_GLOBAL_KEY: jnp.zeros((1, 2, 1, 8), dtype=jnp.float32),
-                GLOBAL_PATCH_TOKENS_KEY: jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
+                # Live-injected singleton patch map (no B, T prefix).
+                GLOBAL_PATCH_TOKENS_KEY: jnp.zeros((6, 8), dtype=jnp.float32),
             },
             actions=jax.nn.one_hot(
                 jnp.zeros((1, 2), dtype=jnp.int32), cfg.num_actions
@@ -498,13 +503,13 @@ class TestR2DreamerAgent:
         after = agent.params["encoder"]
 
         assert np.isfinite(metrics["total_loss"])
-        # Reducer + camera side branch params exist and update.
-        assert "reducer_hidden0" in after["params"]
-        assert "camera_hidden0" in after["params"]
-        assert "house_proj" in after["params"]
+        assert set(after["params"]) == {"house", "rgb"}
+        assert "hidden0" in after["params"]["house"]
+        assert "proj" in after["params"]["house"]
+        assert "conv0" in after["params"]["rgb"]
         assert not jax.tree_util.tree_all(
             jax.tree.map(
-                lambda a, b: jnp.allclose(a, b),
+                _params_allclose,
                 before["params"],
                 after["params"],
             )

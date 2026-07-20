@@ -32,11 +32,15 @@ from pathlib import Path
 
 import numpy as np
 
-from src.shared.profiling import make_synthetic_rgb_frame
-
 
 DEFAULT_SEQ_LENS = (10, 50, 100)
 WARMUP_FRAMES = 3
+
+
+def _make_synthetic_rgb_frame(seed: int, size: int = 518) -> np.ndarray:
+    """Return a deterministic ``(3, size, size)`` uint8 RGB frame."""
+    rng = np.random.default_rng(seed)
+    return rng.integers(0, 256, size=(3, size, size), dtype=np.uint8)
 
 
 def bench_pytorch(
@@ -58,7 +62,7 @@ def bench_pytorch(
     # Warmup.
     ext.reset()
     for i in range(WARMUP_FRAMES):
-        ext.extract(make_synthetic_rgb_frame(i))
+        ext.extract(_make_synthetic_rgb_frame(i))
     torch.cuda.synchronize()
 
     ext.reset()
@@ -67,7 +71,7 @@ def bench_pytorch(
     for i in range(n_frames):
         torch.cuda.synchronize()
         t0 = time.perf_counter()
-        ext.extract(make_synthetic_rgb_frame(1000 + i))
+        ext.extract(_make_synthetic_rgb_frame(1000 + i))
         torch.cuda.synchronize()
         latencies.append((time.perf_counter() - t0) * 1000.0)
     peak_mem = torch.cuda.max_memory_allocated() / 1e6
@@ -118,7 +122,7 @@ def bench_jax(
 
     ext.reset()
     for i in range(WARMUP_FRAMES):
-        out = ext.extract(make_synthetic_rgb_frame(i))
+        out = ext.extract(_make_synthetic_rgb_frame(i))
         # block until ready without host transfer
         _ = out.world_points.block_until_ready()
 
@@ -126,7 +130,7 @@ def bench_jax(
     latencies = []
     for i in range(n_frames):
         t0 = time.perf_counter()
-        out = ext.extract(make_synthetic_rgb_frame(1000 + i))
+        out = ext.extract(_make_synthetic_rgb_frame(1000 + i))
         out.world_points.block_until_ready()
         latencies.append((time.perf_counter() - t0) * 1000.0)
 

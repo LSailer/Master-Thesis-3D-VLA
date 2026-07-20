@@ -1,3 +1,4 @@
+
 """CPU tests for the GNN house encoders (src/r2dreamer/encoders/gnn_house.py)."""
 
 import jax
@@ -30,15 +31,15 @@ def _make_obs(batch: int, n_points: int, size: int, key=0):
 
 
 def _make_encoder(cls=GnnHousePointsCameraEncoder, **overrides):
-    kwargs = dict(
-        embed_dim=32,
-        camera_hidden=16,
-        point_hidden=16,
-        num_graph_nodes=64,
-        knn_k=4,
-        gcn_hidden=16,
-        gcn_layers=2,
-    )
+    kwargs = {
+        "embed_dim": 32,
+        "camera_hidden": 16,
+        "point_hidden": 16,
+        "num_graph_nodes": 64,
+        "knn_k": 4,
+        "gcn_hidden": 16,
+        "gcn_layers": 2,
+    }
     kwargs.update(overrides)
     return cls(**kwargs)
 

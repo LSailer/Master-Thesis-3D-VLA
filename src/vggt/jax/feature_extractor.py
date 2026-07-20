@@ -25,6 +25,7 @@ from typing import Any
 # Must be set before JAX touches the GPU.
 os.environ.setdefault("JAX_COMPILATION_CACHE_DIR", "/tmp/vggt_jax_cache")
 
+# pylint: disable=wrong-import-position
 import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
@@ -40,6 +41,7 @@ from src.vggt.jax.weight_transfer import (  # noqa: E402
     load_checkpoint,
     load_pytorch_weights,
 )
+# pylint: enable=wrong-import-position
 
 # Image and patch grid are fixed at 518 / 14 = 37 patches per side.
 _IMG_SIZE = 518
@@ -71,6 +73,30 @@ class VGGTExtractOutput:
     camera_pose: jnp.ndarray
     frame_tokens: jnp.ndarray
     global_tokens: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        """Normalizes point-map fields and validates their alignment.
+
+        ``world_points`` and ``confidence`` are coerced to float32 ``jnp``
+        arrays (via ``object.__setattr__``, since the dataclass is frozen), so
+        consumers can use them without re-converting.
+
+        Raises:
+          ValueError: If confidence does not share world_points' spatial layout.
+        """
+        if self.world_points is None or self.confidence is None:
+            return
+        object.__setattr__(
+            self, "world_points", jnp.asarray(self.world_points, dtype=jnp.float32)
+        )
+        object.__setattr__(
+            self, "confidence", jnp.asarray(self.confidence, dtype=jnp.float32)
+        )
+        if self.world_points.shape[:-1] != self.confidence.shape:
+            raise ValueError(
+                "world_points/confidence spatial layout mismatch: "
+                f"{self.world_points.shape} vs {self.confidence.shape}"
+            )
 
 
 ExtractOutput = VGGTExtractOutput
@@ -250,7 +276,7 @@ class JAXVGGTFeatureExtractor:
     def __init__(
         self,
         device: str = "cuda",
-        compile: bool = False,
+        enable_compile: bool = False,
         total_budget: int = _DEFAULT_TOTAL_BUDGET,
         dtype: Any = jnp.bfloat16,
         max_camera_frames: int = 1024,
@@ -262,7 +288,7 @@ class JAXVGGTFeatureExtractor:
         """Initialize weights, cache dimensions, JIT callables, and warmup graphs."""
         self._configure_runtime_options(compute_heads, wp_pool_size, budgets_static)
         self._device = select_jax_device(device)
-        self._compile = compile  # reserved
+        self._enable_compile = enable_compile  # reserved
         self._total_budget = total_budget
         self._dtype = dtype
         self._reset_mode = reset_mode
@@ -293,6 +319,12 @@ class JAXVGGTFeatureExtractor:
         self._last_patch_start_idx: jnp.ndarray | None = None
         self._last_rgb: np.ndarray | None = None
 
+        # Streaming cache fields; reset() clears them at episode boundaries.
+        self._past_kvs_padded: list[CacheEntry] | None = None
+        self._last_scores: jnp.ndarray | None = None
+        self._past_kvs_camera: list[CacheEntry] | None = None
+        self._frame_idx: int = 0
+
         self.reset()
         self._warmup()
 
@@ -318,22 +350,22 @@ class JAXVGGTFeatureExtractor:
 
     def _configure_aggregator_cache(self, total_budget: int) -> None:
         """Derive padded cache dimensions for the streaming aggregator."""
-        self._P = 5 + (_IMG_SIZE // _PATCH_SIZE) ** 2
-        uniform = max(total_budget // self._agg_depth, self._P)
-        self._MAX = uniform + self._P
-        self._MAX_BUDGET = self._MAX - self._P
+        self._anchor_tokens = 5 + (_IMG_SIZE // _PATCH_SIZE) ** 2
+        uniform = max(total_budget // self._agg_depth, self._anchor_tokens)
+        self._cache_max = uniform + self._anchor_tokens
+        self._max_budget = self._cache_max - self._anchor_tokens
         self._num_heads = self._aggregator.num_heads
         self._head_dim = self._aggregator.embed_dim // self._num_heads
 
     def _finalize_static_budget_override(self) -> None:
         """Default to fixed budgets and validate explicit static budgets."""
-        if self._MAX_BUDGET <= self._P:
+        if self._max_budget <= self._anchor_tokens:
             raise ValueError(
                 f"total_budget={self._total_budget} leaves no room beyond "
-                f"{self._P} anchor tokens per block"
+                f"{self._anchor_tokens} anchor tokens per block"
             )
         if self._budgets_static_override is None:
-            self._budgets_static_override = (self._MAX_BUDGET,) * self._agg_depth
+            self._budgets_static_override = (self._max_budget,) * self._agg_depth
             return
         if len(self._budgets_static_override) != self._agg_depth:
             raise ValueError(
@@ -343,12 +375,12 @@ class JAXVGGTFeatureExtractor:
         invalid = [
             budget
             for budget in self._budgets_static_override
-            if budget > self._MAX_BUDGET or budget <= self._P
+            if budget > self._max_budget or budget <= self._anchor_tokens
         ]
         if invalid:
             raise ValueError(
                 "budgets_static entries must be in "
-                f"({self._P}, {self._MAX_BUDGET}], got {invalid}"
+                f"({self._anchor_tokens}, {self._max_budget}], got {invalid}"
             )
 
     def _configure_camera_cache(self, max_camera_frames: int) -> None:
@@ -356,7 +388,7 @@ class JAXVGGTFeatureExtractor:
         self._cam_num_heads = self._camera_head.num_heads
         self._cam_head_dim = self._camera_head.dim_in // self._cam_num_heads
         self._cam_num_iters = self._camera_head.num_iterations
-        self._CAM_MAX = max_camera_frames * self._cam_num_iters
+        self._cam_max = max_camera_frames * self._cam_num_iters
 
     def _compile_apply_functions(self) -> None:
         """Create JIT wrappers around the stateful module apply calls."""
@@ -393,13 +425,13 @@ class JAXVGGTFeatureExtractor:
 
     def _new_padded_cache_entry(self) -> CacheEntry:
         """Allocate a zero-padded (k, v, valid_len=0) entry."""
-        B = 1
+        batch = 1
         k_pad = jnp.zeros(
-            (B, self._num_heads, self._MAX, self._head_dim),
+            (batch, self._num_heads, self._cache_max, self._head_dim),
             dtype=self._dtype,
         )
         v_pad = jnp.zeros(
-            (B, self._num_heads, self._MAX, self._head_dim),
+            (batch, self._num_heads, self._cache_max, self._head_dim),
             dtype=self._dtype,
         )
         valid_len = jnp.asarray(0, dtype=jnp.int32)
@@ -407,13 +439,13 @@ class JAXVGGTFeatureExtractor:
 
     def _new_padded_camera_entry(self) -> CacheEntry:
         """Allocate a zero-padded camera-head (k, v, valid_len=0) entry."""
-        B = 1
+        batch = 1
         k_pad = jnp.zeros(
-            (B, self._cam_num_heads, self._CAM_MAX, self._cam_head_dim),
+            (batch, self._cam_num_heads, self._cam_max, self._cam_head_dim),
             dtype=self._dtype,
         )
         v_pad = jnp.zeros(
-            (B, self._cam_num_heads, self._CAM_MAX, self._cam_head_dim),
+            (batch, self._cam_num_heads, self._cam_max, self._cam_head_dim),
             dtype=self._dtype,
         )
         valid_len = jnp.asarray(0, dtype=jnp.int32)
@@ -428,7 +460,7 @@ class JAXVGGTFeatureExtractor:
             )
         )
         # Leave room for the next frame append before eviction runs.
-        bud = np.clip(bud, self._P + 1, self._MAX_BUDGET)
+        bud = np.clip(bud, self._anchor_tokens + 1, self._max_budget)
         return tuple(int(x) for x in bud.tolist())
 
     def _warmup(self) -> None:
@@ -527,13 +559,15 @@ class JAXVGGTFeatureExtractor:
             return self._new_padded_cache_entry()
         if isinstance(entry, tuple) and len(entry) == 3:
             return entry
-        k, v = entry
-        B, H, L, Dh = k.shape
-        k_pad = jnp.zeros((B, H, self._MAX, Dh), dtype=k.dtype)
-        v_pad = jnp.zeros((B, H, self._MAX, Dh), dtype=v.dtype)
-        k_pad = jax.lax.dynamic_update_slice_in_dim(k_pad, k, 0, axis=2)
-        v_pad = jax.lax.dynamic_update_slice_in_dim(v_pad, v, 0, axis=2)
-        valid_len = jnp.asarray(L, dtype=jnp.int32)
+        keys, values = entry
+        batch, num_heads, seq_len, head_dim = keys.shape
+        k_pad = jnp.zeros((batch, num_heads, self._cache_max, head_dim), dtype=keys.dtype)
+        v_pad = jnp.zeros(
+            (batch, num_heads, self._cache_max, head_dim), dtype=values.dtype
+        )
+        k_pad = jax.lax.dynamic_update_slice_in_dim(k_pad, keys, 0, axis=2)
+        v_pad = jax.lax.dynamic_update_slice_in_dim(v_pad, values, 0, axis=2)
+        valid_len = jnp.asarray(seq_len, dtype=jnp.int32)
         return (k_pad, v_pad, valid_len)
 
     # ------------------------------------------------------------------
@@ -542,10 +576,10 @@ class JAXVGGTFeatureExtractor:
 
     def reset(self) -> None:
         """Clear KV-cache and frame counter. Call at episode boundaries."""
-        self._past_kvs_padded: list[CacheEntry] | None = None
-        self._last_scores: jnp.ndarray | None = None
-        self._past_kvs_camera: list[CacheEntry] | None = None
-        self._frame_idx: int = 0
+        self._past_kvs_padded = None
+        self._last_scores = None
+        self._past_kvs_camera = None
+        self._frame_idx = 0
 
     def save_cache(self) -> AggregatorCacheSnapshot:
         """Snapshot the current streaming state (the four cache fields).
@@ -706,7 +740,7 @@ class JAXVGGTFeatureExtractor:
         ``cache_budget=None``, unlike the aggregator), so without this the
         padded buffer would overflow: ``dynamic_update_slice_in_dim`` clamps
         out-of-range writes (silently corrupting the last slot) and
-        ``key_value_seq_lengths > _CAM_MAX`` gives undefined cuDNN behaviour.
+        ``key_value_seq_lengths > _cam_max`` gives undefined cuDNN behaviour.
         Instead of raising, drop one frame per new frame once full, so the
         camera head always attends over the most recent ``max_camera_frames``
         frames — matching the reference extractor's
@@ -715,7 +749,7 @@ class JAXVGGTFeatureExtractor:
         the old behaviour for the first ``max_camera_frames`` frames; only
         behaviour past that point changes (continue instead of crash).
         """
-        max_frames = self._CAM_MAX // self._cam_num_iters
+        max_frames = self._cam_max // self._cam_num_iters
         if self._frame_idx >= max_frames:
             self._evict_oldest_camera_frame()
 
@@ -724,13 +758,13 @@ class JAXVGGTFeatureExtractor:
 
         Drops the oldest ``_cam_num_iters`` rows (one frame's worth, 4 pose
         iterations) from each trunk block and pads the same number of zero
-        rows at the tail, setting ``valid_len = _CAM_MAX - _cam_num_iters`` so
+        rows at the tail, setting ``valid_len = _cam_max - _cam_num_iters`` so
         the next camera-head apply appends the new frame at the freed end and
-        ``valid_len`` returns to ``_CAM_MAX``. Net: a sliding window of the
+        ``valid_len`` returns to ``_cam_max``. Net: a sliding window of the
         last ``max_camera_frames`` frames. Run only when the cache is full.
 
         Cost (HANDOFF.md R5): once full, one concat per trunk block per frame
-        (``_cam_depth`` blocks x 2 (k,v)). At ``_CAM_MAX=4096`` this is
+        (``_cam_depth`` blocks x 2 (k,v)). At ``_cam_max=4096`` this is
         non-trivial device traffic — watch the wall-clock regression vs. the
         158 ms/step baseline (EXPERIMENTS E2). A circular-buffer variant would
         avoid the copy but needs rotated reads inside the attention block.
@@ -741,7 +775,7 @@ class JAXVGGTFeatureExtractor:
         shifted: list[CacheEntry] = []
         for k_pad, v_pad, valid_len in self._past_kvs_camera:
             vl = int(np.asarray(valid_len))
-            if vl < self._CAM_MAX:
+            if vl < self._cam_max:
                 # Not full yet — no eviction; the apply will append and grow valid_len.
                 shifted.append((k_pad, v_pad, valid_len))
                 continue
@@ -750,7 +784,7 @@ class JAXVGGTFeatureExtractor:
             k_shift = jnp.concatenate([k_pad[:, :, n:, :], k_tail], axis=2)
             v_shift = jnp.concatenate([v_pad[:, :, n:, :], v_tail], axis=2)
             shifted.append(
-                (k_shift, v_shift, jnp.asarray(self._CAM_MAX - n, dtype=jnp.int32))
+                (k_shift, v_shift, jnp.asarray(self._cam_max - n, dtype=jnp.int32))
             )
         self._past_kvs_camera = shifted
 
@@ -779,19 +813,6 @@ class JAXVGGTFeatureExtractor:
         )
         return pts3d[:, 0], conf[:, 0], camera_pose
 
-    def _pool_head_outputs(
-        self,
-        pts3d: jnp.ndarray,
-        conf: jnp.ndarray,
-        camera_pose: jnp.ndarray,
-    ) -> HeadOutputs:
-        """Unwrap full-resolution single-frame head outputs."""
-        return HeadOutputs(
-            world_points=pts3d[0].astype(jnp.float32),
-            confidence=conf[0].astype(jnp.float32),
-            camera_pose=camera_pose[0].astype(jnp.float32),
-        )
-
     def _aggregator_full_tokens(self, out_list: list[jnp.ndarray]) -> jnp.ndarray:
         """Expose final full-width frame+global aggregator tokens."""
         final_tokens = out_list[-1]
@@ -818,7 +839,7 @@ class JAXVGGTFeatureExtractor:
             camera_pose,
             phase_times,
         )
-        head_outputs = self._pool_head_outputs(pts3d, conf, camera_pose)
+        head_outputs = HeadOutputs(pts3d, conf, camera_pose)
         self._record_head_profile(phase_times, forward_start, wrapper_start)
         return head_outputs
 

@@ -139,7 +139,7 @@ class CameraHead(nn.Module):
             With cache:    ``(pred_pose_enc_list, new_past_kvs_camera)``.
         """
         tokens = aggregated_tokens_list[-1]
-        B, S, P, C = tokens.shape
+        B, S, _patch, C = tokens.shape
         if C != self.dim_in:
             raise ValueError(f"aggregator token dim {C} != dim_in {self.dim_in}")
         if use_cache and S != 1:
@@ -156,6 +156,7 @@ class CameraHead(nn.Module):
             future = s_range[:, None] < s_range[None, :]
             attn_mask = future.astype(jnp.float32) * jnp.finfo(jnp.float32).min
 
+        new_past_kvs_camera: list | None = None
         if use_cache:
             if past_kvs_camera is None:
                 past_kvs_camera = [None] * self.trunk_depth
@@ -164,7 +165,7 @@ class CameraHead(nn.Module):
                     f"past_kvs_camera length {len(past_kvs_camera)} "
                     f"!= trunk_depth {self.trunk_depth}"
                 )
-            new_past_kvs_camera: list = list(past_kvs_camera)
+            new_past_kvs_camera = list(past_kvs_camera)
 
         pred_pose_enc: jnp.ndarray | None = None
         pred_pose_enc_list: list[jnp.ndarray] = []
@@ -189,6 +190,7 @@ class CameraHead(nn.Module):
 
             for k in range(self.trunk_depth):
                 if use_cache:
+                    assert new_past_kvs_camera is not None
                     pose_tokens_mod, new_kv = cast(
                         tuple[jnp.ndarray, tuple],
                         self.trunk_blocks[k](
@@ -210,5 +212,6 @@ class CameraHead(nn.Module):
             pred_pose_enc_list.append(_activate_pose(pred_pose_enc))
 
         if use_cache:
+            assert new_past_kvs_camera is not None
             return pred_pose_enc_list, new_past_kvs_camera
         return pred_pose_enc_list
