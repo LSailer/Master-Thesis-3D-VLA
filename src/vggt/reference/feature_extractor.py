@@ -2,6 +2,7 @@
 
 import sys
 from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
@@ -26,6 +27,30 @@ _HF_REPO = "lch01/StreamVGGT"
 _PATCH_GRID = 37
 
 
+@dataclass(frozen=True)
+class VGGTExtractResult:
+    """Per-frame extraction output.
+
+    Supports both attribute access (``out.world_points``, matching the JAX
+    extractor's output style) and legacy dict-style access
+    (``out["world_points"]``).
+
+    Attributes:
+      world_points: ``(37, 37, 3)`` pooled or ``(518, 518, 3)`` full-res
+        float32 point map, depending on the ``full_resolution`` flag.
+      confidence: ``(37, 37)`` or ``(518, 518)`` float32 confidence map.
+      camera_pose: ``(9,)`` float32 pose encoding.
+    """
+
+    world_points: np.ndarray
+    confidence: np.ndarray
+    camera_pose: np.ndarray
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        """Returns a field by name for dict-style consumers."""
+        return getattr(self, key)
+
+
 class VGGTFeatureExtractor:
     """Wraps InfiniteVGGT for streaming feature extraction during RL acting.
 
@@ -43,6 +68,7 @@ class VGGTFeatureExtractor:
         max_camera_frames: int | None = None,
         camera_iterations: int = 4,
         prefer_flash_sdp: bool = True,
+        full_resolution: bool = False,
     ):
         """Load frozen InfiniteVGGT model.
 
@@ -65,8 +91,13 @@ class VGGTFeatureExtractor:
             camera_iterations: Number of pose refinement iterations per frame
                 (default 4) used to estimate camera-head cache growth.
             prefer_flash_sdp: If True, prefer Flash SDP kernels when available.
+            full_resolution: If True, :meth:`extract` skips the 37x37 pooling
+                and returns the full (518, 518) point map plus its confidence
+                map (PLY export / comparison path). Default False keeps the
+                pooled token-adapter contract.
         """
         self.device = torch.device(device)
+        self._full_resolution = bool(full_resolution)
 
         # Load model via HuggingFace Hub (PyTorchModelHubMixin).
         self.model: StreamVGGT = StreamVGGT.from_pretrained(_HF_REPO)
@@ -147,13 +178,20 @@ class VGGTFeatureExtractor:
 
     def extract(
         self,
-        rgb: np.ndarray,
+        rgb: Any,
         phase_times: dict[str, list[float]] | None = None,
-    ) -> dict[str, np.ndarray]:
+    ) -> VGGTExtractResult:
         """Single-frame streaming inference.
 
         Args:
-            rgb: ``(3, 518, 518)`` uint8 array in CHW format (e.g. from Habitat).
+            rgb: ``(3, 518, 518)`` uint8 array in CHW format (e.g. from
+                Habitat), or an ``ObservationFrame`` carrying such an array as
+                ``.image``. An ObservationFrame's ``is_first`` flag is
+                intentionally ignored: single-scene streaming keeps the KV
+                cache alive across episode boundaries, mirroring the JAX
+                extractor's ``PERSIST_SCENE`` mode where a same-scene reset
+                is a no-op. Call :meth:`reset` explicitly to start a fresh
+                stream.
             phase_times: Optional profiling hook. When provided, records per-call
                 CUDA-Event durations (ms) under keys ``"vggt_forward"`` (input prep
                 + model forward) and ``"vggt_wrapper"`` (pool + permute + .cpu()
@@ -161,9 +199,13 @@ class VGGTFeatureExtractor:
                 created and no extra work is done.
 
         Returns:
-            ``{"world_points": (37, 37, 3) float32,
-              "camera_pose": (9,) float32}``
+            ``VGGTExtractResult`` with ``world_points (37, 37, 3)``,
+            ``confidence (37, 37)`` and ``camera_pose (9,)``. With
+            ``full_resolution=True`` the point/confidence maps are the
+            unpooled ``(518, 518, 3)`` / ``(518, 518)`` head outputs instead.
         """
+        if hasattr(rgb, "image"):  # ObservationFrame (duck-typed)
+            rgb = np.asarray(rgb.image)
         profiling = phase_times is not None
         fwd_start = fwd_end = wrap_start = wrap_end = None
         if profiling:
@@ -218,12 +260,13 @@ class VGGTFeatureExtractor:
                             self._past_key_values_camera[idx] = (k, v)
 
                 # Point head (DPT upsampled).
-                pts3d, _ = self.model.point_head(
+                pts3d, conf = self.model.point_head(
                     aggregated_tokens,
                     images=images,
                     patch_start_idx=patch_start_idx,
                 )
                 pts3d = pts3d[:, 0]  # (B, H, W, 3)  — remove sequence dim
+                conf = conf[:, 0]  # (B, H, W)
 
         if profiling:
             assert fwd_end is not None and wrap_start is not None
@@ -231,16 +274,24 @@ class VGGTFeatureExtractor:
             wrap_start.record()
 
         # --- downsample to patch grid ----------------------------------------
-        # pts3d is (1, H, W, 3) with H=W=518.  Pool to 37×37.
-        # adaptive_avg_pool2d works on (N, C, H, W) so permute channels.
-        pts_chw = pts3d.permute(0, 3, 1, 2).float()  # (1, 3, H, W)
-        pts_down = F.adaptive_avg_pool2d(
-            pts_chw, (_PATCH_GRID, _PATCH_GRID)
-        )  # (1, 3, 37, 37)
-        world_points = pts_down.permute(0, 2, 3, 1).squeeze(0)  # (37, 37, 3)
+        if self._full_resolution:
+            world_points = pts3d.squeeze(0)  # (H, W, 3)
+            confidence = conf.squeeze(0)  # (H, W)
+        else:
+            # pts3d is (1, H, W, 3) with H=W=518.  Pool to 37×37.
+            # adaptive_avg_pool2d works on (N, C, H, W) so permute channels.
+            pts_chw = pts3d.permute(0, 3, 1, 2).float()  # (1, 3, H, W)
+            pts_down = F.adaptive_avg_pool2d(
+                pts_chw, (_PATCH_GRID, _PATCH_GRID)
+            )  # (1, 3, 37, 37)
+            world_points = pts_down.permute(0, 2, 3, 1).squeeze(0)  # (37, 37, 3)
+            confidence = F.adaptive_avg_pool2d(
+                conf.unsqueeze(1).float(), (_PATCH_GRID, _PATCH_GRID)
+            ).squeeze(1).squeeze(0)  # (37, 37)
 
         # --- to numpy --------------------------------------------------------
         world_points_np = world_points.cpu().float().numpy()
+        confidence_np = confidence.cpu().float().numpy()
         camera_pose_np = camera_pose.squeeze(0).cpu().float().numpy()
 
         if profiling:
@@ -289,7 +340,8 @@ class VGGTFeatureExtractor:
         #     f"values={camera_pose_np}",
         #     flush=True,
         # )
-        return {
-            "world_points": world_points_np,  # (37, 37, 3) float32
-            "camera_pose": camera_pose_np,  # (9,)        float32
-        }
+        return VGGTExtractResult(
+            world_points=world_points_np,
+            confidence=confidence_np,
+            camera_pose=camera_pose_np,
+        )
