@@ -2,7 +2,7 @@
 
 from typing import Any, cast
 
-import numpy as np
+import jax.numpy as jnp
 
 from src.environments.observation import ObservationFrame
 
@@ -18,14 +18,14 @@ class CrafterEnv:
     def reset(self) -> ObservationFrame:
         obs = self._env.reset()  # (H, W, C) uint8
         return ObservationFrame(
-            image=np.transpose(obs, (2, 0, 1)),  # CHW
+            image=jnp.transpose(obs, (2, 0, 1)),  # CHW
             is_first=True,
         )
 
     def step(self, action) -> ObservationFrame:
         obs, reward, done, _info = self._env.step(action)
         return ObservationFrame(
-            image=np.transpose(obs, (2, 0, 1)),  # CHW
+            image=jnp.transpose(obs, (2, 0, 1)),  # CHW
             is_first=False,
             previous_action=int(action),
             reward=float(reward),

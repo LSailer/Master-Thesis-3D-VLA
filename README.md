@@ -19,7 +19,7 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:10:00 uv run pytest tests/<
 
 **General GPU commands:**
 ```bash
-srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 <command>
+salloc --partition=gpu_h100_short --gres=gpu:1 --time=00:30:00 <command>
 ```
 
 **When to use `srun`:** if the code imports `jax`, `habitat_sim`, `torch.cuda`, or uses `@pytest.mark.gpu`, it needs GPU → wrap with `srun`.

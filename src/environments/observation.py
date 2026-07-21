@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import numpy as np
 
+import jax.numpy as jnp
 
 @dataclass(frozen=True)
 class ObservationFrame:
@@ -16,7 +16,7 @@ class ObservationFrame:
     ``None`` for reset frames because no environment action preceded them.
     """
 
-    image: np.ndarray
+    image: jnp.ndarray
     is_first: bool
     previous_action: int | None = None
     reward: float = 0.0

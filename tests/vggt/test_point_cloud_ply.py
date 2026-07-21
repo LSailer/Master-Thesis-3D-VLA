@@ -1,6 +1,6 @@
 """CPU tests for the VGGT-side PLY point-cloud snapshot writer.
 
-Covers ``JAXVGGTFeatureExtractor._write_ascii_ply_xyzrgb`` (the file-boundary
+Covers ``JAXVGGTFeatureExtractor.write_ascii_ply_xyzrgb`` (the file-boundary
 helper behind ``write_point_cloud_ply``) — round-trips with the existing
 ``load_ascii_ply_xyzrgb`` reader. The full ``write_point_cloud_ply`` path runs
 the real point head and is exercised by the SLURM smoke (GPU + weights).
@@ -17,7 +17,7 @@ from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
 def _writer():
     # Static method — no extractor construction (avoids GPU/weights).
-    return JAXVGGTFeatureExtractor._write_ascii_ply_xyzrgb
+    return JAXVGGTFeatureExtractor.write_ascii_ply_xyzrgb
 
 
 def test_ply_writer_round_trips_with_reader(tmp_path):

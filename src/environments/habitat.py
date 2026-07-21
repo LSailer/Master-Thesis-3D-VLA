@@ -10,8 +10,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypedDict, cast
+import jax.numpy as jnp
 
+# Host-side habitat_sim interop (per-cell pathfinder queries) stays NumPy.
 import numpy as np
+
 from src.environments.observation import ObservationFrame
 
 # Discrete actions: STOP is a no-op (no movement), kept for action-space parity
@@ -95,7 +98,7 @@ def _validate_goal_distance(dist: float) -> float:
             "distance_to_goal must be a finite non-negative value, got None"
         )
     dist = float(dist)
-    if not np.isfinite(dist) or dist < 0.0:
+    if not jnp.isfinite(dist) or dist < 0.0:
         raise ValueError(
             f"distance_to_goal must be a finite non-negative value, got {dist!r}"
         )
@@ -163,7 +166,7 @@ class HabitatObjectNavEnv:
 
     _env: Any
     _last_obs: Any
-    _prev_position: np.ndarray | None
+    _prev_position: jnp.ndarray | None
 
     def __init__(
         self,
@@ -335,7 +338,7 @@ class HabitatObjectNavEnv:
 
         self._prev_dist = dist
         self._start_geodesic = self._prev_dist
-        self._prev_position = np.array(self._env.sim.get_agent_state().position)
+        self._prev_position = jnp.array(self._env.sim.get_agent_state().position)
         self._path_length = 0.0
         self._step_count = 0
         self._collisions = 0
@@ -379,8 +382,8 @@ class HabitatObjectNavEnv:
         self._last_obs = obs
         metrics = self._env.get_metrics()
 
-        current_position = np.array(self._env.sim.get_agent_state().position)
-        delta = float(np.linalg.norm(current_position - self._prev_position))
+        current_position = jnp.array(self._env.sim.get_agent_state().position)
+        delta = float(jnp.linalg.norm(current_position - self._prev_position))
         self._path_length += delta
         # Habitat has no direct collision API. Workaround: a FORWARD step that
         # moves the agent < 0.01 m is treated as a collision. Nominal forward
@@ -429,7 +432,7 @@ class HabitatObjectNavEnv:
         self, obs, raw_dist: object, action: int
     ) -> ObservationFrame:
         image = self._obs_to_image(obs)
-        fallback_dist = self._prev_dist if np.isfinite(float(self._prev_dist)) else 0.0
+        fallback_dist = self._prev_dist if jnp.isfinite(float(self._prev_dist)) else 0.0
         end_metrics = self._episode_end_metrics(fallback_dist, True)
         episode = self.current_episode
         return ObservationFrame(
@@ -500,9 +503,9 @@ class HabitatObjectNavEnv:
         """Sample navigable area. Delegates to module-level function."""
         return sample_navmesh(self._env, resolution)
     #TODO: I want to return the HWC image instead of the CHW image
-    def _obs_to_image(self, obs) -> np.ndarray:
+    def _obs_to_image(self, obs) -> jnp.ndarray:
         rgb = obs["rgb"][:, :, :3]  # (H, W, 3) uint8
-        return np.transpose(rgb, (2, 0, 1))  # (3, H, W)
+        return jnp.transpose(rgb, (2, 0, 1))  # (3, H, W)
 
     def _compute_reward(self, dist: float) -> float:
         dist = _validate_goal_distance(dist)

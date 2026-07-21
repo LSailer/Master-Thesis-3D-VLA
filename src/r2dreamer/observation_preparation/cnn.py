@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import numpy as np
+import jax.numpy as jnp
 
 from src.configs.config import (
     ObservationDims,
@@ -72,7 +72,7 @@ class CNNObservationPreparation(ObsAdapter):
         )
 
     def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
-        image = np.asarray(env_obs.image)
+        image = jnp.asarray(env_obs.image)
         return PreparedObservation(
             replay_obs=image,
             encoder_obs={"image": image},
@@ -81,5 +81,5 @@ class CNNObservationPreparation(ObsAdapter):
 
     def transform(self, env_obs: ObservationFrame):
         """Compatibility wrapper for ObsAdapter call sites."""
-        image = np.asarray(env_obs.image)
+        image = jnp.asarray(env_obs.image)
         return image, {"image": image, "is_first": env_obs.is_first}

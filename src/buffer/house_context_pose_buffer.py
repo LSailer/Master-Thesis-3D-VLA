@@ -10,7 +10,7 @@ from typing import ClassVar, NamedTuple, TextIO
 
 import jax
 import jax.numpy as jnp
-import numpy as np
+
 
 from src.environments.observation import ObservationFrame
 from src.vggt.jax.feature_extractor import VGGTExtractOutput
@@ -497,10 +497,10 @@ class HouseContextPoseBuffer:
         # (reached at point_count * max_points > 2**31); both operands are
         # static here so the exact indices transfer as a constant.
         stride_indices = (
-            np.arange(max_points, dtype=np.int64) * point_count
+            jnp.arange(max_points, dtype=jnp.int64) * point_count
         ) // max_points
         indices = jnp.asarray(
-            np.minimum(stride_indices, point_count - 1), dtype=jnp.int32
+            jnp.minimum(stride_indices, point_count - 1), dtype=jnp.int32
         )
         return rows[indices].astype(jnp.float32)
 
@@ -514,7 +514,7 @@ class HouseContextPoseBuffer:
         ``_FlattenedFrame.__post_init__`` documents and enforces the
         alignment contract.
         """
-        rgb_hwc = np.moveaxis(observation.image, 0, -1)
+        rgb_hwc = jnp.moveaxis(observation.image, 0, -1)
         return _FlattenedFrame(
             xyz=vggt_output.world_points.reshape(-1, self.XYZ_CHANNELS),
             rgb=jnp.asarray(rgb_hwc, dtype=jnp.uint8).reshape(-1, self.RGB_CHANNELS),
@@ -564,20 +564,20 @@ class HouseContextPoseBuffer:
                 )
         return ply_path
 
-    def _host_point_color_arrays(self) -> tuple[np.ndarray, np.ndarray]:
+    def _host_point_color_arrays(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Return logical buffered points/colors as validated host arrays."""
         size = self.point_count
         if size == 0:
             raise ValueError("cannot save empty house context")
 
         points_xyz, colors_rgb = jax.device_get((self.points_xyz, self.colors_rgb))
-        points = np.asarray(points_xyz, dtype=np.float32)
-        colors = np.asarray(colors_rgb, dtype=np.uint8)
+        points = jnp.asarray(points_xyz, dtype=jnp.float32)
+        colors = jnp.asarray(colors_rgb, dtype=jnp.uint8)
         self._validate_point_color_shapes(points, colors)
         return points, colors
 
     @staticmethod
-    def _validate_point_color_shapes(points: np.ndarray, colors: np.ndarray) -> None:
+    def _validate_point_color_shapes(points: jnp.ndarray, colors: jnp.ndarray) -> None:
         """Validate point/color shape contract before writing PLY."""
         if points.ndim != 2 or points.shape[1] != 3:
             raise ValueError(f"expected points shape (P, 3), got {points.shape}")
@@ -612,8 +612,8 @@ class HouseContextPoseBuffer:
     @staticmethod
     def _ply_vertex_line(
         point_id: int,
-        point: np.ndarray,
-        color: np.ndarray,
+        point: jnp.ndarray,
+        color: jnp.ndarray,
         status_id: int,
         added_step: int,
     ) -> str:

@@ -28,7 +28,6 @@ os.environ.setdefault("JAX_COMPILATION_CACHE_DIR", "/tmp/vggt_jax_cache")
 # pylint: disable=wrong-import-position
 import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
-import numpy as np  # noqa: E402
 
 from src.environments.observation import ObservationFrame  # noqa: E402
 from src.vggt.jax.aggregator import (  # noqa: E402
@@ -65,7 +64,17 @@ class VGGTExtractOutput:
     ``expp1`` activation, so values are ``>= 1``); it shares ``world_points``'
     spatial layout so the two flatten in lockstep. ``camera_pose`` is the final
     camera-head pose encoding. ``frame_tokens`` and ``global_tokens`` are the two
-    halves of the final full-width aggregator tokens.
+    halves of the final full-width aggregator tokens (all 1374 tokens of the
+    last layer, float32 — the heads-OFF RSSM embedding surface).
+
+    ``consumed_layer_halves`` is the heads-ON token-surgery surface (openspec
+    change ``global-token-reconstruction-ablation``): for each DPT-consumed
+    layer (``DPTHead.intermediate_layer_idx``, i.e. 4/11/17/23) the per-patch
+    frame-half ``[:1024]`` and global-half ``[1024:]`` channel slices, each of
+    shape ``(patch_grid**2, 1024)`` = ``(1369, 1024)`` in the retained
+    aggregator dtype (bfloat16 — kept uncast so reassembled tokens reproduce
+    ``point_head_from_tokens`` bit-for-bit). Camera/register tokens are
+    dropped; a pooled scene vector is never produced.
     """
 
     world_points: jnp.ndarray
@@ -317,7 +326,7 @@ class JAXVGGTFeatureExtractor:
         self._last_out_list: list[jnp.ndarray] | None = None
         self._last_images: jnp.ndarray | None = None
         self._last_patch_start_idx: jnp.ndarray | None = None
-        self._last_rgb: np.ndarray | None = None
+        self._last_rgb: jnp.ndarray | None = None
 
         # Streaming cache fields; reset() clears them at episode boundaries.
         self._past_kvs_padded: list[CacheEntry] | None = None
@@ -451,16 +460,16 @@ class JAXVGGTFeatureExtractor:
         valid_len = jnp.asarray(0, dtype=jnp.int32)
         return (k_pad, v_pad, valid_len)
 
-    def _compute_static_budgets(self, last_scores_np: np.ndarray) -> tuple[int, ...]:
+    def _compute_static_budgets(self, last_scores_np: jnp.ndarray) -> tuple[int, ...]:
         """Compute dynamic per-block budgets as a tuple of Python ints."""
-        bud = np.asarray(
+        bud = jnp.asarray(
             _calculate_dynamic_budgets(
                 jnp.asarray(last_scores_np, dtype=jnp.float32),
                 self._total_budget,
             )
         )
         # Leave room for the next frame append before eviction runs.
-        bud = np.clip(bud, self._anchor_tokens + 1, self._max_budget)
+        bud = jnp.clip(bud, self._anchor_tokens + 1, self._max_budget)
         return tuple(int(x) for x in bud.tolist())
 
     def _warmup(self) -> None:
@@ -470,7 +479,7 @@ class JAXVGGTFeatureExtractor:
         # Frame 0: padded cache with valid_len=0 on every block.
         past0 = [self._new_padded_cache_entry() for _ in range(self._agg_depth)]
         last0 = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
-        bud0 = self._compute_static_budgets(np.zeros(self._agg_depth, dtype=np.float32))
+        bud0 = self._compute_static_budgets(jnp.zeros(self._agg_depth, dtype=jnp.float32))
         out0 = self._aggregator_apply(
             self._agg_params,
             dummy,
@@ -513,7 +522,7 @@ class JAXVGGTFeatureExtractor:
             self._pt_params,
             out_list0,
             dummy,
-            int(np.asarray(patch_start_idx0)),
+            int(jnp.asarray(patch_start_idx0)),
         )
         pts3d_w.block_until_ready()
 
@@ -533,7 +542,7 @@ class JAXVGGTFeatureExtractor:
         out: list[CompactCacheEntry] = []
         for entry in self._past_kvs_padded:
             k_pad, v_pad, valid_len = entry
-            vl = int(np.asarray(valid_len))
+            vl = int(jnp.asarray(valid_len))
             out.append((k_pad[:, :, :vl], v_pad[:, :, :vl]))
         return out
 
@@ -659,8 +668,8 @@ class JAXVGGTFeatureExtractor:
             self.reset()
 
     def _image_from_extract_input(
-        self, source: np.ndarray | ObservationFrame
-    ) -> np.ndarray:
+        self, source: jnp.ndarray | ObservationFrame
+    ) -> jnp.ndarray:
         """Resolve either a raw CHW frame or an ObservationFrame to image input."""
         if isinstance(source, ObservationFrame):
             if source.is_first:
@@ -676,16 +685,15 @@ class JAXVGGTFeatureExtractor:
             return source.image
         return source
 
-    def _prepare_input_image(self, rgb: np.ndarray) -> jnp.ndarray:
+    def _prepare_input_image(self, rgb: jnp.ndarray) -> jnp.ndarray:
         """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
-        if not isinstance(rgb, np.ndarray):
-            raise TypeError(f"rgb must be a numpy array, got {type(rgb).__name__}")
+        
         if rgb.shape != (3, _IMG_SIZE, _IMG_SIZE):
             raise ValueError(
                 f"VGGT extractor expects CHW image shape "
                 f"(3, {_IMG_SIZE}, {_IMG_SIZE}), got {rgb.shape}"
             )
-        if rgb.dtype != np.uint8:
+        if rgb.dtype != jnp.uint8:
             raise ValueError(f"VGGT extractor expects uint8 image, got {rgb.dtype}")
         img = (jnp.asarray(rgb, dtype=jnp.float32) / 255.0).astype(self._dtype)
         return jax.device_put(img[None, None], self._device)
@@ -703,7 +711,7 @@ class JAXVGGTFeatureExtractor:
         """Return per-block budgets as Python ints for JIT static args."""
         if self._budgets_static_override is not None:
             return self._budgets_static_override
-        return self._compute_static_budgets(np.asarray(self._last_scores))
+        return self._compute_static_budgets(jnp.asarray(self._last_scores))
 
     def _run_aggregator(
         self,
@@ -774,7 +782,7 @@ class JAXVGGTFeatureExtractor:
         n = self._cam_num_iters
         shifted: list[CacheEntry] = []
         for k_pad, v_pad, valid_len in self._past_kvs_camera:
-            vl = int(np.asarray(valid_len))
+            vl = int(jnp.asarray(valid_len))
             if vl < self._cam_max:
                 # Not full yet — no eviction; the apply will append and grow valid_len.
                 shifted.append((k_pad, v_pad, valid_len))
@@ -809,7 +817,7 @@ class JAXVGGTFeatureExtractor:
             self._pt_params,
             out_list,
             images,
-            int(np.asarray(patch_start_idx)),
+            int(jnp.asarray(patch_start_idx)),
         )
         return pts3d[:, 0], conf[:, 0], camera_pose
 
@@ -914,7 +922,7 @@ class JAXVGGTFeatureExtractor:
 
     def extract(
         self,
-        source: np.ndarray | ObservationFrame,
+        source: jnp.ndarray | ObservationFrame,
         phase_times: PhaseTimes | None = None,
         return_dense: bool = False,
     ) -> ExtractOutput:
@@ -960,82 +968,4 @@ class JAXVGGTFeatureExtractor:
             frame_tokens=frame_tokens,
             global_tokens=global_tokens,
             head_outputs=head_outputs,
-        )
-
-    def write_point_cloud_ply(self, path: str) -> None:
-        """Write the latest frame's point cloud (xyz + rgb) as an ASCII PLY.
-
-        Diagnostics only (src/prototyp/house_global_embedding/IDEA.md "Point-
-        Cloud Snapshots"). Runs the VGGT point head on the retained aggregator
-        outputs of the last ``extract()`` call. The camera head is never
-        invoked, so the camera-head KV-cache stays unallocated under
-        ``ResetMode.PERSIST_SCENE`` (the unbounded-growth risk is avoided by
-        construction). NumPy is used only at the file-writing boundary; the
-        point head itself runs in JAX on device.
-
-        With ``compute_heads=False`` the point head is not warmed up, so the
-        first dump pays the DPT JIT cost — acceptable for an infrequent
-        diagnostic.
-
-        Args:
-          path: Output ``.ply`` path. Parent directories are created.
-
-        Raises:
-          RuntimeError: If called before any ``extract()`` has retained a frame.
-        """
-        if self._last_out_list is None or self._last_images is None:
-            raise RuntimeError("write_point_cloud_ply called before any extract()")
-        patch_start_idx = int(np.asarray(self._last_patch_start_idx))
-        pts3d, _conf = self._point_head_apply(
-            self._pt_params,
-            self._last_out_list,
-            self._last_images,
-            patch_start_idx,
-        )
-        # pts3d raw: (1, seq, H, W, 3); pts3d[:, 0] -> (1, H, W, 3) (reference
-        # feature_extractor.py:225 drops the sequence dim the same way).
-        xyz = np.asarray(pts3d[:, 0][0], dtype=np.float32)  # (H, W, 3)
-        rgb_chw = np.asarray(self._last_rgb)  # (3, H, W) uint8
-        rgb = np.transpose(rgb_chw, (1, 2, 0))  # (H, W, 3)
-        self._write_ascii_ply_xyzrgb(path, xyz.reshape(-1, 3), rgb.reshape(-1, 3))
-
-    @staticmethod
-    def _write_ascii_ply_xyzrgb(
-        path: str, xyz: np.ndarray, rgb: np.ndarray
-    ) -> None:
-        """Write an ASCII XYZRGB PLY round-trip-compatible with the reader.
-
-        The reader (``static_house_context.load_ascii_ply_xyzrgb``) requires
-        the ``x, y, z, red, green, blue`` vertex properties.
-
-        Args:
-          path: Output ``.ply`` path; parent directories are created.
-          xyz: ``(N, 3)`` float vertex coordinates.
-          rgb: ``(N, 3)`` uint8 or float ``[0, 1]`` vertex colours.
-        """
-        n = int(xyz.shape[0])
-        rgb_u8 = (
-            rgb
-            if rgb.dtype == np.uint8
-            else np.clip(rgb, 0.0, 1.0).astype(np.float32) * 255.0
-        ).astype(np.uint8)
-        parent = os.path.dirname(path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        rows = np.concatenate(
-            [xyz.astype(np.float32, copy=False), rgb_u8], axis=1
-        )  # (N, 6)
-        header = (
-            "ply\nformat ascii 1.0\n"
-            f"element vertex {n}\n"
-            "property float x\nproperty float y\nproperty float z\n"
-            "property uchar red\nproperty uchar green\nproperty uchar blue\n"
-            "end_header"
-        )
-        np.savetxt(
-            path,
-            rows,
-            fmt=("%.6f", "%.6f", "%.6f", "%d", "%d", "%d"),
-            header=header,
-            comments="",
         )

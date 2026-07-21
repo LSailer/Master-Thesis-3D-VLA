@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import numpy as np
+
 
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.adapters.obs_adapter import ObsAdapter
@@ -54,7 +54,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         context_transformer: TokenTransformerEncoder | None = None,
         rng_seed: int = 0,
         static_house_context_path: str | None = None,
-        static_house_context: np.ndarray | None = None,
+        static_house_context: jnp.ndarray | None = None,
     ):
         if static_house_context_path is not None and static_house_context is not None:
             raise ValueError(
@@ -85,16 +85,16 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
         )
         self._context_params = None
         self._rng = jax.random.PRNGKey(rng_seed)
-        self._context: np.ndarray | None = None
+        self._context: jnp.ndarray | None = None
         self.agent_obs_shape = (HOUSE_CONTEXT_FEATURE_DIM,)
 
     @staticmethod
     def _resolve_static_context(
         path: str | None,
-        context: np.ndarray | None,
-    ) -> np.ndarray | None:
+        context: jnp.ndarray | None,
+    ) -> jnp.ndarray | None:
         if context is not None:
-            return np.asarray(context, dtype=np.float16)
+            return jnp.asarray(context, dtype=jnp.float16)
         if path is not None:
             return encode_static_house_context(load_ascii_ply_xyzrgb(path))
         return None
@@ -108,17 +108,17 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
             )
         return self._context_params
 
-    def _project_context(self, tokens: jnp.ndarray) -> np.ndarray:
+    def _project_context(self, tokens: jnp.ndarray) -> jnp.ndarray:
         params = self._ensure_context_params(tokens)
         context = self._context_transformer.apply(params, tokens, train=False)
-        context = np.asarray(context, dtype=np.float32)
+        context = jnp.asarray(context, dtype=jnp.float32)
         if context.shape != (HOUSE_CONTEXT_DIM,):
             raise ValueError(
                 f"expected VGGT context shape {(HOUSE_CONTEXT_DIM,)}, got {context.shape}"
             )
         return context
 
-    def _extract_context(self, obs: ObservationFrame) -> np.ndarray:
+    def _extract_context(self, obs: ObservationFrame) -> jnp.ndarray:
         if self._static_context is not None:
             self._context = self._static_context
             return self._static_context
@@ -130,12 +130,12 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
 
     def transform(
         self, env_obs: ObservationFrame
-    ) -> tuple[dict[str, np.ndarray], dict]:
+    ) -> tuple[dict[str, jnp.ndarray], dict]:
         image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
         context = self._extract_context(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,
-            HOUSE_CONTEXT_KEY: context.astype(np.float16),
+            HOUSE_CONTEXT_KEY: context.astype(jnp.float16),
         }
         agent_obs = {
             HYBRID_IMAGE_KEY: image64,

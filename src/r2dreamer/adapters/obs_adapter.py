@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from importlib import import_module
 from typing import TYPE_CHECKING, Any, Callable
 
-import numpy as np
 
+import jax.numpy as jnp
 from src.environments.observation import ObservationFrame
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class ObsAdapter:
 
     def transform(
         self, env_obs: ObservationFrame
-    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict]:
+    ) -> tuple[jnp.ndarray | dict[str, jnp.ndarray], dict]:
         """Returns (buffer_obs, live step observation dict)."""
         return env_obs.image, {"image": env_obs.image, "is_first": env_obs.is_first}
 

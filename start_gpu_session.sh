@@ -24,8 +24,8 @@ while [[ "$1" == --* ]]; do
 done
 
 SESSION="${1:-gpu-work}"
-PARTITION="${2:-gpu_h100}"
-TIME="${3:-06:00:00}"
+PARTITION="${2:-gpu_h100-dev}"
+TIME="${3:-00:30:00}"
 PROJECT_DIR="/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA"
 
 # Without tmux: plain srun in current shell
