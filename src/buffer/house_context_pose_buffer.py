@@ -6,13 +6,17 @@ import functools
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import ClassVar, NamedTuple, TextIO
+from typing import ClassVar, NamedTuple
 
 import jax
 import jax.numpy as jnp
 
+# Host NumPy for static index math: jnp truncates int64 to int32 without
+# the x64 flag, which overflows at large point counts (see resample_xyzrgb).
+import numpy as np
 
 from src.environments.observation import ObservationFrame
+from src.shared.ply_io import write_world_points_ply
 from src.vggt.jax.feature_extractor import VGGTExtractOutput
 
 
@@ -333,8 +337,6 @@ class HouseContextPoseBuffer:
         synchronize ``point_count`` when accessed.
     """
 
-    NEW_STATUS_ID: ClassVar[int] = 2
-    NEW_STATUS_COMMENT: ClassVar[str] = "newly_added_to_context"
     XYZ_CHANNELS: ClassVar[int] = 3
     RGB_CHANNELS: ClassVar[int] = 3
     HOUSE_POINT_CHANNELS: ClassVar[int] = 6
@@ -495,12 +497,13 @@ class HouseContextPoseBuffer:
             )
         # Host int64 avoids the int32 overflow of ``arange * point_count``
         # (reached at point_count * max_points > 2**31); both operands are
-        # static here so the exact indices transfer as a constant.
+        # static here so the exact indices transfer as a constant. This must
+        # stay NumPy: jnp silently truncates int64 to int32 without x64.
         stride_indices = (
-            jnp.arange(max_points, dtype=jnp.int64) * point_count
+            np.arange(max_points, dtype=np.int64) * point_count
         ) // max_points
         indices = jnp.asarray(
-            jnp.minimum(stride_indices, point_count - 1), dtype=jnp.int32
+            np.minimum(stride_indices, point_count - 1), dtype=jnp.int32
         )
         return rows[indices].astype(jnp.float32)
 
@@ -522,7 +525,11 @@ class HouseContextPoseBuffer:
         )
 
     def save(self, output_path: str | PathLike[str]) -> Path:
-        """Save accumulated colored house context as a PLY snapshot.
+        """Save accumulated colored house context as a binary PLY snapshot.
+
+        The file is written via ``shared.ply_io.write_world_points_ply``
+        (Open3D binary XYZRGB); read it back with
+        ``open3d.io.read_point_cloud``.
 
         Args:
             output_path: Destination root. A scene subdirectory is created below it
@@ -530,10 +537,18 @@ class HouseContextPoseBuffer:
 
         Returns:
             The scene directory that was written.
+
+        Raises:
+            ValueError: If the buffer is empty.
         """
+        if self.point_count == 0:
+            raise ValueError("cannot save empty house context")
         output_dir = Path(output_path) / self._safe_path_name(self.scene_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        self._write_house_context_ply(output_dir)
+        write_world_points_ply(
+            output_dir / "step_00000_context.ply",
+            self.points_xyz.astype(jnp.float32),
+            self.colors_rgb,
+        )
         return output_dir
 
     @staticmethod
@@ -543,83 +558,3 @@ class HouseContextPoseBuffer:
         safe_name = "".join(safe_chars).strip("._")
         return safe_name or "scene"
 
-    def _write_house_context_ply(self, output_dir: Path) -> Path:
-        """Write a single-step colored PLY snapshot for the buffered context."""
-        points_xyz, colors_rgb = self._host_point_color_arrays()
-        step_id = 0
-        ply_path = output_dir / f"step_{step_id:05d}_context.ply"
-        with ply_path.open("w", encoding="utf-8") as ply_file:
-            self._write_ply_header(ply_file, points_xyz.shape[0])
-            for point_id, (point, color) in enumerate(
-                zip(points_xyz, colors_rgb, strict=True)
-            ):
-                ply_file.write(
-                    self._ply_vertex_line(
-                        point_id,
-                        point,
-                        color,
-                        self.NEW_STATUS_ID,
-                        step_id,
-                    )
-                )
-        return ply_path
-
-    def _host_point_color_arrays(self) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Return logical buffered points/colors as validated host arrays."""
-        size = self.point_count
-        if size == 0:
-            raise ValueError("cannot save empty house context")
-
-        points_xyz, colors_rgb = jax.device_get((self.points_xyz, self.colors_rgb))
-        points = jnp.asarray(points_xyz, dtype=jnp.float32)
-        colors = jnp.asarray(colors_rgb, dtype=jnp.uint8)
-        self._validate_point_color_shapes(points, colors)
-        return points, colors
-
-    @staticmethod
-    def _validate_point_color_shapes(points: jnp.ndarray, colors: jnp.ndarray) -> None:
-        """Validate point/color shape contract before writing PLY."""
-        if points.ndim != 2 or points.shape[1] != 3:
-            raise ValueError(f"expected points shape (P, 3), got {points.shape}")
-        if colors.shape != points.shape:
-            raise ValueError(
-                f"expected colors shape {points.shape}, got {colors.shape}"
-            )
-
-    @classmethod
-    def _write_ply_header(cls, ply_file: TextIO, vertex_count: int) -> None:
-        """Write a PLY header compatible with CloudCompare scalar fields."""
-        header_lines = [
-            "ply",
-            "format ascii 1.0",
-            "comment color legend: 2=new orange",
-            f"comment status_id {cls.NEW_STATUS_ID} {cls.NEW_STATUS_COMMENT}",
-            f"element vertex {vertex_count}",
-            "property float x",
-            "property float y",
-            "property float z",
-            "property uchar red",
-            "property uchar green",
-            "property uchar blue",
-            "property int point_id",
-            "property int status_id",
-            "property int added_step",
-            "end_header",
-        ]
-        ply_file.write("\n".join(header_lines))
-        ply_file.write("\n")
-
-    @staticmethod
-    def _ply_vertex_line(
-        point_id: int,
-        point: jnp.ndarray,
-        color: jnp.ndarray,
-        status_id: int,
-        added_step: int,
-    ) -> str:
-        """Format one PLY vertex row."""
-        return (
-            f"{float(point[0]):.8g} {float(point[1]):.8g} {float(point[2]):.8g} "
-            f"{int(color[0])} {int(color[1])} {int(color[2])} "
-            f"{point_id} {status_id} {added_step}\n"
-        )

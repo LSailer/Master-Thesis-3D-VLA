@@ -1,32 +1,32 @@
-"""Shared ASCII PLY point-cloud I/O (XYZRGB vertex lists)."""
+"""Shared PLY point-cloud I/O (XYZRGB vertex lists, Open3D-backed).
+
+Files are written binary by default; read them back with
+``open3d.io.read_point_cloud``. The legacy ASCII reader
+(``static_house_context.load_ascii_ply_xyzrgb``) cannot parse this
+format — pass ``write_ascii=True`` only if a text PLY is required.
+"""
 
 import os
 from pathlib import Path
 
 import jax.numpy as jnp
 
-# Host-side file writing uses NumPy (np.savetxt); everything up to the file
-# boundary stays in jax.numpy.
+# Open3D consumes concrete host arrays; NumPy marks the device -> host
+# file boundary (project convention: NumPy for host-only I/O).
 import numpy as np
 
 
-def write_world_points_ply(
-    path: str | Path, xyz: jnp.ndarray, rgb: jnp.ndarray
-) -> None:
-    """Write an ASCII XYZRGB PLY round-trip-compatible with the reader.
-
-    The reader (``static_house_context.load_ascii_ply_xyzrgb``) requires the
-    ``x, y, z, red, green, blue`` vertex properties. Inputs may have any
-    leading shape (``(N, 3)``, ``(H, W, 3)``, ``(1, H, W, 3)``, ...); they
-    are flattened to one vertex per row. The trailing axis must be 3 — a
-    CHW image must be transposed to HWC by the caller, since only the
-    caller knows its channel layout.
+def _flattened_xyz_rgb(
+    xyz: jnp.ndarray, rgb: jnp.ndarray
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Validate and flatten point/colour inputs to ``(N, 3)`` each.
 
     Args:
-      path: Output ``.ply`` path; parent directories are created.
       xyz: ``(..., 3)`` float vertex coordinates.
-      rgb: ``(..., 3)`` uint8 or float ``[0, 1]`` vertex colours, flattening
-        to the same vertex count as ``xyz``.
+      rgb: ``(..., 3)`` uint8 or float ``[0, 1]`` vertex colours.
+
+    Returns:
+      Tuple ``(xyz_flat, rgb_flat)`` of ``(N, 3)`` arrays.
 
     Raises:
       ValueError: If a trailing axis is not 3, or the flattened vertex
@@ -44,29 +44,50 @@ def write_world_points_ply(
             f"xyz and rgb disagree on vertex count: {xyz.shape} flattens to "
             f"{xyz_flat.shape[0]} points, {rgb.shape} to {rgb_flat.shape[0]}"
         )
+    return xyz_flat, rgb_flat
 
-    n = int(xyz_flat.shape[0])
-    rgb_u8 = (
-        rgb_flat
+
+def write_world_points_ply(
+    path: str | Path,
+    xyz: jnp.ndarray,
+    rgb: jnp.ndarray,
+    write_ascii: bool = False,
+) -> None:
+    """Write an XYZRGB PLY via Open3D (binary by default).
+
+    Inputs may have any leading shape (``(N, 3)``, ``(H, W, 3)``,
+    ``(1, H, W, 3)``, ...); they are flattened to one vertex per row. The
+    trailing axis must be 3 — a CHW image must be transposed to HWC by the
+    caller, since only the caller knows its channel layout. Read the file
+    back with ``open3d.io.read_point_cloud``.
+
+    Args:
+      path: Output ``.ply`` path; parent directories are created.
+      xyz: ``(..., 3)`` float vertex coordinates.
+      rgb: ``(..., 3)`` uint8 or float ``[0, 1]`` vertex colours, flattening
+        to the same vertex count as ``xyz``.
+      write_ascii: Write ASCII instead of binary (larger, slower).
+
+    Raises:
+      ValueError: If a trailing axis is not 3, or the flattened vertex
+        counts of ``xyz`` and ``rgb`` differ.
+    """
+    # Local import: Open3D is a heavy host-side dependency only this writer needs.
+    import open3d as o3d
+
+    xyz_flat, rgb_flat = _flattened_xyz_rgb(xyz, rgb)
+    rgb01 = (
+        jnp.asarray(rgb_flat, dtype=jnp.float32) / 255.0
         if rgb_flat.dtype == jnp.uint8
-        else jnp.clip(rgb_flat, 0.0, 1.0).astype(jnp.float32) * 255.0
-    ).astype(jnp.uint8)
-    rows = jnp.concatenate([xyz_flat.astype(jnp.float32), rgb_u8], axis=1)  # (N, 6)
+        else jnp.clip(rgb_flat, 0.0, 1.0)
+    )
 
     parent = os.path.dirname(str(path))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    header = (
-        "ply\nformat ascii 1.0\n"
-        f"element vertex {n}\n"
-        "property float x\nproperty float y\nproperty float z\n"
-        "property uchar red\nproperty uchar green\nproperty uchar blue\n"
-        "end_header"
-    )
-    np.savetxt(
-        path,
-        np.asarray(rows),  # explicit device -> host transfer at the file boundary
-        fmt=("%.6f", "%.6f", "%.6f", "%d", "%d", "%d"),
-        header=header,
-        comments="",
-    )
+    pcd = o3d.geometry.PointCloud()
+    # Open3D's Vector3dVector wraps Eigen float64 vectors and requires host
+    # memory: np.asarray performs the explicit device -> host transfer.
+    pcd.points = o3d.utility.Vector3dVector(np.asarray(xyz_flat, dtype=np.float64))
+    pcd.colors = o3d.utility.Vector3dVector(np.asarray(rgb01, dtype=np.float64))
+    o3d.io.write_point_cloud(str(path), pcd, write_ascii=write_ascii)
