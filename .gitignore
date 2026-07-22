@@ -63,7 +63,7 @@ worktrees/
 scripts/dev
 .zed
 .pi
-src/prototyp/
+prototyp/
 tests/prototyp/
 
 # Local markdown issue tracker (docs/agents/issue-tracker.md)
