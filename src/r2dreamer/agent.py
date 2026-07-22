@@ -526,7 +526,7 @@ class R2DreamerAgent:
     def reconstruct(self, batch: Any):
         """Decode RGB reconstructions for a batch (encoder -> RSSM -> decoder).
 
-        Returns ``(target, recon)`` as JAX arrays ``(B*T, 3, 64, 64)`` in
+        Returns ``(target, recon)`` as JAX arrays ``(B*T, 64, 64, 3)`` in
         [0, 1], or ``None`` when no decoder is configured. Non-JIT, deterministic
         (fixed sample key) — called by the trainer at log cadence for W&B image
         logging, so it is intentionally cheap-and-occasional rather than fast.

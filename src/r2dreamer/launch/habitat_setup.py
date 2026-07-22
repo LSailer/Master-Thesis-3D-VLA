@@ -17,7 +17,7 @@ def make_habitat_env(
     """Construct a HabitatObjectNavEnv with standard training defaults."""
     if config is None:
         config = HabitatEnvConfig(
-            obs_shape=(3, render_resolution, render_resolution),
+            obs_shape=(render_resolution, render_resolution, 3),
             max_episode_steps=500,
             reward_type="geodesic_delta",
             curriculum=curriculum,

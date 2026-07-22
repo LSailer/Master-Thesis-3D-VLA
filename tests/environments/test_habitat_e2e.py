@@ -38,7 +38,7 @@ def fixture_habitat_env():
     try:
         env = HabitatObjectNavEnv(
             HabitatEnvConfig(
-                obs_shape=(3, 64, 64),
+                obs_shape=(64, 64, 3),
                 max_episode_steps=50,
                 mode="train",
             )
@@ -55,7 +55,7 @@ def test_reset_returns_chw_frame(habitat_env):
 
     assert obs.is_first is True
     assert obs.is_episode_end is False
-    assert obs.image.shape == (3, 64, 64)
+    assert obs.image.shape == (64, 64, 3)
     assert obs.image.dtype == np.uint8
     assert obs.scene_id is not None
     assert obs.episode_id is not None
@@ -83,6 +83,6 @@ def test_random_rollout_stays_consistent(habitat_env):
         action = int(rng.integers(0, len(ACTIONS)))
         obs = habitat_env.step(action)
 
-        assert obs.image.shape == (3, 64, 64)
+        assert obs.image.shape == (64, 64, 3)
         assert obs.step is not None
         assert obs.step >= 1

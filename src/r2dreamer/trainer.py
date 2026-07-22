@@ -889,12 +889,12 @@ class Trainer:
         pair = self.agent.reconstruct(batch)
         if pair is None:
             return
-        target, recon = jax.device_get(pair)  # (B*T, 3, 64, 64) in [0, 1]
+        target, recon = jax.device_get(pair)  # (B*T, 64, 64, 3) in [0, 1]
         n = min(4, target.shape[0])
         images = []
         for i in range(n):
-            tgt = np.transpose(target[i], (1, 2, 0))  # CHW -> HWC
-            rec = np.transpose(recon[i], (1, 2, 0))
+            tgt = target[i]  # already HWC
+            rec = recon[i]
             combo = np.concatenate([tgt, rec], axis=1)  # side by side
             combo = np.clip(combo * 255.0, 0, 255).astype(np.uint8)
             images.append(self._wandb.Image(combo, caption=f"input | recon ({i})"))

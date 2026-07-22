@@ -30,7 +30,7 @@ class ConvEncoder(nn.Module):
     """Shared spatial convolutional encoder for RGB images or world-point maps.
 
     ``input_kind`` is explicit because RGB and metric XYZ world points can share
-    the same ``(B, 3, H, W)`` shape but need different preprocessing: RGB uses
+    the same ``(B, H, W, 3)`` shape but need different preprocessing: RGB uses
     Dreamer's ``obs - 0.5`` centering, world points use symlog. ``embed_dim`` is
     optional for historical RGB compatibility; set it for world-point variants
     to project the flattened conv map to a fixed embedding width.
@@ -45,7 +45,7 @@ class ConvEncoder(nn.Module):
 
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
-        """Encode ``(..., C, H, W)`` observations, preserving leading dims."""
+        """Encode ``(..., H, W, C)`` observations, preserving leading dims."""
         if isinstance(obs, Mapping):
             if self.input_kind == "world_points":
                 obs = (
@@ -64,7 +64,7 @@ class ConvEncoder(nn.Module):
             raise ValueError(
                 f"input_kind must be 'rgb' or 'world_points', got {self.input_kind!r}"
             )
-        x = jnp.transpose(x, (0, 2, 3, 1))  # NCHW -> NHWC
+        # Input is native NHWC; Flax convs consume it directly.
         for i, mult in enumerate(self.mults):
             channels = self.depth * mult
             x = nn.Conv(

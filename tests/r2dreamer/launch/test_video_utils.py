@@ -40,7 +40,7 @@ class MockWandb:
 
 
 def test_compose_frame_returns_side_by_side_uint8():
-    rgb = np.zeros((3, 64, 64), dtype=np.uint8)
+    rgb = np.zeros((64, 64, 3), dtype=np.uint8)
     topdown = np.full((32, 32, 3), 255, dtype=np.uint8)
 
     frame = compose_frame(rgb, topdown)

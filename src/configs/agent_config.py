@@ -84,7 +84,7 @@ class R2DreamerConfig:
     """
 
     # --- Environment / agent interface ---
-    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]] = (3, 64, 64)
+    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]] = (64, 64, 3)
     num_actions: int = 4
     max_episode_steps: int = 1000
 

@@ -47,7 +47,7 @@ from src.r2dreamer.observation_preparation.vggt_readouts import (
     VGGTOutputLike,
     full_aggregator_tokens,
 )
-from src.shared.video_utils import resize_chw_uint8
+from src.shared.video_utils import resize_hwc_uint8
 
 FULL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_FULL_TOKEN_EMBED_DIM)
 GLOBAL_TOKEN_SHAPE = (VGGT_AGGREGATOR_TOKEN_COUNT, VGGT_AGGREGATOR_EMBED_DIM)
@@ -93,7 +93,7 @@ class _RGBLiveTokenObsAdapter(ObsAdapter):
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, np.ndarray], dict]:
-        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        image64 = resize_hwc_uint8(env_obs.image, IMAGE_SIZE)
         tokens = self._extract_tokens(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,
@@ -269,7 +269,7 @@ class VGGTHouseGlobalEmbeddingObsAdapter(ObsAdapter):
                 self._maybe_dump_pointcloud("end_of_first_episode")
                 self._first_episode_dumped = True
 
-        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        image64 = resize_hwc_uint8(env_obs.image, IMAGE_SIZE)
         out = self._extractor.extract(env_obs)
         patch_tokens = jnp.asarray(
             self._patch_tokens_from_output(out), dtype=jnp.float32

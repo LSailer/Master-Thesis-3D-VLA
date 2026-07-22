@@ -288,7 +288,7 @@ def _make_encoder(cfg: R2DreamerConfig):
 def _dummy_encoder_obs(cfg: R2DreamerConfig):
     if cfg.encoder_type == "vggt_house_full_tokens_nogate":
         return {
-            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
             FULL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
@@ -296,7 +296,7 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         }
     if cfg.encoder_type == "vggt_house_global_tokens_nogate":
         return {
-            HYBRID_IMAGE_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
             GLOBAL_TOKENS_KEY: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
@@ -315,7 +315,7 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
         }
     if cfg.encoder_type == "vggt_wp64_cnn_cp_mlp":
         return {
-            WORLD_POINTS_KEY: jnp.zeros((1, 3, 64, 64), dtype=jnp.float32),
+            WORLD_POINTS_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
             CAMERA_POSE_KEY: jnp.zeros((1, 9), dtype=jnp.float32),
         }
     if cfg.encoder_type in (
@@ -334,6 +334,6 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             HOUSE_CONTEXT_SIZE_KEY: jnp.zeros((), dtype=jnp.int32),
         }
         if cfg.encoder_type == "vggt_hybrid_house_points_pose":
-            dummy[HYBRID_IMAGE_KEY] = jnp.zeros((1, 3, 64, 64), dtype=jnp.float32)
+            dummy[HYBRID_IMAGE_KEY] = jnp.zeros((1, 64, 64, 3), dtype=jnp.float32)
         return dummy
     return jnp.zeros((1, *cfg.obs_shape))

@@ -33,7 +33,7 @@ from src.r2dreamer.observation_preparation.vggt import (
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     full_aggregator_tokens,
 )
-from src.shared.video_utils import resize_chw_uint8
+from src.shared.video_utils import resize_hwc_uint8
 
 HOUSE_CONTEXT_FEATURE_DIM = HYBRID_RGB_DIM + HOUSE_CONTEXT_DIM
 
@@ -131,7 +131,7 @@ class VGGTHouseContextObsAdapter(ObsAdapter):
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, jnp.ndarray], dict]:
-        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        image64 = resize_hwc_uint8(env_obs.image, IMAGE_SIZE)
         context = self._extract_context(env_obs)
         replay = {
             HYBRID_IMAGE_KEY: image64,

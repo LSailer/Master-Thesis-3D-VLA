@@ -33,18 +33,18 @@ class ObservationDims:
 
     @property
     def render_shape(self) -> tuple[int, int, int]:
-        """Return CHW shape requested from the environment renderer."""
-        return (3, self.render_size, self.render_size)
+        """Return HWC shape requested from the environment renderer."""
+        return (self.render_size, self.render_size, 3)
 
     @property
     def image_shape(self) -> tuple[int, int, int]:
-        """Return CHW RGB replay image shape."""
-        return (3, self.replay_image_size, self.replay_image_size)
+        """Return HWC RGB replay image shape."""
+        return (self.replay_image_size, self.replay_image_size, 3)
 
     @property
     def world_points_shape(self) -> tuple[int, int, int]:
-        """Return CHW world-point replay shape."""
-        return (self.xyz_channels, self.wp_side, self.wp_side)
+        """Return HWC world-point replay shape."""
+        return (self.wp_side, self.wp_side, self.xyz_channels)
 
     @property
     def camera_pose_shape(self) -> tuple[int]:

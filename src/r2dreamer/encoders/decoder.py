@@ -9,7 +9,7 @@ from src.r2dreamer.world_model.rssm import RMSNorm
 class ConvDecoder(nn.Module):
     """Transpose-conv image decoder for visual verification.
 
-    Maps an RSSM feature ``(B, F)`` back to an RGB image ``(B, 3, 64, 64)`` in
+    Maps an RSSM feature ``(B, F)`` back to an RGB image ``(B, 64, 64, 3)`` in
     ``[0, 1]``. The decoder is a stop-gradient visualisation probe when enabled;
     it is not part of the default world-model objective.
     """
@@ -22,7 +22,7 @@ class ConvDecoder(nn.Module):
 
     @nn.compact
     def __call__(self, feat: jnp.ndarray) -> jnp.ndarray:
-        """Decode flat RSSM features into CHW RGB images."""
+        """Decode flat RSSM features into HWC RGB images."""
         batch = feat.shape[0]
         first_channels = self.depth * self.mults[-1]
         x = nn.Dense(self.base_res * self.base_res * first_channels, name="in")(feat)
@@ -45,4 +45,4 @@ class ConvDecoder(nn.Module):
             name="out",
         )(x)
         x = nn.sigmoid(x)
-        return jnp.transpose(x, (0, 3, 1, 2))
+        return x  # NHWC, matching the HWC observation contract

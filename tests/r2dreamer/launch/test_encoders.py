@@ -69,7 +69,7 @@ from src.r2dreamer.observation_preparation import (
     CNNObservationPreparation,
     EncoderInputContract,
 )
-from src.shared.video_utils import resize_chw_uint8
+from src.shared.video_utils import resize_hwc_uint8
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -185,7 +185,7 @@ class TestCNNEncoder:
         spec = CNNEncoder().spec()
         assert isinstance(spec, EncoderSpec)
         assert spec.encoder_type == "cnn"
-        assert spec.obs_shape == (3, 64, 64)
+        assert spec.obs_shape == (64, 64, 3)
         assert spec.env_render_resolution == 64
         assert spec.module_cls is ConvEncoder
         assert spec.agent_overrides == {}
@@ -194,12 +194,12 @@ class TestCNNEncoder:
 
     def test_cnn_adapter_passthrough(self):
         adapter = CNNEncoder().make_adapter()
-        dummy_img = np.zeros((3, 64, 64), dtype=np.uint8)
+        dummy_img = np.zeros((64, 64, 3), dtype=np.uint8)
         obs = ObservationFrame(image=dummy_img, is_first=True)
         buf_obs, agent_obs = adapter.transform(obs)
         # CNN Observation Preparation returns explicit replay and agent observations.
         np.testing.assert_array_equal(buf_obs, dummy_img)
-        assert agent_obs["image"] is dummy_img
+        np.testing.assert_array_equal(agent_obs["image"], dummy_img)
         assert agent_obs["is_first"] is True
 
 
@@ -258,9 +258,9 @@ class TestVGGTEncoderConfiguration:
         assert isinstance(adapter.contract, EncoderInputContract)
         assert adapter.contract.encoder_input.shape == (4116,)
         assert adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].shape == (
+            37,
+            37,
             3,
-            37,
-            37,
         )
         assert adapter.contract.replay_observation.fields[CAMERA_POSE_KEY].shape == (9,)
         assert spec.encoder_type == "vggt"
@@ -329,16 +329,16 @@ class TestVGGTEncoderConfiguration:
             adapter.contract.replay_observation.fields[WORLD_POINTS_KEY].dtype
             == "float16"
         )
-        # Dense WP is stored channel-first as a (3, 518, 518) float16 image plus pose.
+        # Dense WP is stored channel-first as a (518, 518, 3) float16 image plus pose.
         assert adapter.buffer_shape == {
-            WORLD_POINTS_KEY: (3, 518, 518),
+            WORLD_POINTS_KEY: (518, 518, 3),
             CAMERA_POSE_KEY: (9,),
         }
         assert adapter.buffer_dtype == {
             WORLD_POINTS_KEY: "float16",
             CAMERA_POSE_KEY: "float16",
         }
-        assert spec.obs_shape == (3, 518, 518)
+        assert spec.obs_shape == (518, 518, 3)
         assert spec.env_render_resolution == 518
         assert spec.encoder_type == "vggt_wp_dense_cnn"
         # Needs the point head (the dense map is its raw output).
@@ -350,7 +350,7 @@ class TestVGGTEncoderConfiguration:
             "train_ratio": 128,
         }
 
-    def test_dense_wp_adapter_emits_chw_pointmap(self):
+    def test_dense_wp_adapter_emits_hwc_pointmap(self):
         # Fake extractor returns an (H, W, 3) dense map; adapter must transpose
         # to (3, H, W) float16 and NOT divide by 255.
         class FakeExtractor:
@@ -371,19 +371,17 @@ class TestVGGTEncoderConfiguration:
 
         adapter = VGGTObsAdapter(FakeExtractor(), feature_kind="wp_dense")
         replay_features, agent_obs = adapter.transform(
-            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
+            ObservationFrame(image=np.zeros((4, 4, 3), dtype=np.uint8), is_first=False)
         )
 
-        expected = (
-            np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3).transpose(2, 0, 1)
-        )
-        assert replay_features[WORLD_POINTS_KEY].shape == (3, 4, 4)
+        expected = np.arange(4 * 4 * 3, dtype=np.float32).reshape(4, 4, 3)
+        assert replay_features[WORLD_POINTS_KEY].shape == (4, 4, 3)
         assert replay_features[WORLD_POINTS_KEY].dtype == np.float16
         np.testing.assert_allclose(
             replay_features[WORLD_POINTS_KEY], expected.astype(np.float16)
         )
         assert replay_features[CAMERA_POSE_KEY].shape == (9,)
-        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 4, 4)
+        assert agent_obs[WORLD_POINTS_KEY].shape == (4, 4, 3)
         assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
@@ -400,7 +398,7 @@ class TestVGGTEncoderConfiguration:
         # 64x64 WP grid: obs = 64*64*3 + 9 = 12297 (vs 4116 at 37x37).
         assert enc.wp_pool_size == 64
         assert adapter.buffer_shape == {
-            WORLD_POINTS_KEY: (3, 64, 64),
+            WORLD_POINTS_KEY: (64, 64, 3),
             CAMERA_POSE_KEY: (9,),
         }
         assert adapter.buffer_dtype == {
@@ -434,16 +432,16 @@ class TestVGGTEncoderConfiguration:
     def test_wp_cp_64_adapter_flattens_world_points_plus_pose(self):
         adapter = VGGTObsAdapter(_WorldPoints64Extractor(), feature_kind="wp_cp")
         assert adapter.buffer_shape == {
-            WORLD_POINTS_KEY: (3, 64, 64),
+            WORLD_POINTS_KEY: (64, 64, 3),
             CAMERA_POSE_KEY: (9,),
         }
         rep, agent_obs = adapter.transform(
-            ObservationFrame(image=np.zeros((3, 518, 518), np.uint8), is_first=False)
+            ObservationFrame(image=np.zeros((518, 518, 3), np.uint8), is_first=False)
         )
-        assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert rep[WORLD_POINTS_KEY].shape == (64, 64, 3)
         assert rep[WORLD_POINTS_KEY].dtype == np.float16
         np.testing.assert_allclose(rep[CAMERA_POSE_KEY], np.arange(9, dtype=np.float16))
-        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert agent_obs[WORLD_POINTS_KEY].shape == (64, 64, 3)
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp64_cnn_cp_mlp_adapter_emits_float16_world_points_and_pose(self):
@@ -455,7 +453,7 @@ class TestVGGTEncoderConfiguration:
         )
 
         assert adapter.buffer_shape == {
-            WORLD_POINTS_KEY: (3, 64, 64),
+            WORLD_POINTS_KEY: (64, 64, 3),
             CAMERA_POSE_KEY: (9,),
         }
         assert adapter.buffer_dtype == {
@@ -463,13 +461,13 @@ class TestVGGTEncoderConfiguration:
             CAMERA_POSE_KEY: "float16",
         }
         rep, agent_obs = adapter.transform(
-            ObservationFrame(image=np.zeros((3, 518, 518), np.uint8), is_first=False)
+            ObservationFrame(image=np.zeros((518, 518, 3), np.uint8), is_first=False)
         )
-        assert rep[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert rep[WORLD_POINTS_KEY].shape == (64, 64, 3)
         assert rep[WORLD_POINTS_KEY].dtype == np.float16
         assert rep[CAMERA_POSE_KEY].shape == (9,)
         assert rep[CAMERA_POSE_KEY].dtype == np.float16
-        assert agent_obs[WORLD_POINTS_KEY].shape == (3, 64, 64)
+        assert agent_obs[WORLD_POINTS_KEY].shape == (64, 64, 3)
         assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
 
     def test_wp64_cnn_cp_mlp_encoder_spec_uses_structured_obs_shape(self, patch_vggt):
@@ -480,7 +478,7 @@ class TestVGGTEncoderConfiguration:
         spec = enc.spec()
 
         expected_shape = {
-            WORLD_POINTS_KEY: (3, 64, 64),
+            WORLD_POINTS_KEY: (64, 64, 3),
             CAMERA_POSE_KEY: (9,),
         }
         assert adapter.contract.encoder_type == "vggt_wp64_cnn_cp_mlp"
@@ -511,7 +509,7 @@ class TestVGGTEncoderConfiguration:
         # tokens = arange(40).reshape(10, 4); patches = tokens[5:].
         adapter = VGGTObsAdapter(_AggregatorTokensExtractor(), feature_kind="aggregator")
         replay_features, agent_obs = adapter.transform(
-            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
+            ObservationFrame(image=np.zeros((4, 4, 3), dtype=np.uint8), is_first=False)
         )
 
         tokens = np.arange(40, dtype=np.float32).reshape(10, 4)
@@ -529,7 +527,7 @@ class TestVGGTEncoderConfiguration:
     def test_agg_token_adapter_keeps_camera_register_and_patch_tokens(self):
         adapter = VGGTObsAdapter(_AggregatorTokensExtractor(), feature_kind="agg_tokens")
         replay_features, agent_obs = adapter.transform(
-            ObservationFrame(image=np.zeros((3, 4, 4), dtype=np.uint8), is_first=False)
+            ObservationFrame(image=np.zeros((4, 4, 3), dtype=np.uint8), is_first=False)
         )
 
         expected = np.arange(40, dtype=np.float32)
@@ -584,7 +582,7 @@ class TestHybridEncoder:
         adapter = HybridObsAdapter(FakeExtractor())
         assert isinstance(adapter, ObsAdapter)
         assert adapter.buffer_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             HYBRID_WP_CP_KEY: (4116,),
         }
         assert adapter.buffer_dtype == {
@@ -598,19 +596,19 @@ class TestHybridEncoder:
         assert adapter.encoder_obs_shape == (16404,)
 
         rng = np.random.default_rng(0)
-        image = rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
+        image = rng.integers(0, 256, size=(518, 518, 3), dtype=np.uint8)
         env_obs = ObservationFrame(image=image, is_first=True)
 
         replay, agent_obs = adapter.transform(env_obs)
 
         assert set(replay) == {HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY}
-        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
         assert replay[HYBRID_WP_CP_KEY].shape == (4116,)
         assert replay[HYBRID_WP_CP_KEY].dtype == np.float32
 
         # RGB field: raw 64x64 uint8 resize of the input.
-        img64 = resize_chw_uint8(image, 64)  # (3,64,64) uint8
+        img64 = resize_hwc_uint8(image, 64)  # (3,64,64) uint8
         np.testing.assert_array_equal(replay[HYBRID_IMAGE_KEY], img64)
 
         # WP/CP field: flattened world_points then camera_pose.
@@ -619,7 +617,7 @@ class TestHybridEncoder:
         )
         np.testing.assert_allclose(replay[HYBRID_WP_CP_KEY], expected_wp_cp)
 
-        assert agent_obs[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert agent_obs[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert np.asarray(agent_obs[HYBRID_WP_CP_KEY]).shape == (4116,)
 
 
@@ -641,7 +639,7 @@ class TestVGGTHouseContextEncoder:
         adapter = enc.make_adapter()
         spec = enc.spec()
         image = np.random.default_rng(1).integers(
-            0, 256, size=(3, 518, 518), dtype=np.uint8
+            0, 256, size=(518, 518, 3), dtype=np.uint8
         )
 
         replay, agent_obs = adapter.transform(
@@ -665,7 +663,7 @@ class TestVGGTHouseContextEncoder:
         assert isinstance(adapter, VGGTHouseContextObsAdapter)
         assert spec.encoder_type == "vggt_house_context"
         assert adapter.buffer_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             HOUSE_CONTEXT_KEY: (1024,),
         }
         assert spec.obs_shape == (13312,)
@@ -706,7 +704,7 @@ class TestVGGTHouseContextEncoder:
             FakeExtractor(), context_transformer=FakeContextTransformer()
         )
         image = np.random.default_rng(0).integers(
-            0, 256, size=(3, 518, 518), dtype=np.uint8
+            0, 256, size=(518, 518, 3), dtype=np.uint8
         )
 
         replay, agent_obs = adapter.transform(
@@ -714,7 +712,7 @@ class TestVGGTHouseContextEncoder:
         )
 
         assert set(replay) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
-        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
         assert replay[HOUSE_CONTEXT_KEY].shape == (1024,)
         assert replay[HOUSE_CONTEXT_KEY].dtype == np.float16
@@ -723,7 +721,7 @@ class TestVGGTHouseContextEncoder:
 
         batch = ReplayBatch(
             obs={
-                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 64, 64, 3), dtype=np.uint8),
                 HOUSE_CONTEXT_KEY: np.zeros((2, 3, 1024), dtype=np.float16),
             },
             actions=np.zeros((2, 3), dtype=np.int32),
@@ -734,7 +732,7 @@ class TestVGGTHouseContextEncoder:
         augmented = adapter.augment_replay_batch(batch)
 
         assert set(augmented.obs) == {HYBRID_IMAGE_KEY, HOUSE_CONTEXT_KEY}
-        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 64, 64, 3)
         assert augmented.obs[HOUSE_CONTEXT_KEY].shape == (2, 3, 1024)
 
         np.testing.assert_allclose(np.asarray(agent_obs[HOUSE_CONTEXT_KEY]), context)
@@ -791,7 +789,7 @@ class _MappingHousePointsExtractor(_FakeHousePointsExtractor):
 
 
 def _house_frame(seed: int, *, is_first=False, scene_id="houseA"):
-    image = np.random.default_rng(seed).integers(0, 256, size=(3, 8, 8), dtype=np.uint8)
+    image = np.random.default_rng(seed).integers(0, 256, size=(8, 8, 3), dtype=np.uint8)
     return ObservationFrame(image=image, is_first=is_first, scene_id=scene_id)
 
 
@@ -969,12 +967,12 @@ class TestVGGTHybridHousePointsPoseEncoder:
             CAMERA_POSE_KEY: (9,),
             HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
             HOUSE_CONTEXT_SIZE_KEY: (),
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
         }
         assert replay.keys() == {CAMERA_POSE_KEY, HYBRID_IMAGE_KEY}
         assert replay[CAMERA_POSE_KEY].dtype == np.float16
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
-        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert set(agent_obs) == {
             CAMERA_POSE_KEY,
             HOUSE_CONTEXT_KEY,
@@ -982,7 +980,7 @@ class TestVGGTHybridHousePointsPoseEncoder:
             HYBRID_IMAGE_KEY,
             "is_first",
         }
-        assert agent_obs[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert agent_obs[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert int(agent_obs[HOUSE_CONTEXT_SIZE_KEY]) > 0
 
     def test_hybrid_adapter_keeps_live_house_context_injection(self, monkeypatch):
@@ -997,7 +995,7 @@ class TestVGGTHybridHousePointsPoseEncoder:
         batch = ReplayBatch(
             obs={
                 CAMERA_POSE_KEY: np.zeros((1, 2, 9), dtype=np.float16),
-                HYBRID_IMAGE_KEY: np.zeros((1, 2, 3, 64, 64), dtype=np.float32),
+                HYBRID_IMAGE_KEY: np.zeros((1, 2, 64, 64, 3), dtype=np.float32),
             },
             actions=np.zeros((1, 2), dtype=np.int32),
             rewards=np.zeros((1, 2), dtype=np.float32),
@@ -1012,7 +1010,7 @@ class TestVGGTHybridHousePointsPoseEncoder:
             HOUSE_CONTEXT_KEY,
             HOUSE_CONTEXT_SIZE_KEY,
         }
-        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (1, 2, 3, 64, 64)
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (1, 2, 64, 64, 3)
 
 
 class TestVGGTHouseFullTokenNoGateEncoder:
@@ -1028,11 +1026,11 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         assert isinstance(adapter, VGGTHouseFullTokenObsAdapter)
         assert spec.encoder_type == "vggt_house_full_tokens_nogate"
         assert adapter.buffer_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             FULL_TOKENS_KEY: (1374, 2048),
         }
         assert spec.obs_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             FULL_TOKENS_KEY: (1374, 2048),
         }
         assert spec.module_cls is TokenTransformerEncoder
@@ -1054,7 +1052,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
 
         adapter = VGGTHouseFullTokenObsAdapter(FakeExtractor())
         image = np.random.default_rng(1).integers(
-            0, 256, size=(3, 518, 518), dtype=np.uint8
+            0, 256, size=(518, 518, 3), dtype=np.uint8
         )
 
         replay, agent_obs = adapter.transform(
@@ -1062,7 +1060,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         )
 
         assert set(replay) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
-        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
         assert replay[FULL_TOKENS_KEY].shape == (1374, 2048)
         assert replay[FULL_TOKENS_KEY].dtype == np.float16
@@ -1071,7 +1069,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
 
         batch = ReplayBatch(
             obs={
-                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 64, 64, 3), dtype=np.uint8),
                 FULL_TOKENS_KEY: np.zeros((2, 3, 1374, 2048), dtype=np.float16),
             },
             actions=np.zeros((2, 3), dtype=np.int32),
@@ -1082,7 +1080,7 @@ class TestVGGTHouseFullTokenNoGateEncoder:
         augmented = adapter.augment_replay_batch(batch)
 
         assert set(augmented.obs) == {HYBRID_IMAGE_KEY, FULL_TOKENS_KEY}
-        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 64, 64, 3)
         assert augmented.obs[FULL_TOKENS_KEY].shape == (2, 3, 1374, 2048)
 
 
@@ -1102,11 +1100,11 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         assert isinstance(adapter, VGGTHouseGlobalTokenObsAdapter)
         assert spec.encoder_type == "vggt_house_global_tokens_nogate"
         assert adapter.buffer_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             GLOBAL_TOKENS_KEY: (1374, 1024),
         }
         assert spec.obs_shape == {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             GLOBAL_TOKENS_KEY: (1374, 1024),
         }
         assert spec.module_cls is TokenTransformerEncoder
@@ -1135,7 +1133,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         extractor = FakeExtractor()
         adapter = VGGTHouseGlobalTokenObsAdapter(extractor)
         image = np.random.default_rng(2).integers(
-            0, 256, size=(3, 518, 518), dtype=np.uint8
+            0, 256, size=(518, 518, 3), dtype=np.uint8
         )
 
         replay, agent_obs = adapter.transform(
@@ -1143,7 +1141,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
         )
 
         assert set(replay) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
-        assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+        assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
         assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
         assert replay[GLOBAL_TOKENS_KEY].shape == (1374, 1024)
         assert replay[GLOBAL_TOKENS_KEY].dtype == np.float16
@@ -1153,7 +1151,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
 
         batch = ReplayBatch(
             obs={
-                HYBRID_IMAGE_KEY: np.zeros((2, 3, 3, 64, 64), dtype=np.uint8),
+                HYBRID_IMAGE_KEY: np.zeros((2, 3, 64, 64, 3), dtype=np.uint8),
                 GLOBAL_TOKENS_KEY: np.zeros((2, 3, 1374, 1024), dtype=np.float16),
             },
             actions=np.zeros((2, 3), dtype=np.int32),
@@ -1165,7 +1163,7 @@ class TestVGGTHouseGlobalTokenNoGateEncoder:
 
         assert extractor.calls == 1, "replay augmentation must not run VGGT"
         assert set(augmented.obs) == {HYBRID_IMAGE_KEY, GLOBAL_TOKENS_KEY}
-        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 3, 64, 64)
+        assert augmented.obs[HYBRID_IMAGE_KEY].shape == (2, 3, 64, 64, 3)
         assert augmented.obs[GLOBAL_TOKENS_KEY].shape == (2, 3, 1374, 1024)
 
 
@@ -1183,9 +1181,9 @@ class TestVGGTHouseGlobalEmbeddingEncoder:
         assert spec.encoder_type == "vggt_house_global_embedding"
         assert enc.vggt_reset_mode is ResetMode.PERSIST_SCENE
         assert enc.vggt_compute_heads is False
-        expected_replay_shape = {HYBRID_IMAGE_KEY: (3, 64, 64)}
+        expected_replay_shape = {HYBRID_IMAGE_KEY: (64, 64, 3)}
         expected_encoder_shape = {
-            HYBRID_IMAGE_KEY: (3, 64, 64),
+            HYBRID_IMAGE_KEY: (64, 64, 3),
             GLOBAL_PATCH_TOKENS_KEY: (1369, 1024),
         }
         assert adapter.buffer_shape == expected_replay_shape
@@ -1228,7 +1226,7 @@ class TestVGGTHouseGlobalEmbeddingEncoder:
         adapter = enc.make_adapter()
         assert adapter._dump_enabled is True
         image = np.random.default_rng(0).integers(
-            0, 256, size=(3, 8, 8), dtype=np.uint8
+            0, 256, size=(8, 8, 3), dtype=np.uint8
         )
         for s in range(6):
             adapter.transform(
@@ -1253,8 +1251,9 @@ class TestVGGTEncoder:
         frames_data = np.load(_FIXTURES / "sample_habitat_obs.npz")
         outputs_data = np.load(_FIXTURES / "expected_vggt_outputs.npz")
 
-        # frames: (10, 3, 518, 518) uint8 CHW — matches VGGTFeatureExtractor.extract() input
-        frames = frames_data["frames"]
+        # The npz stores (10, 3, 518, 518) uint8 CHW (predates the HWC flip);
+        # transpose once so each frame matches the extractor's HWC contract.
+        frames = frames_data["frames"].transpose(0, 2, 3, 1)
         world_points = outputs_data["world_points"]  # (10, 37, 37, 3)
         camera_pose = outputs_data["camera_pose"]  # (10, 9)
 
@@ -1265,11 +1264,11 @@ class TestVGGTEncoder:
             obs = ObservationFrame(image=frames[i], is_first=i == 0)
             features, agent_obs = adapter.transform(obs)
 
-            expected_wp = world_points[i].transpose(2, 0, 1)
+            expected_wp = world_points[i]  # npz already stores HWC
             expected_cp = camera_pose[i]
 
             assert set(features) == {WORLD_POINTS_KEY, CAMERA_POSE_KEY}
-            assert features[WORLD_POINTS_KEY].shape == (3, 37, 37)
+            assert features[WORLD_POINTS_KEY].shape == (37, 37, 3)
             assert features[WORLD_POINTS_KEY].dtype == np.float16
             assert features[CAMERA_POSE_KEY].shape == (9,)
             assert features[CAMERA_POSE_KEY].dtype == np.float16
@@ -1289,7 +1288,7 @@ class TestVGGTEncoder:
                 err_msg=f"Camera-pose mismatch at frame {i}",
             )
 
-            assert agent_obs[WORLD_POINTS_KEY].shape == (3, 37, 37)
+            assert agent_obs[WORLD_POINTS_KEY].shape == (37, 37, 3)
             assert agent_obs[WORLD_POINTS_KEY].dtype.name == "float16"
             assert agent_obs[CAMERA_POSE_KEY].shape == (9,)
             assert agent_obs[CAMERA_POSE_KEY].dtype.name == "float16"

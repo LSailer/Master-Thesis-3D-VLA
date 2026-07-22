@@ -78,6 +78,10 @@ def _pool_world_points_hwc(
     expected_hwc_shape: tuple[int, int, int],
 ) -> jnp.ndarray:
     """Project raw full-resolution VGGT points to the readout HWC contract."""
+    # The streaming extractor emits a leading singleton frame axis
+    # ((1, 518, 518, 3)); accept and squeeze it before the shape contract.
+    if world_points.ndim == 4 and world_points.shape[0] == 1:
+        world_points = world_points[0]
     if tuple(world_points.shape) == expected_hwc_shape:
         return world_points
     if tuple(world_points.shape) != (VGGT_IMAGE_SIZE, VGGT_IMAGE_SIZE, 3):
@@ -114,12 +118,15 @@ def _structured_world_points_camera_pose(
     )
     world_points = _pool_world_points_hwc(raw_world_points, expected_hwc_shape)
     features = {
-        WORLD_POINTS_KEY: jnp.transpose(world_points, (2, 0, 1)).astype(jnp.float32),
+        WORLD_POINTS_KEY: world_points.astype(jnp.float32),  # stored HWC
     }
     if include_camera_pose:
         camera_pose = _require_output_field(
             "camera_pose", _output_field(out, "camera_pose")
         )
+        # Same leading singleton frame axis as world_points ((1, 9)).
+        if camera_pose.ndim == 2 and camera_pose.shape[0] == 1:
+            camera_pose = camera_pose[0]
         features[CAMERA_POSE_KEY] = camera_pose.astype(jnp.float32)
     return features
 

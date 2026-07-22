@@ -44,7 +44,7 @@ class HabitatEnvConfig:
     split is always ``train`` (curriculum episodes live there).
     """
 
-    obs_shape: tuple[int, int, int] = (3, 518, 518)
+    obs_shape: tuple[int, int, int] = (518, 518, 3)
     max_episode_steps: int = 500
     reward_type: str = "geodesic_delta"
     step_penalty: float = -0.01
@@ -93,12 +93,7 @@ def validate_habitat_mode(mode: str) -> None:
 
 
 def _validate_goal_distance(dist: float) -> float:
-    if dist is None:
-        raise ValueError(
-            "distance_to_goal must be a finite non-negative value, got None"
-        )
-    dist = float(dist)
-    if not jnp.isfinite(dist) or dist < 0.0:
+    if dist is None or not jnp.isfinite(dist) or dist < 0.0:
         raise ValueError(
             f"distance_to_goal must be a finite non-negative value, got {dist!r}"
         )
@@ -178,7 +173,7 @@ class HabitatObjectNavEnv:
 
         habitat_module = cast(Any, habitat)
         self._cfg = config
-        height, width = config.obs_shape[1], config.obs_shape[2]
+        height, width = config.obs_shape[0], config.obs_shape[1]  # HWC
         validate_habitat_mode(config.mode)
 
         with resolve_habitat_curriculum_path(config.curriculum).open(
@@ -502,10 +497,10 @@ class HabitatObjectNavEnv:
     def sample_navmesh(self, resolution: float = 0.05) -> dict:
         """Sample navigable area. Delegates to module-level function."""
         return sample_navmesh(self._env, resolution)
-    #TODO: I want to return the HWC image instead of the CHW image
+
     def _obs_to_image(self, obs) -> jnp.ndarray:
-        rgb = obs["rgb"][:, :, :3]  # (H, W, 3) uint8
-        return jnp.transpose(rgb, (2, 0, 1))  # (3, H, W)
+        return obs["rgb"][:, :, :3]  # (H, W, 3) uint8
+
 
     def _compute_reward(self, dist: float) -> float:
         dist = _validate_goal_distance(dist)

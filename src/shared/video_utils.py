@@ -13,14 +13,14 @@ MAX_VIDEO_FRAMES = 300
 MAX_PANEL_SIZE = 256
 
 
-def resize_chw_uint8(image: np.ndarray, size: int) -> np.ndarray:
-    """Bilinear-resize a CHW RGB uint8 image to ``(3, size, size)``.
+def resize_hwc_uint8(image: np.ndarray, size: int) -> np.ndarray:
+    """Bilinear-resize an RGB uint8 image to ``(size, size, 3)`` HWC.
 
-    Accepts CHW or HWC input via ``_as_hwc_uint8`` and returns CHW uint8.
+    Accepts CHW or HWC input via ``_as_hwc_uint8`` and returns HWC uint8.
     """
     hwc = _as_hwc_uint8(image)
     resized = Image.fromarray(hwc).resize((size, size), Image.Resampling.BILINEAR)
-    return np.transpose(np.asarray(resized, dtype=np.uint8), (2, 0, 1))
+    return np.asarray(resized, dtype=np.uint8)
 
 
 def _as_hwc_uint8(frame: np.ndarray) -> np.ndarray:

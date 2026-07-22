@@ -157,7 +157,7 @@ class TestImageFromExtractInputWiring:
             ``is_first``/``scene_id``.
         """
         return ObservationFrame(
-            image=np.zeros((3, 518, 518), dtype=np.uint8),
+            image=np.zeros((518, 518, 3), dtype=np.uint8),
             is_first=is_first,
             scene_id=scene_id,
         )

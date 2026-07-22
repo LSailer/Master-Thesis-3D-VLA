@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 
 
-def _flattened_xyz_rgb(
+def flattened_xyz_rgb(
     xyz: jnp.ndarray, rgb: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Validate and flatten point/colour inputs to ``(N, 3)`` each.
@@ -44,6 +44,11 @@ def _flattened_xyz_rgb(
             f"xyz and rgb disagree on vertex count: {xyz.shape} flattens to "
             f"{xyz_flat.shape[0]} points, {rgb.shape} to {rgb_flat.shape[0]}"
         )
+    rgb_flat = (
+        jnp.asarray(rgb_flat, dtype=jnp.float32) / 255.0
+        if rgb_flat.dtype == jnp.uint8
+        else jnp.clip(rgb_flat, 0.0, 1.0)
+    )
     return xyz_flat, rgb_flat
 
 
@@ -75,12 +80,8 @@ def write_world_points_ply(
     # Local import: Open3D is a heavy host-side dependency only this writer needs.
     import open3d as o3d
 
-    xyz_flat, rgb_flat = _flattened_xyz_rgb(xyz, rgb)
-    rgb01 = (
-        jnp.asarray(rgb_flat, dtype=jnp.float32) / 255.0
-        if rgb_flat.dtype == jnp.uint8
-        else jnp.clip(rgb_flat, 0.0, 1.0)
-    )
+    xyz_flat, rgb_flat = flattened_xyz_rgb(xyz, rgb)
+
 
     parent = os.path.dirname(str(path))
     if parent:
@@ -89,5 +90,5 @@ def write_world_points_ply(
     # Open3D's Vector3dVector wraps Eigen float64 vectors and requires host
     # memory: np.asarray performs the explicit device -> host transfer.
     pcd.points = o3d.utility.Vector3dVector(np.asarray(xyz_flat, dtype=np.float64))
-    pcd.colors = o3d.utility.Vector3dVector(np.asarray(rgb01, dtype=np.float64))
+    pcd.colors = o3d.utility.Vector3dVector(np.asarray(rgb_flat, dtype=np.float64))
     o3d.io.write_point_cloud(str(path), pcd, write_ascii=write_ascii)

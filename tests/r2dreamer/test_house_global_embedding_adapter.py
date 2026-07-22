@@ -71,7 +71,7 @@ def test_adapter_stores_rgb_only_in_replay_and_live_tokens_in_agent_obs():
     replay, agent_obs = adapter.transform(_frame(0, is_first=True))
 
     assert set(replay) == {HYBRID_IMAGE_KEY}
-    assert replay[HYBRID_IMAGE_KEY].shape == (3, 64, 64)
+    assert replay[HYBRID_IMAGE_KEY].shape == (64, 64, 3)
     assert replay[HYBRID_IMAGE_KEY].dtype == np.uint8
 
     assert set(agent_obs) == {
@@ -112,7 +112,7 @@ def test_augment_replay_batch_injects_latest_live_patch_tokens():
     adapter.transform(_frame(0, is_first=True))
 
     batch = ReplayBatch(
-        obs={HYBRID_IMAGE_KEY: np.zeros((1, 2, 3, 64, 64), dtype=np.uint8)},
+        obs={HYBRID_IMAGE_KEY: np.zeros((1, 2, 64, 64, 3), dtype=np.uint8)},
         actions=np.zeros((1, 2), dtype=np.int32),
         rewards=np.zeros((1, 2), dtype=np.float32),
         is_episode_end=np.zeros((1, 2), dtype=bool),
@@ -121,7 +121,7 @@ def test_augment_replay_batch_injects_latest_live_patch_tokens():
     augmented = adapter.augment_replay_batch(batch)
 
     assert set(augmented.obs) == {HYBRID_IMAGE_KEY, GLOBAL_PATCH_TOKENS_KEY}
-    assert augmented.obs[HYBRID_IMAGE_KEY].shape == (1, 2, 3, 64, 64)
+    assert augmented.obs[HYBRID_IMAGE_KEY].shape == (1, 2, 64, 64, 3)
     assert augmented.obs[GLOBAL_PATCH_TOKENS_KEY].shape == (N_PATCHES, TOKEN_DIM)
     np.testing.assert_allclose(
         np.asarray(augmented.obs[GLOBAL_PATCH_TOKENS_KEY]),

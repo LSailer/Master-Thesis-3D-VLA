@@ -5,7 +5,7 @@ so callers can swap backends by changing one import:
 
     extractor = JAXVGGTFeatureExtractor(device="cuda")
     extractor.reset()                       # at every episode boundary
-    out = extractor.extract(rgb)            # rgb: (3, 518, 518) uint8
+    out = extractor.extract(rgb)            # rgb: (518, 518, 3) uint8 HWC
 
 Weights are loaded from the same HuggingFace checkpoint as the PyTorch
 extractor, transposed into a Flax PyTree. The aggregator + camera-head
@@ -671,7 +671,7 @@ class JAXVGGTFeatureExtractor:
     def _image_from_extract_input(
         self, source: jnp.ndarray | ObservationFrame
     ) -> jnp.ndarray:
-        """Resolve either a raw CHW frame or an ObservationFrame to image input."""
+        """Resolve either a raw HWC frame or an ObservationFrame to image input."""
         if isinstance(source, ObservationFrame):
             if source.is_first:
                 # Scene-aware episode reset. Under ``ResetMode.FULL`` this is
@@ -687,16 +687,21 @@ class JAXVGGTFeatureExtractor:
         return source
 
     def _prepare_input_image(self, rgb: jnp.ndarray) -> jnp.ndarray:
-        """Normalize a CHW uint8 frame and add batch/sequence dimensions."""
-        
-        if rgb.shape != (3, _IMG_SIZE, _IMG_SIZE):
+        """Normalize an HWC uint8 frame and add batch/sequence dimensions.
+
+        The observation contract is HWC; the aggregator/backbone plumbing (and
+        the ported weights) stay NCHW, so the layout flip happens exactly once
+        here.
+        """
+        if rgb.shape != (_IMG_SIZE, _IMG_SIZE, 3):
             raise ValueError(
-                f"VGGT extractor expects CHW image shape "
-                f"(3, {_IMG_SIZE}, {_IMG_SIZE}), got {rgb.shape}"
+                f"VGGT extractor expects HWC image shape "
+                f"({_IMG_SIZE}, {_IMG_SIZE}, 3), got {rgb.shape}"
             )
         if rgb.dtype != jnp.uint8:
             raise ValueError(f"VGGT extractor expects uint8 image, got {rgb.dtype}")
-        img = (jnp.asarray(rgb, dtype=jnp.float32) / 255.0).astype(self._dtype)
+        rgb_chw = jnp.transpose(rgb, (2, 0, 1))
+        img = (jnp.asarray(rgb_chw, dtype=jnp.float32) / 255.0).astype(self._dtype)
         return jax.device_put(img[None, None], self._device)
 
     def _ensure_aggregator_cache(self) -> None:
@@ -927,11 +932,11 @@ class JAXVGGTFeatureExtractor:
         phase_times: PhaseTimes | None = None,
         return_dense: bool = False,
     ) -> ExtractOutput:
-        """Single-frame streaming inference from an ObservationFrame or CHW image.
+        """Single-frame streaming inference from an ObservationFrame or HWC image.
 
         Passing an ``ObservationFrame`` is the preferred high-level path: the
         extractor resets its stream when ``source.is_first`` is true and then
-        consumes ``source.image``. Passing a raw ``(3, 518, 518)`` uint8 array is
+        consumes ``source.image``. Passing a raw ``(518, 518, 3)`` uint8 array is
         still the low-level path for profiling and fixtures.
 
         The returned ``world_points`` field is the full 518x518x3 point map
@@ -995,5 +1000,4 @@ class JAXVGGTFeatureExtractor:
             self._last_images,
             int(jnp.asarray(self._last_patch_start_idx)),
         )
-        rgb_hwc = jnp.transpose(self._last_rgb, (1, 2, 0))
-        write_world_points_ply(path, pts3d[:, 0], rgb_hwc)
+        write_world_points_ply(path, pts3d[:, 0], self._last_rgb)

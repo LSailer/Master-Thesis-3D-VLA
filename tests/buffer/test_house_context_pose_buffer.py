@@ -50,7 +50,7 @@ def _inputs(
 
     world_points = points_arr.reshape(1, n, 3)  # (H=1, W=n, C=3)
     confidence = confidence_arr.reshape(1, n)  # (H=1, W=n)
-    image = np.transpose(colors_arr.reshape(1, n, 3), (2, 0, 1))  # (C=3, H=1, W=n)
+    image = colors_arr.reshape(1, n, 3)  # (H=1, W=n, C=3) — HWC contract
 
     vggt_output = _FakeVGGTOutput(world_points=world_points, confidence=confidence)
     observation = ObservationFrame(image=image, is_first=True)

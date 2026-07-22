@@ -19,7 +19,7 @@ class _DummyEnv:
     def reset(self) -> ObservationFrame:
         """Return a reset observation without a previous action."""
         return ObservationFrame(
-            image=np.zeros((3, 4, 4), dtype=np.uint8),
+            image=np.zeros((4, 4, 3), dtype=np.uint8),
             is_first=True,
         )
 
@@ -27,7 +27,7 @@ class _DummyEnv:
         """Return an observation carrying the action that produced it."""
         self.actions.append(int(action))
         return ObservationFrame(
-            image=np.zeros((3, 4, 4), dtype=np.uint8),
+            image=np.zeros((4, 4, 3), dtype=np.uint8),
             is_first=False,
             previous_action=int(action),
         )
@@ -47,7 +47,7 @@ def test_random_agent_returns_observation_with_previous_action() -> None:
 def test_reset_observation_defaults_to_no_previous_action() -> None:
     """Reset-like observations have no action predecessor by default."""
     obs = ObservationFrame(
-        image=np.zeros((3, 4, 4), dtype=np.uint8),
+        image=np.zeros((4, 4, 3), dtype=np.uint8),
         is_first=True,
     )
 

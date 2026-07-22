@@ -31,7 +31,7 @@ def _params_allclose(a, b):
 
 @pytest.fixture
 def cfg():
-    return R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=17)
+    return R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=17)
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def make_batch(cfg, B=4, T=16):
 
 def make_deterministic_cfg():
     return R2DreamerConfig(
-        obs_shape=(3, 16, 16),
+        obs_shape=(16, 16, 3),
         num_actions=5,
         deter_size=32,
         hidden_size=16,
@@ -98,7 +98,7 @@ def make_deterministic_batch(cfg, B=2, T=4):
 
 def make_small_decoder_cfg(*, decoder=False):
     return R2DreamerConfig(
-        obs_shape=(3, 64, 64),
+        obs_shape=(64, 64, 3),
         num_actions=5,
         deter_size=32,
         hidden_size=16,
@@ -179,7 +179,7 @@ def make_small_hybrid_cfg():
 
 def make_hybrid_mapping_batch(cfg, B=1, T=4):
     image_values = np.arange(B * T * 3 * 64 * 64, dtype=np.uint32) % 256
-    image = image_values.astype(np.uint8).reshape(B, T, 3, 64, 64)
+    image = image_values.astype(np.uint8).reshape(B, T, 64, 64, 3)
     wp_cp = np.linspace(
         -1.0, 1.0, num=B * T * VGGT_FEATURE_DIM, dtype=np.float32
     ).reshape((B, T, VGGT_FEATURE_DIM))
@@ -299,7 +299,7 @@ class TestR2DreamerAgent:
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
-                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
                 "house_context": jnp.zeros((1, 2, 1024), dtype=jnp.float32),
             },
             actions=jax.nn.one_hot(
@@ -319,7 +319,7 @@ class TestR2DreamerAgent:
         cfg = make_tiny_train_cfg(
             encoder_type="vggt_hybrid_house_points_pose",
             obs_shape={
-                HYBRID_IMAGE_KEY: (3, 64, 64),
+                HYBRID_IMAGE_KEY: (64, 64, 3),
                 CAMERA_POSE_KEY: (9,),
                 HOUSE_CONTEXT_KEY: (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM),
                 HOUSE_CONTEXT_SIZE_KEY: (),
@@ -328,7 +328,7 @@ class TestR2DreamerAgent:
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
-                HYBRID_IMAGE_KEY: jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                HYBRID_IMAGE_KEY: jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
                 CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
                 HOUSE_CONTEXT_KEY: jnp.ones(
                     (HOUSE_CONTEXT_MAX_POINTS, HOUSE_POINT_DIM), dtype=jnp.float16
@@ -389,7 +389,7 @@ class TestR2DreamerAgent:
     ):
         cfg = R2DreamerConfig(
             encoder_type=encoder_type,
-            obs_shape={"image": (3, 64, 64), token_key: (6, 8)},
+            obs_shape={"image": (64, 64, 3), token_key: (6, 8)},
             num_actions=4,
             deter_size=32,
             hidden_size=16,
@@ -419,7 +419,7 @@ class TestR2DreamerAgent:
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
-                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
                 token_key: jnp.zeros(token_shape, dtype=jnp.float32),
             },
             actions=jax.nn.one_hot(
@@ -452,7 +452,7 @@ class TestR2DreamerAgent:
         cfg = R2DreamerConfig(
             encoder_type="vggt_house_global_embedding",
             obs_shape={
-                "image": (3, 64, 64),
+                "image": (64, 64, 3),
                 GLOBAL_PATCH_TOKENS_KEY: (6, 8),
             },
             num_actions=4,
@@ -486,7 +486,7 @@ class TestR2DreamerAgent:
         assert agent.embed_size == 2048
         batch = ReplayBatch(
             obs={
-                "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.float32),
+                "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
                 # Live-injected singleton patch map (no B, T prefix).
                 GLOBAL_PATCH_TOKENS_KEY: jnp.zeros((6, 8), dtype=jnp.float32),
             },
@@ -518,7 +518,7 @@ class TestR2DreamerAgent:
     def test_full_token_nogate_uses_configured_bfloat16_compute(self):
         cfg = R2DreamerConfig(
             encoder_type="vggt_house_full_tokens_nogate",
-            obs_shape={"image": (3, 64, 64), "full_tokens": (6, 8)},
+            obs_shape={"image": (64, 64, 3), "full_tokens": (6, 8)},
             num_actions=4,
             encoder_depth=2,
             encoder_kernel=3,
@@ -533,7 +533,7 @@ class TestR2DreamerAgent:
         )
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
         obs = {
-            "image": jnp.zeros((1, 2, 3, 64, 64), dtype=jnp.uint8),
+            "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.uint8),
             "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
         }
 

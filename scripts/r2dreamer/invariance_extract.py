@@ -224,7 +224,7 @@ def main():
     print(f"[invariance] agent loaded, checkpoint_step={agent.checkpoint_step}", flush=True)
 
     env = build_habitat_env(
-        obs_shape=(3, OBS_HW, OBS_HW), curriculum_path=args.curriculum,
+        obs_shape=(OBS_HW, OBS_HW, 3), curriculum_path=args.curriculum,
         mode="train", seed=args.seed,
     )
     follower = ShortestPathFollower(env._env.sim, args.goal_radius, return_one_hot=False)

@@ -115,7 +115,7 @@ class TokenTransformerEncoder(nn.Module):
         register_tokens: Number of register tokens after the camera token.
         token_key: Dict key for token observations. If ``None``, ``obs`` itself
             is treated as the token tensor.
-        image_key: Optional dict key for a CHW RGB image branch. If set,
+        image_key: Optional dict key for an HWC RGB image branch. If set,
             ``__call__`` concatenates ``ConvEncoder(image)`` with the token
             embedding and ``branches()`` returns both parts.
         singleton_tokens: If true, tokens must describe one global context and

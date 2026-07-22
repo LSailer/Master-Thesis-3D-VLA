@@ -24,7 +24,7 @@ pytestmark = pytest.mark.gpu
 
 def _decoder_probe_cfg() -> R2DreamerConfig:
     return R2DreamerConfig(
-        obs_shape=(3, 64, 64),
+        obs_shape=(64, 64, 3),
         num_actions=4,
         deter_size=32,
         hidden_size=16,
@@ -64,15 +64,15 @@ def _structured_rgb_batch(
 ) -> ReplayBatch:
     y = jnp.linspace(0.0, 1.0, 64, dtype=jnp.float32)[None, :, None]
     x = jnp.linspace(0.0, 1.0, 64, dtype=jnp.float32)[None, None, :]
-    base = jnp.concatenate([
-        jnp.broadcast_to(x, (1, 64, 64)),
-        jnp.broadcast_to(y, (1, 64, 64)),
-        jnp.broadcast_to((x + y) * 0.5, (1, 64, 64)),
-    ], axis=0)
+    base = jnp.stack([
+        jnp.broadcast_to(x, (1, 64, 64))[0],
+        jnp.broadcast_to(y, (1, 64, 64))[0],
+        jnp.broadcast_to((x + y) * 0.5, (1, 64, 64))[0],
+    ], axis=-1)  # (64, 64, 3) HWC
     frames = []
     for i in range(B * T):
-        frames.append(jnp.roll(base, shift=i * 3, axis=2))
-    obs = jnp.stack(frames, axis=0).reshape(B, T, 3, 64, 64)
+        frames.append(jnp.roll(base, shift=i * 3, axis=1))
+    obs = jnp.stack(frames, axis=0).reshape(B, T, 64, 64, 3)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
     return ReplayBatch(
         obs=obs,
@@ -92,6 +92,7 @@ def _habitat_rgb_batch(
         / "fixtures"
         / "sample_habitat_obs.npz"
     )
+    # The npz fixture predates the HWC flip and stores (10, 3, 518, 518) CHW.
     frames = np.load(fixture)["frames"][: B * T]
     resized = []
     for frame in frames:
@@ -99,8 +100,8 @@ def _habitat_rgb_batch(
         resized_hwc = Image.fromarray(hwc).resize(
             (64, 64), Image.Resampling.BILINEAR
         )
-        resized.append(np.transpose(np.asarray(resized_hwc), (2, 0, 1)))
-    obs = jnp.asarray(np.stack(resized).reshape(B, T, 3, 64, 64), dtype=jnp.uint8)
+        resized.append(np.asarray(resized_hwc))  # keep HWC
+    obs = jnp.asarray(np.stack(resized).reshape(B, T, 64, 64, 3), dtype=jnp.uint8)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
     return ReplayBatch(
         obs=obs,
@@ -120,9 +121,8 @@ def _save_recon_grid(agent: R2DreamerAgent, batch: ReplayBatch, path: Path) -> N
     target, recon = agent.reconstruct(batch)
     rows = []
     for i in range(target.shape[0]):
-        tgt = np.transpose(target[i], (1, 2, 0))
-        rec = np.transpose(recon[i], (1, 2, 0))
-        rows.append(np.concatenate([tgt, rec], axis=1))
+        # target/recon are (B*T, 64, 64, 3) HWC — PIL-ready without transposes.
+        rows.append(np.concatenate([target[i], recon[i]], axis=1))
     grid = np.concatenate(rows, axis=0)
     image = np.clip(grid * 255.0, 0, 255).astype(np.uint8)
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -60,7 +60,7 @@ def _cnn_contract(
 
 
 class CNNObservationPreparation(ObsAdapter):
-    """Prepare 64x64 CHW RGB observations for the CNN Encoder Module."""
+    """Prepare 64x64 HWC RGB observations for the CNN Encoder Module."""
 
     def __init__(self, contract: EncoderInputContract | None = None):
         self.contract = contract or _cnn_contract()

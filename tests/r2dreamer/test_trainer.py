@@ -44,13 +44,13 @@ class _DummyEnv:
 
     def reset(self) -> ObservationFrame:
         return ObservationFrame(
-            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            image=np.zeros((64, 64, 3), dtype=np.uint8),
             is_first=True,
         )
 
     def step(self, action: int) -> ObservationFrame:
         return ObservationFrame(
-            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            image=np.zeros((64, 64, 3), dtype=np.uint8),
             is_first=False,
             previous_action=int(action),
         )
@@ -69,7 +69,7 @@ class _TinyCNNEnv:
     def reset(self) -> ObservationFrame:
         self.t = 0
         return ObservationFrame(
-            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            image=np.zeros((64, 64, 3), dtype=np.uint8),
             is_first=True,
         )
 
@@ -77,7 +77,7 @@ class _TinyCNNEnv:
         self.t += 1
         done = self.t >= 4
         return ObservationFrame(
-            image=np.full((3, 64, 64), self.t, dtype=np.uint8),
+            image=np.full((64, 64, 3), self.t, dtype=np.uint8),
             is_first=False,
             previous_action=int(action),
             reward=1.0,
@@ -92,7 +92,7 @@ class _MappingObsAdapter(ObsAdapter):
     def __init__(self):
         super().__init__(
             buffer_dtype={"image": "uint8", "wp_cp": "float32"},
-            buffer_shape={"image": (3, 64, 64), "wp_cp": (4116,)},
+            buffer_shape={"image": (64, 64, 3), "wp_cp": (4116,)},
             normalize_on_sample={"image": False, "wp_cp": False},
             agent_obs_shape=(16404,),
         )
@@ -124,7 +124,7 @@ class _PrepareOnlyAdapter(ObsAdapter):
 def _tiny_cnn_cfg(tmp_path):
     return R2DreamerConfig(
         encoder_type="cnn",
-        obs_shape=(3, 64, 64),
+        obs_shape=(64, 64, 3),
         num_actions=4,
         buffer_capacity=64,
         batch_size=1,
@@ -201,7 +201,7 @@ class TestCheckpoint:
 
     @pytest.fixture
     def agent(self):
-        cfg = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+        cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
         rng = jax.random.PRNGKey(42)
         return R2DreamerAgent(cfg, rng)
 
@@ -241,7 +241,7 @@ class TestCheckpoint:
             )
 
     def test_checkpoint_persists_serializable_encoder_input_contract(self):
-        cfg = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+        cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(42))
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -259,7 +259,7 @@ class TestCheckpoint:
 
     def test_agent_from_checkpoint_recovers_encoder_contract_when_shape_omitted(self):
         cfg = R2DreamerConfig(
-            obs_shape=(3, 64, 64),
+            obs_shape=(64, 64, 3),
             num_actions=4,
             encoder_input_contract=CNNObservationPreparation().contract.to_snapshot(),
         )
@@ -271,7 +271,7 @@ class TestCheckpoint:
                 path, num_actions=4, seed=0,
             )
 
-        assert recovered.cfg.obs_shape == (3, 64, 64)
+        assert recovered.cfg.obs_shape == (64, 64, 3)
         assert recovered.cfg.encoder_type == "cnn"
         assert recovered.cfg.encoder_input_contract["encoder_type"] == "cnn"
 
@@ -283,7 +283,7 @@ class TestCheckpoint:
             "mults": (2, 2),
         }
         cfg = R2DreamerConfig(
-            obs_shape=(3, 64, 64),
+            obs_shape=(64, 64, 3),
             num_actions=4,
             encoder_depth=16,
             encoder_kernel=5,
@@ -301,7 +301,7 @@ class TestCheckpoint:
 class TestConfigSnapshot:
     def test_config_snapshot_uses_serializable_encoder_contract_and_module_name(self):
         cfg = R2DreamerConfig(
-            obs_shape=(3, 64, 64),
+            obs_shape=(64, 64, 3),
             num_actions=4,
             encoder_module_cls=CNNObservationPreparation().contract.encoder_module_cls,
             encoder_input_contract=CNNObservationPreparation().contract.to_snapshot(),
@@ -320,7 +320,7 @@ class TestConfigSnapshot:
         json.dumps(snapshot)
 
     def test_config_snapshot_derives_default_cnn_contract(self):
-        snapshot = config_snapshot(R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4))
+        snapshot = config_snapshot(R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4))
 
         assert snapshot["encoder_input_contract"]["encoder_type"] == "cnn"
         json.dumps(snapshot)
@@ -331,7 +331,7 @@ class TestResume:
 
     @pytest.fixture
     def cfg(self):
-        return R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4)
+        return R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
 
     @pytest.fixture
     def saved_agent(self, cfg, tmp_path):
@@ -399,7 +399,7 @@ class TestResume:
 
 class TestTrainerObservationPreparation:
     def test_reset_train_episode_uses_prepare_env_step_when_available(self, tmp_path):
-        cfg = R2DreamerConfig(obs_shape=(3, 64, 64), num_actions=4, buffer_capacity=8)
+        cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4, buffer_capacity=8)
         tcfg = TrainerConfig(
             output_dir=str(tmp_path / "logdir"),
             total_steps=1,
@@ -417,8 +417,8 @@ class TestTrainerObservationPreparation:
         _, buffer_obs, encoder_obs, is_first = trainer._reset_train_episode()
 
         assert obs_adapter.calls == 1
-        assert buffer_obs.shape == (3, 64, 64)
-        assert encoder_obs.shape == (1, 3, 64, 64)
+        assert buffer_obs.shape == (64, 64, 3)
+        assert encoder_obs.shape == (1, 64, 64, 3)
         assert is_first is True
 
 
@@ -472,7 +472,7 @@ class TestTrainerMappingReplay:
             buffer_obs=buffer_obs,
             action=1,
             next_obs=ObservationFrame(
-                image=np.zeros((3, 64, 64), dtype=np.uint8),
+                image=np.zeros((64, 64, 3), dtype=np.uint8),
                 is_first=False,
                 previous_action=1,
                 reward=1.0,
@@ -484,7 +484,7 @@ class TestTrainerMappingReplay:
         obs_batch = batch["obs"]
         assert isinstance(obs_batch, dict)
         assert set(obs_batch) == {"image", "wp_cp"}
-        assert obs_batch["image"].shape == (1, 1, 3, 64, 64)
+        assert obs_batch["image"].shape == (1, 1, 64, 64, 3)
         assert obs_batch["image"].dtype == jnp.uint8
         assert obs_batch["wp_cp"].shape == (1, 1, 4116)
         assert obs_batch["wp_cp"].dtype == jnp.float32
@@ -543,7 +543,7 @@ class _ScriptedEnv:
         self.reset_calls += 1
         self.t = 0
         return ObservationFrame(
-            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            image=np.zeros((64, 64, 3), dtype=np.uint8),
             is_first=True,
         )
 
@@ -551,7 +551,7 @@ class _ScriptedEnv:
         self.t += 1
         done = self._done_every is not None and self.t % self._done_every == 0
         return ObservationFrame(
-            image=np.zeros((3, 64, 64), dtype=np.uint8),
+            image=np.zeros((64, 64, 3), dtype=np.uint8),
             is_first=False,
             previous_action=int(action),
             reward=1.0,

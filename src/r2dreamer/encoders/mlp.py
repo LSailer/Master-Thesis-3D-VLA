@@ -296,7 +296,7 @@ class HouseGlobalObs:
     Attributes:
       global_patch_tokens: ``(…, num_patch_tokens, token_dim)`` VGGT global patch
         tokens — always present.
-      image: ``(…, 3, 64, 64)`` per-step RGB frame; present in hybrid mode.
+      image: ``(…, 64, 64, 3)`` per-step RGB frame; present in hybrid mode.
       camera_token_global: ``(…, 1, token_dim)`` camera token; present in camera
         mode.
     """
@@ -494,7 +494,7 @@ class HybridEncoder(nn.Module):
                     f"expected (..., {self.rgb_dim + self.vggt_dim}) hybrid features, "
                     f"got {obs.shape}"
                 )
-            rgb = obs[..., : self.rgb_dim].reshape(*obs.shape[:-1], 3, 64, 64)
+            rgb = obs[..., : self.rgb_dim].reshape(*obs.shape[:-1], 64, 64, 3)
             features = obs[..., self.rgb_dim :]
         cnn_embed = make_rgb_conv_encoder(
             depth=self.cnn_depth,

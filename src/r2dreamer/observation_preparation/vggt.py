@@ -56,7 +56,7 @@ VGGT_DEFAULT_AGGREGATOR_SHAPE = (
 )
 
 HYBRID_IMAGE_SHAPE = DEFAULT_OBSERVATION_DIMS.image_shape
-HYBRID_IMAGE_SIZE = HYBRID_IMAGE_SHAPE[-1]
+HYBRID_IMAGE_SIZE = HYBRID_IMAGE_SHAPE[0]  # HWC: side length is the leading axis
 HYBRID_RGB_DIM = HYBRID_IMAGE_SHAPE[0] * HYBRID_IMAGE_SHAPE[1] * HYBRID_IMAGE_SHAPE[2]
 
 
@@ -322,13 +322,13 @@ def contract_world_points_hwc_shape(
     shape_by_field = contract.replay_observation.buffer_shape()
     if not isinstance(shape_by_field, dict):
         raise ValueError("head VGGT readouts require structured replay fields")
-    chw_shape = tuple(shape_by_field[WORLD_POINTS_KEY])
-    if len(chw_shape) != 3:
-        raise ValueError(f"expected CHW world-points contract shape, got {chw_shape}")
-    channels, height, width = chw_shape
+    hwc_shape = tuple(shape_by_field[WORLD_POINTS_KEY])
+    if len(hwc_shape) != 3:
+        raise ValueError(f"expected HWC world-points contract shape, got {hwc_shape}")
+    height, width, channels = hwc_shape
     if height != width:
         raise ValueError(
-            f"expected square world-points contract shape, got {chw_shape}"
+            f"expected square world-points contract shape, got {hwc_shape}"
         )
     expected_hwc_shape = world_points_hwc_shape(height)
     if channels != expected_hwc_shape[-1]:
@@ -366,7 +366,7 @@ def _env_observation(env_render_resolution: int) -> ObservationFormContract:
     return ObservationFormContract(
         {
             "image": ObservationField(
-                (3, env_render_resolution, env_render_resolution), "uint8"
+                (env_render_resolution, env_render_resolution, 3), "uint8"
             ),
             "is_first": ObservationField((), "bool"),
         }

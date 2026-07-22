@@ -131,7 +131,7 @@ class TestHybridHousePointsCameraEncoder:
     def _obs(self, rng, batch=3):
         k1, k2 = jax.random.split(rng)
         return {
-            HYBRID_IMAGE_KEY: jax.random.uniform(k1, (batch, 3, 64, 64)),
+            HYBRID_IMAGE_KEY: jax.random.uniform(k1, (batch, 64, 64, 3)),
             CAMERA_POSE_KEY: jax.random.normal(k2, (batch, 9)).astype(jnp.float16),
             HOUSE_CONTEXT_KEY: jnp.ones((1, 5, 6), dtype=jnp.float16),
         }
@@ -203,7 +203,7 @@ class TestRGBGlobalTokenTransformerEncoder:
             singleton_tokens=True,
         )
         obs = {
-            "image": jnp.zeros((3, 3, 64, 64), dtype=jnp.float32),
+            "image": jnp.zeros((3, 64, 64, 3), dtype=jnp.float32),
             "global_tokens": jnp.ones((1, 6, 8), dtype=jnp.float32),
         }
 
@@ -233,7 +233,7 @@ class TestRGBGlobalTokenTransformerEncoder:
             image_key="image",
             singleton_tokens=True,
         )
-        image = jnp.zeros((2, 3, 64, 64), dtype=jnp.float32)
+        image = jnp.zeros((2, 64, 64, 3), dtype=jnp.float32)
         obs_a = {
             "image": image,
             "global_tokens": jnp.zeros((1, 6, 8), dtype=jnp.float32),
@@ -282,7 +282,7 @@ class TestDecoderGuard:
         from src.r2dreamer.agent import R2DreamerAgent
 
         # Both RGB-bearing encoders must construct with a decoder.
-        a = R2DreamerAgent(self._cfg("cnn", (3, 64, 64)), jax.random.PRNGKey(0))
+        a = R2DreamerAgent(self._cfg("cnn", (64, 64, 3)), jax.random.PRNGKey(0))
         assert "decoder" in a.params
         b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
@@ -308,6 +308,6 @@ class TestConvDecoder:
         params = dec.init(rng, feat)
         out = dec.apply(params, feat)
 
-        assert out.shape == (4, 3, 64, 64)
+        assert out.shape == (4, 64, 64, 3)
         assert float(jnp.min(out)) >= 0.0
         assert float(jnp.max(out)) <= 1.0

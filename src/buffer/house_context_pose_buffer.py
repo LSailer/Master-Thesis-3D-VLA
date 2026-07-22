@@ -517,7 +517,7 @@ class HouseContextPoseBuffer:
         ``_FlattenedFrame.__post_init__`` documents and enforces the
         alignment contract.
         """
-        rgb_hwc = jnp.moveaxis(observation.image, 0, -1)
+        rgb_hwc = jnp.asarray(observation.image)  # observation contract is HWC
         return _FlattenedFrame(
             xyz=vggt_output.world_points.reshape(-1, self.XYZ_CHANNELS),
             rgb=jnp.asarray(rgb_hwc, dtype=jnp.uint8).reshape(-1, self.RGB_CHANNELS),

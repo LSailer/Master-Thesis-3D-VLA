@@ -171,7 +171,7 @@ class TestRGBTokenTransformerEncoder:
             cnn_mults=(1, 1, 1, 1),
         )
         obs = {
-            "image": jnp.zeros((2, 3, 64, 64), dtype=jnp.float32),
+            "image": jnp.zeros((2, 64, 64, 3), dtype=jnp.float32),
             "full_tokens": jnp.zeros((2, 10, 16), dtype=jnp.float32),
         }
         params = enc.init(jax.random.PRNGKey(0), obs)
@@ -322,7 +322,7 @@ class TestWP64CNNCPMLPObservationBatch:
             cp_layers=1,
         )
         obs = {
-            WORLD_POINTS_KEY: jnp.ones((2, 3, 3, 64, 64), dtype=jnp.float16),
+            WORLD_POINTS_KEY: jnp.ones((2, 3, 64, 64, 3), dtype=jnp.float16),
             CAMERA_POSE_KEY: jnp.ones((2, 3, 9), dtype=jnp.float16),
         }
 
@@ -358,7 +358,7 @@ class TestWP64CNNCPMLPEncoder:
             cp_layers=1,
         )
         obs = {
-            WORLD_POINTS_KEY: jnp.ones((2, 3, 64, 64), dtype=jnp.float32),
+            WORLD_POINTS_KEY: jnp.ones((2, 64, 64, 3), dtype=jnp.float32),
             CAMERA_POSE_KEY: jnp.ones((2, 9), dtype=jnp.float32),
         }
 
@@ -376,7 +376,7 @@ class TestConvEncoderWorldPoints:
         enc = ConvEncoder(input_kind="world_points", embed_dim=256)
         rng = jax.random.PRNGKey(0)
         # (B, 3, H, W) metric XYZ world-point map.
-        dummy = jnp.zeros((2, 3, 518, 518))
+        dummy = jnp.zeros((2, 518, 518, 3))
         params = enc.init(rng, dummy)
         out = enc.apply(params, dummy)
         assert out.shape == (2, 256)
@@ -386,7 +386,7 @@ class TestConvEncoderWorldPoints:
         # Values far outside [0, 1] (metric coords) must not blow up (symlog).
         enc = ConvEncoder(input_kind="world_points", embed_dim=32)
         rng = jax.random.PRNGKey(0)
-        big = jnp.full((1, 3, 518, 518), 1e3)
+        big = jnp.full((1, 518, 518, 3), 1e3)
         params = enc.init(rng, big)
         out = enc.apply(params, big)
         assert out.shape == (1, 32)
@@ -395,7 +395,7 @@ class TestConvEncoderWorldPoints:
     def test_rejects_unknown_input_kind(self):
         enc = ConvEncoder(input_kind="depth")
         with pytest.raises(ValueError, match="input_kind"):
-            enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 3, 64, 64)))
+            enc.init(jax.random.PRNGKey(0), jnp.zeros((1, 64, 64, 3)))
 
 
 def _vggt_replay_buffer(capacity: int) -> ReplayBuffer:
@@ -549,7 +549,7 @@ class TestVGGTAgentInit:
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_wp64_cnn_cp_mlp",
-            obs_shape={WORLD_POINTS_KEY: (3, 64, 64), CAMERA_POSE_KEY: (9,)},
+            obs_shape={WORLD_POINTS_KEY: (64, 64, 3), CAMERA_POSE_KEY: (9,)},
             num_actions=4,
             vggt_embed_dim=64,
             encoder_depth=4,
@@ -561,7 +561,7 @@ class TestVGGTAgentInit:
         agent = R2DreamerAgent(cfg, rng)
 
         obs_dict = {
-            WORLD_POINTS_KEY: np.zeros((3, 64, 64), dtype=np.float16),
+            WORLD_POINTS_KEY: np.zeros((64, 64, 3), dtype=np.float16),
             CAMERA_POSE_KEY: np.zeros((9,), dtype=np.float16),
             "is_first": True,
         }
@@ -576,7 +576,7 @@ class TestVGGTAgentInit:
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_wp_dense_cnn",
-            obs_shape=(3, 70, 70),
+            obs_shape=(70, 70, 3),
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
@@ -584,7 +584,7 @@ class TestVGGTAgentInit:
         assert "encoder" in agent.params
 
         obs_dict = {
-            "features": np.zeros((3, 70, 70), dtype=np.float32),
+            "features": np.zeros((70, 70, 3), dtype=np.float32),
             "is_first": True,
         }
         rng, act_key = jax.random.split(rng)
@@ -597,8 +597,8 @@ class TestVGGTAgentInit:
         from src.r2dreamer.agent import R2DreamerAgent
 
         for enc_type, shape in (
-            ("cnn", (3, 64, 64)),
-            ("vggt_wp_dense_cnn", (3, 70, 70)),
+            ("cnn", (64, 64, 3)),
+            ("vggt_wp_dense_cnn", (70, 70, 3)),
         ):
             cfg = R2DreamerConfig(
                 encoder_type=enc_type,

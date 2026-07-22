@@ -273,7 +273,7 @@ def run_random_baseline(
     """
     env = HabitatObjectNavEnv(
         HabitatEnvConfig(
-            obs_shape=(3, 64, 64),
+            obs_shape=(64, 64, 3),
             max_episode_steps=max_episode_steps,
             curriculum=_curriculum_name(curriculum_path),
             mode="eval",

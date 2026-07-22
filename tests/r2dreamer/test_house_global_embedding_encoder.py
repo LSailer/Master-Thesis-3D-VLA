@@ -24,7 +24,7 @@ from src.r2dreamer.observation_keys import (
 )
 
 # Both branches are fixed at TokenReducer's default output_dim; the conv
-# encoder emits the same width for a (3, 64, 64) frame. Only the hidden width
+# encoder emits the same width for a (64, 64, 3) frame. Only the hidden width
 # and layer count are configurable on the encoder.
 BRANCH_DIM = 1024
 TOKEN_DIM = 16
@@ -51,7 +51,7 @@ def _obs(batch, *, image=False, camera=False, n_patches=N_PATCHES, key=0):
         )
     if image:
         obs[HYBRID_IMAGE_KEY] = jax.random.uniform(
-            k_img, (batch, 3, 64, 64), dtype=jnp.float32
+            k_img, (batch, 64, 64, 3), dtype=jnp.float32
         )
     return obs
 
@@ -65,7 +65,7 @@ def test_image_obs_broadcasts_singleton_patch_tokens():
     k_img, k_patch = jax.random.split(jax.random.PRNGKey(9))
     obs = {
         HYBRID_IMAGE_KEY: jax.random.uniform(
-            k_img, (2, 4, 3, 64, 64), dtype=jnp.float32
+            k_img, (2, 4, 64, 64, 3), dtype=jnp.float32
         ),
         GLOBAL_PATCH_TOKENS_KEY: jax.random.normal(
             k_patch, (N_PATCHES, TOKEN_DIM), dtype=jnp.float32

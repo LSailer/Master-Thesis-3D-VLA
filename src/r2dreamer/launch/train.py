@@ -89,9 +89,9 @@ def _make_env_instances(
     if env == "habitat":
         env_config = HabitatEnvConfig(
             obs_shape=(
+                encoder_spec.env_render_resolution,
+                encoder_spec.env_render_resolution,
                 3,
-                encoder_spec.env_render_resolution,
-                encoder_spec.env_render_resolution,
             ),
             max_episode_steps=500,
             reward_type="geodesic_delta",

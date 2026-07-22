@@ -29,7 +29,7 @@ class ObsAdapter:
     """
 
     buffer_dtype: BufferDType = "uint8"
-    buffer_shape: BufferShape = (3, 64, 64)
+    buffer_shape: BufferShape = (64, 64, 3)
     normalize_on_sample: BufferNormalize = True
     agent_obs_shape: BufferShape | None = None
     # Scene-aware episode-boundary hook. The trainer calls it (when set) at

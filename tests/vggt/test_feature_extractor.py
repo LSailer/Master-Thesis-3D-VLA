@@ -18,7 +18,7 @@ gpu = pytest.mark.skipif(not HAS_CUDA, reason="requires CUDA GPU")
 def _make_frame(seed: int = 0) -> np.ndarray:
     """Create a synthetic 518x518 RGB frame (CHW, uint8)."""
     rng = np.random.default_rng(seed)
-    return rng.integers(0, 256, size=(3, 518, 518), dtype=np.uint8)
+    return rng.integers(0, 256, size=(518, 518, 3), dtype=np.uint8)
 
 
 @gpu

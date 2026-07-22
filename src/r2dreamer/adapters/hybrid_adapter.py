@@ -22,7 +22,7 @@ from src.r2dreamer.observation_preparation.vggt import (
 from src.r2dreamer.observation_preparation.vggt_readouts import (
     flatten_world_points_camera_pose,
 )
-from src.shared.video_utils import resize_chw_uint8
+from src.shared.video_utils import resize_hwc_uint8
 
 HYBRID_FEATURE_DIM = HYBRID_RGB_DIM + wp_cp_dim()
 
@@ -30,7 +30,7 @@ HYBRID_FEATURE_DIM = HYBRID_RGB_DIM + wp_cp_dim()
 class HybridObsAdapter(ObsAdapter):
     """Builds the hybrid replay fields ``{"image": rgb64, "wp_cp": wp_cp}``.
 
-    The env renders 518x518 CHW uint8 (for VGGT). Each step we run VGGT once to
+    The env renders 518x518 HWC uint8 (for VGGT). Each step we run VGGT once to
     obtain world_points + camera_pose, downsample the same frame to 64x64 for the
     CNN branch, and store both modalities under explicit replay keys. The agent
     still packs them into the legacy flat encoder input at the JAX boundary.
@@ -64,9 +64,9 @@ class HybridObsAdapter(ObsAdapter):
     def transform(
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, np.ndarray], dict]:
-        out = self._extractor.extract(env_obs)  # image is 518 CHW uint8
+        out = self._extractor.extract(env_obs)  # image is 518 HWC uint8
         wp_cp = flatten_world_points_camera_pose(out)  # jnp (4116,)
-        img64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        img64 = resize_hwc_uint8(env_obs.image, IMAGE_SIZE)
         replay = {
             HYBRID_IMAGE_KEY: img64,
             HYBRID_WP_CP_KEY: np.asarray(wp_cp, dtype=np.float32),

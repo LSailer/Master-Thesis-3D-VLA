@@ -36,7 +36,7 @@ pytestmark = [
 
 def _small_agent_config() -> R2DreamerConfig:
     return R2DreamerConfig(
-        obs_shape=(3, 64, 64),
+        obs_shape=(64, 64, 3),
         num_actions=4,
         deter_size=32,
         hidden_size=16,
@@ -70,7 +70,7 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
         try:
             env = HabitatObjectNavEnv(
                 HabitatEnvConfig(
-                    obs_shape=(3, 64, 64),
+                    obs_shape=(64, 64, 3),
                     max_episode_steps=20,
                     mode="train",
                 )

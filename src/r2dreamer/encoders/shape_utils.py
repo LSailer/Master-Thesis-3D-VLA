@@ -7,13 +7,13 @@ import jax.numpy as jnp
 
 
 def normalize_image_obs(image: Any, dtype: Any = jnp.float32) -> jnp.ndarray:
-    """Return CHW image observations as ``dtype`` in ``[0, 1]``.
+    """Return HWC image observations as ``dtype`` in ``[0, 1]``.
 
     Accepts either uint8 images or already-normalized floating arrays and
-    preserves all leading dimensions before the final ``(3, H, W)`` axes.
+    preserves all leading dimensions before the final ``(H, W, 3)`` axes.
 
     Args:
-        image: uint8 or floating image array with trailing ``(3, H, W)`` axes.
+        image: uint8 or floating image array with trailing ``(H, W, 3)`` axes.
         dtype: Floating dtype of the returned array (default float32; encoders
             pass their compute dtype under the full_bf16 gate).
 

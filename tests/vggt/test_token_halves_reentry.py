@@ -13,6 +13,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+# The consumed_layer_halves/point_head_from_tokens extractor methods were
+# dropped from JAXVGGTFeatureExtractor after the global-token ablation was
+# archived (they never made it into a commit). Skip until the prototype is
+# either revived or this file is deleted with it.
+pytestmark = pytest.mark.skip(
+    reason="token-surgery API removed with archived global_token_reconstruction prototype"
+)
+
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 from src.vggt.jax.heads.dpt_head import DPTHead
 

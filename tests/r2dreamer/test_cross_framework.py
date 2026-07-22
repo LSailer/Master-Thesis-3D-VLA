@@ -339,11 +339,11 @@ class TestEncoder:
             pt_input = torch.tensor(obs_hwc[:, None]).float()  # (B, 1, H, W, C)
             pt_out = _to_np(pt_enc(pt_input).squeeze(1))  # (B, embed_dim)
 
-        # JAX — ConvEncoder expects (B, C, H, W) float [0,1]
+        # JAX — ConvEncoder expects (B, H, W, C) float [0,1] (HWC contract)
         jax_enc = ConvEncoder(depth=DEPTH, kernel_size=KERNEL)
-        jax_params = jax_enc.init(rng, jnp.array(obs_chw))
+        jax_params = jax_enc.init(rng, jnp.array(obs_hwc))
         jax_params = transfer_encoder(pt_enc, jax_params)
-        jax_out = np.array(jax_enc.apply(jax_params, jnp.array(obs_chw)))
+        jax_out = np.array(jax_enc.apply(jax_params, jnp.array(obs_hwc)))
 
         # 4-layer CNN accumulates small errors — use composed tolerance
         np.testing.assert_allclose(jax_out, pt_out, atol=ATOL_COMPOSED, rtol=RTOL)

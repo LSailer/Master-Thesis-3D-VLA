@@ -22,7 +22,7 @@ from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 @pytest.mark.integration
 def test_spl_with_shortest_path():
     config = HabitatEnvConfig(
-        obs_shape=(3, 64, 64),
+        obs_shape=(64, 64, 3),
         max_episode_steps=500,
         mode="train",
         reward_type="geodesic_delta",

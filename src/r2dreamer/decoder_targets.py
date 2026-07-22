@@ -11,7 +11,7 @@ from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
 
 
 def _normalize_image_obs(image: Any) -> jnp.ndarray:
-    """Return CHW image observations as float32 in ``[0, 1]``."""
+    """Return HWC image observations as float32 in ``[0, 1]``."""
     image = jnp.asarray(image)
     if image.dtype == jnp.uint8:
         return image.astype(jnp.float32) / 255.0
@@ -25,18 +25,18 @@ def replay_batch_shape(batch: ReplayBatch) -> tuple[int, int]:
 
 
 def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
-    """Return decoder RGB targets as ``(B*T, 3, 64, 64)`` in ``[0, 1]``."""
+    """Return decoder RGB targets as ``(B*T, 64, 64, 3)`` in ``[0, 1]``."""
     obs = batch.obs
     batch_size, time_steps = replay_batch_shape(batch)
     if encoder_type in COMPOSITE_RGB_ENCODER_TYPES:
         if isinstance(obs, Mapping):
             image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])
-            return image.reshape(batch_size * time_steps, 3, 64, 64)
-        rgb_dim = 3 * 64 * 64
+            return image.reshape(batch_size * time_steps, 64, 64, 3)
+        rgb_dim = 64 * 64 * 3
         return (
             jnp.asarray(obs, dtype=jnp.float32)
             .reshape(batch_size * time_steps, -1)[:, :rgb_dim]
-            .reshape(batch_size * time_steps, 3, 64, 64)
+            .reshape(batch_size * time_steps, 64, 64, 3)
         )
     image = obs[HYBRID_IMAGE_KEY] if isinstance(obs, Mapping) else obs
-    return _normalize_image_obs(image).reshape(batch_size * time_steps, 3, 64, 64)
+    return _normalize_image_obs(image).reshape(batch_size * time_steps, 64, 64, 3)

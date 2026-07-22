@@ -90,12 +90,12 @@ def _form_from_shape(
 
 
 def _legacy_env_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
-    image_shape = (3, 64, 64)
+    image_shape = (64, 64, 3)
     if (
         cfg.encoder_type.startswith("vggt")
         and cfg.encoder_type not in _DECODER_RGB_ENCODERS
     ):
-        image_shape = (3, 518, 518)
+        image_shape = (518, 518, 3)
     return ObservationFormContract(
         {
             HYBRID_IMAGE_KEY: ObservationField(image_shape, "uint8"),
@@ -127,7 +127,7 @@ def _legacy_agent_observation(cfg: R2DreamerConfig) -> ObservationFormContract:
 def _legacy_decoder_target(cfg: R2DreamerConfig) -> ObservationFormContract | None:
     if cfg.encoder_type not in _DECODER_RGB_ENCODERS:
         return None
-    return ObservationFormContract(ObservationField((3, 64, 64), "float32"))
+    return ObservationFormContract(ObservationField((64, 64, 3), "float32"))
 
 
 def legacy_encoder_input_contract_from_config(

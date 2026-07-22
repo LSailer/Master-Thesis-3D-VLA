@@ -49,7 +49,7 @@ def test_load_arch_overrides_recovers_encoder_input_contract_from_manifest(tmp_p
 
     overrides = _load_arch_overrides_from_manifest(str(ckpt))
 
-    assert overrides["obs_shape"] == (3, 64, 64)
+    assert overrides["obs_shape"] == (64, 64, 3)
     assert overrides["encoder_type"] == "cnn"
     assert overrides["encoder_module_cls"] is ConvEncoder
     assert overrides["encoder_input_contract"]["encoder_module_kwargs"] == {}

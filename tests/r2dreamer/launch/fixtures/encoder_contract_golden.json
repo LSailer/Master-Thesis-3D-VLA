@@ -7,9 +7,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           },
           "is_first": {
@@ -26,9 +26,9 @@
           "dtype": "float32",
           "normalize_on_sample": false,
           "shape": [
-            3,
             64,
-            64
+            64,
+            3
           ]
         },
         "kind": "single"
@@ -39,9 +39,9 @@
           "dtype": "float32",
           "normalize_on_sample": false,
           "shape": [
-            3,
             64,
-            64
+            64,
+            3
           ]
         },
         "kind": "single"
@@ -55,9 +55,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           },
           "is_first": {
@@ -75,9 +75,9 @@
           "dtype": "uint8",
           "normalize_on_sample": true,
           "shape": [
-            3,
             64,
-            64
+            64,
+            3
           ]
         },
         "kind": "single"
@@ -91,9 +91,9 @@
       "encoder_type": "cnn",
       "env_render_resolution": 64,
       "obs_shape": [
-        3,
         64,
-        64
+        64,
+        3
       ]
     }
   },
@@ -149,9 +149,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           },
           "is_first": {
@@ -177,9 +177,9 @@
           "dtype": "float32",
           "normalize_on_sample": false,
           "shape": [
-            3,
             64,
-            64
+            64,
+            3
           ]
         },
         "kind": "single"
@@ -204,9 +204,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -225,9 +225,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           },
           "wp_cp": {
@@ -275,9 +275,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               37,
-              37
+              37,
+              3
             ]
           }
         },
@@ -307,9 +307,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -335,9 +335,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               37,
-              37
+              37,
+              3
             ]
           }
         },
@@ -404,9 +404,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -493,9 +493,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -582,9 +582,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -672,9 +672,9 @@
           2048
         ],
         "image": [
-          3,
           64,
-          64
+          64,
+          3
         ]
       }
     }
@@ -695,9 +695,9 @@
           1024
         ],
         "image": [
-          3,
           64,
-          64
+          64,
+          3
         ]
       }
     }
@@ -727,9 +727,9 @@
           1024
         ],
         "image": [
-          3,
           64,
-          64
+          64,
+          3
         ]
       }
     }
@@ -776,9 +776,9 @@
         ],
         "house_context_size": [],
         "image": [
-          3,
           64,
-          64
+          64,
+          3
         ]
       }
     }
@@ -803,9 +803,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           }
         },
@@ -829,9 +829,9 @@
             "dtype": "float32",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           }
         },
@@ -846,9 +846,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -874,9 +874,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           }
         },
@@ -897,9 +897,9 @@
           9
         ],
         "world_points": [
-          3,
           64,
-          64
+          64,
+          3
         ]
       }
     }
@@ -924,9 +924,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           }
         },
@@ -956,9 +956,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -984,9 +984,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               64,
-              64
+              64,
+              3
             ]
           }
         },
@@ -1027,9 +1027,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           }
         },
@@ -1048,9 +1048,9 @@
           "dtype": "float32",
           "normalize_on_sample": false,
           "shape": [
-            3,
             518,
-            518
+            518,
+            3
           ]
         },
         "kind": "single"
@@ -1064,9 +1064,9 @@
             "dtype": "uint8",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           },
           "is_first": {
@@ -1092,9 +1092,9 @@
             "dtype": "float16",
             "normalize_on_sample": false,
             "shape": [
-              3,
               518,
-              518
+              518,
+              3
             ]
           }
         },
@@ -1114,9 +1114,9 @@
       "encoder_type": "vggt_wp_dense_cnn",
       "env_render_resolution": 518,
       "obs_shape": [
-        3,
         518,
-        518
+        518,
+        3
       ]
     }
   }

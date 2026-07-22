@@ -717,7 +717,7 @@ class TestLevel3AggregatorCache:
 
     @pytest.fixture(scope="class")
     def frames(self):
-        # N frames of (3, 518, 518) each; returned as numpy (N, 3, 518, 518).
+        # N frames of (518, 518, 3) each; returned as numpy (N, 3, 518, 518).
         rng = np.random.default_rng(11)
         return rng.uniform(
             0.0, 1.0, size=(_L3_NUM_FRAMES, 3, 518, 518)

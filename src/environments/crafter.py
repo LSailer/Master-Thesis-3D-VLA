@@ -18,14 +18,14 @@ class CrafterEnv:
     def reset(self) -> ObservationFrame:
         obs = self._env.reset()  # (H, W, C) uint8
         return ObservationFrame(
-            image=jnp.transpose(obs, (2, 0, 1)),  # CHW
+            image=obs,  # HWC
             is_first=True,
         )
 
     def step(self, action) -> ObservationFrame:
         obs, reward, done, _info = self._env.step(action)
         return ObservationFrame(
-            image=jnp.transpose(obs, (2, 0, 1)),  # CHW
+            image=obs,  # HWC
             is_first=False,
             previous_action=int(action),
             reward=float(reward),

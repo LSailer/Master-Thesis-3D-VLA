@@ -113,7 +113,7 @@ def _make_eval_env(*, args, curriculum: str | None, eff_encoder: str):
     if effective_curriculum is None:
         effective_curriculum = "L1"
     hab_config = HabitatEnvConfig(
-        obs_shape=(3, render_resolution, render_resolution),
+        obs_shape=(render_resolution, render_resolution, 3),
         max_episode_steps=500,
         reward_type="geodesic_delta",
         curriculum=effective_curriculum,

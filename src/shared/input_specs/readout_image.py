@@ -19,7 +19,7 @@ from src.shared.input_specs.readout import EncoderKind, Readout
 
 @dataclass(frozen=True, kw_only=True)
 class IMAGE(Readout):
-    """Downsampled CHW RGB for the CNN encoder branch.
+    """Downsampled HWC RGB for the CNN encoder branch.
 
     Replay stores uint8; ``/255`` centering happens in ``ConvEncoder``, not here.
     """

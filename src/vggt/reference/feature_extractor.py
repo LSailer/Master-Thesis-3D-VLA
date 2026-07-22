@@ -184,7 +184,7 @@ class VGGTFeatureExtractor:
         """Single-frame streaming inference.
 
         Args:
-            rgb: ``(3, 518, 518)`` uint8 array in CHW format (e.g. from
+            rgb: ``(518, 518, 3)`` uint8 array in HWC format (e.g. from
                 Habitat), or an ``ObservationFrame`` carrying such an array as
                 ``.image``. An ObservationFrame's ``is_first`` flag is
                 intentionally ignored: single-scene streaming keeps the KV
@@ -216,10 +216,13 @@ class VGGTFeatureExtractor:
             fwd_start.record()
 
         # --- prepare input tensor -------------------------------------------
-        # uint8 CHW → float32 [0, 1], add batch dim → (1, 3, 518, 518)
-        img = torch.from_numpy(rgb).to(dtype=torch.float32, device=self.device) / 255.0
+        # uint8 HWC → CHW float32 [0, 1], add batch dim → (1, 3, 518, 518).
+        # The observation contract is HWC; torch model internals stay CHW.
+        img = torch.from_numpy(np.ascontiguousarray(rgb)).to(
+            dtype=torch.float32, device=self.device
+        ) / 255.0
         if img.dim() == 3:
-            img = img.unsqueeze(0)  # (1, C, H, W)
+            img = img.permute(2, 0, 1).unsqueeze(0)  # (1, C, H, W)
 
         # --- streaming inference --------------------------------------------
         with torch.no_grad(), torch.amp.autocast("cuda", dtype=self._amp_dtype):

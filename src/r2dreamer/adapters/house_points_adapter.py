@@ -42,7 +42,7 @@ from src.r2dreamer.observation_preparation.vggt import (
     HYBRID_IMAGE_SIZE as IMAGE_SIZE,
 )
 from src.r2dreamer.observation_preparation.vggt_readouts import VGGTOutputLike
-from src.shared.video_utils import resize_chw_uint8
+from src.shared.video_utils import resize_hwc_uint8
 
 CAMERA_POSE_SHAPE = (9,)
 
@@ -286,7 +286,7 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         """Return ``(vggt_output, observation)`` strided to bound ``add`` cost.
 
         Strides the ``(H, W, 3)`` world map, ``(H, W)`` confidence and
-        ``(3, H, W)`` image together so they stay pixel-aligned, then wraps them
+        ``(H, W, 3)`` image together so they stay pixel-aligned, then wraps them
         in lightweight stand-ins that expose exactly the fields ``add`` reads.
         """
         world_points = _required_vggt_output_field(out, "world_points")
@@ -299,7 +299,7 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
             return shim_out, env_obs
         strided_points = world_points[::stride, ::stride, :]
         strided_conf = jnp.asarray(confidence)[::stride, ::stride]
-        strided_image = np.asarray(env_obs.image)[:, ::stride, ::stride]
+        strided_image = np.asarray(env_obs.image)[::stride, ::stride, :]
         shim_out = SimpleNamespace(
             world_points=strided_points, confidence=strided_conf
         )
@@ -410,7 +410,7 @@ class VGGTHybridHousePointsPoseObsAdapter(VGGTHousePointsPoseObsAdapter):
         self, env_obs: ObservationFrame
     ) -> tuple[dict[str, np.ndarray], dict]:
         replay, agent_obs = super().transform(env_obs)
-        image64 = resize_chw_uint8(env_obs.image, IMAGE_SIZE)
+        image64 = resize_hwc_uint8(env_obs.image, IMAGE_SIZE)
         replay[HYBRID_IMAGE_KEY] = image64
         agent_obs[HYBRID_IMAGE_KEY] = image64
         return replay, agent_obs
