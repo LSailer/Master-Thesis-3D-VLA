@@ -1,72 +1,72 @@
-"""CPU tests for the VGGT-side PLY point-cloud snapshot writer.
+"""CPU tests for the shared PLY writer and the extractor dump entry point.
 
-Covers ``JAXVGGTFeatureExtractor.write_ascii_ply_xyzrgb`` (the file-boundary
-helper behind ``write_point_cloud_ply``) — round-trips with the existing
-``load_ascii_ply_xyzrgb`` reader. The full ``write_point_cloud_ply`` path runs
-the real point head and is exercised by the SLURM smoke (GPU + weights).
+The writer (``shared.ply_io.write_world_points_ply``) emits binary PLY via
+Open3D; round-trips use ``open3d.io.read_point_cloud``. The full
+``write_point_cloud_ply`` path runs the real point head and is exercised by
+the SLURM smoke (GPU + weights).
 """
 
 import numpy as np
+import open3d as o3d
 import pytest
 
-from src.r2dreamer.observation_preparation.static_house_context import (
-    load_ascii_ply_xyzrgb,
-)
+from src.shared.ply_io import write_world_points_ply
 from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
 
 
-def _writer():
-    # Static method — no extractor construction (avoids GPU/weights).
-    return JAXVGGTFeatureExtractor.write_ascii_ply_xyzrgb
+def _read_xyz_rgb(path):
+    pcd = o3d.io.read_point_cloud(str(path))
+    return np.asarray(pcd.points), np.rint(np.asarray(pcd.colors) * 255.0)
 
 
-def test_ply_writer_round_trips_with_reader(tmp_path):
+def test_ply_writer_round_trips_via_o3d(tmp_path):
     xyz = np.array(
         [[0.0, 0.0, 0.0], [1.0, 2.0, 3.0], [-1.5, 0.25, 4.75]], dtype=np.float32
     )
     rgb = np.array([[255, 0, 0], [0, 255, 0], [0, 0, 255]], dtype=np.uint8)
-    path = str(tmp_path / "house.ply")
+    path = tmp_path / "house.ply"
 
-    _writer()(path, xyz, rgb)
+    write_world_points_ply(path, xyz, rgb)
 
-    loaded = load_ascii_ply_xyzrgb(path)
-    assert loaded.shape == (3, 6)
-    np.testing.assert_allclose(loaded[:, :3], xyz, atol=1e-5)
-    # RGB is stored as uchar and read back as float32.
-    np.testing.assert_allclose(loaded[:, 3:], rgb.astype(np.float32))
+    xyz_back, rgb_back = _read_xyz_rgb(path)
+    np.testing.assert_allclose(xyz_back, xyz, atol=1e-5)
+    np.testing.assert_allclose(rgb_back, rgb.astype(np.float64), atol=1.0)
 
 
-def test_ply_writer_accepts_float_rgb(tmp_path):
-    xyz = np.zeros((2, 3), dtype=np.float32)
-    rgb = np.array([[1.0, 0.0, 0.0], [0.5, 0.5, 0.5]], dtype=np.float32)
-    path = str(tmp_path / "house_float.ply")
+def test_ply_writer_flattens_point_map_and_batch_dims(tmp_path):
+    xyz = np.zeros((1, 4, 4, 3), dtype=np.float32)  # batched point map
+    rgb = np.zeros((4, 4, 3), dtype=np.uint8)  # HWC image
+    path = tmp_path / "map.ply"
 
-    _writer()(path, xyz, rgb)
+    write_world_points_ply(path, xyz, rgb)
 
-    loaded = load_ascii_ply_xyzrgb(path)
-    np.testing.assert_allclose(loaded[:, 3:], (rgb * 255).astype(np.uint8).astype(np.float32))
+    xyz_back, _ = _read_xyz_rgb(path)
+    assert xyz_back.shape == (16, 3)
+
+
+def test_ply_writer_rejects_chw_image(tmp_path):
+    xyz = np.zeros((4, 4, 3), dtype=np.float32)
+    chw = np.zeros((3, 4, 4), dtype=np.uint8)
+    with pytest.raises(ValueError, match="transpose to HWC"):
+        write_world_points_ply(tmp_path / "bad.ply", xyz, chw)
+
+
+def test_ply_writer_rejects_mismatched_vertex_counts(tmp_path):
+    xyz = np.zeros((5, 3), dtype=np.float32)
+    rgb = np.zeros((4, 3), dtype=np.uint8)
+    with pytest.raises(ValueError, match="vertex count"):
+        write_world_points_ply(tmp_path / "bad.ply", xyz, rgb)
 
 
 def test_ply_writer_creates_parent_dirs(tmp_path):
-    path = str(tmp_path / "nested" / "dir" / "house.ply")
-    _writer()(path, np.zeros((1, 3), dtype=np.float32), np.zeros((1, 3), dtype=np.uint8))
-    import os
-
-    assert os.path.exists(path)
-
-
-def test_ply_writer_header_has_required_fields(tmp_path):
-    path = str(tmp_path / "house.ply")
-    _writer()(path, np.zeros((1, 3), dtype=np.float32), np.zeros((1, 3), dtype=np.uint8))
-    with open(path, encoding="ascii") as handle:
-        header = "".join(handle.readline() for _ in range(10))
-    for field in ("ply", "format ascii 1.0", "element vertex 1", "end_header"):
-        assert field in header
-    for prop in ("x", "y", "z", "red", "green", "blue"):
-        assert f"property float {prop}" in header or f"property uchar {prop}" in header
+    path = tmp_path / "nested" / "dir" / "house.ply"
+    write_world_points_ply(
+        path, np.zeros((1, 3), dtype=np.float32), np.zeros((1, 3), dtype=np.uint8)
+    )
+    assert path.exists()
 
 
-def test_write_point_cloud_ply_raises_before_any_extract(monkeypatch):
+def test_write_point_cloud_ply_raises_before_any_extract():
     """Guard the contract: calling write_point_cloud_ply before extract() raises."""
     # Build a shell instance without running __init__ (avoids GPU/weights).
     extractor = JAXVGGTFeatureExtractor.__new__(JAXVGGTFeatureExtractor)

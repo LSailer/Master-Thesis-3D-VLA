@@ -30,6 +30,7 @@ import jax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
 
 from src.environments.observation import ObservationFrame  # noqa: E402
+from src.shared.ply_io import write_world_points_ply  # noqa: E402
 from src.vggt.jax.aggregator import (  # noqa: E402
     Aggregator,
     _calculate_dynamic_budgets,
@@ -969,3 +970,30 @@ class JAXVGGTFeatureExtractor:
             global_tokens=global_tokens,
             head_outputs=head_outputs,
         )
+
+    def write_point_cloud_ply(self, path: str) -> None:
+        """Write the last extracted frame's colored point cloud as a PLY.
+
+        Runs the point head on the retained last-frame aggregator outputs, so
+        it works regardless of ``compute_heads`` and adds no per-step cost.
+        The camera head is never invoked, keeping its KV cache unallocated
+        under ``PERSIST_SCENE``. Output is binary PLY via
+        ``shared.ply_io.write_world_points_ply``; read it back with
+        ``open3d.io.read_point_cloud``.
+
+        Args:
+          path: Output ``.ply`` path; parent directories are created.
+
+        Raises:
+          RuntimeError: If called before any extract().
+        """
+        if self._last_out_list is None or self._last_images is None:
+            raise RuntimeError("write_point_cloud_ply called before any extract()")
+        pts3d, _ = self._point_head_apply(
+            self._pt_params,
+            self._last_out_list,
+            self._last_images,
+            int(jnp.asarray(self._last_patch_start_idx)),
+        )
+        rgb_hwc = jnp.transpose(self._last_rgb, (1, 2, 0))
+        write_world_points_ply(path, pts3d[:, 0], rgb_hwc)

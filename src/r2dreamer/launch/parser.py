@@ -389,6 +389,16 @@ def _add_house_context_train_args(p: argparse.ArgumentParser) -> None:
         "steps, never for training). 0 disables the feature. An extra snapshot "
         "is written at the end of the first episode when N > 0.",
     )
+    p.add_argument(
+        "--pointcloud_dump_steps",
+        type=str,
+        default=None,
+        help="For vggt_house_points_pose*: comma-separated env steps (e.g. "
+        "'500000,1000000') at which every live house-context buffer is saved "
+        "as a binary PLY under <output_dir>/pointcloud_dumps/step_<N>/<scene>/. "
+        "An extra snapshot is written at the end of the first episode. "
+        "Diagnostics only; unset disables.",
+    )
 
 
 def _build_parser_train() -> argparse.ArgumentParser:

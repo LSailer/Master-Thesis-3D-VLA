@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Mapping
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -137,6 +138,8 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         voxel_size_m: float = DEFAULT_VOXEL_SIZE_M,
         max_points: int = HOUSE_CONTEXT_MAX_POINTS,
         max_input_points: int = DEFAULT_MAX_INPUT_POINTS,
+        pointcloud_dump_steps: tuple[int, ...] | None = None,
+        pointcloud_dump_dir: str | None = None,
     ):
         self._confidence_score = float(confidence_score)
         self._voxel_size_m = float(voxel_size_m)
@@ -148,9 +151,16 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         self._latest_house_context_size = jnp.zeros((), dtype=jnp.int32)
         self._env_steps = 0
         self._growth_history: list[tuple[int, int]] = []
+        # PLY dump schedule (diagnostics only; buffer.save() syncs to host).
+        self._dump_steps = frozenset(int(s) for s in (pointcloud_dump_steps or ()))
+        self._dump_dir = pointcloud_dump_dir
+        self._dump_enabled = bool(self._dump_steps) and pointcloud_dump_dir is not None
+        self._episode_starts_seen = 0
+        self._first_episode_dumped = False
+        self._extractor = extractor
         super().__init__(
             **self._observation_contract_kwargs(),
-            on_episode_reset=lambda scene_id="scene": extractor.reset_for_scene(scene_id),
+            on_episode_reset=self._episode_reset_callback,
         )
         # Scene-aware episode reset. The trainer calls the callback above at
         # every episode boundary — including the two prefill sites that discard
@@ -168,7 +178,38 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         # as a redundant, idempotent safety net for paths that process the reset
         # frame (the train loop). Only the point buffer persists across
         # episodes; the VGGT cache is saved/restored per scene.
-        self._extractor = extractor
+        # ``_episode_reset_callback`` wraps that same ``reset_for_scene`` call
+        # and additionally triggers the end-of-first-episode PLY dump.
+
+    def _episode_reset_callback(self, scene_id: str = "scene") -> None:
+        """Scene-aware episode reset plus the end-of-first-episode PLY dump.
+
+        Args:
+          scene_id: Incoming scene identifier forwarded to
+            ``extractor.reset_for_scene``.
+        """
+        self._episode_starts_seen += 1
+        if (
+            self._dump_enabled
+            and not self._first_episode_dumped
+            and self._episode_starts_seen >= 2
+        ):
+            self._first_episode_dumped = True
+            self._dump_buffers("end_of_first_episode")
+        self._extractor.reset_for_scene(scene_id)
+
+    def _dump_buffers(self, label: str) -> None:
+        """Save every non-empty scene buffer under ``<dump_dir>/<label>/``.
+
+        Args:
+          label: Snapshot subdirectory name (e.g. ``step_000500000``).
+        """
+        if self._dump_dir is None:
+            return
+        dump_root = Path(self._dump_dir) / label
+        for buffer in self._buffers.values():
+            if buffer.point_count > 0:
+                buffer.save(dump_root)
 
     def _observation_contract_kwargs(self) -> dict[str, Any]:
         """Return the replay/agent observation contract for ``ObsAdapter``.
@@ -273,6 +314,8 @@ class VGGTHousePointsPoseObsAdapter(ObsAdapter):
         buffer_out, buffer_obs = self._subsampled_buffer_input(out, env_obs)
         buffer.add(buffer_out, buffer_obs)
         self._record_growth_sample()
+        if self._dump_enabled and self._env_steps in self._dump_steps:
+            self._dump_buffers(f"step_{self._env_steps:09d}")
         house_context, house_size = self._house_context_snapshot(buffer)
         self._latest_house_context = house_context
         self._latest_house_context_size = house_size

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from importlib import import_module
 from types import MappingProxyType
@@ -47,16 +48,39 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
         resolution: int = 518,
         *,
         house_points_path: str | None = None,
+        pointcloud_dump_steps: tuple[int, ...] | None = None,
+        pointcloud_dump_dir: str | None = None,
     ):
         self._house_points_path = house_points_path
+        self._pointcloud_dump_steps = pointcloud_dump_steps
+        self._pointcloud_dump_dir = pointcloud_dump_dir
         super().__init__(resolution)
 
     @classmethod
     def from_train_args(cls, args: Any) -> VGGTHousePointsPoseEncoder:
-        """Build live house-points pose mode from parsed train args."""
+        """Build live house-points pose mode from parsed train args.
+
+        ``--pointcloud_dump_steps`` (comma-separated env steps) plus the run
+        ``output_dir`` enable periodic house-buffer PLY snapshots under
+        ``<output_dir>/pointcloud_dumps/``.
+        """
+        steps_raw = getattr(args, "pointcloud_dump_steps", None)
+        dump_steps = (
+            tuple(int(s) for s in str(steps_raw).split(",") if s.strip())
+            if steps_raw
+            else None
+        )
+        dump_dir = getattr(args, "output_dir", None)
+        dump_dir = (
+            os.path.join(str(dump_dir), "pointcloud_dumps")
+            if dump_steps and dump_dir is not None
+            else None
+        )
         return cls(
             resolution=args.render_resolution,
             house_points_path=getattr(args, "static_house_points_path", None),
+            pointcloud_dump_steps=dump_steps,
+            pointcloud_dump_dir=dump_dir,
         )
 
     @property
@@ -120,6 +144,8 @@ class VGGTHousePointsPoseEncoder(VGGTEncoder):
         return adapter_module.VGGTHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
+            pointcloud_dump_steps=self._pointcloud_dump_steps,
+            pointcloud_dump_dir=self._pointcloud_dump_dir,
         )
 
 
@@ -166,4 +192,6 @@ class VGGTHybridHousePointsPoseEncoder(VGGTHousePointsPoseEncoder):
         return adapter_module.VGGTHybridHousePointsPoseObsAdapter(
             extractor,
             house_points_path=self._house_points_path,
+            pointcloud_dump_steps=self._pointcloud_dump_steps,
+            pointcloud_dump_dir=self._pointcloud_dump_dir,
         )
