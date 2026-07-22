@@ -1,23 +1,31 @@
-"""Public train() entry point for the r2dreamer launcher."""
+"""Public train() entry point for the r2dreamer launcher.
+
+Composition root (ADR 0006): resolves env/encoder via registries, builds the
+replay buffer and the train/val ``ExperienceCollector`` instances, applies
+resume, and hands everything to ``run_training`` (``launch.loops``).
+"""
 
 from __future__ import annotations
 
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 import jax
 
+from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.agent_config import LatentPreset
 from src.configs.config import LATENT_PRESETS, R2DreamerConfig, TrainerConfig
 from src.environments.habitat import HabitatEnvConfig
 from src.environments.habitat_metrics import HabitatEpisodeMetrics
 from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.experience import ExperienceCollector
+from src.r2dreamer.launch.loops import apply_resume, run_training
 from src.r2dreamer.launch.parser import _build_parser_train
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
-from src.r2dreamer.trainer import Trainer
+from src.shared.dtypes import compute_jnp_dtype
 
 
 def _effective_curriculum_inputs(
@@ -245,52 +253,69 @@ def _make_trainer_config(
     )
 
 
-def _make_trainer(
+@dataclass
+class TrainingRun:
+    """Handle returned to programmatic (notebook) callers after a run.
+
+    Attributes:
+        agent: The trained agent (params/opt state as of run end).
+        experience: The train collector (env + adapter + replay buffer).
+        val_experience: The val collector, when validation was wired.
+        agent_config: Effective agent config.
+        trainer_config: Effective loop-control config.
+    """
+
+    agent: Any
+    experience: ExperienceCollector
+    val_experience: ExperienceCollector | None
+    agent_config: R2DreamerConfig
+    trainer_config: TrainerConfig
+
+
+def _make_collectors(
     *,
     env: str,
     enc: Any,
-    agent: Any,
     env_instance: Any,
     val_env_instance: Any | None,
     agent_config: Any,
-    trainer_config: Any,
     adapter: Any,
-    trainer_cls: type,
     episode_metrics_cls: type,
-):
-    if env != "habitat":
-        return trainer_cls(
-            agent=agent,
-            env=env_instance,
-            agent_config=agent_config,
-            trainer_config=trainer_config,
-            obs_adapter=adapter,
-        )
+) -> tuple[ExperienceCollector, ExperienceCollector | None]:
+    buffer = ReplayBuffer(
+        capacity=agent_config.buffer_capacity,
+        num_actions=agent_config.num_actions,
+        float_dtype=compute_jnp_dtype(agent_config.compute_dtype),
+    )
+    episode_metrics_fn = (
+        episode_metrics_cls(env_instance) if env == "habitat" else None
+    )
+    collector = ExperienceCollector(
+        env=env_instance,
+        adapter=adapter,
+        num_actions=agent_config.num_actions,
+        buffer=buffer,
+        episode_metrics_fn=episode_metrics_fn,
+    )
 
-    episode_metrics_fn = episode_metrics_cls(env_instance)
-    val_kwargs: dict[str, object] = {}
+    val_collector = None
     if val_env_instance is not None:
         # Val-Episode-Loop (3D-36) wiring: own adapter so the train
         # VGGT video buffer isn't disturbed; own tracker so val
-        # rolling means stay independent of train rollouts.
-        val_adapter = enc.new_adapter()
-        val_episode_metrics_fn = episode_metrics_cls(
-            val_env_instance, track_collision_rate=True
+        # rolling means stay independent of train rollouts. No buffer
+        # (val never records) and no auto-reset (an extra reset would
+        # advance the pinned eval episode order).
+        val_collector = ExperienceCollector(
+            env=val_env_instance,
+            adapter=enc.new_adapter(),
+            num_actions=agent_config.num_actions,
+            buffer=None,
+            episode_metrics_fn=episode_metrics_cls(
+                val_env_instance, track_collision_rate=True
+            ),
+            auto_reset=False,
         )
-        val_kwargs = {
-            "val_env": val_env_instance,
-            "val_obs_adapter": val_adapter,
-            "val_episode_metrics_fn": val_episode_metrics_fn,
-        }
-    return trainer_cls(
-        agent=agent,
-        env=env_instance,
-        agent_config=agent_config,
-        trainer_config=trainer_config,
-        obs_adapter=adapter,
-        episode_metrics_fn=episode_metrics_fn,
-        **val_kwargs,
-    )
+    return collector, val_collector
 
 
 def train(
@@ -302,13 +327,15 @@ def train(
     wandb_name: str | None = None,
     wandb_tags: list[str] | None = None,
     argv: list[str] | None = None,
-) -> "Trainer":
-    """Resolve env/encoder via registries, build configs, and run Trainer.run().
+) -> TrainingRun:
+    """Resolve env/encoder via registries, build collectors, and run training.
 
     Kwargs (output_dir, wandb_name, wandb_tags) are shim-supplied defaults — CLI
     flags from argparse override if provided.
 
-    Returns the Trainer for programmatic (notebook) callers.
+    Returns:
+        A ``TrainingRun`` handle (agent + collectors + effective configs) for
+        programmatic (notebook) callers.
     """
 
     parser = _build_parser_train()
@@ -356,18 +383,32 @@ def train(
         wandb_tags=eff_wandb_tags,
         trainer_config_cls=TrainerConfig,
     )
-    trainer = _make_trainer(
+    collector, val_collector = _make_collectors(
         env=env,
         enc=enc,
-        agent=agent,
         env_instance=env_instance,
         val_env_instance=val_env_instance,
         agent_config=agent_config,
-        trainer_config=trainer_config,
         adapter=adapter,
-        trainer_cls=Trainer,
         episode_metrics_cls=HabitatEpisodeMetrics,
     )
 
-    trainer.run()
-    return trainer
+    resume_step = 0
+    if trainer_config.resume_from is not None:
+        resume_step = apply_resume(agent, trainer_config.resume_from)
+
+    run_training(
+        agent,
+        collector,
+        agent_config,
+        trainer_config,
+        val_experience=val_collector,
+        resume_step=resume_step,
+    )
+    return TrainingRun(
+        agent=agent,
+        experience=collector,
+        val_experience=val_collector,
+        agent_config=agent_config,
+        trainer_config=trainer_config,
+    )

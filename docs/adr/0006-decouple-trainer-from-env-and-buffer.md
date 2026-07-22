@@ -1,7 +1,24 @@
 # ADR 0006: Decouple environment and replay buffer from the Trainer
 
-Status: proposed (design only — no code changed yet)
+Status: implemented 2026-07-22 (golden-equivalence verified: bit-identical
+metrics.csv vs. the pre-refactor Trainer on a fixed-seed 40-step run)
 Date: 2026-07-22
+
+Implementation deviations from the design below:
+
+- ``sample()`` returns the adapter-augmented ``ReplayBatch`` struct, not a
+  packed array dict — that is what ``agent.train_step`` consumed all along;
+  ``replay_batch_to_arrays`` moved to ``src/buffer/replay_arrays.py`` as a
+  utility.
+- The collector gained ``auto_reset`` (constructor) and ``summarize``
+  (per-step) switches plus ``finish_episode()``: validation must not
+  auto-reset (an extra reset advances Habitat's pinned episode iterator) and
+  prefill must not fire the episode-metrics fn (it mutates rolling SR
+  trackers).
+- Loops live in ``src/r2dreamer/launch/loops.py`` (imported by the main
+  module ``launch/train.py``); ``apply_resume`` is a loops function called
+  from the launcher. ``train()`` returns a ``TrainingRun`` handle instead of
+  the deleted ``Trainer``.
 
 ## Context
 
@@ -232,10 +249,68 @@ for untestable script code.
    actions — one policy-boundary, easier to reason about. Can revisit if
    prefill grows env-specific logic.
 
-## Open questions
+## Implementation plan
 
-- Naming: `ExperienceCollector` / `ExperienceSource` vs `RolloutWorker` —
-  pick before implementation.
-- Should `EpisodeSummary.video_frames` be raw composed frames (trainer calls
-  `log_episode_video`) or should the collector take a frame-sink callback?
-  Proposal: raw frames — keeps W&B out of the collector.
+Incremental, each step lands green on its own so the migration never has a
+broken intermediate state:
+
+1. **Move replay packing** — `replay_batch_to_arrays` + `_stack_*` helpers
+   from `trainer.py` to `src/buffer/replay_arrays.py`; `trainer.py`
+   re-imports them temporarily. Existing tests pass unchanged.
+2. **Add `src/r2dreamer/experience.py`** — `AgentStep`, `StepResult`,
+   `EpisodeSummary`, `ExperienceSource` protocol, `ExperienceCollector`.
+   New unit tests with a scripted fake env + fake adapter covering:
+   step→record→buffer growth, `previous_action` mismatch raises, auto-reset
+   on done (scene hook fired with `scene_id`, summary returned, new
+   episode's first `AgentStep` returned), reset never records, video frames
+   only when capture started, `sample` = sample→augment→pack, val-mode
+   (`buffer=None`) `sample` raises and `buffer_size == 0`.
+3. **Shim step** — rewrite `Trainer`'s internals to construct and delegate
+   to an `ExperienceCollector`, public API unchanged. All existing trainer
+   tests still pass — this validates the collector inside the real loop
+   before the loop itself moves. Run the golden-equivalence check here
+   (see Verification).
+4. **Extract loops + logger** — add `RunLogger` and
+   `launch/loops.py` (`prefill`, `train_loop`, `val_loop`, `overfit_loop`,
+   `run_training`). Port trainer tests to loop-function tests against stub
+   `ExperienceSource`/`RunLogger`.
+5. **Rewire and delete** — `launch/train.py` builds buffer + collectors +
+   logger, applies resume, calls `run_training`; delete `Trainer` and the
+   shim; migrate `heldout_eval.py` / notebook callers; drop the temporary
+   re-imports from step 1.
+6. **Cluster validation** — smoke + short prod-shape SLURM run (see below).
+
+## Verification
+
+Three layers, strongest first:
+
+1. **Golden-run equivalence (the refactor is behavior-preserving, so prove
+   it):** fixed-seed short run (≈500 steps + prefill, smoke config) on
+   `main` vs. the refactor branch; `metrics.csv` must be **identical**
+   (modulo the `perf/*` timing rows). This works only if the refactor
+   preserves the exact order of env steps, buffer adds/samples, and
+   `jax.random.split` calls — treat RNG-threading order as a frozen
+   contract during the migration; any reordering breaks comparability and
+   must be its own follow-up change. Run at step 3 (shim) and again at
+   step 5 (loops extracted). Sort both CSVs before diffing — metrics.csv
+   rows are not step-sorted.
+2. **Unit/integration tests (CPU, local):** the new collector tests plus
+   the ported loop tests; full `pytest` with `JAX_PLATFORMS=cpu` after
+   every step. Coverage must include the regression-prone edges: resume
+   (skip-prefill path, CSV append mode), overfit-loop pass/fail gate,
+   val act-state snapshot/restore, episode boundary at the very first
+   step, `done` on the last step of the run.
+3. **Cluster smoke (end-to-end):** launch via `scripts/slurm/launch.sh`
+   with the standard smoke YAML, judge by `MANIFEST.json` status
+   (`completed`) — not the exit code (habitat GL teardown poisons it).
+   Then one short production-shape run and compare
+   `perf/ms_per_step_interval` against the ~219 ms/step baseline —
+   the collector adds one dataclass construction per step, which must stay
+   in the noise. Check W&B: episode video logged, val/* metrics present,
+   house-buffer growth summary emitted.
+
+## Open questions (resolved at implementation)
+
+- Naming: `ExperienceCollector` / `ExperienceSource` (kept).
+- `EpisodeSummary.video_frames` carries raw composed frames; the loop calls
+  `logger.log_video` — W&B stays out of the collector.

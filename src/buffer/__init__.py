@@ -1,6 +1,7 @@
 """Replay-buffer package."""
 
 from src.buffer.house_context_pose_buffer import HouseContextPoseBuffer
+from src.buffer.replay_arrays import ReplayArrayBatch, replay_batch_to_arrays
 from src.buffer.replay_buffer import (
     HybridObservation,
     ReplayBatch,
@@ -11,7 +12,9 @@ from src.buffer.replay_buffer import (
 __all__ = [
     "HouseContextPoseBuffer",
     "HybridObservation",
+    "ReplayArrayBatch",
     "ReplayBatch",
     "ReplayBuffer",
     "ReplayTransition",
+    "replay_batch_to_arrays",
 ]
