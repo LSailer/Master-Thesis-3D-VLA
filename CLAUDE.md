@@ -1,43 +1,15 @@
-## Prototype work
+# General Guidelines
 
 - New feature/problem prototyping happens in `/prototyp/<feature>/` —
   read `/prototyp/CLAUDE.md` for the workflow before starting one.
+- Never use the em dash "--". Use plain dash "-" instead
+- When writing commit meesages, NEVER auto-add your agent name as co-author
+- When making technial desisions, do not give much weight to development cost. 
+Instead, prefer quality, simplicity, robustness, scability and long term maintainability. 
+- When doing bug fixes, always start reproducing the bug in an E2E settings as closely alligned with the user. 
+- Apply that same high standard to engineering excellence: lint, test failures and test flakiness. 
+If you see one, even if is not casued by what you are working on right now, still get it fixed. 
 
-## Code Preferences
+## Kun' Opinions
+When you are working on something that would benefit from being informed by Kun's viewpoints, read OPINIONS.md to understand the believes
 
-- Prefer JAX (`jax.numpy`) over NumPy for array/numeric code. Use plain
-  NumPy only where required (host-only I/O, interop with libraries that
-  need concrete NumPy arrays, e.g. file writing, PLY/text parsing).
-
-## Docstring style
-
-Use **Google-style** docstrings. Online reference:
-https://google.github.io/styleguide/pyguide.html#383-functions-and-methods
-
-Every function/method docstring starts with a one-line summary of its
-purpose, then `Args:`, `Returns:`, and `Raises:` (only if it can raise).
-Example:
-
-    """Connects to the next available port.
-
-    Args:
-      minimum: A port value greater or equal to 1024.
-
-    Returns:
-      The new minimum port.
-
-    Raises:
-      ConnectionError: If no available port is found.
-    """
-
-- Begin with the purpose/description — one lines summarizing what the
-  function does (a short summary line first, optionally followed by more
-  detail). It does not have to be a single line.
-- `Args:` one entry per parameter, `name: description`.
-- `Returns:` describe the return value (and shape/dtype for arrays).
-- `Raises:` only if the function raises (list each exception type).
-- Classes/modules: a purpose line; classes may add `Attributes:`.
-
-# Code Review
-When reviewing a diff, apply these rules:
-@REVIEW_RULES.md
