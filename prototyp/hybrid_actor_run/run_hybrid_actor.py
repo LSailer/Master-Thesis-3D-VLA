@@ -42,7 +42,6 @@ from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.launch.evaluate import _load_arch_overrides_from_manifest
 from src.r2dreamer.launch.registries import encoder_registry
-from src.r2dreamer.manifest import write_manifest_end, write_manifest_start
 from src.shared.video_utils import write_frames_mp4
 
 _ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
@@ -122,56 +121,6 @@ def parse_args() -> argparse.Namespace:
     )
     return p.parse_args()
 
-
-def build_agent(args: argparse.Namespace, env, encoder_spec):
-    """Restore the Dreamer actor from the checkpoint (or build RandomAgent).
-
-    Mirrors ``launch/evaluate.py``: the encoder spec provides the live
-    contract, the checkpoint's MANIFEST.json provides architecture
-    overrides, and a mismatch between the two encoder types is a hard error.
-
-    Args:
-      args: Parsed CLI namespace.
-      env: The habitat env instance (only used by RandomAgent).
-      encoder_spec: ``EncoderSpec`` of the CLI-selected encoder.
-
-    Returns:
-      A ``RandomAgent`` or a restored ``R2DreamerAgent``.
-
-    Raises:
-      ValueError: If no checkpoint is given without ``--random``, or the
-        checkpoint's encoder_type does not match ``--encoder``.
-    """
-    if args.random:
-        print("[hybrid-actor] using RandomAgent (--random)", flush=True)
-        return RandomAgent(env=env, num_actions=4, seed=args.seed)
-    if args.checkpoint is None:
-        raise ValueError("--checkpoint is required unless --random is set")
-
-    config_kwargs: dict = {
-        "encoder_type": encoder_spec.encoder_type,
-        "encoder_module_cls": encoder_spec.module_cls,
-        "obs_shape": encoder_spec.obs_shape,
-    }
-    overrides = _load_arch_overrides_from_manifest(args.checkpoint)
-    ckpt_encoder = overrides.get("encoder_type")
-    if ckpt_encoder is not None and ckpt_encoder != encoder_spec.encoder_type:
-        raise ValueError(
-            f"checkpoint encoder contract mismatch: --encoder resolved "
-            f"{encoder_spec.encoder_type!r}, checkpoint has {ckpt_encoder!r}"
-        )
-    config_kwargs.update(overrides)
-    agent = R2DreamerAgent.from_checkpoint(
-        args.checkpoint,
-        num_actions=4,
-        seed=args.seed,
-        **config_kwargs,
-    )
-    print(
-        f"[hybrid-actor] loaded checkpoint from step {agent.checkpoint_step}",
-        flush=True,
-    )
-    return agent
 
 
 def run_episode(
@@ -321,71 +270,62 @@ def collect(args: argparse.Namespace, out_dir: Path) -> None:
       out_dir: Per-run output directory (already created).
     """
     env = None
-    try:
-        t_env = time.perf_counter()
-        env = HabitatObjectNavEnv(
-            HabitatEnvConfig(
-                obs_shape=(518, 518, 3),
-                max_episode_steps=args.max_steps,
-                reward_type="geodesic_delta",
-                curriculum=args.curriculum,
-                mode="eval",
-            ),
-            seed=args.seed,
-        )
-        print(
-            f"[hybrid-actor] env ready in {time.perf_counter() - t_env:.1f}s",
-            flush=True,
-        )
 
-        dump_steps = (
-            tuple(
-                int(s) for s in args.pointcloud_dump_steps.split(",") if s.strip()
-            )
-            if args.pointcloud_dump_steps
-            else None
-        )
-        print(
-            "[hybrid-actor] building encoder + VGGT extractor "
-            "(loads weights; first extract is slow)...",
-            flush=True,
-        )
-        encoder = encoder_registry[args.encoder](
-            resolution=518,
-            pointcloud_dump_steps=dump_steps,
-            pointcloud_dump_dir=(
-                str(out_dir / "pointcloud_dumps") if dump_steps else None
-            ),
-        )
-        adapter = encoder.make_adapter()
-        agent = build_agent(args, env, encoder.spec())
+    t_env = time.perf_counter()
+    env = HabitatObjectNavEnv(
+        HabitatEnvConfig(
+            obs_shape=(518, 518, 3),
+            max_episode_steps=args.max_steps,
+            reward_type="geodesic_delta",
+            curriculum=args.curriculum,
+            mode="eval",
+        ),
+        seed=args.seed,
+    )
+    print(
+        f"[hybrid-actor] env ready in {time.perf_counter() - t_env:.1f}s",
+        flush=True,
+    )
 
-        rng_key = jax.random.PRNGKey(args.seed)
-        if not isinstance(agent, RandomAgent):
-            # Match evaluate.py's split so act_key chains stay comparable.
-            rng_key, _ = jax.random.split(rng_key)
 
-        video_frames: list[np.ndarray] | None = (
-            [] if args.video_fps > 0 else None
+    print(
+        "[hybrid-actor] building encoder + VGGT extractor "
+        "(loads weights; first extract is slow)...",
+    flush=True,
+    )
+    encoder = encoder_registry[args.encoder](
+        resolution=518,
+        pointcloud_dump_steps=dump_steps,
+        pointcloud_dump_dir=(
+            str(out_dir / "pointcloud_dumps") if dump_steps else None
+        ),
+    )
+    adapter = encoder.make_adapter()
+    agent = build_agent(args, env, encoder.spec())
+
+    rng_key = jax.random.PRNGKey(args.seed)
+    if not isinstance(agent, RandomAgent):
+        # Match evaluate.py's split so act_key chains stay comparable.
+        rng_key, _ = jax.random.split(rng_key)
+
+    video_frames: list[np.ndarray] | None = (
+        [] if args.video_fps > 0 else None
+    )
+    results: list[dict] = []
+    for ep_idx in range(args.episodes):
+        ep_result, rng_key = run_episode(
+            ep_idx=ep_idx,
+            args=args,
+            env=env,
+            adapter=adapter,
+            agent=agent,
+            rng_key=rng_key,
+            video_frames=video_frames,
+            out_dir=out_dir,
         )
-        results: list[dict] = []
-        for ep_idx in range(args.episodes):
-            ep_result, rng_key = run_episode(
-                ep_idx=ep_idx,
-                args=args,
-                env=env,
-                adapter=adapter,
-                agent=agent,
-                rng_key=rng_key,
-                video_frames=video_frames,
-                out_dir=out_dir,
-            )
-            results.append(ep_result)
+        results.append(ep_result)
 
-        export_outputs(adapter, results, video_frames, args, out_dir)
-    finally:
-        if env is not None:
-            env.close()
+    export_outputs(adapter, results, video_frames, args, out_dir)
 
 
 def main() -> None:
@@ -400,16 +340,7 @@ def main() -> None:
     out_dir = Path(args.output) / run_tag
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[hybrid-actor] output dir: {out_dir}", flush=True)
-
-    # Habitat GL teardown poisons exit codes on this cluster: MANIFEST.json
-    # status is the ground truth for whether the run succeeded.
-    write_manifest_start(out_dir, vars(args))
-    try:
-        collect(args, out_dir)
-    except BaseException:
-        write_manifest_end(out_dir, "failed")
-        raise
-    write_manifest_end(out_dir, "ok")
+    collect(args, out_dir)
 
 
 if __name__ == "__main__":
