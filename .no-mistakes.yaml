@@ -1,0 +1,22 @@
+agent: claude                     # reviewer/fixer = claude headless
+
+commands:
+  lint: "uv run pyright src && uv run python -m pylint src"   # login node
+  format: "uv run ruff format src"
+  test: "bash scripts/gate_tests.sh"                          # GPU allocation
+
+ignore_patterns:
+  - "external/**"
+  - "docs/**"
+
+auto_fix:
+  review: 3        # auto-fix review findings instead of asking the human
+  test: 3
+  lint: 5
+
+intent:
+  enabled: true    # reads Claude Code session transcripts
+
+test:
+  evidence:
+    store_in_repo: true   # commit test evidence into the PR

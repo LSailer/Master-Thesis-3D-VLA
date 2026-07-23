@@ -38,3 +38,6 @@ Example:
 - `Raises:` only if the function raises (list each exception type).
 - Classes/modules: a purpose line; classes may add `Attributes:`.
 
+# Code Review
+When reviewing a diff, apply these rules:
+@REVIEW_RULES.md
