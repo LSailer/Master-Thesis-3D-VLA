@@ -1,6 +1,0 @@
-schema: spec-driven
-created: 2026-07-11
-goal: Decide whether/where an external persistent point-cloud memory is needed
-  beyond VGGT's bounded rolling cache, and which external mechanism (hash table
-  vs graph) accumulates the per-house cloud best on coverage, ingestion speed,
-  and false-positive rate.

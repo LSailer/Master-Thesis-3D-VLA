@@ -63,14 +63,14 @@ worktrees/
 scripts/dev
 .zed
 .pi
-prototyp/
+
 tests/prototyp/
 
 # Local markdown issue tracker (docs/agents/issue-tracker.md)
 .scratch/
 .agents/
 skills-lock.json
-__archiv__/
+*/__archiv__/
 
 # Local scratch/design notes — keep out of git (already-tracked notes are
 # unaffected; use `git add -f` to force-track a note you do want to commit)
