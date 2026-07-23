@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import importlib
 import math
+from pathlib import Path
 from typing import Any, Sequence, cast
 
 import numpy as np
 from PIL import Image
+
+# moviepy's public entry point moved across major versions; try newest first.
+_MOVIEPY_IMAGE_SEQUENCE_MODULES = (
+    "moviepy",
+    "moviepy.editor",
+    "moviepy.video.io.ImageSequenceClip",
+)
 
 
 MAX_VIDEO_FRAMES = 300
@@ -123,3 +132,54 @@ def log_episode_video(
     wandb_video = wandb_module.Video(video, fps=fps, format="mp4")
     wandb_module.log({key: wandb_video}, step=step)
     return wandb_video
+
+
+def _load_image_sequence_clip() -> Any:
+    for module_name in _MOVIEPY_IMAGE_SEQUENCE_MODULES:
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError:
+            continue
+        factory = getattr(module, "ImageSequenceClip", None)
+        if factory is not None:
+            return factory
+    raise RuntimeError(
+        "write_frames_mp4 needs moviepy to write MP4 files. "
+        "Install project dependencies, e.g. `uv sync`."
+    )
+
+
+def write_frames_mp4(
+    frames: Sequence[Any], output_path: Path | str, fps: int = 10
+) -> Path | None:
+    """Write image frames to an MP4 file via moviepy.
+
+    Frames may be JAX or NumPy arrays, HWC or CHW, gray/RGB/RGBA channels,
+    uint8 or float in [0, 255]; each is normalized to host HWC uint8 — the
+    contract moviepy's ``ImageSequenceClip`` requires.
+
+    Args:
+      frames: Per-frame images, all with the same spatial size.
+      output_path: Destination ``.mp4`` path; parent directories are created.
+      fps: Playback frame rate.
+
+    Returns:
+      The written path, or ``None`` if ``frames`` is empty.
+
+    Raises:
+      RuntimeError: If moviepy is not installed.
+      ValueError: If a frame is not a 3D RGB-like image.
+    """
+    if not frames:
+        return None
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    host_frames = [_as_hwc_uint8(np.asarray(frame)) for frame in frames]
+    clip = _load_image_sequence_clip()(host_frames, fps=fps)
+    try:
+        clip.write_videofile(
+            str(output_path), codec="libx264", audio=False, logger=None
+        )
+    finally:
+        clip.close()
+    return output_path
