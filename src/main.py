@@ -84,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> object:
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
 
     # Instant of Environment
-    env = make_env(args.env, curriculum=args.curriculum,  mode=args.mode)
+    #env = make_env(args.env, curriculum=args.curriculum,  mode=args.mode)
     if args.command == "train":
         # Trainer Object
         # run function
