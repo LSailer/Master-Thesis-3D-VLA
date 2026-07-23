@@ -25,6 +25,7 @@ from src.shared.dtypes import compute_jnp_dtype
 
 from .constants import HYBRID_RGB_DIM
 from .cnn import ConvEncoder
+from .composite import CompositeEncoder
 from .mlp import (
     HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
 )
@@ -55,6 +56,7 @@ from ..observation_keys import (
     HOUSE_CONTEXT_KEY,
     HOUSE_CONTEXT_SIZE_KEY,
     HYBRID_IMAGE_KEY,
+    HYBRID_WP_CP_KEY,
     WORLD_POINTS_KEY,
 )
 from ..observation_preparation.contracts import (
@@ -262,6 +264,17 @@ def _make_token_transformer_encoder(cfg: R2DreamerConfig):
 
 
 def _make_encoder(cfg: R2DreamerConfig):
+    # Ported encoder types build the generic CompositeEncoder from their recipe
+    # (bit-identical to the legacy combination module — see the composite parity
+    # tests). Unported types keep the factory dispatch below until ported
+    # (HANDOFF.md step 5 / DELETIONS.md). RECIPES is imported lazily: recipes
+    # imports _compute_dtype_kwargs from this module.
+    from src.r2dreamer.encoders.recipes import RECIPES
+
+    recipe = RECIPES.get(cfg.encoder_type)
+    if recipe is not None:
+        return CompositeEncoder(recipe.build_composite(cfg))
+
     cls = _resolve_encoder_cls(cfg)
     _validate_encoder_config(cfg, cls)
     if cls is ConvEncoder:
@@ -286,6 +299,14 @@ def _make_encoder(cfg: R2DreamerConfig):
 
 
 def _dummy_encoder_obs(cfg: R2DreamerConfig):
+    if cfg.encoder_type == "hybrid":
+        # CompositeEncoder hybrid consumes the structured dict (the packed-array
+        # legacy layout is gone); init shapes match the WMHybridEncoder submodules
+        # so encoder params stay bit-identical.
+        return {
+            HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
+            HYBRID_WP_CP_KEY: jnp.zeros((1, cfg.vggt_feature_dim), dtype=jnp.float32),
+        }
     if cfg.encoder_type == "vggt_house_full_tokens_nogate":
         return {
             HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),

@@ -27,6 +27,8 @@ from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
 from src.r2dreamer.encoder_types import RGB_BEARING_ENCODER_TYPES
+from src.r2dreamer.encoders.composite import CompositeEncoder
+from src.r2dreamer.encoders.recipes import check_branch_keys, infer_obs_spec
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.shared.optim import LaPropState, agc, laprop
 
@@ -357,6 +359,13 @@ class R2DreamerAgent:
         # Dummy forward to discover embed_size
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
         dummy_obs = _dummy_encoder_obs(config)
+        # Decision 5: the one startup check for composite (recipe) encoders —
+        # the spec's branch keys must equal the keys of the prepared obs
+        # (here the init dummy, which shares the prepared-frame schema).
+        if isinstance(self.encoder_mod, CompositeEncoder):
+            check_branch_keys(
+                self.encoder_mod.spec, infer_obs_spec(dummy_obs).keys()
+            )
         enc_params = self.encoder_mod.init(k1, dummy_obs)
         embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, dummy_obs))
         self.embed_size = embed.shape[-1]
