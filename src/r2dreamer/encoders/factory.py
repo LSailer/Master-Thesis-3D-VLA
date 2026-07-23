@@ -26,6 +26,7 @@ from src.shared.dtypes import compute_jnp_dtype
 from .constants import HYBRID_RGB_DIM
 from .cnn import ConvEncoder
 from .composite import CompositeEncoder
+from .recipes import RECIPES
 from .mlp import (
     HouseGlobalEmbeddingEncoder as WMHouseGlobalEmbeddingEncoder,
 )
@@ -184,9 +185,8 @@ def _make_wp64_cnn_cp_mlp_encoder(cfg: R2DreamerConfig):
     )
 
 
-def _make_hybrid_encoder(cfg: R2DreamerConfig):
-    # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
-    # HybridEncoder now owns structured replay/live layout handling.
+def _validate_hybrid_split(cfg: R2DreamerConfig) -> None:
+    """Fail loud on a hybrid obs_shape / feature-split mismatch (3D-50/51/52)."""
     expected_shape = (HYBRID_RGB_DIM + cfg.vggt_feature_dim,)
     if not isinstance(cfg.obs_shape, tuple):
         raise ValueError(f"hybrid expects flat obs_shape, got {cfg.obs_shape}")
@@ -200,6 +200,12 @@ def _make_hybrid_encoder(cfg: R2DreamerConfig):
             f"got obs_shape={cfg.obs_shape}, "
             f"vggt_feature_dim={cfg.vggt_feature_dim}"
         )
+
+
+def _make_hybrid_encoder(cfg: R2DreamerConfig):
+    # CNN(RGB) + gated MLP(WP/CP) fused into one embed (3D-50/51/52).
+    # HybridEncoder now owns structured replay/live layout handling.
+    _validate_hybrid_split(cfg)
     kwargs = _contract_encoder_kwargs(cfg)
     if kwargs:
         return WMHybridEncoder(**kwargs)
@@ -267,12 +273,14 @@ def _make_encoder(cfg: R2DreamerConfig):
     # Ported encoder types build the generic CompositeEncoder from their recipe
     # (bit-identical to the legacy combination module — see the composite parity
     # tests). Unported types keep the factory dispatch below until ported
-    # (HANDOFF.md step 5 / DELETIONS.md). RECIPES is imported lazily: recipes
-    # imports _compute_dtype_kwargs from this module.
-    from src.r2dreamer.encoders.recipes import RECIPES
-
+    # (HANDOFF.md step 5 / DELETIONS.md). The legacy fail-loud config guards are
+    # preserved for the ported types so misconfigurations still raise.
     recipe = RECIPES.get(cfg.encoder_type)
     if recipe is not None:
+        if cfg.encoder_type == "cnn":
+            _validate_encoder_config(cfg, ConvEncoder)
+        elif cfg.encoder_type == "hybrid":
+            _validate_hybrid_split(cfg)
         return CompositeEncoder(recipe.build_composite(cfg))
 
     cls = _resolve_encoder_cls(cfg)
@@ -307,18 +315,18 @@ def _dummy_encoder_obs(cfg: R2DreamerConfig):
             HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
             HYBRID_WP_CP_KEY: jnp.zeros((1, cfg.vggt_feature_dim), dtype=jnp.float32),
         }
-    if cfg.encoder_type == "vggt_house_full_tokens_nogate":
+    if cfg.encoder_type in (
+        "vggt_house_full_tokens_nogate",
+        "vggt_house_global_tokens_nogate",
+    ):
+        token_key = (
+            FULL_TOKENS_KEY
+            if cfg.encoder_type == "vggt_house_full_tokens_nogate"
+            else GLOBAL_TOKENS_KEY
+        )
         return {
             HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
-            FULL_TOKENS_KEY: jnp.zeros(
-                (1, cfg.vggt_token_count, cfg.vggt_token_dim),
-                dtype=compute_jnp_dtype(cfg.compute_dtype),
-            ),
-        }
-    if cfg.encoder_type == "vggt_house_global_tokens_nogate":
-        return {
-            HYBRID_IMAGE_KEY: jnp.zeros((1, 64, 64, 3), dtype=jnp.float32),
-            GLOBAL_TOKENS_KEY: jnp.zeros(
+            token_key: jnp.zeros(
                 (1, cfg.vggt_token_count, cfg.vggt_token_dim),
                 dtype=compute_jnp_dtype(cfg.compute_dtype),
             ),

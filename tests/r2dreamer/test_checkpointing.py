@@ -115,9 +115,13 @@ class TestCheckpoint:
 
         agent = R2DreamerAgent(cfg, jax.random.PRNGKey(42))
 
-        assert agent.encoder_mod.depth == 8
-        assert agent.encoder_mod.kernel_size == 3
-        assert agent.encoder_mod.mults == (2, 2)
+        # cnn now builds a CompositeEncoder whose single share-scoped ConvEncoder
+        # branch honors the contract-pinned kwargs (depth=8, kernel=3,
+        # mults=(2, 2)) over the drifted config (depth=16, ...). The first conv
+        # layer's kernel shape (k, k, in=3, out=depth*mults[0]) is the observable
+        # proof: (3, 3, 3, 8*2=16), not the config's (5, 5, 3, 32).
+        conv0 = agent.params["encoder"]["params"]["conv0"]["kernel"]
+        assert conv0.shape == (3, 3, 3, 16)
 
 
 class TestConfigSnapshot:

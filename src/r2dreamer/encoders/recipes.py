@@ -29,9 +29,27 @@ from typing import Any, Callable
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.encoders.cnn import ConvEncoder, make_rgb_conv_encoder
 from src.r2dreamer.encoders.composite import BranchSpec, CompositeSpec
-from src.r2dreamer.encoders.factory import _compute_dtype_kwargs
+from src.r2dreamer.encoders import HybridEncoder as LauncherHybridEncoder
 from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY, HYBRID_WP_CP_KEY
+from src.r2dreamer.observation_preparation import (
+    CNNObservationPreparation,
+    normalize_encoder_module_kwargs,
+)
 from src.r2dreamer.world_model.heads import R2MLP
+from src.shared.dtypes import compute_jnp_dtype
+
+
+def _compute_dtype_kwargs(cfg: R2DreamerConfig) -> dict:
+    """Return the ``compute_dtype`` overlay for the ``full_bf16`` gate.
+
+    Mirrors ``factory._compute_dtype_kwargs`` but is defined here so recipes do
+    not import factory (which would form a factory<->recipes cycle): only
+    supplies ``compute_dtype`` when the gate is on, else each module keeps its
+    own default.
+    """
+    if getattr(cfg, "full_bf16", False):
+        return {"compute_dtype": compute_jnp_dtype(cfg.compute_dtype)}
+    return {}
 
 
 @dataclass(frozen=True)
@@ -63,21 +81,40 @@ class EncoderRecipe:
 # ---------------------------------------------------------------------------
 
 
+def _contract_module_kwargs(cfg: R2DreamerConfig) -> dict:
+    """Return the durable Encoder Input Contract's module kwargs, if any.
+
+    Mirrors ``factory._contract_encoder_kwargs``: a checkpoint's contract
+    snapshot pins the exact kwargs the encoder was built with, and those win
+    over the current config so an old checkpoint rebuilds the same module even
+    when the config has drifted.
+    """
+    snapshot = getattr(cfg, "encoder_input_contract", None)
+    if snapshot is None:
+        return {}
+    return normalize_encoder_module_kwargs(snapshot.get("encoder_module_kwargs", {}))
+
+
 def build_cnn_composite(cfg: R2DreamerConfig) -> CompositeSpec:
-    """Single ConvEncoder branch — byte-identical to the legacy ``cnn`` module."""
-    dtype_kwargs = _compute_dtype_kwargs(cfg)
+    """Single ConvEncoder branch — byte-identical to the legacy ``cnn`` module.
+
+    Honors the contract-pinned kwargs when present (checkpoint portability),
+    else derives depth/kernel/mults from config plus the full_bf16 dtype overlay
+    — exactly matching ``factory._make_conv_encoder``.
+    """
+    contract_kwargs = _contract_module_kwargs(cfg)
+    conv_kwargs = contract_kwargs or {
+        "depth": int(cfg.encoder_depth),
+        "kernel_size": int(cfg.encoder_kernel),
+        "mults": tuple(cfg.encoder_mults),
+        **_compute_dtype_kwargs(cfg),
+    }
     return CompositeSpec(
         branches=(
             BranchSpec(
                 obs_key=HYBRID_IMAGE_KEY,
                 module_name="cnn",
-                make=lambda name: ConvEncoder(
-                    name=name,
-                    depth=int(cfg.encoder_depth),
-                    kernel_size=int(cfg.encoder_kernel),
-                    mults=tuple(cfg.encoder_mults),
-                    **dtype_kwargs,
-                ),
+                make=lambda name: ConvEncoder(name=name, **conv_kwargs),
             ),
         ),
         fusion="concat",
@@ -93,12 +130,15 @@ def build_hybrid_composite(cfg: R2DreamerConfig) -> CompositeSpec:
     RGB conv inside the hybrid runs float32 (no compute_dtype overlay), so the
     branch here does too.
     """
-    depth = int(cfg.encoder_depth)
-    kernel = int(cfg.encoder_kernel)
-    mults = tuple(cfg.encoder_mults)
-    mlp_hidden = int(cfg.mlp_vggt_hidden)
-    mlp_layers = int(cfg.mlp_vggt_layers)
-    embed_dim = int(cfg.vggt_embed_dim)
+    # Contract kwargs use the WMHybridEncoder parameter names; map them onto the
+    # composite's CNN + MLP branches. Absent a contract, derive from config.
+    contract = _contract_module_kwargs(cfg)
+    depth = int(contract.get("cnn_depth", cfg.encoder_depth))
+    kernel = int(contract.get("cnn_kernel", cfg.encoder_kernel))
+    mults = tuple(contract.get("cnn_mults", cfg.encoder_mults))
+    mlp_hidden = int(contract.get("mlp_hidden", cfg.mlp_vggt_hidden))
+    mlp_layers = int(contract.get("mlp_layers", cfg.mlp_vggt_layers))
+    embed_dim = int(contract.get("vggt_embed_dim", cfg.vggt_embed_dim))
     return CompositeSpec(
         branches=(
             BranchSpec(
@@ -132,15 +172,11 @@ def build_hybrid_composite(cfg: R2DreamerConfig) -> CompositeSpec:
 
 def _cnn_adapter(args: Any = None) -> Any:
     del args  # CNN preparation needs no runtime args.
-    from src.r2dreamer.observation_preparation import CNNObservationPreparation
-
     return CNNObservationPreparation()
 
 
 def _hybrid_adapter(args: Any) -> Any:
-    from src.r2dreamer.encoders import HybridEncoder
-
-    return HybridEncoder.from_train_args(args).make_adapter()
+    return LauncherHybridEncoder.from_train_args(args).make_adapter()
 
 
 RECIPES: dict[str, EncoderRecipe] = {
