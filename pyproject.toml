@@ -108,6 +108,12 @@ extension-pkg-allow-list = ["jax", "jaxlib"]
 python-preference = "only-managed"
 override-dependencies = [
     "numpy>=2.0",
+    # opencv-python 5.0.0 changed cv2.applyColorMap's output shape for a 1D
+    # input from (N, 1, 3) to (1, N, 3), which breaks habitat 0.3.3's
+    # habitat/utils/visualizations/maps.py:44 `.squeeze(1)` (raises "cannot
+    # select an axis to squeeze out which has size not equal to one"). Pin
+    # below 5 until habitat-lab fixes the squeeze for the new cv2 shape.
+    "opencv-python<5",
 ]
 
 [tool.pylint]
