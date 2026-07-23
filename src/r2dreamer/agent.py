@@ -15,6 +15,7 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -27,7 +28,7 @@ from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
 from src.r2dreamer.encoder_types import RGB_BEARING_ENCODER_TYPES
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
-from src.shared.optim import agc, laprop
+from src.shared.optim import LaPropState, agc, laprop
 
 from .behavior.loss import behavior_loss
 from .behavior.return_ema import ReturnEMA
@@ -55,6 +56,68 @@ class ActState(NamedTuple):
     prev_action: jax.Array
 
 
+# ---------------------------------------------------------------------------
+# Three-optimizer parameter partition (world-model incl. encoder / actor / critic)
+# ---------------------------------------------------------------------------
+#
+# The WM optimizer owns every param subtree except the actor and the critic.
+# The split is bit-identical to the historical single optimizer because LaProp
+# and AGC are both per-leaf (jax.tree.map, no cross-leaf coupling): three
+# LaProp instances with identical hyperparameters, each stepped once per
+# train_step, evolve the shared scalar state (step / lr bias-correction terms)
+# in lockstep, so every leaf's update matches the single-optimizer update
+# exactly. See IDEA.md decision 2 and design card 2e (1b-tri).
+
+_ACTOR_SUBTREE = "actor"
+_CRITIC_SUBTREE = "critic"
+
+
+def _partition_by_group(tree: Mapping[str, Any]) -> tuple[dict, dict, dict]:
+    """Split a params-shaped pytree into (world-model, actor, critic) subtrees."""
+    actor = {_ACTOR_SUBTREE: tree[_ACTOR_SUBTREE]}
+    critic = {_CRITIC_SUBTREE: tree[_CRITIC_SUBTREE]}
+    wm = {k: v for k, v in tree.items() if k not in (_ACTOR_SUBTREE, _CRITIC_SUBTREE)}
+    return wm, actor, critic
+
+
+def _merge_groups(wm: Mapping, actor: Mapping, critic: Mapping) -> dict:
+    """Recombine (world-model, actor, critic) subtrees into a params pytree."""
+    return {**wm, **actor, **critic}
+
+
+def _split_single_opt_state(
+    single: LaPropState, params: Mapping[str, Any]
+) -> tuple[LaPropState, LaPropState, LaPropState]:
+    """Migrate a legacy single LaProp state into the three-optimizer layout.
+
+    Old checkpoints stored one LaProp state over the whole params pytree. The
+    per-leaf moments partition cleanly by group, and the scalar step / lr
+    bias-correction fields were shared across all leaves, so copying them into
+    each of the three states is exact — resume stays bit-identical.
+
+    Args:
+      single: The legacy ``LaPropState`` over the full params pytree.
+      params: Current params pytree (only its key structure is used).
+
+    Returns:
+      ``(wm_state, actor_state, critic_state)`` LaProp states.
+    """
+    del params  # partition is driven by the moment pytrees' own keys
+    ea_wm, ea_a, ea_c = _partition_by_group(single.exp_avg)
+    eas_wm, eas_a, eas_c = _partition_by_group(single.exp_avg_sq)
+
+    def build(exp_avg, exp_avg_sq) -> LaPropState:
+        return LaPropState(
+            step=single.step,
+            exp_avg=exp_avg,
+            exp_avg_sq=exp_avg_sq,
+            exp_avg_lr1=single.exp_avg_lr1,
+            exp_avg_lr2=single.exp_avg_lr2,
+        )
+
+    return build(ea_wm, eas_wm), build(ea_a, eas_a), build(ea_c, eas_c)
+
+
 class R2DTrainState(NamedTuple):
     """Mutable-on-Python-side training state bundled for the JIT step.
 
@@ -62,10 +125,17 @@ class R2DTrainState(NamedTuple):
     ``slow_critic_params``/``ema_state`` properties for checkpoint and test
     compatibility, but the compiled training kernel receives and returns this
     single pytree so its interface stays compact.
+
+    The optimizer state is split three ways — world-model (encoder + RSSM +
+    heads + projector + optional decoder), actor, and critic — one LaProp state
+    each. ``opt_state`` (the public property) presents them as a
+    ``{"wm", "actor", "critic"}`` dict for checkpointing.
     """
 
     params: Dict[str, Any]
-    opt_state: optax.OptState
+    wm_opt_state: optax.OptState
+    actor_opt_state: optax.OptState
+    critic_opt_state: optax.OptState
     slow_critic_params: Dict[str, Any]
     ema_state: Any
 
@@ -171,11 +241,32 @@ class R2DreamerAgent:
 
     @property
     def opt_state(self):
-        return self._train_state.opt_state
+        # Present the three LaProp states as a stable dict for checkpointing.
+        return {
+            "wm": self._train_state.wm_opt_state,
+            "actor": self._train_state.actor_opt_state,
+            "critic": self._train_state.critic_opt_state,
+        }
 
     @opt_state.setter
     def opt_state(self, opt_state):
-        self._train_state = self._train_state._replace(opt_state=opt_state)
+        # Accept the three-optimizer dict (current format) or migrate a legacy
+        # single LaProp state loaded from an old checkpoint.
+        if isinstance(opt_state, Mapping) and {"wm", "actor", "critic"} <= set(
+            opt_state
+        ):
+            wm, actor, critic = (
+                opt_state["wm"],
+                opt_state["actor"],
+                opt_state["critic"],
+            )
+        else:
+            wm, actor, critic = _split_single_opt_state(opt_state, self.params)
+        self._train_state = self._train_state._replace(
+            wm_opt_state=wm,
+            actor_opt_state=actor,
+            critic_opt_state=critic,
+        )
 
     @property
     def slow_critic_params(self):
@@ -370,15 +461,27 @@ class R2DreamerAgent:
             params["decoder"] = dec_params
             self._modules["decoder"] = self.decoder_mod
 
-        # ---- Optimizer: LaProp with linear warmup ----
-        self.tx = laprop(
-            lr=config.lr,
-            b1=config.beta1,
-            b2=config.beta2,
-            eps=config.eps,
-            warmup=config.warmup_steps,
-        )
-        opt_state = self.tx.init(params)
+        # ---- Optimizers: three LaProp instances (WM incl. encoder / actor /
+        # critic), each with identical hyperparameters. Because LaProp + AGC are
+        # per-leaf, this is update-identical to the historical single optimizer
+        # (IDEA.md decision 2). Per-module learning rates are a deliberate later
+        # experiment, not this refactor.
+        def _make_tx() -> optax.GradientTransformation:
+            return laprop(
+                lr=config.lr,
+                b1=config.beta1,
+                b2=config.beta2,
+                eps=config.eps,
+                warmup=config.warmup_steps,
+            )
+
+        self.wm_tx = _make_tx()
+        self.actor_tx = _make_tx()
+        self.critic_tx = _make_tx()
+        wm_params, actor_params, critic_params = _partition_by_group(params)
+        wm_opt_state = self.wm_tx.init(wm_params)
+        actor_opt_state = self.actor_tx.init(actor_params)
+        critic_opt_state = self.critic_tx.init(critic_params)
 
         # ---- Slow target critic (EMA) ----
         slow_critic_params = jax.tree.map(jnp.copy, params["critic"])
@@ -389,7 +492,9 @@ class R2DreamerAgent:
 
         self.train_state = R2DTrainState(
             params=params,
-            opt_state=opt_state,
+            wm_opt_state=wm_opt_state,
+            actor_opt_state=actor_opt_state,
+            critic_opt_state=critic_opt_state,
             slow_critic_params=slow_critic_params,
             ema_state=ema_state,
         )
@@ -617,9 +722,16 @@ class R2DreamerAgent:
         return {k: float(v) for k, v in metrics.items()}
 
     def _train_step_pure(self, state: R2DTrainState, batch, rng_key):
-        """Pure-functional training step (JIT-able)."""
+        """Pure-functional training step (JIT-able).
+
+        The loss and its single ``value_and_grad`` over the full params pytree
+        are unchanged from the single-optimizer version — every param still
+        receives ``d(total_loss)/d(param)``, so the gradient coupling between
+        the representation losses and the encoder/RSSM is preserved. Only the
+        optimizer application is split three ways (WM / actor / critic), which
+        is update-identical because LaProp + AGC are per-leaf.
+        """
         params = state.params
-        opt_state = state.opt_state
         slow_critic_params = state.slow_critic_params
         ema_state = state.ema_state
 
@@ -645,26 +757,37 @@ class R2DreamerAgent:
         is_finite = jnp.isfinite(total_loss)
 
         grads = agc(grads, params, clip=self.cfg.agc_clip, pmin=self.cfg.agc_pmin)
-        updates, new_opt_state = self.tx.update(grads, opt_state, params)
-        new_params = optax.apply_updates(params, updates)
+
+        # Split params + grads by group and step each optimizer once. The three
+        # LaProp states advance their shared scalar (step / lr) fields in
+        # lockstep, so per-leaf updates equal the single-optimizer updates.
+        wm_p, actor_p, critic_p = _partition_by_group(params)
+        wm_g, actor_g, critic_g = _partition_by_group(grads)
+        wm_upd, new_wm_opt = self.wm_tx.update(wm_g, state.wm_opt_state, wm_p)
+        actor_upd, new_actor_opt = self.actor_tx.update(
+            actor_g, state.actor_opt_state, actor_p
+        )
+        critic_upd, new_critic_opt = self.critic_tx.update(
+            critic_g, state.critic_opt_state, critic_p
+        )
+        new_params = _merge_groups(
+            optax.apply_updates(wm_p, wm_upd),
+            optax.apply_updates(actor_p, actor_upd),
+            optax.apply_updates(critic_p, critic_upd),
+        )
 
         new_ema_state = self.return_ema.update(ema_state, aux.imag_returns)
 
         # Roll back to pre-update state on NaN/inf
-        new_params = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_params, params
-        )
-        new_opt_state = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_opt_state, opt_state
-        )
-        new_slow = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old),
-            updated_slow,
-            slow_critic_params,
-        )
-        new_ema_state = jax.tree.map(
-            lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state
-        )
+        def _rollback(new, old):
+            return jax.tree.map(lambda n, o: jnp.where(is_finite, n, o), new, old)
+
+        new_params = _rollback(new_params, params)
+        new_wm_opt = _rollback(new_wm_opt, state.wm_opt_state)
+        new_actor_opt = _rollback(new_actor_opt, state.actor_opt_state)
+        new_critic_opt = _rollback(new_critic_opt, state.critic_opt_state)
+        new_slow = _rollback(updated_slow, slow_critic_params)
+        new_ema_state = _rollback(new_ema_state, ema_state)
 
         metrics = aux.metrics
         metrics["opt_loss"] = total_loss
@@ -672,7 +795,9 @@ class R2DreamerAgent:
         metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         new_state = R2DTrainState(
             params=new_params,
-            opt_state=new_opt_state,
+            wm_opt_state=new_wm_opt,
+            actor_opt_state=new_actor_opt,
+            critic_opt_state=new_critic_opt,
             slow_critic_params=new_slow,
             ema_state=new_ema_state,
         )
