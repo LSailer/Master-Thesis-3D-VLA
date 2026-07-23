@@ -1,7 +1,8 @@
 """CPU tests for the shared PLY writer and the extractor dump entry point.
 
-The writer (``shared.ply_io.write_world_points_ply``) emits binary PLY via
-Open3D; round-trips use ``open3d.io.read_point_cloud``. The full
+The writer (``shared.ply_io.write_world_points_ply``) packs binary PLY
+records on device in JAX; round-trips use ``open3d.io.read_point_cloud``
+(Open3D remains the reader). The full
 ``write_point_cloud_ply`` path runs the real point head and is exercised by
 the SLURM smoke (GPU + weights).
 """

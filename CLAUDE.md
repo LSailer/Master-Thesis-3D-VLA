@@ -1,7 +1,7 @@
 ## Prototype work
 
-- New feature/problem prototyping happens in `src/prototyp/<feature>/` —
-  read `src/prototyp/CLAUDE.md` for the workflow before starting one.
+- New feature/problem prototyping happens in `/prototyp/<feature>/` —
+  read `/prototyp/CLAUDE.md` for the workflow before starting one.
 
 ## Code Preferences
 
