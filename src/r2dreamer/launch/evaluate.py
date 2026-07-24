@@ -16,7 +16,7 @@ from scipy.spatial.transform import Rotation
 from src.baselines.random_agent import RandomAgent
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import learner_from_checkpoint
 from src.r2dreamer.launch.parser import _build_parser_eval
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.observation_preparation import recover_encoder_input_contract
@@ -226,7 +226,7 @@ def _make_eval_agent(
         return RandomAgent(env=env_instance, num_actions=4, seed=args.seed)
     if eff_checkpoint is None:
         raise ValueError("checkpoint is required unless --random is set")
-    agent = R2DreamerAgent.from_checkpoint(
+    agent = learner_from_checkpoint(
         eff_checkpoint,
         num_actions=4,
         seed=args.seed,

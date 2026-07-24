@@ -11,7 +11,7 @@ from src.environments.habitat import (
     validate_habitat_mode,
 )
 from src.r2dreamer.encoders import Encoder, HybridEncoder
-from src.r2dreamer.encoders.factory import _make_encoder
+from src.r2dreamer.encoders.recipes import build_encoder_module
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
 from src.r2dreamer.observation_preparation.contracts import (
     encoder_module_kwargs_from_config,
@@ -131,7 +131,7 @@ class TestEncoderRegistry:
         config = R2DreamerConfig(encoder_type=encoder_type)
         assert config.full_bf16 is False  # no compute_dtype overlay below
 
-        module = _make_encoder(config)
+        module = build_encoder_module(config)
         resolver_kwargs = encoder_module_kwargs_from_config(config)
 
         for key, value in resolver_kwargs.items():

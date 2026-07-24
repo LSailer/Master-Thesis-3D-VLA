@@ -40,11 +40,11 @@ from src.shared.video_utils import log_episode_video
 # ---------------------------------------------------------------------------
 
 
-class R2DreamerAgentLike(Protocol):
+class LearnerLike(Protocol):
     """Interface the loops need from an R2Dreamer-style agent.
 
     Using a protocol is stricter than ``Any`` while avoiding a hard dependency
-    on the concrete ``R2DreamerAgent`` class. Tests and future agent variants
+    on the concrete learner class. Tests and future agent variants
     can still be passed to the loops if they expose the same public contract.
     """
 
@@ -315,7 +315,7 @@ class RunLogger:
 # ---------------------------------------------------------------------------
 
 
-def apply_resume(agent: R2DreamerAgentLike, resume_from: str) -> int:
+def apply_resume(agent: LearnerLike, resume_from: str) -> int:
     """Overwrite freshly-initialised agent state from a checkpoint.
 
     Args:
@@ -399,7 +399,7 @@ def _should_record_video(
 
 
 def train_loop(
-    agent: R2DreamerAgentLike,
+    agent: LearnerLike,
     experience: ExperienceSource,
     acfg: R2DreamerConfig,
     tcfg: TrainerConfig,
@@ -497,7 +497,7 @@ def train_loop(
 # ---------------------------------------------------------------------------
 
 
-def _snapshot_act_state(agent: R2DreamerAgentLike) -> Any | None:
+def _snapshot_act_state(agent: LearnerLike) -> Any | None:
     """Return a copy of the stateful acting latent, when the agent has one."""
     snapshot = getattr(agent, "snapshot_act_state", None)
     if snapshot is None:
@@ -505,7 +505,7 @@ def _snapshot_act_state(agent: R2DreamerAgentLike) -> Any | None:
     return snapshot()
 
 
-def _restore_act_state(agent: R2DreamerAgentLike, state: Any | None) -> None:
+def _restore_act_state(agent: LearnerLike, state: Any | None) -> None:
     """Restore stateful acting latent after validation rollouts."""
     if state is None:
         return
@@ -515,7 +515,7 @@ def _restore_act_state(agent: R2DreamerAgentLike, state: Any | None) -> None:
 
 
 def _run_single_val_episode(
-    agent: R2DreamerAgentLike,
+    agent: LearnerLike,
     val_experience: ExperienceSource,
     tcfg: TrainerConfig,
     logger: RunLoggerLike,
@@ -545,7 +545,7 @@ def _run_single_val_episode(
 
 
 def val_loop(
-    agent: R2DreamerAgentLike,
+    agent: LearnerLike,
     val_experience: ExperienceSource,
     tcfg: TrainerConfig,
     logger: RunLoggerLike,
@@ -608,7 +608,7 @@ def val_loop(
 
 
 def overfit_loop(
-    agent: R2DreamerAgentLike,
+    agent: LearnerLike,
     experience: ExperienceSource,
     tcfg: TrainerConfig,
     logger: RunLoggerLike,
@@ -695,7 +695,7 @@ def overfit_loop(
 
 
 def run_training(
-    agent: R2DreamerAgentLike,
+    agent: LearnerLike,
     experience: ExperienceSource,
     acfg: R2DreamerConfig,
     tcfg: TrainerConfig,

@@ -273,32 +273,32 @@ class TestDecoderGuard:
         )
 
     def test_vggt_plus_decoder_raises(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         with pytest.raises(ValueError, match="decoder=True requires"):
-            R2DreamerAgent(self._cfg("vggt", (4116,)), jax.random.PRNGKey(0))
+            make_learner(self._cfg("vggt", (4116,)), jax.random.PRNGKey(0))
 
     def test_cnn_and_hybrid_plus_decoder_build(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         # Both RGB-bearing encoders must construct with a decoder.
-        a = R2DreamerAgent(self._cfg("cnn", (64, 64, 3)), jax.random.PRNGKey(0))
+        a = make_learner(self._cfg("cnn", (64, 64, 3)), jax.random.PRNGKey(0))
         assert "decoder" in a.params
-        b = R2DreamerAgent(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
+        b = make_learner(self._cfg("hybrid", (16404,)), jax.random.PRNGKey(0))
         assert "decoder" in b.params
         cfg = self._cfg("vggt_house_context", (13312,))
         cfg.vggt_feature_dim = 1024
-        c = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        c = make_learner(cfg, jax.random.PRNGKey(0))
         assert "decoder" in c.params
 
     def test_hybrid_split_mismatch_raises_value_error(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = self._cfg("hybrid", (HYBRID_RGB_DIM + HYBRID_VGGT_DIM,))
         cfg.vggt_feature_dim = HYBRID_VGGT_DIM + 1
 
         with pytest.raises(ValueError, match="hybrid obs_shape/split mismatch"):
-            R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+            make_learner(cfg, jax.random.PRNGKey(0))
 
 
 class TestConvDecoder:

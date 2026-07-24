@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class TrainerConfig:
-    """Controls the training loop outside ``R2DreamerAgent``.
+    """Controls the training loop outside the learner.
 
     This config owns replay capacity, sequence sampling, prefill, W&B, resume,
     validation, and diagnostic loops. It intentionally does not own neural

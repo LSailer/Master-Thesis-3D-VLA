@@ -28,6 +28,7 @@ from src.r2dreamer.encoders.recipes import (
     check_branch_keys,
     infer_obs_spec,
 )
+from src.r2dreamer.composition import validate_decoder_support
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.r2dreamer.experience import ExperienceCollector
 from src.r2dreamer.launch.loops import apply_resume, run_training
@@ -404,6 +405,7 @@ def train(
     # enc.init dummy; the learner receives the encoder injected and never
     # constructs one itself. (Prefill resets the env again — the adapter's
     # scene-aware reset hook is built for repeated resets.)
+    validate_decoder_support(agent_config)
     recipe = RECIPES[agent_config.encoder_type]
     encoder_module = recipe.build_module(agent_config)
     first_step = collector.reset()

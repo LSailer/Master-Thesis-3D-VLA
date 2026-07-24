@@ -27,7 +27,7 @@ import numpy as np
 
 from src.buffer.replay_buffer import ReplayBuffer, ReplayTransition
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import make_learner
 from src.r2dreamer.encoders import VGGTAggTokenTransformerEncoder
 from src.r2dreamer.launch.habitat_setup import make_habitat_env
 from src.r2dreamer.observation_preparation.vggt_readouts import (
@@ -127,7 +127,7 @@ def setup(args):
     if args.train_ratio is not None:
         cfg.train_ratio = args.train_ratio
     rng = jax.random.PRNGKey(args.seed)
-    agent = R2DreamerAgent(cfg, rng)
+    agent = make_learner(cfg, rng)
     buffer = ReplayBuffer(capacity=cfg.buffer_capacity, num_actions=cfg.num_actions)
     return enc, adapter, env, cfg, agent, buffer, rng
 

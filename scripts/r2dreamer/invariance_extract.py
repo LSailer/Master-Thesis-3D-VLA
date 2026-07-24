@@ -205,7 +205,7 @@ def main():
     from src.environments.habitat import build_habitat_env
     from src.vggt.jax.feature_extractor import JAXVGGTFeatureExtractor
     from src.r2dreamer.adapters.vggt_adapter import flatten_world_points_camera_pose
-    from src.r2dreamer.agent import R2DreamerAgent
+    from src.r2dreamer.composition import learner_from_checkpoint, make_learner
     from src.r2dreamer.encoders.mlp import MLPEncoder
 
     print(f"[invariance] jax devices: {jax.devices()}", flush=True)
@@ -217,7 +217,7 @@ def main():
     )
     print(f"[invariance] VGGT extractor ready ({time.time()-t0:.1f}s)", flush=True)
 
-    agent = R2DreamerAgent.from_checkpoint(
+    agent = learner_from_checkpoint(
         args.checkpoint, obs_shape=(4116,), num_actions=4, seed=args.seed,
         encoder_type="vggt", encoder_module_cls=MLPEncoder,
     )

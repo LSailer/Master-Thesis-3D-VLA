@@ -3,7 +3,23 @@
 import argparse
 
 from src.configs.config import LATENT_PRESETS
-from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
+# Encoder types the evaluate CLI accepts — the curated evaluable subset of
+# the recipe registry (moved here from the deleted encoder_types.py; this
+# parser is the only consumer).
+EVAL_ENCODER_TYPES = (
+    "cnn",
+    "vggt",
+    "vggt_aggregator_mlp",
+    "vggt_agg_token_transformer",
+    "vggt_wp_dense_cnn",
+    "vggt_wp_cp_64",
+    "hybrid",
+    "vggt_house_context",
+    "vggt_house_points_pose",
+    "vggt_house_full_tokens_nogate",
+    "vggt_house_global_tokens_nogate",
+    "vggt_house_global_embedding",
+)
 
 
 def _str2bool(value: str | bool) -> bool:

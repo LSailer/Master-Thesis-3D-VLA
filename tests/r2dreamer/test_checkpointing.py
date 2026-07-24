@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import learner_from_checkpoint, make_learner
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
@@ -25,7 +25,7 @@ class TestCheckpoint:
     def agent(self):
         cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
         rng = jax.random.PRNGKey(42)
-        return R2DreamerAgent(cfg, rng)
+        return make_learner(cfg, rng)
 
     def test_roundtrip_preserves_params(self, agent):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -64,7 +64,7 @@ class TestCheckpoint:
 
     def test_checkpoint_persists_serializable_encoder_input_contract(self):
         cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(42))
+        agent = make_learner(cfg, jax.random.PRNGKey(42))
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = save_checkpoint(agent, step=10, output_dir=tmpdir)
@@ -85,11 +85,11 @@ class TestCheckpoint:
             num_actions=4,
             encoder_input_contract=CNNObservationPreparation().contract.to_snapshot(),
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(42))
+        agent = make_learner(cfg, jax.random.PRNGKey(42))
 
         with tempfile.TemporaryDirectory() as tmpdir:
             path = save_checkpoint(agent, step=10, output_dir=tmpdir)
-            recovered = R2DreamerAgent.from_checkpoint(
+            recovered = learner_from_checkpoint(
                 path, num_actions=4, seed=0,
             )
 
@@ -113,7 +113,7 @@ class TestCheckpoint:
             encoder_input_contract=contract,
         )
 
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(42))
+        agent = make_learner(cfg, jax.random.PRNGKey(42))
 
         # cnn now builds a CompositeEncoder whose single share-scoped ConvEncoder
         # branch honors the contract-pinned kwargs (depth=8, kernel=3,
@@ -157,7 +157,7 @@ class TestThreeOptimizerCheckpoint:
 
     def _agent(self):
         cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
-        return R2DreamerAgent(cfg, jax.random.PRNGKey(42))
+        return make_learner(cfg, jax.random.PRNGKey(42))
 
     def test_opt_state_exposes_three_groups(self):
         agent = self._agent()

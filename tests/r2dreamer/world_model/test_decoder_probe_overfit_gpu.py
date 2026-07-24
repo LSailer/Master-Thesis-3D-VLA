@@ -15,7 +15,8 @@ import pytest
 from PIL import Image
 
 from src.buffer.replay_buffer import ReplayBatch
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import make_learner
+from src.r2dreamer.learner import R2DLearner
 from src.configs.config import R2DreamerConfig
 
 
@@ -112,12 +113,12 @@ def _habitat_rgb_batch(
     )
 
 
-def _recon_mse(agent: R2DreamerAgent, batch: ReplayBatch) -> float:
+def _recon_mse(agent: R2DLearner, batch: ReplayBatch) -> float:
     target, recon = agent.reconstruct(batch)
     return float(np.mean((recon - target) ** 2))
 
 
-def _save_recon_grid(agent: R2DreamerAgent, batch: ReplayBatch, path: Path) -> None:
+def _save_recon_grid(agent: R2DLearner, batch: ReplayBatch, path: Path) -> None:
     target, recon = agent.reconstruct(batch)
     rows = []
     for i in range(target.shape[0]):
@@ -137,7 +138,7 @@ def _run_decoder_overfit_probe(
     artifact_prefix: Path | None = None,
 ) -> tuple[float, float]:
     cfg = _decoder_probe_cfg()
-    agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+    agent = make_learner(cfg, jax.random.PRNGKey(0))
 
     initial = _recon_mse(agent, batch)
     if artifact_prefix is not None:

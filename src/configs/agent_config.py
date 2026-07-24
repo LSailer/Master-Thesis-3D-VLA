@@ -75,10 +75,10 @@ LATENT_PRESETS: dict[str, LatentPreset] = {
 
 @dataclass
 class R2DreamerConfig:
-    """Configuration consumed by ``R2DreamerAgent``.
+    """Configuration consumed by the learner (``R2DLearner``).
 
     Trainer-loop ownership lives in ``TrainerConfig``. The current
-    ``R2DreamerAgent`` and trainer still read interface and sampling fields from
+    The learner and trainer still read interface and sampling fields from
     this dataclass, so those fields remain here until that constructor boundary
     is split.
     """

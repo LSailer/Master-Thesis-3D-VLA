@@ -3,8 +3,9 @@
 The learner owns parameters, the three LaProp optimizers (world-model incl.
 encoder / actor / critic), the slow-target EMA, the acting state, and the
 JIT'd train/eval entry points. It does NOT construct the encoder: the
-composition root (``launch/train.py``, or the temporary ``R2DreamerAgent``
-shim) builds the encoder module from the ``EncoderRecipe`` registry and
+composition root (``launch/train.py``, or ``composition.make_learner`` for
+config-only callers) builds the encoder module from the ``EncoderRecipe``
+registry and
 injects it, together with the batch-1 observation used for ``enc.init`` —
 per IDEA.md decision 1, the launcher owns encoder construction and wiring.
 
@@ -32,7 +33,6 @@ import optax
 from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
-from src.r2dreamer.encoder_types import RGB_BEARING_ENCODER_TYPES
 from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.shared.optim import LaPropState, laprop, agc
 
@@ -248,7 +248,7 @@ class R2DLearner:
     ``self.train_state`` and threaded through one JIT-compiled pure step.
 
     The RNG key discipline in ``__init__`` (split order, one key per module
-    init) is frozen: it must match the historical ``R2DreamerAgent``
+    init) is frozen: it must match the historical agent
     constructor exactly so that a given seed keeps producing bit-identical
     parameters across the encoder-split migration (golden-run gate).
     """
@@ -411,16 +411,12 @@ class R2DLearner:
         # ---- Debug decoder probe (3D-51): built ONLY when cfg.decoder ----
         # Reconstructs RGB from stop-gradient `feat` for visual verification.
         # Left unbuilt by default so the params pytree (and thus checkpoints) of
-        # CNN/VGGT runs is unchanged.
+        # CNN/VGGT runs is unchanged. The RGB-capability gate lives at the
+        # composition root (``composition.validate_decoder_support``, driven by
+        # the recipe's ``rgb_key``) — the learner trusts its config.
         self.decoder_mod = None
         dec_params = None
         if config.decoder:
-            if config.encoder_type not in RGB_BEARING_ENCODER_TYPES:
-                raise ValueError(
-                    "decoder=True requires an RGB-bearing encoder_type — the "
-                    "ConvDecoder reconstructs an RGB image, but "
-                    f"{config.encoder_type!r} carries no RGB modality to reconstruct."
-                )
             rng_key, k_dec = jax.random.split(rng_key)
             self.decoder_mod = ConvDecoder(
                 depth=config.encoder_depth,

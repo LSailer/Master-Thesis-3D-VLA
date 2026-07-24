@@ -13,7 +13,8 @@ from src.buffer.replay_arrays import replay_batch_to_arrays
 from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import make_learner
+from src.r2dreamer.learner import R2DLearner
 from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.checkpointing import save_checkpoint
 from src.r2dreamer.experience import ExperienceCollector
@@ -218,7 +219,7 @@ def _make_collector(cfg, *, env=None, adapter=None, episode_metrics_fn=None):
 class _AgentSpy:
     """Records ``act``/``train_step`` calls on a real agent, delegating to it.
 
-    Wraps rather than replaces, so the genuine ``R2DreamerAgent`` stays under
+    Wraps rather than replaces, so the genuine ``R2DLearner`` stays under
     test and its real signatures are exercised — only the call record is added.
     ``train_loop`` asserts on *interactions* (how many updates, with which
     ``materialize`` flag), which the agent cannot report on its own.
@@ -228,7 +229,7 @@ class _AgentSpy:
         materialize_flags: The ``materialize`` value seen by each train_step.
     """
 
-    def __init__(self, agent: R2DreamerAgent):
+    def __init__(self, agent: R2DLearner):
         self.actions: list[int] = []
         self.materialize_flags: list[bool] = []
         self._real_act = agent.act
@@ -257,7 +258,7 @@ class _AgentSpy:
 
 @pytest.fixture
 def build_agent(tmp_path):
-    """Factory for a real R2DreamerAgent (tiny CNN) plus a call-recording spy.
+    """Factory for a real R2DLearner (tiny CNN) plus a call-recording spy.
 
     Args:
         tmp_path: pytest tmp_path, used for the config's logdir.
@@ -272,7 +273,7 @@ def build_agent(tmp_path):
         cfg.batch_size = batch_size
         cfg.seq_len = seq_len
         cfg.train_ratio = train_ratio
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         return cfg, agent, _AgentSpy(agent)
 
     return _build
@@ -340,12 +341,12 @@ class TestApplyResume:
         return R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
 
     def test_resume_restores_params_and_step(self, cfg, tmp_path):
-        original = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        original = make_learner(cfg, jax.random.PRNGKey(0))
         step = 12345
         ckpt_path = save_checkpoint(original, step=step, output_dir=str(tmp_path))
 
         # Build a fresh agent with a different init seed so its weights differ.
-        fresh = R2DreamerAgent(cfg, jax.random.PRNGKey(99))
+        fresh = make_learner(cfg, jax.random.PRNGKey(99))
         before = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
         target = [np.asarray(x) for x in jax.tree.leaves(original.params)]
         assert not all(np.allclose(a, b) for a, b in zip(before, target))
@@ -364,7 +365,7 @@ class TestApplyResume:
         )
 
     def test_missing_resume_path_raises(self, cfg, tmp_path):
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        agent = make_learner(cfg, jax.random.PRNGKey(7))
         with pytest.raises(FileNotFoundError):
             apply_resume(agent, str(tmp_path / "nope.pkl"))
 
@@ -404,7 +405,7 @@ class TestCollectorWiring:
 class TestFullPipeline:
     def test_cnn_observation_preparation_runs_through_training_pipeline(self, tmp_path):
         cfg = _tiny_cnn_cfg(tmp_path)
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         env = _TinyCNNEnv()
         collector = ExperienceCollector(
             env=env,

@@ -17,7 +17,7 @@ import pytest
 
 from src.configs.config import R2DreamerConfig
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import make_learner
 from src.r2dreamer.encoders import CNNEncoder
 
 HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
@@ -80,7 +80,7 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
 
         adapter = CNNEncoder().make_adapter()
         cfg = _small_agent_config()
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        agent = make_learner(cfg, jax.random.PRNGKey(7))
         state = agent.initial_act_state()
         obs = env.reset()
         prepared = adapter.prepare_env_step(obs)

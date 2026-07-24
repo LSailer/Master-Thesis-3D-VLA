@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class R2DreamerInterfaceConfig:
-    """Static interface facts required to build an ``R2DreamerAgent``.
+    """Static interface facts required to build the learner.
 
     Args:
         obs_shape: Encoder Module input shape without the live batch axis or

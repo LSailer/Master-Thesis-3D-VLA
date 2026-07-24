@@ -464,10 +464,10 @@ class TestVGGTFeatureReplayBuffer:
 
 
 class TestVGGTAgentInit:
-    """Test R2DreamerAgent initializes with VGGT encoder."""
+    """Test the composed learner initializes with VGGT encoder."""
 
     def test_agent_init_vggt(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt",
@@ -475,13 +475,13 @@ class TestVGGTAgentInit:
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         assert agent.embed_size == cfg.vggt_embed_dim
         assert "encoder" in agent.params
 
     def test_agent_act_vggt(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt",
@@ -489,7 +489,7 @@ class TestVGGTAgentInit:
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         obs_dict = {
             "features": np.random.randn(FEATURE_DIM).astype(np.float32),
@@ -500,7 +500,7 @@ class TestVGGTAgentInit:
         assert 0 <= action < 4
 
     def test_agent_act_vggt_aggregator_mlp(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_aggregator_mlp",
@@ -508,7 +508,7 @@ class TestVGGTAgentInit:
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         obs_dict = {
             "features": np.random.randn(POOLED_FEATURE_DIM).astype(np.float32),
@@ -519,7 +519,7 @@ class TestVGGTAgentInit:
         assert 0 <= action < 4
 
     def test_agent_act_vggt_agg_token_transformer_reduced_shape(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_agg_token_transformer",
@@ -533,7 +533,7 @@ class TestVGGTAgentInit:
             vggt_embed_dim=64,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
         assert agent.embed_size == 64
 
         obs_dict = {
@@ -545,7 +545,7 @@ class TestVGGTAgentInit:
         assert 0 <= action < 4
 
     def test_agent_act_wp64_cnn_cp_mlp(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_wp64_cnn_cp_mlp",
@@ -558,7 +558,7 @@ class TestVGGTAgentInit:
             mlp_vggt_layers=1,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         obs_dict = {
             WORLD_POINTS_KEY: np.zeros((64, 64, 3), dtype=np.float16),
@@ -572,7 +572,7 @@ class TestVGGTAgentInit:
     def test_agent_act_vggt_wp_dense(self):
         # Full wiring smoke for the dense-WP CNN path (3D-53). Small image keeps
         # the conv forward cheap on CPU; ConvEncoder(world_points) is resolution-agnostic.
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_wp_dense_cnn",
@@ -580,7 +580,7 @@ class TestVGGTAgentInit:
             num_actions=4,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
         assert "encoder" in agent.params
 
         obs_dict = {
@@ -594,7 +594,7 @@ class TestVGGTAgentInit:
     def test_mlp_layers_rejected_by_conv_encoders(self):
         # 3D-52 guard: vggt_mlp_layers must not be silently dropped by a conv
         # encoder (cnn or dense-WP). It should fail loud at agent construction.
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         for enc_type, shape in (
             ("cnn", (64, 64, 3)),
@@ -607,10 +607,10 @@ class TestVGGTAgentInit:
                 vggt_mlp_layers=3,
             )
             with pytest.raises(ValueError, match="vggt_mlp_layers"):
-                R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+                make_learner(cfg, jax.random.PRNGKey(0))
 
     def test_agent_train_step_vggt(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt",
@@ -621,7 +621,7 @@ class TestVGGTAgentInit:
             imagination_horizon=3,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
         batch = ReplayBatch(
@@ -639,7 +639,7 @@ class TestVGGTAgentInit:
         assert np.isfinite(metrics["total_loss"])
 
     def test_agent_train_step_vggt_aggregator_mlp(self):
-        from src.r2dreamer.agent import R2DreamerAgent
+        from src.r2dreamer.composition import make_learner
 
         cfg = R2DreamerConfig(
             encoder_type="vggt_aggregator_mlp",
@@ -650,7 +650,7 @@ class TestVGGTAgentInit:
             imagination_horizon=3,
         )
         rng = jax.random.PRNGKey(42)
-        agent = R2DreamerAgent(cfg, rng)
+        agent = make_learner(cfg, rng)
 
         B, T = cfg.batch_size, cfg.seq_len
         batch = ReplayBatch(

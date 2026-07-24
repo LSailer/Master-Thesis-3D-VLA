@@ -1,5 +1,5 @@
 
-"""Smoke tests for R2DreamerAgent."""
+"""Smoke tests for the composed learner (make_learner)."""
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ from src.buffer.replay_buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.adapters.hybrid_adapter import HYBRID_FEATURE_DIM
 from src.r2dreamer.adapters.vggt_adapter import VGGT_FEATURE_DIM
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.composition import make_learner
 from src.r2dreamer.encoders.constants import (
     HOUSE_CONTEXT_MAX_POINTS,
     HOUSE_POINT_DIM,
@@ -36,7 +36,7 @@ def cfg():
 
 @pytest.fixture
 def agent(cfg):
-    return R2DreamerAgent(cfg, jax.random.PRNGKey(42))
+    return make_learner(cfg, jax.random.PRNGKey(42))
 
 
 def make_batch(cfg, B=4, T=16):
@@ -208,7 +208,7 @@ def tree_any_changed(before, after, *, atol=1e-7):
     )
 
 
-class TestR2DreamerAgent:
+class TestLearner:
     def test_init(self, agent):
         assert agent is not None
 
@@ -296,7 +296,7 @@ class TestR2DreamerAgent:
             lr=1e-3,
             warmup_steps=0,
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
                 "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
@@ -325,7 +325,7 @@ class TestR2DreamerAgent:
                 HOUSE_CONTEXT_SIZE_KEY: (),
             },
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
                 HYBRID_IMAGE_KEY: jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
@@ -356,7 +356,7 @@ class TestR2DreamerAgent:
                 HOUSE_CONTEXT_SIZE_KEY: (),
             },
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
                 CAMERA_POSE_KEY: jnp.zeros((1, 2, 9), dtype=jnp.float16),
@@ -416,7 +416,7 @@ class TestR2DreamerAgent:
             lr=1e-3,
             warmup_steps=0,
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         batch = ReplayBatch(
             obs={
                 "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.float32),
@@ -480,7 +480,7 @@ class TestR2DreamerAgent:
             lr=1e-3,
             warmup_steps=0,
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         # Fused embed = concat([rgb_embed, house_embed]); branch widths come from
         # the embedded ConvEncoder defaults and TokenReducer output_dim (1024).
         assert agent.embed_size == 2048
@@ -531,7 +531,7 @@ class TestR2DreamerAgent:
             vggt_token_transformer_mlp_ratio=2,
             compute_dtype="bfloat16",
         )
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = make_learner(cfg, jax.random.PRNGKey(0))
         obs = {
             "image": jnp.zeros((1, 2, 64, 64, 3), dtype=jnp.uint8),
             "full_tokens": jnp.zeros((1, 2, 6, 8), dtype=jnp.float32),
@@ -550,8 +550,8 @@ class TestR2DreamerAgent:
         batch = make_deterministic_batch(cfg)
         init_rng = jax.random.PRNGKey(7)
         train_rng = jax.random.PRNGKey(11)
-        agent_a = R2DreamerAgent(cfg, init_rng)
-        agent_b = R2DreamerAgent(cfg, init_rng)
+        agent_a = make_learner(cfg, init_rng)
+        agent_b = make_learner(cfg, init_rng)
         before = jax.tree.map(jnp.copy, agent_a.params)
 
         metrics_a = agent_a.train_step(batch, train_rng)
@@ -584,7 +584,7 @@ class TestR2DreamerAgent:
 
     def test_hybrid_train_step_accepts_mapping_obs(self):
         cfg = make_small_hybrid_cfg()
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(5))
+        agent = make_learner(cfg, jax.random.PRNGKey(5))
         batch = make_hybrid_mapping_batch(cfg)
 
         metrics = agent.train_step(batch, jax.random.PRNGKey(6))
@@ -602,8 +602,8 @@ class TestR2DreamerAgent:
         init_rng = jax.random.PRNGKey(17)
         train_rng = jax.random.PRNGKey(19)
 
-        baseline = R2DreamerAgent(cfg, init_rng)
-        with_decoder = R2DreamerAgent(dec_cfg, init_rng)
+        baseline = make_learner(cfg, init_rng)
+        with_decoder = make_learner(dec_cfg, init_rng)
         before_decoder_params = jax.tree.map(jnp.copy, with_decoder.params["decoder"])
 
         baseline_metrics = baseline.train_step(batch, train_rng)
