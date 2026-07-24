@@ -85,6 +85,31 @@ def _merge_groups(wm: Mapping, actor: Mapping, critic: Mapping) -> dict:
     return {**wm, **actor, **critic}
 
 
+_ENCODER_SUBTREE = "encoder"
+
+
+def _split_structural(tree: Mapping[str, Any]) -> tuple[Any, dict, dict, dict]:
+    """Split a params-shaped pytree into the loss-fn argument groups.
+
+    Decision 3 (structural): ``enc_params`` is an explicit argument of the
+    loss, jointly differentiated with the world-model params. The groups are
+    ``(encoder, wm-without-encoder, actor, critic)``; note the OPTIMIZER
+    partition (:func:`_partition_by_group`) keeps the encoder inside the WM
+    group — this split only shapes the loss-fn signature.
+    """
+    wm = {
+        k: v
+        for k, v in tree.items()
+        if k not in (_ENCODER_SUBTREE, _ACTOR_SUBTREE, _CRITIC_SUBTREE)
+    }
+    return (
+        tree[_ENCODER_SUBTREE],
+        wm,
+        {_ACTOR_SUBTREE: tree[_ACTOR_SUBTREE]},
+        {_CRITIC_SUBTREE: tree[_CRITIC_SUBTREE]},
+    )
+
+
 def _split_single_opt_state(
     single: LaPropState, params: Mapping[str, Any]
 ) -> tuple[LaPropState, LaPropState, LaPropState]:
@@ -230,6 +255,7 @@ class R2DLearner:
 
     @property
     def train_state(self) -> R2DTrainState:
+        """The bundled training state threaded through the JIT step."""
         return self._train_state
 
     @train_state.setter
@@ -238,6 +264,7 @@ class R2DLearner:
 
     @property
     def params(self):
+        """The full parameter pytree (encoder + RSSM + heads + actor/critic)."""
         return self._train_state.params
 
     @params.setter
@@ -246,6 +273,7 @@ class R2DLearner:
 
     @property
     def opt_state(self):
+        """The three LaProp states as a stable ``{wm, actor, critic}`` dict."""
         # Present the three LaProp states as a stable dict for checkpointing.
         return {
             "wm": self._train_state.wm_opt_state,
@@ -275,6 +303,7 @@ class R2DLearner:
 
     @property
     def slow_critic_params(self):
+        """EMA slow-target critic parameters."""
         return self._train_state.slow_critic_params
 
     @slow_critic_params.setter
@@ -285,6 +314,7 @@ class R2DLearner:
 
     @property
     def ema_state(self):
+        """Return-normalization EMA state."""
         return self._train_state.ema_state
 
     @ema_state.setter
@@ -674,8 +704,12 @@ class R2DLearner:
 
     def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
         """Evaluate the current objective on a batch without updating state."""
+        enc_p, wm_p, actor_p, critic_p = _split_structural(self.params)
         _total_loss, aux = self._loss_fn(
-            self.params,
+            enc_p,
+            wm_p,
+            actor_p,
+            critic_p,
             slow_critic_params=self.slow_critic_params,
             ema_state=self.ema_state,
             batch=batch,
@@ -688,12 +722,18 @@ class R2DLearner:
     def _train_step_pure(self, state: R2DTrainState, batch, rng_key):
         """Pure-functional training step (JIT-able).
 
-        The loss and its single ``value_and_grad`` over the full params pytree
-        are unchanged from the single-optimizer version — every param still
-        receives ``d(total_loss)/d(param)``, so the gradient coupling between
-        the representation losses and the encoder/RSSM is preserved. Only the
-        optimizer application is split three ways (WM / actor / critic), which
-        is update-identical because LaProp + AGC are per-leaf.
+        Decision 3 (structural): the loss takes ``(enc_params, wm_params,
+        actor_params, critic_params)`` as explicit arguments and ONE
+        ``jax.value_and_grad(..., argnums=(0, 1, 2, 3))`` differentiates all
+        four jointly in a single compiled graph — every param still receives
+        ``d(total_loss)/d(param)``, so the gradient coupling between the
+        representation losses and the encoder/RSSM is preserved, and the step
+        stays bit-identical to the historical full-dict ``value_and_grad``.
+        (Three SEPARATE grad calls are NOT bit-identical: XLA rounds the
+        separate actor/critic backward graphs differently — measured 5.2e-12
+        on actor, 6.7e-08 on critic — which would break the golden gate.)
+        The optimizer application is split three ways (WM incl. encoder /
+        actor / critic), update-identical because LaProp + AGC are per-leaf.
         """
         params = state.params
         slow_critic_params = state.slow_critic_params
@@ -715,7 +755,11 @@ class R2DLearner:
             rng_key=rng_key,
         )
 
-        (total_loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(params)
+        enc_p, wm_only_p, actor_arg_p, critic_arg_p = _split_structural(params)
+        (total_loss, aux), (enc_g, wm_g, actor_g, critic_g) = jax.value_and_grad(
+            loss_fn, argnums=(0, 1, 2, 3), has_aux=True
+        )(enc_p, wm_only_p, actor_arg_p, critic_arg_p)
+        grads = {_ENCODER_SUBTREE: enc_g, **wm_g, **actor_g, **critic_g}
 
         # NaN guard: skip update if loss is non-finite (mirrors PyTorch GradScaler)
         is_finite = jnp.isfinite(total_loss)
@@ -841,13 +885,38 @@ class R2DLearner:
             feat=feat,
         )
 
-    def _loss_fn(self, params, *, slow_critic_params, ema_state, batch, rng_key):
+    def _loss_fn(
+        self,
+        enc_params,
+        wm_params,
+        actor_params,
+        critic_params,
+        *,
+        slow_critic_params,
+        ema_state,
+        batch,
+        rng_key,
+    ):
         """Compose the world-model, behavior, and representation losses.
+
+        Decision 3: ``enc_params`` is an explicit argument, jointly
+        differentiated with ``wm_params`` (RSSM + heads + projector +
+        optional decoder). The behavior losses run on the stop-gradiented
+        imagination rollout (``behavior/loss.py`` cuts `feat`), so actor and
+        critic gradients never reach the encoder; the deliberate exception is
+        the replay-value representation loss, which couples the critic to the
+        unfrozen replay features by design.
 
         Returns:
             (total_loss, aux) — `aux` carries metrics and the imagination
             returns used for the post-step `ReturnEMA` update.
         """
+        params = {
+            _ENCODER_SUBTREE: enc_params,
+            **wm_params,
+            **actor_params,
+            **critic_params,
+        }
         cfg = self.cfg
         B, T = replay_batch_shape(batch)
 
