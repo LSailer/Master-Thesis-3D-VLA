@@ -1,8 +1,10 @@
 """Public train() entry point for the r2dreamer launcher.
 
-Composition root (ADR 0006): resolves env/encoder via registries, builds the
-replay buffer and the train/val ``ExperienceCollector`` instances, applies
-resume, and hands everything to ``run_training`` (``launch.loops``).
+Composition root (ADR 0006 + encoder split): resolves env/encoder via
+registries, builds the replay buffer and the train/val
+``ExperienceCollector`` instances, owns the trainable encoder (recipe ->
+first prepared frame -> ``enc.init`` -> inject into :class:`R2DLearner`),
+applies resume, and hands everything to ``run_training`` (``launch.loops``).
 """
 
 from __future__ import annotations
@@ -20,11 +22,18 @@ from src.configs.agent_config import LatentPreset
 from src.configs.config import LATENT_PRESETS, R2DreamerConfig, TrainerConfig
 from src.environments.habitat import HabitatEnvConfig
 from src.environments.habitat_metrics import HabitatEpisodeMetrics
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.encoders.composite import CompositeEncoder
+from src.r2dreamer.encoders.recipes import (
+    RECIPES,
+    check_branch_keys,
+    infer_obs_spec,
+)
+from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.r2dreamer.experience import ExperienceCollector
 from src.r2dreamer.launch.loops import apply_resume, run_training
 from src.r2dreamer.launch.parser import _build_parser_train
 from src.r2dreamer.launch.registries import encoder_registry, env_registry
+from src.r2dreamer.learner import R2DLearner
 from src.shared.dtypes import compute_jnp_dtype
 
 
@@ -372,10 +381,6 @@ def train(
         config_cls=R2DreamerConfig,
     )
 
-    # --- Build agent ---
-    _rng_key, init_key = jax.random.split(jax.random.PRNGKey(args.seed))
-    agent = R2DreamerAgent(agent_config, init_key)
-
     trainer_config = _make_trainer_config(
         args=args,
         output_dir=eff_output_dir,
@@ -391,6 +396,23 @@ def train(
         agent_config=agent_config,
         adapter=adapter,
         episode_metrics_cls=HabitatEpisodeMetrics,
+    )
+
+    # --- Composition root (IDEA decisions 1 + 5): the launcher owns the
+    # encoder. The recipe builds the trainable module; the first prepared
+    # frame from the collector defines the obs spec AND serves as the
+    # enc.init dummy; the learner receives the encoder injected and never
+    # constructs one itself. (Prefill resets the env again — the adapter's
+    # scene-aware reset hook is built for repeated resets.)
+    recipe = RECIPES[agent_config.encoder_type]
+    encoder_module = recipe.build_module(agent_config)
+    first_step = collector.reset()
+    init_obs = batch_live_observation(first_step.encoder_obs)
+    if isinstance(encoder_module, CompositeEncoder):
+        check_branch_keys(encoder_module.spec, infer_obs_spec(init_obs).keys())
+    _rng_key, init_key = jax.random.split(jax.random.PRNGKey(args.seed))
+    agent = R2DLearner(
+        agent_config, init_key, encoder=encoder_module, encoder_init_obs=init_obs
     )
 
     resume_step = 0
