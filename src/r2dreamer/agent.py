@@ -22,6 +22,7 @@ import jax
 import jax.numpy as jnp
 import optax
 
+from src.adapters.contract import AdapterOutput
 from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
@@ -38,6 +39,10 @@ from .encoders.factory import (
     _dummy_encoder_obs,
     _make_encoder,
     _make_rssm,
+)
+from .encoders.routed_composite import (
+    dummy_obs_from_fields,
+    routed_encoder_from_fields,
 )
 from .learning_types import AgentLossAux, WorldModelForward
 from .observation_preparation.contracts import recover_encoder_input_contract
@@ -254,18 +259,43 @@ class R2DreamerAgent:
         agent.checkpoint_step = int(ckpt.get("step", -1))
         return agent
 
-    def __init__(self, config: R2DreamerConfig, rng_key: jnp.ndarray):
+    def __init__(
+        self,
+        config: R2DreamerConfig,
+        rng_key: jnp.ndarray,
+        fields: "AdapterOutput | None" = None,
+        encoder_overrides: Dict[str, Any] | None = None,
+    ):
         self.cfg = config
         self.checkpoint_step = -1
         self.twohot = R2TwoHotDist(num_bins=config.twohot_bins)
 
         # ---- Instantiate Flax modules (for .apply) ----
-        self.encoder_mod = _make_encoder(config)
+        # ``fields`` (a sample adapter output) overrides ``cfg.encoder_type``:
+        # the routed composite encoder is built from the per-field Encoder
+        # routing, and the dummy obs comes from the sample field shapes.
+        if fields is not None:
+            # Composition root: translate the config into branch overrides so
+            # the run stays reproducible from the config alone;
+            # ``encoder_overrides`` (e.g. fusion_dim) win over the translation.
+            self.encoder_mod = routed_encoder_from_fields(
+                fields,
+                conv_depth=config.encoder_depth,
+                conv_kernel=config.encoder_kernel,
+                conv_mults=config.encoder_mults,
+                **(encoder_overrides or {}),
+            )
+        else:
+            self.encoder_mod = _make_encoder(config)
         self.rssm_mod = _make_rssm(config)
 
         # Dummy forward to discover embed_size
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        dummy_obs = _dummy_encoder_obs(config)
+        dummy_obs = (
+            dummy_obs_from_fields(fields)
+            if fields is not None
+            else _dummy_encoder_obs(config)
+        )
         enc_params = self.encoder_mod.init(k1, dummy_obs)
         embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, dummy_obs))
         self.embed_size = embed.shape[-1]

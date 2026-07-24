@@ -98,13 +98,13 @@ class R2DreamerConfig:
     obs_layers: int = 1
     img_layers: int = 2
 
-    # --- Encoder ---
+    # --- Encoder --- 
+    #TODO: Adapter make this -> Yaml File
     encoder_type: str = "cnn"
     encoder_module_cls: Any = None
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: tuple[int, ...] = (2, 3, 4, 4)
-    vggt_feature_dim: int = 4116
     vggt_embed_dim: int = 1024
     vggt_mlp_layers: int = 1
     vggt_token_transformer_layers: int = 2
@@ -113,8 +113,6 @@ class R2DreamerConfig:
     vggt_token_transformer_mlp_ratio: int = 2
     vggt_token_transformer_dropout: float = 0.0
     vggt_keep_register_tokens: bool = True
-    vggt_token_count: int = 1374
-    vggt_token_dim: int = 1024
     mlp_vggt_hidden: int = 1024
     mlp_vggt_layers: int = 2
     # House-branch metric XYZ normalization for the MLP/Hybrid house-points
@@ -123,15 +121,7 @@ class R2DreamerConfig:
     house_point_norm: str = "symlog"
     decoder: bool = False
     scale_decoder: float = 1.0
-    design_notes: str = ""
-    encoder_input_contract: dict[str, Any] | None = None
     compute_dtype: str = "bfloat16"
-    # Extend compute_dtype from the token transformer + replay scalars to the
-    # whole JAX model (encoders, RSSM, heads) — mixed precision with float32
-    # master params and float32-pinned logits. Off by default because
-    # compute_dtype was historically a near no-op for CNN/house encoders and
-    # existing runs compare against that behavior.
-    full_bf16: bool = False
 
     # --- MLP heads ---
     mlp_units: int = 256
