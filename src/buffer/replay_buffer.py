@@ -193,7 +193,7 @@ class ReplayBuffer:
         self._obs_kind: str | None = None  # "array" | "hybrid" | "mapping"
         self._obs_store: dict[str, np.ndarray] = {}
         self._encoders: dict[str, int] | None = None
-        self._global_feature: np.ndarray | None = None
+        self._global_feature: ObservationLeaf | None = None
         self._actions = np.zeros(capacity, dtype=np.int32)
         self._rewards = np.zeros(capacity, dtype=np.float32)
         self._is_first = np.zeros(capacity, dtype=np.bool_)
@@ -276,8 +276,11 @@ class ReplayBuffer:
                     f"stored={self._encoders}, got={incoming}"
                 )
         if replay_transition.global_feature is not None:
-            # Latest wins: one live element, not a per-step series.
-            self._global_feature = np.asarray(replay_transition.global_feature)
+            # Latest wins: one live element, not a per-step series. Stored as
+            # the caller's (immutable) array reference — no host copy; a
+            # growing device-resident feature would otherwise pay an O(N)
+            # device-to-host transfer on every add.
+            self._global_feature = replay_transition.global_feature
         for key, value in fields.items():
             self._obs_store[key][self.idx] = value
         self._actions[self.idx] = int(replay_transition.action)

@@ -24,7 +24,7 @@ def prefill(
     replay_buffer: ReplayBuffer,
     feature_extractor: JAXVGGTFeatureExtractor,
     rng_key: jnp.ndarray,
-    prefill_steps: int = 1000,
+    prefill_steps: int = 100,
 ) -> jnp.ndarray:
     """Prefill the replay buffer with uniformly random actions.
 
@@ -105,7 +105,6 @@ def main():
     t0 = time.perf_counter()
     rng_key = prefill(
         env, adapter_fn, replay_buffer, feature_extractor, rng_key,
-        prefill_steps=1000,
     )
     elapsed = time.perf_counter() - t0
     print(

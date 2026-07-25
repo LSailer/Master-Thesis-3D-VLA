@@ -263,7 +263,7 @@ class R2DreamerAgent:
         self,
         config: R2DreamerConfig,
         rng_key: jnp.ndarray,
-        fields: "AdapterOutput | None" = None,
+        fields: AdapterOutput | None = None,
         encoder_overrides: Dict[str, Any] | None = None,
     ):
         self.cfg = config
@@ -566,7 +566,8 @@ class R2DreamerAgent:
         params = self.params
         B, T = replay_batch_shape(batch)
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
+            jnp.ndarray,
+            self.encoder_mod.apply(params["encoder"], self._encoder_obs(batch)),
         )
         if embed.shape[:2] != (B, T):
             raise ValueError(
@@ -712,6 +713,28 @@ class R2DreamerAgent:
     # Composition root: shared forward + 3 sub-losses
     # ------------------------------------------------------------------
 
+    def _encoder_obs(self, batch):
+        """Assemble the encoder input from a replay batch.
+
+        Global (``buffer=False``) fields are never stored per step; the live
+        value rides on ``batch.global_feature`` and is merged back under its
+        routed key so the encoder sees the same obs dict as at init time.
+
+        Raises:
+            ValueError: If the encoder routes a global key but the batch
+                carries no global feature.
+        """
+        global_keys = getattr(self.encoder_mod, "global_keys", ())
+        if not global_keys:
+            return batch.obs
+        if batch.global_feature is None:
+            raise ValueError(
+                f"encoder routes global keys {global_keys} but the sampled "
+                "batch carries no global_feature — was the live field added "
+                "to the replay buffer?"
+            )
+        return {**batch.obs, global_keys[0]: batch.global_feature}
+
     def _world_model_forward(self, params, batch, rng_key) -> WorldModelForward:
         """Encoder + posterior rollout + prior + features. Shared across sub-losses.
 
@@ -723,7 +746,8 @@ class R2DreamerAgent:
         B, T = replay_batch_shape(batch)
 
         embed = cast(
-            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batch.obs)
+            jnp.ndarray,
+            self.encoder_mod.apply(params["encoder"], self._encoder_obs(batch)),
         )
         if embed.shape[:2] != (B, T):
             raise ValueError(
