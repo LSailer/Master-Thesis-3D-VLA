@@ -10,6 +10,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypedDict, cast
+import jax
 import jax.numpy as jnp
 
 # Host-side habitat_sim interop (per-cell pathfinder queries) stays NumPy.
@@ -161,7 +162,9 @@ class HabitatObjectNavEnv:
 
     _env: Any
     _last_obs: Any
-    _prev_position: jnp.ndarray | None
+    # Device array, never None after construction: __init__ ends with reset(),
+    # and reset() is the only place an episode's starting position is defined.
+    _prev_position: jax.Array
 
     def __init__(
         self,
@@ -287,7 +290,6 @@ class HabitatObjectNavEnv:
         self._last_obs = None
         self._start_geodesic = 0.0
         self._path_length = 0.0
-        self._prev_position = None
         self._collisions = 0
         self._forward_steps = 0
         self.reset()

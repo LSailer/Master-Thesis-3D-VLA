@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 
-from src.r2dreamer.encoders.cnn import make_rgb_conv_encoder
 from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS, AGG_TOKEN_TOKENS
 from src.r2dreamer.encoders.shape_utils import flatten_event, restore_leading
 from src.r2dreamer.world_model.rssm import RMSNorm
@@ -94,9 +93,7 @@ class TokenTransformerEncoder(nn.Module):
     """Generic Transformer encoder for flat or structured token observations.
 
     Parameters:
-        embed_dim: Width of the token readout returned by this module. If an RGB
-            branch is enabled, the final ``__call__`` output is
-            ``concat(cnn_embed, token_embed)``.
+        embed_dim: Width of the token readout returned by this module.
         token_dim: Width of each input token.
         num_tokens: Number of input tokens before optional register-token drop.
         model_dim: Internal Transformer width. ``None`` keeps ``token_dim`` and
@@ -115,24 +112,15 @@ class TokenTransformerEncoder(nn.Module):
         register_tokens: Number of register tokens after the camera token.
         token_key: Dict key for token observations. If ``None``, ``obs`` itself
             is treated as the token tensor.
-        image_key: Optional dict key for an HWC RGB image branch. If set,
-            ``__call__`` concatenates ``ConvEncoder(image)`` with the token
-            embedding and ``branches()`` returns both parts.
-        singleton_tokens: If true, tokens must describe one global context and
-            are broadcast to the RGB batch size after token encoding.
         compute_dtype: JAX/Flax compute dtype for Transformer math.
-        cnn_depth: RGB CNN base depth when ``image_key`` is set.
-        cnn_kernel: RGB CNN kernel size when ``image_key`` is set.
-        cnn_mults: RGB CNN channel multipliers when ``image_key`` is set.
 
     Input shapes:
         Tokens may be ``(B, num_tokens, token_dim)``, ``(num_tokens, token_dim)``,
         or flattened ``(B, num_tokens * token_dim)``.
 
     Returns:
-        Without ``image_key``: ``(B, embed_dim)`` token embedding, or
-        ``(embed_dim,)`` for a single unbatched token sequence. With
-        ``image_key``: ``(B, cnn_embed_dim + embed_dim)`` concatenated embedding.
+        ``(B, embed_dim)`` token embedding, or ``(embed_dim,)`` for a single
+        unbatched token sequence.
     """
 
     embed_dim: int = 1024
@@ -149,12 +137,7 @@ class TokenTransformerEncoder(nn.Module):
     keep_register_tokens: bool = True
     register_tokens: int = AGG_REGISTER_TOKENS
     token_key: str | None = None
-    image_key: str | None = None
-    singleton_tokens: bool = False
     compute_dtype: DTypeLike = jnp.float32
-    cnn_depth: int = 16
-    cnn_kernel: int = 5
-    cnn_mults: tuple[int, ...] = (2, 3, 4, 4)
 
     def _model_dim(self) -> int:
         """Return the residual token width after the optional input projection."""
@@ -193,22 +176,19 @@ class TokenTransformerEncoder(nn.Module):
         if self.activation not in ("gelu", "silu"):
             raise ValueError(f"unknown activation {self.activation!r}")
 
-    def _extract_image_and_tokens(
-        self, obs: EncoderObs
-    ) -> tuple[jax.Array | None, jax.Array]:
-        """Resolve image and token tensors from either a dict or direct tensor input."""
+    def _extract_tokens(self, obs: EncoderObs) -> jax.Array:
+        """Resolve the token tensor from either a dict or direct tensor input."""
         if self.token_key is None:
             if isinstance(obs, Mapping):
                 if "features" not in obs:
                     raise TypeError(
                         "token_key=None expects obs to be a token tensor or contain 'features'"
                     )
-                return None, obs["features"]
-            return None, obs
+                return obs["features"]
+            return obs
         if not isinstance(obs, Mapping):
             raise TypeError("token_key requires obs to be a mapping")
-        image = None if self.image_key is None else obs[self.image_key]
-        return image, obs[self.token_key]
+        return obs[self.token_key]
 
     def _reshape_tokens(self, tokens: jax.Array) -> tuple[jax.Array, tuple[int, ...]]:
         """Convert supported token layouts to ``(N, num_tokens, token_dim)``."""
@@ -227,10 +207,6 @@ class TokenTransformerEncoder(nn.Module):
                 "expected tokens with shape "
                 f"(..., {self.num_tokens}, {self.token_dim}) or "
                 f"(..., {self.num_tokens * self.token_dim}); got {tokens.shape}"
-            )
-        if self.singleton_tokens and tokens.shape[0] != 1:
-            raise ValueError(
-                f"singleton_tokens expects one token context, got batch {tokens.shape[0]}"
             )
         return tokens, leading_shape
 
@@ -295,43 +271,37 @@ class TokenTransformerEncoder(nn.Module):
         )
         return restore_leading(encoded, leading_shape)
 
-    def _branches(
-        self, obs: EncoderObs, *, train: bool = False
-    ) -> tuple[jax.Array, jax.Array]:
-        """Return ``(cnn_embed, token_embed)`` for RGB+token configurations."""
-        image, tokens = self._extract_image_and_tokens(obs)
-        if image is None:
-            raise ValueError("branches() requires image_key to be configured")
-        cnn_embed = make_rgb_conv_encoder(
-            depth=self.cnn_depth,
-            kernel_size=self.cnn_kernel,
-            mults=self.cnn_mults,
-            name="rgb_cnn",
-        )(image)
-        token_embed = self._encode_tokens(tokens, train=train)
-        if self.singleton_tokens:
-            token_embed = jnp.broadcast_to(
-                token_embed, (*cnn_embed.shape[:-1], self.embed_dim)
-            )
-        elif token_embed.shape[:-1] != cnn_embed.shape[:-1]:
-            raise ValueError(
-                "token leading dims must match image leading dims unless singleton_tokens=True: "
-                f"token {token_embed.shape[:-1]}, image {cnn_embed.shape[:-1]}"
-            )
-        return cnn_embed, token_embed
-
     @nn.compact
     def __call__(self, obs: EncoderObs, *, train: bool = False) -> jax.Array:
-        """Encode token-only or RGB+token observations."""
-        image, tokens = self._extract_image_and_tokens(obs)
-        if image is None:
-            return self._encode_tokens(tokens, train=train)
-        cnn_embed, token_embed = self._branches(obs, train=train)
-        return jnp.concatenate([cnn_embed, token_embed], axis=-1)
+        """Encode a token observation into ``(..., embed_dim)``."""
+        return self._encode_tokens(self._extract_tokens(obs), train=train)
+
+
+class TokenSequenceEncoder(nn.Module):
+    """Transformer branch over per-step ``(..., num_tokens, token_dim)`` fields.
+
+    ``TokenTransformerEncoder`` accepts one batch dim at most, so the ``(B, T)``
+    leading dims are folded into the batch and restored afterwards.
+    """
+
+    num_tokens: int
+    token_dim: int
+    embed_dim: int = 1024
+    layers: int = 2
+    heads: int = 8
+    compute_dtype: DTypeLike = jnp.bfloat16
 
     @nn.compact
-    def branches(
-        self, obs: EncoderObs, *, train: bool = False
-    ) -> tuple[jax.Array, jax.Array]:
-        """Diagnostic split for RGB+token observations."""
-        return self._branches(obs, train=train)
+    def __call__(self, tokens: jnp.ndarray) -> jnp.ndarray:
+        """Encode a token sequence into ``(*leading, embed_dim)``."""
+        x, leading = flatten_event(tokens, event_ndims=2)
+        embed = TokenTransformerEncoder(
+            embed_dim=self.embed_dim,
+            token_dim=self.token_dim,
+            num_tokens=self.num_tokens,
+            layers=self.layers,
+            heads=self.heads,
+            compute_dtype=self.compute_dtype,
+            name="token_transformer",
+        )(x)
+        return restore_leading(embed, leading)

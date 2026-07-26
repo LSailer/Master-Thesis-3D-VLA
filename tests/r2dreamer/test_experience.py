@@ -1,11 +1,19 @@
-"""Tests for src/r2dreamer/experience.py — the ExperienceCollector (ADR 0006)."""
+"""Tests for src/r2dreamer/experience.py — the ExperienceCollector (ADR 0006).
+
+The collector takes a plain ``AdapterFn`` (``frame -> AdapterOutput``), so these
+tests drive it with the real ``RgbAdapter`` — no VGGT, no frozen weights — and a
+scripted env. Anything the collector no longer owns (replay augmentation, the
+adapter's episode hooks, growth history) is gone from here: the adapter routes
+its own fields, and end-of-run diagnostics arrive as a constructor callable.
+"""
 
 import numpy as np
 import pytest
 
+from src.adapters.contract import Encoder, routing_from_batch
+from src.adapters.rgb import RgbAdapter
 from src.buffer.replay_buffer import ReplayBuffer
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.experience import AgentStep, ExperienceCollector
 
 NUM_ACTIONS = 4
@@ -60,24 +68,30 @@ class _WrongActionEnv(_ScriptedEnv):
         )
 
 
-class _SpyAdapter(ObsAdapter):
-    """Default adapter plus call recording for scene hooks and augmentation."""
+class _SpyAdapter(RgbAdapter):
+    """The real RGB adapter plus a record of every frame it was handed.
+
+    The collector calls the adapter on reset frames too (so per-episode adapter
+    state reacts to the boundary), which is what these tests assert on.
+    """
 
     def __init__(self):
-        super().__init__()
-        self.scenes: list[str] = []
-        self.augment_calls = 0
-        self.on_episode_reset = self.scenes.append
+        self.frames: list[ObservationFrame] = []
 
-    def augment_replay_batch(self, batch):
-        self.augment_calls += 1
-        return batch
+    @property
+    def scenes(self) -> list[str]:
+        """Scene id of every reset frame the adapter saw, in order."""
+        return [frame.scene_id for frame in self.frames if frame.is_first]
+
+    def __call__(self, frame: ObservationFrame):
+        self.frames.append(frame)
+        return super().__call__(frame)
 
 
-def _collector(env=None, adapter=None, *, capacity=32, buffer=True, **kwargs):
+def _collector(env=None, observe=None, *, capacity=32, buffer=True, **kwargs):
     return ExperienceCollector(
         env=env if env is not None else _ScriptedEnv(),
-        adapter=adapter if adapter is not None else _SpyAdapter(),
+        observe=observe if observe is not None else _SpyAdapter(),
         num_actions=NUM_ACTIONS,
         buffer=(
             ReplayBuffer(capacity=capacity, num_actions=NUM_ACTIONS)
@@ -116,11 +130,35 @@ class TestRecording:
         assert result.reward == 1.0
 
 
+class TestRouting:
+    def test_reset_fields_exposes_the_adapter_routing_before_any_step(self):
+        # The composition root builds the agent from this, so it must come back
+        # from a plain reset with no env stepping and no recorded transition.
+        collector = _collector()
+
+        fields = collector.reset_fields()
+
+        assert [(f.key, f.encoder, f.buffer) for f in fields] == [
+            ("image", Encoder.CONV, True)
+        ]
+        assert collector.buffer_size == 0
+
+    def test_recorded_transitions_carry_the_routing_into_the_batch(self):
+        collector = _collector()
+        collector.reset()
+        for _ in range(4):
+            collector.step(0)
+
+        batch = collector.sample(batch_size=2, seq_len=2)
+
+        assert routing_from_batch(batch) == {"image": Encoder.CONV}
+        assert set(batch.obs) == {"image"}
+
+
 class TestAutoReset:
     def test_done_returns_summary_and_new_episode_first_step(self):
         env = _ScriptedEnv(done_every=2)
-        adapter = _SpyAdapter()
-        collector = _collector(env=env, adapter=adapter)
+        collector = _collector(env=env)
         collector.reset()
 
         collector.step(0)
@@ -134,15 +172,16 @@ class TestAutoReset:
         assert result.agent_step.is_first is True
         assert env.reset_calls == 2
 
-    def test_scene_hook_fires_on_every_reset(self):
+    def test_adapter_sees_the_reset_frame_of_every_episode(self):
         env = _ScriptedEnv(done_every=1, scene_id="scene-x")
-        adapter = _SpyAdapter()
-        collector = _collector(env=env, adapter=adapter)
+        observe = _SpyAdapter()
+        collector = _collector(env=env, observe=observe)
 
         collector.reset()
         collector.step(0)
 
-        assert adapter.scenes == ["scene-x", "scene-x"]
+        # One reset at entry, one for the auto-reset after done.
+        assert observe.scenes == ["scene-x", "scene-x"]
 
     def test_accumulators_reset_between_episodes(self):
         collector = _collector(env=_ScriptedEnv(done_every=3))
@@ -249,17 +288,16 @@ class TestNoAutoReset:
 
 
 class TestSample:
-    def test_sample_returns_augmented_batch(self):
-        adapter = _SpyAdapter()
-        collector = _collector(adapter=adapter)
+    def test_sample_returns_a_batch_with_the_requested_shape(self):
+        collector = _collector()
         collector.reset()
         for _ in range(6):
             collector.step(0)
 
         batch = collector.sample(batch_size=2, seq_len=2)
 
-        assert adapter.augment_calls == 1
         assert batch.rewards.shape == (2, 2)
+        assert batch.obs["image"].shape == (2, 2, 64, 64, 3)
 
     def test_sample_without_buffer_raises(self):
         collector = _collector(buffer=False)
@@ -345,18 +383,14 @@ class TestLifecycle:
         collector.close()
         assert env.closed is True
 
-    def test_diagnostics_and_growth_delegate_to_adapter(self):
-        class _DiagAdapter(_SpyAdapter):
-            def diagnostics(self):
-                return {"house_buffer/points": 7.0}
-
-            @property
-            def growth_history(self):
-                return [(10, 100)]
-
-        collector = _collector(adapter=_DiagAdapter(), buffer=False)
+    def test_diagnostics_come_from_the_wired_callable(self):
+        collector = _collector(
+            buffer=False, diagnostics_fn=lambda: {"house_buffer/points": 7.0}
+        )
         assert collector.diagnostics() == {"house_buffer/points": 7.0}
-        assert collector.growth_history == [(10, 100)]
+
+    def test_diagnostics_are_empty_when_unwired(self):
+        assert _collector(buffer=False).diagnostics() == {}
 
     def test_reset_returns_agent_step(self):
         collector = _collector()

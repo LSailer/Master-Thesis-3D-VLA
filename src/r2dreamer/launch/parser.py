@@ -3,7 +3,6 @@
 import argparse
 
 from src.configs.config import LATENT_PRESETS
-from src.r2dreamer.encoder_types import EVAL_ENCODER_TYPES
 
 
 def _str2bool(value: str | bool) -> bool:
@@ -35,6 +34,8 @@ def _str2bool(value: str | bool) -> bool:
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
+    # None, not a literal default: a preset launch supplies its own run
+    # directory as a kwarg, and a defaulted flag would always shadow it.
     p.add_argument("--output_dir", type=str, default=None)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log_every", type=int, default=250)
@@ -68,19 +69,20 @@ def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--render_resolution",
         type=int,
-        default=518,
-        help="Render resolution for VGGT encoder",
+        default=None,
+        help="Override the env render resolution. None lets the adapter decide "
+        "(RENDER_RESOLUTION: 518 for the VGGT arms, 64 for the RGB baseline). "
+        "A hard default here would shadow every adapter's own declaration.",
     )
     p.add_argument(
         "--mlp_layers",
         type=int,
         default=None,
-        help="Depth of the VGGT MLP encoders (wp_cp + aggregator): number "
-        "of hidden Dense->RMSNorm->SiLU blocks before the linear readout. "
-        "None keeps the config default (1). The experiment runs pass 3 to "
-        "match R2Dreamer's native encoder.mlp.layers (3D-52). Only valid "
-        "for VGGT MLP encoders; CNN/dense-WP conv encoders require the "
-        "default value (1).",
+        help="Depth of the composite encoder's MLP branch: number of hidden "
+        "Dense->RMSNorm->SiLU blocks before the linear readout. None keeps "
+        "the branch default (1). The experiment runs pass 3 to match "
+        "R2Dreamer's native encoder.mlp.layers (3D-52). Only affects "
+        "variants that route a field to the MLP branch.",
     )
 
 
@@ -280,68 +282,9 @@ def _add_latent_decoder_train_args(p: argparse.ArgumentParser) -> None:
         default=None,
         help="Override cfg.scale_decoder (decoder-only reconstruction weight).",
     )
-    # --- Hybrid VGGT-branch MLP knobs ---
-    p.add_argument(
-        "--mlp_vggt_hidden",
-        type=int,
-        default=None,
-        help="Override cfg.mlp_vggt_hidden (hybrid WP/CP MLP width).",
-    )
-    p.add_argument(
-        "--mlp_vggt_layers",
-        type=int,
-        default=None,
-        help="Override cfg.mlp_vggt_layers (hybrid WP/CP MLP depth).",
-    )
-    p.add_argument(
-        "--house_point_norm",
-        type=str,
-        default=None,
-        choices=["symlog", "none"],
-        help="Override cfg.house_point_norm: house-branch metric XYZ "
-        "normalization for MLP/Hybrid house-points encoders.",
-    )
 
 
-def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument(
-        "--vggt_token_transformer_layers",
-        type=int,
-        default=None,
-        help="Override cfg.vggt_token_transformer_layers for "
-        "vggt_agg_token_transformer.",
-    )
-    p.add_argument(
-        "--vggt_token_transformer_heads",
-        type=int,
-        default=None,
-        help="Override cfg.vggt_token_transformer_heads for "
-        "vggt_agg_token_transformer.",
-    )
-    p.add_argument(
-        "--vggt_token_projection_dim",
-        type=int,
-        default=None,
-        help="Override cfg.vggt_token_projection_dim before token attention.",
-    )
-    p.add_argument(
-        "--vggt_token_transformer_mlp_ratio",
-        type=int,
-        default=None,
-        help="Override cfg.vggt_token_transformer_mlp_ratio.",
-    )
-    p.add_argument(
-        "--vggt_token_transformer_dropout",
-        type=float,
-        default=None,
-        help="Override cfg.vggt_token_transformer_dropout. Default 0.0.",
-    )
-    p.add_argument(
-        "--vggt_drop_register_tokens",
-        action="store_true",
-        help="Drop the 4 VGGT register tokens in the token Transformer "
-        "ablation. Default keeps registers for 3D-75.",
-    )
+def _add_precision_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--compute_dtype",
         choices=["float32", "bfloat16", "bf16", "float16", "fp16"],
@@ -363,41 +306,23 @@ def _add_token_transformer_train_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_house_context_train_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument(
-        "--static_house_context_path",
-        "--static-house-context-path",
-        type=str,
-        default=None,
-        help="ASCII XYZRGB PLY path for deterministic static vggt_house_context "
-        "prototype. Default keeps the live VGGT house-context readout.",
-    )
-    p.add_argument(
-        "--static_house_points_path",
-        "--static-house-points-path",
-        type=str,
-        default=None,
-        help="ASCII XYZRGB PLY path for vggt_house_points_pose. Replay stores "
-        "only camera_pose; the complete point cloud stays as a static sidecar.",
-    )
-    p.add_argument(
-        "--pointcloud_dump_every",
-        type=int,
-        default=0,
-        help="For vggt_house_global_embedding: write a PLY point-cloud snapshot "
-        "every N env steps (diagnostics only; the point head runs only on dump "
-        "steps, never for training). 0 disables the feature. An extra snapshot "
-        "is written at the end of the first episode when N > 0.",
-    )
+def _add_adapter_train_args(p: argparse.ArgumentParser) -> None:
+    """Knobs a single adapter variant consumes (its ``RUN_FLAGS`` claim it).
+
+    These reach no config: an unclaimed one would be a flag the run ignores, so
+    ``src.main.make_adapter`` rejects it rather than starting the job. Default
+    ``None`` throughout, because that is how "unset" is recognized there.
+    """
     p.add_argument(
         "--pointcloud_dump_steps",
         type=str,
         default=None,
-        help="For vggt_house_points_pose*: comma-separated env steps (e.g. "
-        "'500000,1000000') at which every live house-context buffer is saved "
-        "as a binary PLY under <output_dir>/pointcloud_dumps/step_<N>/<scene>/. "
-        "An extra snapshot is written at the end of the first episode. "
-        "Diagnostics only; unset disables.",
+        help="For rgb_house_voxels*: comma-separated adapter steps (e.g. "
+        "'500000,1000000') at which every non-empty house map is saved as a "
+        "binary PLY under <output_dir>/pointcloud_dumps/step_<N>/<scene>/. An "
+        "extra snapshot is written at the end of the first episode. Comma "
+        "string rather than a list because the SLURM launcher renders scalars "
+        "only. Diagnostics; unset disables.",
     )
 
 
@@ -405,13 +330,13 @@ def _build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
     _add_basic_train_args(p)
+    _add_adapter_train_args(p)
     _add_val_train_args(p)
     _add_resume_video_train_args(p)
     _add_overfit_train_args(p)
     _add_loss_override_train_args(p)
     _add_latent_decoder_train_args(p)
-    _add_token_transformer_train_args(p)
-    _add_house_context_train_args(p)
+    _add_precision_train_args(p)
     return p
 
 
@@ -419,12 +344,6 @@ def _build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)
-    p.add_argument(
-        "--encoder",
-        type=str,
-        default=None,
-        choices=EVAL_ENCODER_TYPES,
-    )
     p.add_argument(
         "--random", action="store_true", help="Use random agent instead of a checkpoint"
     )

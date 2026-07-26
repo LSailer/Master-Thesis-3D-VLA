@@ -48,7 +48,14 @@ def kl_loss(post_logits, prior_logits, stoch_classes, stoch_discrete, kl_free):
 
 
 def world_model_loss(
-    *, forward: WorldModelForward, params, batch, modules, cfg, twohot
+    *,
+    forward: WorldModelForward,
+    params,
+    batch,
+    modules,
+    cfg,
+    twohot,
+    decoder_rgb_key: str | None = None,
 ) -> LossResult:
     """KL + reward + continue losses, plus latent diagnostics.
 
@@ -59,6 +66,9 @@ def world_model_loss(
         modules: dict of Flax modules (uses `reward`, `cont`).
         cfg: R2DreamerConfig (uses `stoch_classes`, `stoch_discrete`, `kl_free`).
         twohot: R2TwoHotDist for the reward head.
+        decoder_rgb_key: Replay key the decoder probe reconstructs (the
+            adapter's `decoder_target` field). Only read when `cfg.decoder`
+            is set.
 
     Returns:
         (losses, metrics) — losses has keys {dyn, rep, rew, con}; metrics
@@ -102,11 +112,16 @@ def world_model_loss(
     # agent loss/metrics stay comparable to decoder-free runs; see agent.py for
     # the auxiliary opt loss that keeps the probe itself learning.
     if cfg.decoder:
+        if decoder_rgb_key is None:
+            raise ValueError(
+                "cfg.decoder is set but no decoder_rgb_key was passed - the "
+                "adapter's decoder_target field never reached the loss"
+            )
         decoder_feat = jax.lax.stop_gradient(feat_flat)
         recon = modules["decoder"].apply(
             params["decoder"], decoder_feat
         )  # (BT,3,64,64)
-        rgb_target = decoder_rgb_target(batch, cfg.encoder_type)
+        rgb_target = decoder_rgb_target(batch, decoder_rgb_key)
         losses["decoder"] = jnp.mean((recon - rgb_target) ** 2)
         metrics["decoder/recon_mse"] = losses["decoder"]
 

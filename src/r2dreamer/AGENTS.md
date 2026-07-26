@@ -10,36 +10,50 @@ and Crafter. This package contains the library code; runnable drivers live in
 
 ## Where to look
 
-- `agent.py`: composition root; params, optimiser, slow critic, JIT `train_step()`/`act()`.
-- `config.py`: `R2DreamerConfig`, size presets, hyperparameters.
-- `trainer.py`: env loop, prefill, replay conversion, logging, checkpoints.
-- `world_model/`: RSSM, encoders, heads, world-model loss.
+- `agent.py`: params, optimiser, slow critic, JIT `train_step()`/`act()`.
+  The composition root itself is `src/main.py`.
+- `src/configs/agent_config.py`: `R2DreamerConfig`, size presets, hyperparameters.
+- `world_model/`: RSSM, prediction heads, world-model loss, `rssm_factory.py`.
 - `behavior/`: imagination, lambda returns, actor/critic losses.
 - `representation/`: Barlow Twins + replay-value losses.
-- `adapters/`: env observation to replay/agent bridge.
-- `observation_preparation/`: encoder-input contracts and VGGT readouts.
-- `launch/`: train/evaluate entrypoints, parser, registries, Habitat factory.
+- `encoders/`: the Flax branch modules; `routed_composite.py` composes one
+  branch per routed adapter field.
+- `experience.py`: env loop -> adapter -> replay collector.
+- `launch/`: argparse surface, training/eval loops, Habitat eval driver.
+- `src/adapters/`: per-variant observation adapters; each field declares its
+  encoder branch, whether it is replayed, and whether it is the decoder target.
 
 ## Contracts
 
-- **Config-first:** `R2DreamerConfig` is the source of truth; CLI flags override it.
-- **Observation layout:** RGB is CHW and normalized in `ConvEncoder`; VGGT/hybrid values
-  are metric/features and must not be `/255` normalized.
+- **Routing, not strings:** the architecture comes from one live adapter call
+  (`AdapterField.encoder`), never from a config string. `R2DreamerConfig.adapter`
+  is provenance only.
+- **Config-first:** `R2DreamerConfig` owns everything else; CLI flags override it.
+- **Observation layout:** images are HWC and normalized inside `ConvEncoder`;
+  metric/feature fields must not be `/255` normalized.
 - **Params:** plain dict pytree keyed by module groups (`encoder`, `rssm`, `actor`, etc.).
 - **JIT/PRNG:** `train_step` and `act` are JIT-compiled; always split JAX keys explicitly.
-- **Checkpoints:** pickle params/opt/slow critic/EMA/step plus optional
-  `encoder_input_contract` JSON snapshot.
+- **Checkpoints:** pickle params/opt/slow critic/EMA/step only. The encoder is
+  rebuilt from the adapter routing at load time and `_assert_params_match`
+  catches drift.
 - **Episode boundaries:** `is_first` must be truthful; RSSM and `act()` reset on it.
-- **Encoder wiring:** encoder, adapter, replay fields, and `obs_shape` must agree.
 - **KL:** DreamerV3 asymmetric KL; dynamics detaches posterior, representation detaches prior.
 - **Imagination:** RSSM/reward/continue are used under `stop_gradient`; bootstrap from slow critic.
 - **Actions:** replay stores int32; `ReplayBuffer.sample()` one-hots to `(B,T,A)` float.
 
-## Adding encoder/input modes
+## Adding an encoder/input mode
 
-Implement the encoder/spec in `encoders/__init__.py`, register it in
-`launch/registries.py`, add the run preset in `scripts/r2dreamer/_run_configs.py`,
-and cover it in `tests/r2dreamer/launch/test_presets.py`.
+Add the adapter in `src/adapters/`, register it in `src/adapters/__init__.py`
+(`ADAPTERS`), and route each field to an `Encoder` member. A branch that does
+not exist yet goes in `encoders/` and is wired into
+`encoders/routed_composite.py`. `tests/adapters/` covers every registered
+variant automatically. To make it launchable, add a run preset in
+`scripts/r2dreamer/_run_configs.py` and a `scripts/slurm/configs/*.yaml`
+pointing at that run id.
+
+A variant that differs only in a constant (a coarser reduction, another cloud
+branch, no appearance channel) is a subclass overriding that constant, not a
+copy of the pipeline.
 
 ## Running/testing
 

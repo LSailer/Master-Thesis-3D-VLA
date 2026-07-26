@@ -1,0 +1,45 @@
+extends: _base
+job_name: pointmap-dense-l1
+output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-dense
+run_id: habitat-l1-pointmap-dense
+curriculum_check: data/curriculum/level1_1house_1goal.json
+setup:
+  - scripts/slurm/hooks/link_external.sh
+comments:
+  - "L1 geometry-only arm (3D-53): the unpooled 518x518x3 VGGT point map goes straight into a conv branch (Encoder.CONV_POINTS, symlog input transform), so the geometry keeps its spatial structure instead of being flattened. No pooling, no camera pose, no RGB field - hence no decoder target."
+  - "Compare against pointmap_pose_l1 (same geometry, pooled to a vector) to separate the reduction from the modality."
+  - "buffer_capacity is capped deliberately: a row is 518*518*3 float16 = 1.6 MB and the replay buffer preallocates capacity rows, so 5000 rows are already ~8 GB host RAM. batch_size/seq_len/train_ratio are lowered to match - a default 16x64 batch of these rows would be 1.6 GB per gradient step."
+sbatch:
+  # ~8 GB obs buffer plus habitat and the JAX host side; bump for headroom.
+  mem: 96G
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  buffer_capacity: 5000
+  batch_size: 4
+  seq_len: 32
+  train_ratio: 128
+  output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-dense/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: l1_pointmap_dense-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-dense,full-res-518,conv-points,geometry-only,3d-53,jax,3d-encoder
+  render_resolution: 518
+  video_log_every: 0
+  val_every: 0
+smoke:
+  time: "00:20:00"
+  args:
+    steps: 800
+    prefill: 200
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    buffer_capacity: 500
+    log_every: 50
+    checkpoint_every: 10000
+    output_dir: output/smoke/pointmap-dense-${TIMESTAMP}
+    wandb_name: pointmap-dense-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-dense,full-res-518,conv-points,geometry-only,smoke

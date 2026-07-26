@@ -15,10 +15,11 @@ import jax
 import numpy as np
 import pytest
 
+from src.adapters import ADAPTERS
+from src.adapters.contract import encoder_obs_from_fields
 from src.configs.config import R2DreamerConfig
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.encoders import CNNEncoder
 
 HAS_HABITAT = importlib.util.find_spec("habitat_sim") is not None
 RUN_PARITY = os.environ.get("RUN_HABITAT_ACT_STATE_PARITY") == "1"
@@ -36,7 +37,7 @@ pytestmark = [
 
 def _small_agent_config() -> R2DreamerConfig:
     return R2DreamerConfig(
-        obs_shape=(64, 64, 3),
+        adapter="rgb",
         num_actions=4,
         deter_size=32,
         hidden_size=16,
@@ -78,14 +79,14 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
         except (FileNotFoundError, OSError, RuntimeError, AssertionError) as exc:
             pytest.skip(f"Habitat dataset/scene unavailable: {exc}")
 
-        adapter = CNNEncoder().make_adapter()
+        observe = ADAPTERS["rgb"]()
         cfg = _small_agent_config()
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
-        state = agent.initial_act_state()
         obs = env.reset()
-        prepared = adapter.prepare_env_step(obs)
-        encoder_obs = prepared.encoder_obs
-        is_first = prepared.is_first
+        fields = observe(obs)
+        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7), fields=fields)
+        state = agent.initial_act_state()
+        encoder_obs = encoder_obs_from_fields(fields)
+        is_first = obs.is_first
         rng = jax.random.PRNGKey(11)
         forced_reset_checked = False
 
@@ -111,9 +112,8 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
             obs = env.step(mutable_action)
             if obs.done:
                 break
-            prepared = adapter.prepare_env_step(obs)
-            encoder_obs = prepared.encoder_obs
-            is_first = prepared.is_first
+            encoder_obs = encoder_obs_from_fields(observe(obs))
+            is_first = obs.is_first
 
         assert forced_reset_checked
     finally:

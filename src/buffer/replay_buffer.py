@@ -27,7 +27,6 @@ from src.environments.observation import ObservationFrame
 ReplayObservationBatch: TypeAlias = jax.Array | dict[str, jax.Array]
 ObservationLeaf: TypeAlias = jnp.ndarray | np.ndarray
 
-
 @dataclass
 class HybridObservation:
     """Hybrid image plus compact world-point observation for one transition.
@@ -62,6 +61,18 @@ class ReplayTransition:
             batches also mark the first transition in every sampled window as
             ``True``.
         is_episode_end: Whether this transition ended an episode.
+        encoders: Optional ``field -> encoder id`` routing for mapping
+            observations. Opaque ints so the buffer stays decoupled from any
+            encoder registry; the buffer treats this as schema — locked in by
+            the first added transition and required to stay identical after.
+            It exists for that guard: no consumer builds a model from it (the
+            encoder is composed from the adapter's live fields in
+            ``R2DreamerAgent.__init__``), it is what lets ``add`` refuse rows
+            whose routing changed mid-run instead of silently mixing them.
+        global_feature: Optional live, batch-wide feature (e.g. the current
+            house-context map). The buffer keeps only the latest value across
+            all adds — one element, not a per-step series — and returns it on
+            every sampled batch.
     """
 
     obs: ObservationInput
@@ -69,18 +80,26 @@ class ReplayTransition:
     reward: float | np.floating
     is_first: bool | np.bool_
     is_episode_end: bool | np.bool_
+    encoders: Mapping[str, int] | None = struct.field(
+        pytree_node=False, default=None
+    )
+    global_feature: ObservationLeaf | None = None
 
     @classmethod
     def from_frame(
         cls,
         obs: ObservationInput,
         frame: ObservationFrame,
+        encoders: Mapping[str, int] | None = None,
+        global_feature: ObservationLeaf | None = None,
     ) -> "ReplayTransition":
         """Build one transition from prepared replay observation and env frame.
 
         Args:
             obs: Replay observation prepared for ``frame``.
             frame: Environment observation frame returned by ``env.step``.
+            encoders: Optional ``field -> encoder id`` routing for ``obs``.
+            global_feature: Optional live batch-wide feature for this step.
 
         Returns:
             A replay transition whose scalar fields come from ``frame``.
@@ -96,6 +115,8 @@ class ReplayTransition:
             reward=frame.reward,
             is_first=frame.is_first,
             is_episode_end=frame.is_episode_end,
+            encoders=encoders,
+            global_feature=global_feature,
         )
 
 
@@ -116,12 +137,15 @@ class ReplayBatch:
             episode ends.
         is_episode_end: Episode-end flags returned with the stored observations
             as configured floating arrays of shape ``(B, T)``.
-        global_feature: Batch-wide feature array attached *after* sampling
-            via :meth:`change_global_feature` (e.g. the live house-context map
-            in ``live_house_context`` mode). Unlike the replay fields it has
-            no ``(B, T)`` prefix — one array is shared by every sequence in
-            the batch. The buffer itself never stores or fills it; ``sample``
-            always returns ``None``.
+        global_feature: Live, batch-wide feature (e.g. the current
+            house-context map). Unlike the replay fields it has no ``(B, T)``
+            prefix — one array is shared by every sequence in the batch. The
+            buffer fills it with the latest value carried by an added
+            transition (``None`` when no transition carried one); callers can
+            still swap it after sampling via ``batch.replace(...)``.
+        encoders: ``field -> encoder id`` routing captured from the first
+            added transition (``None`` when transitions carried none). Static
+            metadata, not a pytree leaf.
     """
 
     obs: ReplayObservationBatch
@@ -130,23 +154,9 @@ class ReplayBatch:
     is_first: jax.Array
     is_episode_end: jax.Array
     global_feature: jax.Array | None = None
-
-    def change_global_feature(self, value: jax.Array):
-        """Change the batch's global feature in place to ``value``.
-
-        Use this for a live, batch-wide array that is computed outside the
-        replay buffer (e.g. the house-context map). The value is stored as
-        given — the caller is responsible for device placement and dtype.
-
-        Args:
-            value: Feature array; replaces any previously set global feature.
-
-        Raises:
-            dataclasses.FrozenInstanceError: Always, as long as
-                ``ReplayBatch`` is a frozen ``flax.struct`` dataclass —
-                in-place assignment is blocked by the class decorator.
-        """
-        self.global_feature = value
+    encoders: Mapping[str, int] | None = struct.field(
+        pytree_node=False, default=None
+    )
 
 
 ReplayTransitionBatch: TypeAlias = list[list[ReplayTransition]]
@@ -185,6 +195,8 @@ class ReplayBuffer:
         self.size = 0
         self._obs_kind: str | None = None  # "array" | "hybrid" | "mapping"
         self._obs_store: dict[str, np.ndarray] = {}
+        self._encoders: dict[str, int] | None = None
+        self._global_feature: ObservationLeaf | None = None
         self._actions = np.zeros(capacity, dtype=np.int32)
         self._rewards = np.zeros(capacity, dtype=np.float32)
         self._is_first = np.zeros(capacity, dtype=np.bool_)
@@ -257,6 +269,21 @@ class ReplayBuffer:
         """
         kind, fields = self._split_observation(replay_transition.obs)
         self._ensure_store(kind, fields)
+        if replay_transition.encoders is not None:
+            incoming = dict(replay_transition.encoders)
+            if self._encoders is None:
+                self._encoders = incoming
+            elif incoming != self._encoders:
+                raise ValueError(
+                    "encoder routing changed between added transitions: "
+                    f"stored={self._encoders}, got={incoming}"
+                )
+        if replay_transition.global_feature is not None:
+            # Latest wins: one live element, not a per-step series. Stored as
+            # the caller's (immutable) array reference — no host copy; a
+            # growing device-resident feature would otherwise pay an O(N)
+            # device-to-host transfer on every add.
+            self._global_feature = replay_transition.global_feature
         for key, value in fields.items():
             self._obs_store[key][self.idx] = value
         self._actions[self.idx] = int(replay_transition.action)
@@ -312,6 +339,12 @@ class ReplayBuffer:
             rewards=payload["rewards"].astype(self.float_dtype),
             is_first=payload["is_first"].astype(self.float_dtype),
             is_episode_end=payload["is_episode_end"].astype(self.float_dtype),
+            global_feature=(
+                None
+                if self._global_feature is None
+                else jax.device_put(self._global_feature)
+            ),
+            encoders=self._encoders,
         )
 
     def sample_transitions(

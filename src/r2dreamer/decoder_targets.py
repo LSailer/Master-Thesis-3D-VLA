@@ -1,13 +1,12 @@
 """Decoder target preparation for auxiliary reconstruction losses."""
 
-from collections.abc import Mapping
 from typing import Any
 
 import jax.numpy as jnp
 
 from src.buffer.replay_buffer import ReplayBatch
-from src.r2dreamer.encoder_types import COMPOSITE_RGB_ENCODER_TYPES
-from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY
+
+RGB_SHAPE = (64, 64, 3)
 
 
 def _normalize_image_obs(image: Any) -> jnp.ndarray:
@@ -24,19 +23,18 @@ def replay_batch_shape(batch: ReplayBatch) -> tuple[int, int]:
     return int(actions.shape[0]), int(actions.shape[1])
 
 
-def decoder_rgb_target(batch: ReplayBatch, encoder_type: str) -> jnp.ndarray:
-    """Return decoder RGB targets as ``(B*T, 64, 64, 3)`` in ``[0, 1]``."""
-    obs = batch.obs
+def decoder_rgb_target(batch: ReplayBatch, rgb_key: str) -> jnp.ndarray:
+    """Return decoder RGB targets as ``(B*T, 64, 64, 3)`` in ``[0, 1]``.
+
+    Args:
+        batch: Sampled replay batch. Routed adapters always store their fields
+            under explicit keys, so ``batch.obs`` is a mapping.
+        rgb_key: Replay key of the field the adapter flagged as the decoder
+            target.
+
+    Returns:
+        Normalized RGB targets flattened over batch and time.
+    """
     batch_size, time_steps = replay_batch_shape(batch)
-    if encoder_type in COMPOSITE_RGB_ENCODER_TYPES:
-        if isinstance(obs, Mapping):
-            image = _normalize_image_obs(obs[HYBRID_IMAGE_KEY])
-            return image.reshape(batch_size * time_steps, 64, 64, 3)
-        rgb_dim = 64 * 64 * 3
-        return (
-            jnp.asarray(obs, dtype=jnp.float32)
-            .reshape(batch_size * time_steps, -1)[:, :rgb_dim]
-            .reshape(batch_size * time_steps, 64, 64, 3)
-        )
-    image = obs[HYBRID_IMAGE_KEY] if isinstance(obs, Mapping) else obs
-    return _normalize_image_obs(image).reshape(batch_size * time_steps, 64, 64, 3)
+    flat = batch_size * time_steps
+    return _normalize_image_obs(batch.obs[rgb_key]).reshape(flat, *RGB_SHAPE)

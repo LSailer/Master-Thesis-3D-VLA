@@ -4,12 +4,15 @@ Runs uniform-random actions on curriculum eval episodes and saves
 per-episode CSV + aggregate JSON for comparison against trained agents.
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import json
 import os
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -20,6 +23,11 @@ from src.environments.habitat import (
     HabitatObjectNavEnv,
 )
 from src.environments.observation import ObservationFrame
+
+if TYPE_CHECKING:
+    # Type-only: the baseline needs the env *contract*, not the collector stack
+    # that module also carries, so importing it at runtime would buy nothing.
+    from src.r2dreamer.experience import Env
 
 
 def _curriculum_name(curriculum_path: str) -> str:
@@ -37,11 +45,15 @@ def _curriculum_name(curriculum_path: str) -> str:
 
 
 class RandomAgent:
-    """Uniform-random discrete-action agent bound to one environment."""
+    """Uniform-random discrete-action agent bound to one environment.
 
-    def __init__(
-        self, env: HabitatObjectNavEnv, num_actions: int = 4, seed: int = 42
-    ) -> None:
+    The env is held behind the ``Env`` protocol, not the concrete habitat env:
+    the agent draws actions from a uniform distribution and never reads
+    observations, goals or episode metadata, so any discrete-action env can be
+    scored against it - which is what the eval entry point passes in.
+    """
+
+    def __init__(self, env: Env, num_actions: int = 4, seed: int = 42) -> None:
         self.env = env
         self.num_actions = int(num_actions)
         self._seed = int(seed)
@@ -147,13 +159,19 @@ def _print_summary(
 
 
 def _run_episode(
+    env: HabitatObjectNavEnv,
     agent: RandomAgent,
     max_episode_steps: int,
     ep_idx: int,
 ) -> EpisodeResult:
-    """Roll one uniform-random episode and return its summary metrics."""
-    obs = agent.env.reset()
-    episode = agent.env.current_episode
+    """Roll one uniform-random episode and return its summary metrics.
+
+    The env is passed alongside the agent rather than reached through
+    ``agent.env``: the per-episode CSV row is built from habitat episode
+    metadata, which is this function's requirement, not the agent's.
+    """
+    obs = env.reset()
+    episode = env.current_episode
     scene = episode.scene_id.rsplit("/", maxsplit=1)[-1].replace(".basis.glb", "")
     category = getattr(episode, "object_category", "unknown")
 
@@ -247,7 +265,7 @@ def _write_episode_results(
         writer.writerow(EpisodeResult.csv_header())
 
         for ep_idx in range(num_episodes):
-            result = _run_episode(agent, max_episode_steps, ep_idx)
+            result = _run_episode(env, agent, max_episode_steps, ep_idx)
             writer.writerow(result.to_csv_row())
             all_results.append(result)
 

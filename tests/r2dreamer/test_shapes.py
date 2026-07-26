@@ -229,7 +229,7 @@ class TestConvEncoder:
     def test_output_shape(self, rng):
         cfg = R2DreamerConfig()
         enc = ConvEncoder(depth=cfg.encoder_depth, kernel_size=cfg.encoder_kernel)
-        obs = jnp.zeros((2, *cfg.obs_shape))  # (2, 3, 64, 64)
+        obs = jnp.zeros((2, 64, 64, 3))
         params = enc.init(rng, obs)
         out = enc.apply(params, obs)
         assert out.shape[0] == 2

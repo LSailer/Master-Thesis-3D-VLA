@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from src.adapters.contract import AdapterField, AdapterOutput, Encoder
 from src.buffer.replay_buffer import ReplayBatch
 from src.r2dreamer.agent import R2DreamerAgent
 from src.configs.config import R2DreamerConfig
@@ -21,10 +22,25 @@ from src.configs.config import R2DreamerConfig
 
 pytestmark = pytest.mark.gpu
 
+RGB_KEY = "image"
+
+
+def _rgb_fields() -> AdapterOutput:
+    """The routing of the ``rgb`` adapter: one replayed frame, flagged for the probe."""
+    return [
+        AdapterField(
+            key=RGB_KEY,
+            encoder=Encoder.CONV,
+            buffer=True,
+            value=jnp.zeros((64, 64, 3), jnp.uint8),
+            decoder_target=True,
+        )
+    ]
+
 
 def _decoder_probe_cfg() -> R2DreamerConfig:
     return R2DreamerConfig(
-        obs_shape=(64, 64, 3),
+        adapter="rgb",
         num_actions=4,
         deter_size=32,
         hidden_size=16,
@@ -75,7 +91,7 @@ def _structured_rgb_batch(
     obs = jnp.stack(frames, axis=0).reshape(B, T, 64, 64, 3)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
     return ReplayBatch(
-        obs=obs,
+        obs={RGB_KEY: obs},
         actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         rewards=jnp.zeros((B, T), dtype=jnp.float32),
         is_first=jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
@@ -104,7 +120,7 @@ def _habitat_rgb_batch(
     obs = jnp.asarray(np.stack(resized).reshape(B, T, 64, 64, 3), dtype=jnp.uint8)
     action_ids = jnp.arange(B * T, dtype=jnp.int32).reshape(B, T) % cfg.num_actions
     return ReplayBatch(
-        obs=obs,
+        obs={RGB_KEY: obs},
         actions=jax.nn.one_hot(action_ids, cfg.num_actions, dtype=jnp.float32),
         rewards=jnp.zeros((B, T), dtype=jnp.float32),
         is_first=jnp.zeros((B, T), dtype=jnp.float32).at[:, 0].set(1.0),
@@ -137,7 +153,7 @@ def _run_decoder_overfit_probe(
     artifact_prefix: Path | None = None,
 ) -> tuple[float, float]:
     cfg = _decoder_probe_cfg()
-    agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+    agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0), fields=_rgb_fields())
 
     initial = _recon_mse(agent, batch)
     if artifact_prefix is not None:

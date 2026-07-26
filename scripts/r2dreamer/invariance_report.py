@@ -1,7 +1,9 @@
 """Render the VGGT first-frame invariance findings as a self-contained HTML report.
 
-Pure NumPy / Matplotlib — consumes the .npz artifact produced by
-invariance_extract.py. Used both by the analysis notebook and as a CLI:
+Pure NumPy / Matplotlib — consumes a recorded .npz artifact. The GPU extraction
+job that produced it was retired with the encoder-era vggt adapter, so this
+reports on already-saved artifacts only. Used by the analysis notebook and as a
+CLI:
 
     python scripts/r2dreamer/invariance_report.py \
         --artifact-dir output/analysis/invariance \

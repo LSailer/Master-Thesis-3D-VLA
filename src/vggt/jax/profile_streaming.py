@@ -75,8 +75,10 @@ def _profile_one_frame(
         ]
     if ext._last_scores is None:
         ext._last_scores = jnp.zeros((ext._agg_depth,), dtype=jnp.float32)
-    ls_np = np.asarray(ext._last_scores)
-    budgets_static = ext._compute_static_budgets(ls_np)
+    # Pass the scores straight from device, exactly as ``_resolve_static_budgets``
+    # does. Staging them through numpy first would add a device-to-host round
+    # trip that the real streaming path never pays, inflating this phase timer.
+    budgets_static = ext._compute_static_budgets(ext._last_scores)
     out_list, patch_start_idx, ext._past_kvs_padded, ext._last_scores = (
         ext._aggregator_apply(
             ext._agg_params,

@@ -29,7 +29,10 @@ prefill frame and producing a second, misaligned copy of the house.
 2. `PROBLEMS.md` — open problems + decision log.
 3. `HANDOFF.md` — session-to-session state.
 4. `check_persist_alignment.py` — the cross-episode IoU diagnostic adapted to
-   verify PERSIST (the growth curve alone cannot; see PROTOCOL §3).
+   verify PERSIST (the growth curve alone cannot; see PROTOCOL §3). **Removed
+   in the adapter-routing refactor**: it imported the pre-refactor
+   `src.r2dreamer.encoders.base` and `src.r2dreamer.launch.habitat_setup`,
+   which no longer exist. Its results are recorded in PROTOCOL §7.
 5. Code fix in `src/r2dreamer/trainer.py`, `src/r2dreamer/adapters/obs_adapter.py`,
    `src/r2dreamer/adapters/{vggt_adapter,hybrid_adapter}.py`, with inline
    comments documenting the decision.

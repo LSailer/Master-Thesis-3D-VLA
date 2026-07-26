@@ -47,6 +47,10 @@ from src.vggt.jax.weight_transfer import (  # noqa: E402
 _IMG_SIZE = 518
 _PATCH_GRID = 37
 _PATCH_SIZE = 14
+# Public aliases: adapters declare the env render resolution and the
+# world-point pool side from the model's own geometry rather than repeating it.
+VGGT_IMAGE_SIZE = _IMG_SIZE
+VGGT_PATCH_GRID = _PATCH_GRID
 # Reference default (streamvggt.models.streamvggt.StreamVGGT.__init__).
 _DEFAULT_TOTAL_BUDGET = 1_200_000
 
@@ -461,11 +465,19 @@ class JAXVGGTFeatureExtractor:
         valid_len = jnp.asarray(0, dtype=jnp.int32)
         return (k_pad, v_pad, valid_len)
 
-    def _compute_static_budgets(self, last_scores_np: jnp.ndarray) -> tuple[int, ...]:
-        """Compute dynamic per-block budgets as a tuple of Python ints."""
+    def _compute_static_budgets(self, last_scores: jax.Array) -> tuple[int, ...]:
+        """Compute dynamic per-block budgets as a tuple of Python ints.
+
+        Args:
+          last_scores: ``(agg_depth,)`` device array of per-block attention
+            scores from the previous frame.
+
+        Returns:
+          Per-block token budgets as Python ints, usable as JIT static args.
+        """
         bud = jnp.asarray(
             _calculate_dynamic_budgets(
-                jnp.asarray(last_scores_np, dtype=jnp.float32),
+                jnp.asarray(last_scores, dtype=jnp.float32),
                 self._total_budget,
             )
         )
@@ -992,7 +1004,11 @@ class JAXVGGTFeatureExtractor:
         Raises:
           RuntimeError: If called before any extract().
         """
-        if self._last_out_list is None or self._last_images is None:
+        if (
+            self._last_out_list is None
+            or self._last_images is None
+            or self._last_rgb is None
+        ):
             raise RuntimeError("write_point_cloud_ply called before any extract()")
         pts3d, _ = self._point_head_apply(
             self._pt_params,

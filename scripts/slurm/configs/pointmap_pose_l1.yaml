@@ -1,0 +1,37 @@
+extends: _base
+job_name: pointmap-pose-l1
+output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose
+run_id: habitat-l1-pointmap-pose
+curriculum_check: data/curriculum/level1_1house_1goal.json
+setup:
+  - scripts/slurm/hooks/link_external.sh
+comments:
+  - "L1 geometry-only arm (3D-52): replay stores one vector per step - the 37x37 pooled VGGT point map flattened plus the camera pose (4116 float32) - routed to an MLP branch. No RGB field at all, so this arm is blind to appearance and the decoder probe is unavailable for it."
+  - "Paired with habitat-l1-hybrid (adapter rgb_pointmap_pose), which is the same pipeline plus the image field; the pair isolates what appearance contributes."
+  - "The MLP branch runs at the routed encoder's default depth. --mlp_layers still reaches it (the adapter-routing migration rewired the flag onto the MLP branch); it is simply not swept here."
+args:
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: l1_pointmap_pose-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder
+  render_resolution: 518
+  video_log_every: 0
+  val_every: 0
+smoke:
+  time: "00:20:00"
+  args:
+    steps: 800
+    prefill: 200
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 10000
+    output_dir: output/smoke/pointmap-pose-${TIMESTAMP}
+    wandb_name: pointmap-pose-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,geometry-only,smoke

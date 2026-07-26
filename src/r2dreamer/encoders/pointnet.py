@@ -1,36 +1,17 @@
-"""Classic PointNet house-context encoder for the live house-points-pose pipeline.
+"""PointNet cloud branch and the T-Net alignment network it is built from.
 
-Replaces the house branch of ``HousePointsCameraEncoder`` (per-point MLP +
-one global masked pool) with the vanilla PointNet feature backbone
-(Qi et al., arXiv:1612.00593):
-
-    xyz (n, 3)
-      -> input T-Net (3x3 transform)
-      -> shared MLP (64, 64)             per point: 3 -> 64 -> 64
-      -> feature T-Net (64x64 transform)
-      -> shared MLP (64, 128, 1024)      per point: 64 -> 64 -> 128 -> 1024
-      -> max pool over the n points      -> (1, 1024) global feature
+Follows Qi et al. (arXiv:1612.00593): input/feature T-Nets, shared per-point
+MLPs, max pool. ``PointNetCloudEncoder`` is the branch the routed composite
+encoder instantiates for ``Encoder.POINTNET`` fields.
 
 Adaptations to this codebase:
     - Norms are RMSNorm + SiLU rather than the paper's BatchNorm + ReLU: the
       encoder call has no train flag or mutable batch-stats plumbing, and
-      RMSNorm + SiLU is the repo idiom (same substitution as gnn_house.py).
-    - The fixed-shape snapshot is even-stride subsampled over the valid prefix
-      to ``num_points`` rows (same scheme as the GNN encoder), so every
-      selected point is real and no pool needs a padding mask. Rows repeat
-      when the map is still smaller than ``num_points``, which is harmless
-      under max pooling.
-    - xyz is centered and scale-normalized before the input T-Net (house
-      clouds live in metric world coordinates with arbitrary offsets); the
-      rgb columns of the 6-dim house points are dropped — classic PointNet
-      consumes xyz only.
-    - Both T-Net output layers are zero-kernel/identity-bias initialized, so
-      each transform starts as the identity.
+      RMSNorm + SiLU is the repo idiom.
+    - The output layer is zero-kernel/identity-bias initialized, so the
+      predicted transform starts as the identity.
     - Dense/matmul compute runs in ``compute_dtype`` (default bfloat16, the
-      repo default). Parameters stay float32 (Flax ``param_dtype`` default),
-      and the point centering/scale statistics are computed in float32 before
-      casting down — house clouds live in metric world coordinates whose
-      offsets exceed bfloat16 precision.
+      repo default). Parameters stay float32 (Flax ``param_dtype`` default).
     - The paper's feature-transform orthogonality regularizer is not wired
       into the training losses.
 """
@@ -41,11 +22,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 from jax.typing import DTypeLike
 
-from src.r2dreamer.encoders.mlp import HousePointsCameraEncoder, RMSNorm
-from src.r2dreamer.encoders.shape_utils import (
-    singleton_house_cloud,
-    validate_house_points,
-)
+from src.r2dreamer.encoders.mlp import RMSNorm
 
 
 def _identity_bias(k: int):
@@ -121,57 +98,44 @@ class TNet(nn.Module):
         return transform.reshape(self.k, self.k)
 
 
-class PointNetHousePointsCameraEncoder(HousePointsCameraEncoder):
-    """House branch = classic PointNet over a strided subset of the snapshot.
+class PointNetCloudEncoder(nn.Module):
+    """Classic PointNet over one unbatched ``(N, point_dim)`` cloud.
 
-    Inherits the camera branch, obs plumbing, and singleton-broadcast
-    behavior from ``HousePointsCameraEncoder``; only ``_house_embedding``
-    changes. The max-pooled ``mlp2[-1]``-wide global feature is used as the
-    house embedding directly when it matches ``embed_dim`` (the default:
-    1024) and linearly projected otherwise.
+    Same architecture as ``PointNetHousePointsCameraEncoder._house_embedding``
+    (input/feature T-Nets, shared MLPs, max pool, optional projection) without
+    the snapshot/camera plumbing: the input is the raw live cloud, subsampled
+    with an even stride to at most ``num_points`` rows.
 
-    Attributes:
-      num_points: Static point count fed to PointNet, taken as an even-stride
-        subsample of the snapshot's valid prefix.
-      tnet_mlp: Shared-MLP widths inside both T-Nets.
-      tnet_fc: Fully connected widths inside both T-Nets.
-      mlp1: Shared-MLP widths between the input and feature T-Nets; the last
-        width sets the feature T-Net size.
-      mlp2: Shared-MLP widths after the feature T-Net; the last width is the
-        global-feature size.
-      compute_dtype: JAX/Flax compute dtype for the PointNet Dense layers and
-        transform matmuls; centering/scale statistics stay float32.
+    TODO(house-padding): a cloud whose N changes between steps recompiles the
+    branch on every new N. Adapters therefore emit a fixed-size cloud; see
+    docs/notes/adapter-routing-migration.md for the follow-up.
     """
 
     num_points: int = 16384
+    point_dim: int = 6
+    embed_dim: int = 1024
     tnet_mlp: tuple[int, ...] = (64, 128, 1024)
     tnet_fc: tuple[int, ...] = (512, 256)
     mlp1: tuple[int, ...] = (64, 64)
     mlp2: tuple[int, ...] = (64, 128, 1024)
     compute_dtype: DTypeLike = jnp.bfloat16
 
-    def _house_embedding(
-        self,
-        house_points: jnp.ndarray,
-        batch_size: int,
-        house_size: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        if self.num_points < 1:
-            raise ValueError(f"num_points must be >= 1, got {self.num_points}")
-        house_points = validate_house_points(house_points, self.house_point_dim)
-        points, n_points, size = singleton_house_cloud(
-            house_points, house_size, "PointNet"
-        )
-
-        # Even stride over the valid prefix (same scheme as the GNN encoder);
-        # rows repeat when size < m, which is harmless under max pooling.
+    @nn.compact
+    def __call__(self, points: jnp.ndarray) -> jnp.ndarray:
+        """Encode ``(N, point_dim)`` points into one ``(embed_dim,)`` vector."""
+        if points.ndim != 2 or points.shape[-1] != self.point_dim:
+            raise ValueError(
+                f"expected (N, {self.point_dim}) cloud, got {points.shape}"
+            )
+        n_points = points.shape[0]
         m = min(self.num_points, n_points)
-        clamped = jnp.maximum(size, 1)
-        sample_idx = (jnp.arange(m, dtype=jnp.int32) * clamped) // m
-        xyz = points[sample_idx, :3]
-
-        # Centering/scale in float32: metric world offsets exceed bfloat16
-        # precision. The normalized cloud is O(1), so casting down is safe.
+        sample_idx = (jnp.arange(m, dtype=jnp.int32) * n_points) // m
+        # Centering/scale in float32: metric world offsets exceed reduced-
+        # precision resolution, and the 1e-6 floor below is subnormal in
+        # float16 - it flushes to zero, turning a degenerate (zero-extent)
+        # cloud into 0/0 = NaN. The normalized cloud is O(1), so casting down
+        # afterwards is safe.
+        xyz = jnp.asarray(points[sample_idx, :3], jnp.float32)
         center = xyz.mean(axis=0)
         scale = jnp.maximum(xyz.std(), 1e-6)
         xyz_n = ((xyz - center) / scale).astype(self.compute_dtype)
@@ -185,8 +149,8 @@ class PointNetHousePointsCameraEncoder(HousePointsCameraEncoder):
         )(xyz_n)
         x = xyz_n @ input_transform
         for i, width in enumerate(self.mlp1):
-            x = nn.Dense(width, dtype=self.compute_dtype, name=f"pointnet_mlp1_{i}")(x)
-            x = RMSNorm(name=f"pointnet_mlp1_norm{i}")(x)
+            x = nn.Dense(width, dtype=self.compute_dtype, name=f"mlp1_{i}")(x)
+            x = RMSNorm(name=f"mlp1_norm{i}")(x)
             x = nn.silu(x)
         feature_transform = TNet(
             k=self.mlp1[-1],
@@ -197,16 +161,13 @@ class PointNetHousePointsCameraEncoder(HousePointsCameraEncoder):
         )(x)
         x = x.astype(self.compute_dtype) @ feature_transform
         for i, width in enumerate(self.mlp2):
-            x = nn.Dense(width, dtype=self.compute_dtype, name=f"pointnet_mlp2_{i}")(x)
-            x = RMSNorm(name=f"pointnet_mlp2_norm{i}")(x)
+            x = nn.Dense(width, dtype=self.compute_dtype, name=f"mlp2_{i}")(x)
+            x = RMSNorm(name=f"mlp2_norm{i}")(x)
             x = nn.silu(x)
 
-        house_embed = x.max(axis=0)[None]
+        embed = x.max(axis=0)
         if self.mlp2[-1] != self.embed_dim:
-            house_embed = nn.Dense(
-                self.embed_dim, dtype=self.compute_dtype, name="pointnet_house_proj"
-            )(house_embed)
-        house_embed = jnp.where(size > 0, house_embed, jnp.zeros_like(house_embed))
-        if batch_size != 1:
-            house_embed = jnp.broadcast_to(house_embed, (batch_size, self.embed_dim))
-        return house_embed
+            embed = nn.Dense(
+                self.embed_dim, dtype=self.compute_dtype, name="proj"
+            )(embed)
+        return embed

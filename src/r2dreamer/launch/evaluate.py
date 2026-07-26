@@ -1,10 +1,15 @@
-"""Public evaluate() entry point for the r2dreamer launcher."""
+"""Evaluation episode loop and reporting.
+
+Composition (env, adapter, agent) happens in :mod:`src.main`, in the same
+function the training entry point uses - evaluation differs only in where the
+parameters come from. This module owns the inference rollout, its artifacts
+(trajectories, top-down renders, videos) and ``eval_results.json``.
+"""
 
 from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
 import jax
@@ -13,13 +18,9 @@ import wandb
 from PIL import Image
 from scipy.spatial.transform import Rotation
 
+from src.adapters.contract import AdapterFn, encoder_obs_from_fields
 from src.baselines.random_agent import RandomAgent
-from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.launch.parser import _build_parser_eval
-from src.r2dreamer.launch.registries import encoder_registry, env_registry
-from src.r2dreamer.observation_preparation import recover_encoder_input_contract
 from src.shared.video_utils import (
     compose_frame,
     log_episode_video,
@@ -27,6 +28,34 @@ from src.shared.video_utils import (
 )
 
 _ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
+
+# Architecture fields that must match the trained run: the adapter supplies the
+# encoder routing, but RSSM/head widths come from the run's own config. The
+# compute-dtype gate belongs here too - it leaves param shapes untouched, so
+# ``_assert_params_match`` cannot catch a run rebuilt in the wrong precision.
+_ARCH_FIELDS = (
+    "deter_size",
+    "hidden_size",
+    "stoch_classes",
+    "stoch_discrete",
+    "blocks",
+    "dyn_layers",
+    "obs_layers",
+    "img_layers",
+    "encoder_depth",
+    "encoder_kernel",
+    "encoder_mults",
+    "mlp_layers",
+    "mlp_units",
+    "mlp_layers_reward",
+    "mlp_layers_cont",
+    "mlp_layers_actor",
+    "mlp_layers_critic",
+    "twohot_bins",
+    "decoder",
+    "compute_dtype",
+    "full_bf16",
+)
 
 
 def _obs_value(obs, name: str):
@@ -58,7 +87,8 @@ def _get_agent_heading(env):
     return float(euler[0])
 
 
-def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
+def find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
+    """Return the run manifest next to a checkpoint, or in its parent dir."""
     ckpt = Path(checkpoint).resolve()
     for candidate in (
         ckpt.parent / "MANIFEST.json",
@@ -69,24 +99,54 @@ def _find_manifest_for_checkpoint(checkpoint: str | Path) -> Path | None:
     return None
 
 
-def _resolve_eval_settings(
-    args, *, encoder: str, checkpoint: str | None, output_dir: str | None
-):
-    # CLI --encoder overrides shim kwarg if user passed it explicitly.
-    eff_encoder = args.encoder if args.encoder is not None else encoder
+def arch_overrides_from_manifest(checkpoint: str | None) -> dict:
+    """Recover the trained run's architecture fields from its manifest.
 
+    Args:
+        checkpoint: Checkpoint path, or ``None`` for a random agent.
+
+    Returns:
+        Config overrides for the fields in ``_ARCH_FIELDS`` that the manifest
+        records. Empty when there is no readable manifest, in which case the
+        config defaults apply and the param-tree guard in
+        ``R2DreamerAgent.from_checkpoint`` catches any real mismatch.
+    """
+    if checkpoint is None:
+        return {}
+    manifest = find_manifest_for_checkpoint(checkpoint)
+    if manifest is None:
+        return {}
+    try:
+        saved = json.loads(manifest.read_text()).get("config", {})
+    except (ValueError, OSError):
+        return {}
+    return {
+        key: tuple(saved[key]) if key == "encoder_mults" else saved[key]
+        for key in _ARCH_FIELDS
+        if key in saved
+    }
+
+
+def resolve_eval_settings(
+    args, *, checkpoint: str | None, output_dir: str | None
+) -> tuple[str | None, str]:
+    """Resolve checkpoint and output dir from CLI flags over shim kwargs.
+
+    Raises:
+        ValueError: If no checkpoint is given for a non-random run, or no
+            output dir is given at all.
+    """
     eff_checkpoint = args.checkpoint if args.checkpoint is not None else checkpoint
     if not args.random and eff_checkpoint is None:
         raise ValueError(
             "checkpoint must be set via evaluate(..., checkpoint=...) or --checkpoint"
         )
-
     eff_output_dir = args.output_dir if args.output_dir is not None else output_dir
     if eff_output_dir is None:
         raise ValueError(
             "output_dir must be set via evaluate(..., output_dir=...) or --output_dir"
         )
-    return eff_encoder, eff_checkpoint, eff_output_dir
+    return eff_checkpoint, eff_output_dir
 
 
 def _init_eval_wandb(args):
@@ -96,155 +156,10 @@ def _init_eval_wandb(args):
     return wandb
 
 
-def _make_eval_env(*, args, curriculum: str | None, eff_encoder: str):
-    # All VGGT readouts (wp_cp, aggregator, dense-WP CNN) AND the hybrid encoder
-    # need 518x518 frames; the plain CNN baseline uses 64. Everything else is
-    # driven off the EncoderSpec below.
-    needs_hires = eff_encoder.startswith("vggt") or eff_encoder == "hybrid"
-    default_resolution = 518 if needs_hires else 64
-    render_resolution = (
-        args.render_resolution
-        if args.render_resolution is not None
-        else default_resolution
-    )
-    effective_curriculum = (
-        args.curriculum if args.curriculum is not None else curriculum
-    )
-    if effective_curriculum is None:
-        effective_curriculum = "L1"
-    hab_config = HabitatEnvConfig(
-        obs_shape=(render_resolution, render_resolution, 3),
-        max_episode_steps=500,
-        reward_type="geodesic_delta",
-        curriculum=effective_curriculum,
-        mode="eval",
-        semantic=args.semantic,
-    )
-    env_instance = HabitatObjectNavEnv(hab_config, seed=args.seed)
-    return env_instance, needs_hires, render_resolution
-
-
-def _make_eval_encoder(
-    eff_encoder: str, needs_hires: bool, render_resolution: int
-):
-    encoder_cls = encoder_registry[eff_encoder]
-    enc = encoder_cls(resolution=render_resolution) if needs_hires else encoder_cls()
-    return enc, enc.make_adapter(), enc.spec()
-
-
-def _load_arch_overrides_from_manifest(eff_checkpoint: str | None) -> dict:
-    if eff_checkpoint is None:
-        return {}
-    manifest = _find_manifest_for_checkpoint(eff_checkpoint)
-    if manifest is None:
-        return {}
-    try:
-        saved = json.loads(manifest.read_text()).get("config", {})
-    except (ValueError, OSError):
-        return {}
-
-    arch_fields = (
-        "deter_size",
-        "hidden_size",
-        "stoch_classes",
-        "stoch_discrete",
-        "blocks",
-        "dyn_layers",
-        "obs_layers",
-        "img_layers",
-        "encoder_depth",
-        "encoder_kernel",
-        "encoder_mults",
-        "vggt_embed_dim",
-        "vggt_mlp_layers",
-        "mlp_vggt_hidden",
-        "vggt_token_transformer_layers",
-        "vggt_token_transformer_heads",
-        "vggt_token_projection_dim",
-        "vggt_token_transformer_mlp_ratio",
-        "vggt_token_transformer_dropout",
-        "vggt_keep_register_tokens",
-        "vggt_token_count",
-        "vggt_token_dim",
-        "mlp_vggt_layers",
-        "house_point_norm",
-        "mlp_units",
-        "mlp_layers_reward",
-        "mlp_layers_cont",
-        "mlp_layers_actor",
-        "mlp_layers_critic",
-        "twohot_bins",
-        "decoder",
-    )
-    overrides = {
-        key: tuple(saved[key]) if key == "encoder_mults" else saved[key]
-        for key in arch_fields
-        if key in saved
-    }
-    contract_snapshot = saved.get("encoder_input_contract")
-    if contract_snapshot is not None:
-        contract = recover_encoder_input_contract(contract_snapshot)
-        overrides.update(
-            encoder_type=contract.encoder_type,
-            encoder_module_cls=contract.encoder_module_cls,
-            obs_shape=contract.encoder_input.buffer_shape(),
-            encoder_input_contract=contract_snapshot,
-        )
-    return overrides
-
-
-def _agent_config_kwargs(encoder_spec, *, args, eff_checkpoint: str | None) -> dict:
-    agent_config_kwargs: dict = {
-        "encoder_type": encoder_spec.encoder_type,
-        "encoder_module_cls": encoder_spec.module_cls,
-        "obs_shape": encoder_spec.obs_shape,
-    }
-    if not args.random:
-        overrides = _load_arch_overrides_from_manifest(eff_checkpoint)
-        checkpoint_encoder = overrides.get("encoder_type")
-        if (
-            checkpoint_encoder is not None
-            and checkpoint_encoder != encoder_spec.encoder_type
-        ):
-            raise ValueError(
-                "checkpoint encoder contract mismatch: CLI/registry resolved "
-                f"{encoder_spec.encoder_type!r}, checkpoint has "
-                f"{checkpoint_encoder!r}"
-            )
-        agent_config_kwargs.update(overrides)
-    return agent_config_kwargs
-
-
-def _make_eval_agent(
-    args,
-    eff_checkpoint: str | None,
-    agent_config_kwargs: dict,
-    env_instance: HabitatObjectNavEnv,
-):
-    if args.random:
-        print("Using random agent")
-        return RandomAgent(env=env_instance, num_actions=4, seed=args.seed)
-    if eff_checkpoint is None:
-        raise ValueError("checkpoint is required unless --random is set")
-    agent = R2DreamerAgent.from_checkpoint(
-        eff_checkpoint,
-        num_actions=4,
-        seed=args.seed,
-        **agent_config_kwargs,
-    )
-    print(f"Loaded checkpoint from step {agent.checkpoint_step}")
-    return agent
-
-
-def _start_eval_episode(env_instance, adapter):
+def _start_eval_episode(env_instance, observe: AdapterFn):
     obs = env_instance.reset()
-    if adapter.on_episode_reset:
-        # Pass the reset frame's scene_id so PERSIST_SCENE adapters save/restore
-        # the right per-scene cache during evaluation (mirrors the trainer).
-        adapter.on_episode_reset(getattr(obs, "scene_id", None) or "scene")
-    prepared = adapter.prepare_env_step(obs)
-    encoder_obs = prepared.encoder_obs
-    is_first = prepared.is_first
+    encoder_obs = encoder_obs_from_fields(observe(obs))
+    is_first = obs.is_first
 
     start_pos = env_instance.agent_state.position.tolist()
     goal_positions = _extract_goal_positions(env_instance)
@@ -336,7 +251,7 @@ def _run_eval_episode(
     ep_idx: int,
     args,
     env_instance,
-    adapter,
+    observe: AdapterFn,
     agent,
     rng_key,
     wandb_module,
@@ -352,7 +267,7 @@ def _run_eval_episode(
         object_category,
         trajectory,
         headings,
-    ) = _start_eval_episode(env_instance, adapter)
+    ) = _start_eval_episode(env_instance, observe)
     actions_taken = []
     rewards = []
     record_video = wandb_module is not None and ep_idx < args.log_video_episodes
@@ -379,9 +294,8 @@ def _run_eval_episode(
                 encoder_obs, is_first, act_state, act_key, training=False
             )
             next_obs = env_instance.step(action)
-        next_prepared = adapter.prepare_env_step(next_obs)
-        next_encoder_obs = next_prepared.encoder_obs
-        next_is_first = next_prepared.is_first
+        next_encoder_obs = encoder_obs_from_fields(observe(next_obs))
+        next_is_first = next_obs.is_first
         actions_taken.append(int(action))
         rewards.append(float(_obs_value(next_obs, "reward")))
 
@@ -439,94 +353,59 @@ def _print_eval_summary(results: list[dict], episodes: int) -> None:
     print(f"Mean steps: {np.mean([r['steps'] for r in results]):.0f}")
 
 
-def evaluate(
+def run_evaluation(
     *,
-    env: str,
-    encoder: str,
-    curriculum: str | None = None,
-    checkpoint: str | None = None,
-    output_dir: str | None = None,
-    argv: list[str] | None = None,
+    args,
+    env_instance,
+    observe: AdapterFn,
+    agent,
+    checkpoint: str | None,
+    output_dir: str,
 ) -> dict:
-    """Resolve (env, encoder, curriculum) via registries; parse CLI; run eval loop.
+    """Run ``args.episodes`` inference episodes and write ``eval_results.json``.
 
-    Kwargs (checkpoint, output_dir) are shim-supplied defaults — CLI flags override.
+    Args:
+        args: Parsed eval flags.
+        env_instance: Env to roll out in (owned and closed by the caller).
+        observe: Frame adapter producing the agent's encoder observation.
+        agent: Trained agent or ``RandomAgent``.
+        checkpoint: Checkpoint path, recorded in the results metadata.
+        output_dir: Directory for results and artifacts.
 
-    Returns metrics dict with 'results' and 'meta' keys.
+    Returns:
+        Metrics dict with ``meta`` and ``results`` keys.
     """
-    parser = _build_parser_eval()
-    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
-
-    eff_encoder, eff_checkpoint, eff_output_dir = _resolve_eval_settings(
-        args,
-        encoder=encoder,
-        checkpoint=checkpoint,
-        output_dir=output_dir,
-    )
-    if eff_encoder not in encoder_registry:
-        raise KeyError(
-            f"Unknown encoder {eff_encoder!r}. Available: {list(encoder_registry)}"
-        )
-
-    os.makedirs(eff_output_dir, exist_ok=True)
-    output_path = os.path.join(eff_output_dir, "eval_results.json")
-
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "eval_results.json")
     wandb_module = None
-    env_instance = None
     try:
         wandb_module = _init_eval_wandb(args)
-
-        # --- Build env ---
-        if env not in env_registry:
-            raise KeyError(f"Unknown env {env!r}. Available: {list(env_registry)}")
-        env_instance, needs_hires, render_resolution = _make_eval_env(
-            args=args,
-            curriculum=curriculum,
-            eff_encoder=eff_encoder,
-        )
-
-        # --- Build encoder + adapter ---
-        _enc, adapter, encoder_spec = _make_eval_encoder(
-            eff_encoder,
-            needs_hires,
-            render_resolution,
-        )
-
-        agent_config_kwargs = _agent_config_kwargs(
-            encoder_spec,
-            args=args,
-            eff_checkpoint=eff_checkpoint,
-        )
-
         rng_key = jax.random.PRNGKey(args.seed)
-
-        agent = _make_eval_agent(
-            args, eff_checkpoint, agent_config_kwargs, env_instance
-        )
         if not isinstance(agent, RandomAgent):
-            # Match the rng_key split the inline init_key used to consume so the
-            # downstream act_key chain stays identical.
+            # Composing the agent consumed the first split of PRNGKey(seed) for
+            # its init key; mirror that split here so the act_key chain matches
+            # the one the training run acted with.
             rng_key, _ = jax.random.split(rng_key)
 
-        # --- Evaluate ---
         results = []
         for ep_idx in range(args.episodes):
             ep_result, rng_key = _run_eval_episode(
                 ep_idx=ep_idx,
                 args=args,
                 env_instance=env_instance,
-                adapter=adapter,
+                observe=observe,
                 agent=agent,
                 rng_key=rng_key,
                 wandb_module=wandb_module,
-                output_dir=eff_output_dir,
+                output_dir=output_dir,
             )
             results.append(ep_result)
 
         _print_eval_summary(results, args.episodes)
-
-        meta = {"agent": "random" if args.random else eff_checkpoint}
-        output = {"meta": meta, "results": results}
+        output = {
+            "meta": {"agent": "random" if args.random else checkpoint},
+            "results": results,
+        }
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2)
         print(f"Results saved to {output_path}")
@@ -534,5 +413,3 @@ def evaluate(
     finally:
         if wandb_module is not None:
             wandb_module.finish()
-        if env_instance is not None:
-            env_instance.close()

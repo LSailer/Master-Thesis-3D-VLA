@@ -120,8 +120,10 @@ PERSIST works during evaluation too.
 ### D3 — Verify with IoU/%new-voxels, not growth
 
 **Decision.** The pass criterion is the cross-episode IoU / %new-voxel
-diagnostic (`check_persist_alignment.py`), run as a FULL-vs-PERSIST A/B in one
-job. Pass = PERSIST mean %new ≪ FULL mean %new AND PERSIST IoU@10 cm ≫ FULL
+diagnostic (`check_persist_alignment.py` — since removed in the adapter-routing
+refactor, which deleted the encoder/launch modules it imported; every mention
+of it below describes runs already completed, not a script you can re-run),
+run as a FULL-vs-PERSIST A/B in one job. Pass = PERSIST mean %new ≪ FULL mean %new AND PERSIST IoU@10 cm ≫ FULL
 IoU@10 cm. The smoke's growth curve is a secondary sanity signal only.
 
 **Rationale.** Persistent per-scene spatial memory with cross-step/cross-episode

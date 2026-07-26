@@ -27,9 +27,15 @@
 
 The full pipeline is verified. To launch the 2M-step prod run:
 ```bash
-bash scripts/slurm/launch.sh house_points_pose_l1_live --prod
+bash scripts/slurm/launch.sh hybrid_house_points_pose_l1_live --prod
 ```
 (or `--smoke-then-prod` for an afterok-gated auto-chain).
+
+The `house_points_pose_l1_live` variant this prototype ran is now an abstract
+parent with `run_id: null` - its map-as-replacement arm was dropped in the
+adapter-routing migration and the two live arms that `extends:` it
+(`hybrid_house_points_pose_l1_live`, `gnn_house_points_pose_l1_live`) carry the
+work forward. See `scripts/slurm/README.md`.
 
 ## Known follow-ups (not blockers for the prod run)
 
@@ -46,21 +52,29 @@ bash scripts/slurm/launch.sh house_points_pose_l1_live --prod
 - **Fix (production code):** `src/r2dreamer/adapters/{obs_adapter,vggt_adapter,
   hybrid_adapter}.py`, `src/r2dreamer/trainer.py`, `src/r2dreamer/launch/evaluate.py`,
   `src/vggt/jax/feature_extractor.py` (in-extract is_first to reset_for_scene).
-- **Tests:** `tests/vggt/test_reset_for_scene.py`,
-  `tests/r2dreamer/launch/test_encoders.py` (PERSIST + scene-aware callback).
-- **Protocol + diagnostic (this folder):** `IDEA.md`, `PROTOCOL.md`,
-  `PROBLEMS.md`, `HANDOFF.md`, `check_persist_alignment.py`, `run_alignment.sbatch`.
+- **Tests:** `tests/vggt/test_reset_for_scene.py`. The companion
+  `tests/r2dreamer/launch/test_encoders.py` (PERSIST + scene-aware callback) went
+  away with the adapter-routing refactor: the callback it covered no longer
+  exists, because the extractor now reads `is_first`/`scene_id` off the frame
+  itself (`src/adapters/contract.py::FeatureExtractor`).
+- **Protocol (this folder):** `IDEA.md`, `PROTOCOL.md`, `PROBLEMS.md`,
+  `HANDOFF.md`.
+- **Diagnostic (removed):** `check_persist_alignment.py` and its launcher
+  `run_alignment.sbatch` were deleted in the adapter-routing refactor - they
+  targeted `src.r2dreamer.encoders.base` and `src.r2dreamer.launch.habitat_setup`,
+  neither of which survived it. What they measured and found is preserved in
+  PROTOCOL §7.
 
 ## Reproduce the verification
 
 ```bash
-# 1. CPU unit tests
-JAX_PLATFORMS=cpu uv run pytest tests/vggt/test_reset_for_scene.py \
-    "tests/r2dreamer/launch/test_encoders.py::TestVGGTEncoderConfiguration" -q
+# 1. CPU unit tests (the encoder-side half is gone - see Files above)
+JAX_PLATFORMS=cpu uv run pytest tests/vggt/test_reset_for_scene.py -q
 
-# 2. PERSIST frame-preservation diagnostic (GPU, ~3 min)
-sbatch src/prototyp/live_house_context/run_alignment.sbatch
+# 2. PERSIST frame-preservation diagnostic — no longer reproducible: the
+#    script and its sbatch wrapper were removed in the adapter-routing
+#    refactor. Its verdict is recorded in PROTOCOL §7.
 
 # 3. Full-pipeline smoke (GPU, ~8 min, 30-min cap)
-bash scripts/slurm/launch.sh house_points_pose_l1_live --smoke
+bash scripts/slurm/launch.sh hybrid_house_points_pose_l1_live --smoke
 ```

@@ -1,0 +1,25 @@
+extends: _base
+job_name: r2d-L3-cnn
+output_dir: output/runs/r2dreamer-curriculum-l3
+run_id: habitat-l3-cnn
+curriculum_check: data/curriculum/level3_10houses_1goal.json
+comments:
+  - "Level 3 CNN baseline: 10 houses x chair only - the scene-generalization rung, the mirror image of L2 (1 house, 6 goals)"
+  - "2D-RGB CNN encoder (64x64) - baseline control for the VGGT 3D-encoder comparison"
+  - "2M steps, 24h wall time (matches the L4 arm's step budget)"
+  - "Scalars-only run (video_log_every=0, val_every=0): episode videos and"
+  - "held-out eval metrics are regenerated offline from checkpoints, which keeps"
+  - "the two heaviest habitat GL paths out of training. Same reasoning as l4_cnn."
+sbatch:
+  time: "24:00:00"
+args:
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l3/run-${SLURM_JOB_ID}
+  seed: ${SLURM_JOB_ID}
+  log_every: 250
+  wandb_project: 3d-vla-objectnav
+  wandb_name: r2d-L3-cnn-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,cnn,baseline,jax,2d-rgb
+  video_log_every: 0
+  val_every: 0

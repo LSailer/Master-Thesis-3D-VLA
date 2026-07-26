@@ -3,7 +3,7 @@ agent: claude                     # reviewer/fixer = claude headless
 commands:
   lint: "uv run pyright src && uv run python -m pylint src"   # login node
   format: "uv run ruff format src"
-  test: "bash scripts/gate_tests.sh"                          # GPU allocation
+  test: "bash scripts/gate-test.sh"                           # GPU allocation
 
 ignore_patterns:
   - "external/**"

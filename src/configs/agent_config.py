@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import TypedDict
 
 # Model-size presets from the R2-Dreamer table. Each row scales the RSSM width,
 # stochastic latent shape, CNN encoder depth, and prediction-head MLP width.
@@ -84,7 +83,9 @@ class R2DreamerConfig:
     """
 
     # --- Environment / agent interface ---
-    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]] = (64, 64, 3)
+    # No obs_shape: the encoder is composed from the adapter's routed fields,
+    # so a config-level shape would only be a stale value in the manifest. The
+    # render resolution the env is built at lives on HabitatEnvConfig.
     num_actions: int = 4
     max_episode_steps: int = 1000
 
@@ -99,38 +100,24 @@ class R2DreamerConfig:
     img_layers: int = 2
 
     # --- Encoder ---
-    encoder_type: str = "cnn"
-    encoder_module_cls: Any = None
+    # ``adapter`` is the variant name from ``src.adapters.ADAPTERS``. It is pure
+    # provenance (manifest/W&B) - the architecture comes from the adapter's
+    # field routing, never from this string.
+    adapter: str = ""
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: tuple[int, ...] = (2, 3, 4, 4)
-    vggt_feature_dim: int = 4116
-    vggt_embed_dim: int = 1024
-    vggt_mlp_layers: int = 1
-    vggt_token_transformer_layers: int = 2
-    vggt_token_transformer_heads: int = 8
-    vggt_token_projection_dim: int = 256
-    vggt_token_transformer_mlp_ratio: int = 2
-    vggt_token_transformer_dropout: float = 0.0
-    vggt_keep_register_tokens: bool = True
-    vggt_token_count: int = 1374
-    vggt_token_dim: int = 1024
-    mlp_vggt_hidden: int = 1024
-    mlp_vggt_layers: int = 2
-    # House-branch metric XYZ normalization for the MLP/Hybrid house-points
-    # encoders: "symlog" compresses channels [:3] (default), "none" passes raw
-    # coordinates. PointNet/GNN house encoders ignore this knob.
-    house_point_norm: str = "symlog"
+    # Depth of the composite encoder's MLP branch (not an MLP head - those are
+    # the ``mlp_layers_*`` fields below). A config field rather than a bare CLI
+    # override so the manifest records it and evaluation can rebuild the same
+    # branch from the checkpoint alone.
+    mlp_layers: int = 1
     decoder: bool = False
     scale_decoder: float = 1.0
-    design_notes: str = ""
-    encoder_input_contract: dict[str, Any] | None = None
     compute_dtype: str = "bfloat16"
-    # Extend compute_dtype from the token transformer + replay scalars to the
-    # whole JAX model (encoders, RSSM, heads) — mixed precision with float32
-    # master params and float32-pinned logits. Off by default because
-    # compute_dtype was historically a near no-op for CNN/house encoders and
-    # existing runs compare against that behavior.
+    # Extends ``compute_dtype`` from the token transformer to the encoders, RSSM
+    # and heads (see world_model/rssm_factory.compute_dtype_kwargs). Without this
+    # field the ``--full_bf16`` flag is silently dropped by the config builder.
     full_bf16: bool = False
 
     # --- MLP heads ---

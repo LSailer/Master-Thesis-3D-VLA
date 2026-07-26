@@ -1,15 +1,19 @@
 """Experience collection behind a trainer-facing protocol (ADR 0006).
 
-``ExperienceCollector`` owns the environment, the ``ObsAdapter``, and the
+``ExperienceCollector`` owns the environment, the frame adapter, and the
 (optional) ``ReplayBuffer``. The training loop only ever sees prepared
 encoder observations (``AgentStep``), finished-episode aggregates
-(``EpisodeSummary``), and adapter-augmented replay batches — never raw
+(``EpisodeSummary``), and sampled replay batches — never raw
 ``ObservationFrame`` objects, the env, or the buffer.
 
 The boundary follows the frozen/trainable split: frozen extraction (VGGT,
 house-point accumulation) happens inside the adapter on this side; the
 trainable encoders stay in ``agent.params["encoder"]`` and run inside
 ``agent.train_step`` on the other side.
+
+The adapter arrives as a single ``AdapterFn``: a variant that needs frozen
+features holds its own extractor and calls it inside, so the collector neither
+knows about VGGT nor about cache lifetimes.
 """
 
 from __future__ import annotations
@@ -19,16 +23,29 @@ from typing import Any, Callable, Protocol
 
 import numpy as np
 
-from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer, ReplayTransition
+from src.adapters.contract import (
+    AdapterFn,
+    AdapterOutput,
+    encoder_obs_from_fields,
+    transition_from_fields,
+)
+from src.buffer.replay_buffer import ReplayBatch, ReplayBuffer
 from src.environments.observation import ObservationFrame
-from src.r2dreamer.adapters import ObsAdapter
 from src.shared.video_utils import compose_frame, render_topdown_frame
 
 
 class Env(Protocol):
-    """Minimal environment interface used by the collector."""
+    """Minimal environment interface any rollout driver needs.
 
-    current_episode: Any
+    Deliberately limited to what every rollout needs. Habitat-only state
+    (``current_episode``, ``agent_state``) stays out: it is read exclusively on
+    the video-capture path, which the collector already gates behind
+    :attr:`ExperienceCollector.supports_video`, so requiring it here would lock
+    non-habitat envs out of plain training for a feature they never use.
+    """
+
+    @property
+    def num_actions(self) -> int: ...
 
     def reset(self) -> ObservationFrame: ...
     def step(self, action: int) -> ObservationFrame: ...
@@ -110,8 +127,6 @@ class ExperienceSource(Protocol):
     def start_video_capture(self) -> None: ...
     def finish_episode(self) -> EpisodeSummary: ...
     def diagnostics(self) -> dict[str, float]: ...
-    @property
-    def growth_history(self) -> list[tuple[int, int]]: ...
     def close(self) -> None: ...
 
 
@@ -120,8 +135,8 @@ class ExperienceCollector:
 
     Args:
         env: Environment to roll out in.
-        adapter: Observation adapter bridging env frames to buffer/encoder
-            observations (frozen extraction lives here).
+        observe: Adapter turning one env frame into routed fields (frozen
+            extraction happens inside it).
         num_actions: Size of the discrete action space (for action histograms).
         buffer: Replay buffer to record transitions into. ``None`` disables
             recording (validation collectors).
@@ -130,25 +145,31 @@ class ExperienceCollector:
         auto_reset: Whether ``step`` resets the env when an episode ends. Keep
             ``False`` for validation — an extra reset would advance the env's
             episode iterator and change which episodes run.
+        diagnostics_fn: Optional end-of-run health metrics from the adapter
+            (e.g. house-buffer fill). Called once when the run finishes, so it
+            may synchronize device scalars to host.
     """
 
     def __init__(
         self,
         env: Env,
-        adapter: ObsAdapter,
+        observe: AdapterFn,
         *,
         num_actions: int,
         buffer: ReplayBuffer | None = None,
         episode_metrics_fn: EpisodeMetricsFn | None = None,
         auto_reset: bool = True,
+        diagnostics_fn: Callable[[], dict[str, float]] | None = None,
     ) -> None:
         self.env = env
-        self.adapter = adapter
+        self.observe = observe
         self.buffer = buffer
+        self.diagnostics_fn = diagnostics_fn
         self.num_actions = num_actions
         self.episode_metrics_fn = episode_metrics_fn
         self.auto_reset = auto_reset
         self._last_frame: ObservationFrame | None = None
+        self._last_fields: AdapterOutput | None = None
         self._recording: dict[str, Any] | None = None
         self._reset_accumulators()
 
@@ -157,7 +178,7 @@ class ExperienceCollector:
     # ------------------------------------------------------------------
 
     def reset(self) -> AgentStep:
-        """Reset the env (with scene hook) and return the first agent step.
+        """Reset the env and return the first agent step.
 
         Reset frames are never recorded into the buffer — replay windows start
         at the first stepped transition, matching prefill and train alike.
@@ -168,6 +189,20 @@ class ExperienceCollector:
         self._reset_accumulators()
         self._recording = None
         return self._do_reset()
+
+    def reset_fields(self) -> AdapterOutput:
+        """Reset and return the adapter's routed fields for the first frame.
+
+        The composition root uses this to learn the encoder routing and field
+        shapes before building the agent, without having to call the env or the
+        adapter itself.
+
+        Returns:
+            The adapter output for the new episode's first frame.
+        """
+        self.reset()
+        assert self._last_fields is not None  # set by every _do_reset
+        return self._last_fields
 
     def step(self, action: int, *, summarize: bool = True) -> StepResult:
         """Step the env, record the transition, and handle episode ends.
@@ -188,7 +223,7 @@ class ExperienceCollector:
                 ``action`` (only checked when recording into a buffer).
         """
         frame = self.env.step(action)
-        prepared = self.adapter.prepare_env_step(frame)
+        fields = self.observe(frame)
 
         if self.buffer is not None:
             if frame.previous_action != action:
@@ -196,17 +231,18 @@ class ExperienceCollector:
                     "ObservationFrame.previous_action does not match recorded "
                     f"action: expected {action}, got {frame.previous_action}"
                 )
-            self.buffer.add(ReplayTransition.from_frame(prepared.replay_obs, frame))
+            self.buffer.add(transition_from_fields(frame, fields))
 
         self._action_counts[action] += 1
         self._episode_reward += float(frame.reward)
         self._episode_steps += 1
         self._last_frame = frame
+        self._last_fields = fields
         if self._recording is not None:
             self._append_video_frame(frame)
 
         agent_step = AgentStep(
-            encoder_obs=prepared.encoder_obs, is_first=prepared.is_first
+            encoder_obs=encoder_obs_from_fields(fields), is_first=frame.is_first
         )
         episode: EpisodeSummary | None = None
         if frame.done and self.auto_reset:
@@ -248,14 +284,18 @@ class ExperienceCollector:
     # ------------------------------------------------------------------
 
     def sample(self, batch_size: int, seq_len: int) -> ReplayBatch:
-        """Sample a replay batch and apply the adapter's live augmentation.
+        """Sample a replay batch.
+
+        The batch carries the adapter's encoder routing and the latest live
+        field alongside the per-step observations, so no post-hoc augmentation
+        step is needed.
 
         Args:
             batch_size: Number of windows to sample.
             seq_len: Length of each sampled window.
 
         Returns:
-            The adapter-augmented replay batch, ready for ``agent.train_step``.
+            The replay batch, ready for ``agent.train_step``.
 
         Raises:
             RuntimeError: If this collector records no experience
@@ -263,8 +303,7 @@ class ExperienceCollector:
         """
         if self.buffer is None:
             raise RuntimeError("this collector does not record experience")
-        batch = self.buffer.sample(batch_size, seq_len)
-        return self.adapter.augment_replay_batch(batch)
+        return self.buffer.sample(batch_size, seq_len)
 
     @property
     def buffer_size(self) -> int:
@@ -288,7 +327,8 @@ class ExperienceCollector:
 
         Raises:
             RuntimeError: If called before the first reset.
-            AttributeError: If the env does not expose ``agent_state``.
+            AttributeError: If the env does not expose the habitat state the
+                top-down map needs (``agent_state``, ``current_episode``).
         """
         if self._last_frame is None:
             raise RuntimeError("start_video_capture called before reset")
@@ -304,13 +344,8 @@ class ExperienceCollector:
     # ------------------------------------------------------------------
 
     def diagnostics(self) -> dict[str, float]:
-        """Return the adapter's end-of-run health metrics."""
-        return self.adapter.diagnostics()
-
-    @property
-    def growth_history(self) -> list[tuple[int, int]]:
-        """Return the adapter's ``(env_step, value)`` growth series."""
-        return self.adapter.growth_history
+        """Return the adapter's end-of-run health metrics (empty when unwired)."""
+        return self.diagnostics_fn() if self.diagnostics_fn is not None else {}
 
     def close(self) -> None:
         """Close the owned environment."""
@@ -326,14 +361,16 @@ class ExperienceCollector:
         self._action_counts = np.zeros(self.num_actions, dtype=int)
 
     def _do_reset(self) -> AgentStep:
+        # Reset frames pass through the adapter (so per-episode state - VGGT
+        # cache, house-cloud compaction - reacts to the boundary) but are never
+        # recorded: they carry no previous action.
         frame = self.env.reset()
-        if self.adapter.on_episode_reset:
-            self.adapter.on_episode_reset(
-                getattr(frame, "scene_id", None) or "scene"
-            )
-        prepared = self.adapter.prepare_env_step(frame)
+        fields = self.observe(frame)
         self._last_frame = frame
-        return AgentStep(encoder_obs=prepared.encoder_obs, is_first=prepared.is_first)
+        self._last_fields = fields
+        return AgentStep(
+            encoder_obs=encoder_obs_from_fields(fields), is_first=frame.is_first
+        )
 
     def _build_summary(self, last_frame: ObservationFrame) -> EpisodeSummary:
         if self.episode_metrics_fn is not None:
@@ -355,8 +392,18 @@ class ExperienceCollector:
         )
 
     def _goal_positions(self) -> list[list[float]]:
+        # Habitat-only state, reached from video capture alone. Fetch it the same
+        # defensive way as _agent_position so a non-habitat env asked for video
+        # fails here with the env name, not with an AttributeError raised deep
+        # inside the goal loop.
+        episode = getattr(self.env, "current_episode", None)
+        if episode is None:
+            raise AttributeError(
+                f"{type(self.env).__name__} does not expose current_episode "
+                "for video logging"
+            )
         positions = []
-        for goal in self.env.current_episode.goals:
+        for goal in episode.goals:
             if goal.view_points:
                 pos = goal.view_points[0].agent_state.position
             else:
@@ -382,4 +429,8 @@ class ExperienceCollector:
         topdown = render_topdown_frame(
             self.env, recording["trajectory"], recording["goals"]
         )
-        recording["frames"].append(compose_frame(frame.image, topdown))
+        # frame.image is typed as a device array, while compose_frame resizes
+        # and pads through PIL and therefore needs host memory. Materialise at
+        # this boundary so the transfer is visible instead of hidden inside
+        # compose_frame.
+        recording["frames"].append(compose_frame(np.asarray(frame.image), topdown))

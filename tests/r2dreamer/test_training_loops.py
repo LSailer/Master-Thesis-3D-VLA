@@ -3,25 +3,28 @@
 Ports the old Trainer tests (ADR 0006): the loops are plain functions taking
 protocol-typed collaborators, so they are driven directly with a scripted env
 inside a real ``ExperienceCollector``, a real tiny agent, and a fake logger.
+
+The collector takes a plain adapter callable and the agent is built from that
+adapter's routed fields, so these tests exercise the same composition
+``src.main.train`` performs — only the env is scripted (Habitat is Linux-only and
+slow to start).
 """
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from src.adapters.contract import AdapterField, AdapterOutput, Encoder
+from src.adapters.rgb import RgbAdapter
 from src.buffer.replay_arrays import replay_batch_to_arrays
 from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.adapters import ObsAdapter
 from src.r2dreamer.checkpointing import save_checkpoint
 from src.r2dreamer.experience import ExperienceCollector
 from src.r2dreamer.launch.loops import apply_resume, run_training, train_loop
-from src.r2dreamer.observation_preparation import (
-    CNNObservationPreparation,
-    PreparedObservation,
-)
 from src.shared.dtypes import compute_jnp_dtype
 
 
@@ -34,6 +37,13 @@ def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
     assert cfg.video_log_every == 0
     assert cfg.val_video_episodes == 0
     assert cfg.video_log_episodes == 0
+
+
+def _rgb_fields() -> AdapterOutput:
+    """The routed fields of the RGB baseline, as one adapter call produces them."""
+    return RgbAdapter()(
+        ObservationFrame(image=np.zeros((64, 64, 3), dtype=np.uint8), is_first=True)
+    )
 
 
 class _TinyCNNEnv:
@@ -97,37 +107,36 @@ class _ScriptedEnv:
         self.closed = True
 
 
-class _MappingObsAdapter(ObsAdapter):
+class _MultiFieldAdapter:
+    """Routes two fields, so replay stores a structure rather than one array."""
+
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
+        return [
+            AdapterField(
+                key="image",
+                encoder=Encoder.CONV,
+                buffer=True,
+                value=jnp.asarray(frame.image),
+                decoder_target=True,
+            ),
+            AdapterField(
+                key="camera_pose",
+                encoder=Encoder.MLP,
+                buffer=True,
+                value=jnp.ones((9,), dtype=jnp.float32),
+            ),
+        ]
+
+
+class _CountingAdapter(RgbAdapter):
+    """The RGB adapter with a call counter, to prove the collector routes frames."""
+
     def __init__(self):
-        super().__init__(
-            buffer_dtype={"image": "uint8", "wp_cp": "float32"},
-            buffer_shape={"image": (64, 64, 3), "wp_cp": (4116,)},
-            normalize_on_sample={"image": False, "wp_cp": False},
-            agent_obs_shape=(16404,),
-        )
-
-    def transform(self, env_obs: ObservationFrame) -> tuple[dict[str, np.ndarray], dict]:
-        return {
-            "image": env_obs.image,
-            "wp_cp": np.ones((4116,), dtype=np.float32),
-        }, {"image": env_obs.image, "is_first": env_obs.is_first}
-
-
-class _PrepareOnlyAdapter(ObsAdapter):
-    def __init__(self):
-        super().__init__()
         self.calls = 0
 
-    def prepare_env_step(self, env_obs: ObservationFrame) -> PreparedObservation:
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
         self.calls += 1
-        return PreparedObservation(
-            replay_obs=env_obs.image,
-            encoder_obs=env_obs.image[None],
-            is_first=True,
-        )
-
-    def transform(self, env_obs: ObservationFrame):
-        raise AssertionError("collector should route through prepare_env_step")
+        return super().__call__(frame)
 
 
 class _FakeLogger:
@@ -136,6 +145,7 @@ class _FakeLogger:
     def __init__(self):
         self.rows: list[list] = []
         self.videos: list[tuple[str, int]] = []
+        self.adapter_summaries: list[tuple[dict, int]] = []
         self.wandb_active = False
 
     def start_timing(self, start_step: int) -> None:
@@ -159,14 +169,16 @@ class _FakeLogger:
         for k, v in metrics.items():
             self.rows.append([step, k, v])
 
+    def log_adapter_summary(self, stats: dict, final_step: int) -> None:
+        self.adapter_summaries.append((dict(stats), final_step))
+
     def write_row(self, step: int, key: str, value) -> None:
         self.rows.append([step, key, value])
 
 
 def _tiny_cnn_cfg(tmp_path):
     return R2DreamerConfig(
-        encoder_type="cnn",
-        obs_shape=(64, 64, 3),
+        adapter="rgb",
         num_actions=4,
         buffer_capacity=64,
         batch_size=1,
@@ -194,6 +206,10 @@ def _tiny_cnn_cfg(tmp_path):
     )
 
 
+def _tiny_agent(cfg, seed: int = 0) -> R2DreamerAgent:
+    return R2DreamerAgent(cfg, jax.random.PRNGKey(seed), fields=_rgb_fields())
+
+
 def _tree_any_changed(before, after, *, atol=1e-7):
     return any(
         not np.allclose(np.asarray(a), np.asarray(b), atol=atol)
@@ -201,10 +217,10 @@ def _tree_any_changed(before, after, *, atol=1e-7):
     )
 
 
-def _make_collector(cfg, *, env=None, adapter=None, episode_metrics_fn=None):
+def _make_collector(cfg, *, env=None, observe=None, episode_metrics_fn=None):
     return ExperienceCollector(
         env=env if env is not None else _ScriptedEnv(),
-        adapter=adapter if adapter is not None else ObsAdapter(),
+        observe=observe if observe is not None else RgbAdapter(),
         num_actions=cfg.num_actions,
         buffer=ReplayBuffer(
             capacity=cfg.buffer_capacity,
@@ -272,7 +288,7 @@ def build_agent(tmp_path):
         cfg.batch_size = batch_size
         cfg.seq_len = seq_len
         cfg.train_ratio = train_ratio
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = _tiny_agent(cfg)
         return cfg, agent, _AgentSpy(agent)
 
     return _build
@@ -325,7 +341,7 @@ def _run_train_loop(
 def _val_collector(cfg):
     return ExperienceCollector(
         env=_ScriptedEnv(),
-        adapter=ObsAdapter(),
+        observe=RgbAdapter(),
         num_actions=cfg.num_actions,
         buffer=None,
         auto_reset=False,
@@ -336,16 +352,16 @@ class TestApplyResume:
     """apply_resume restores agent state and returns the checkpoint step."""
 
     @pytest.fixture
-    def cfg(self):
-        return R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4)
+    def cfg(self, tmp_path):
+        return _tiny_cnn_cfg(tmp_path)
 
     def test_resume_restores_params_and_step(self, cfg, tmp_path):
-        original = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        original = _tiny_agent(cfg, seed=0)
         step = 12345
         ckpt_path = save_checkpoint(original, step=step, output_dir=str(tmp_path))
 
         # Build a fresh agent with a different init seed so its weights differ.
-        fresh = R2DreamerAgent(cfg, jax.random.PRNGKey(99))
+        fresh = _tiny_agent(cfg, seed=99)
         before = [np.asarray(x) for x in jax.tree.leaves(fresh.params)]
         target = [np.asarray(x) for x in jax.tree.leaves(original.params)]
         assert not all(np.allclose(a, b) for a, b in zip(before, target))
@@ -364,26 +380,27 @@ class TestApplyResume:
         )
 
     def test_missing_resume_path_raises(self, cfg, tmp_path):
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(7))
+        agent = _tiny_agent(cfg, seed=7)
         with pytest.raises(FileNotFoundError):
             apply_resume(agent, str(tmp_path / "nope.pkl"))
 
 
 class TestCollectorWiring:
-    def test_collector_routes_through_prepare_env_step(self, tmp_path):
-        cfg = R2DreamerConfig(obs_shape=(64, 64, 3), num_actions=4, buffer_capacity=8)
-        adapter = _PrepareOnlyAdapter()
-        collector = _make_collector(cfg, adapter=adapter)
+    def test_collector_routes_every_frame_through_the_adapter(self, tmp_path):
+        cfg = _tiny_cnn_cfg(tmp_path)
+        observe = _CountingAdapter()
+        collector = _make_collector(cfg, observe=observe)
 
         agent_step = collector.reset()
 
-        assert adapter.calls == 1
-        assert agent_step.encoder_obs.shape == (1, 64, 64, 3)
+        assert observe.calls == 1
+        assert set(agent_step.encoder_obs) == {"image"}
+        assert agent_step.encoder_obs["image"].shape == (64, 64, 3)
         assert agent_step.is_first is True
 
-    def test_collector_records_mapping_obs_through_replay_arrays(self, tmp_path):
-        cfg = R2DreamerConfig(obs_shape=(16404,), num_actions=4, buffer_capacity=8)
-        collector = _make_collector(cfg, adapter=_MappingObsAdapter())
+    def test_collector_records_multi_field_obs_through_replay_arrays(self, tmp_path):
+        cfg = _tiny_cnn_cfg(tmp_path)
+        collector = _make_collector(cfg, observe=_MultiFieldAdapter())
 
         collector.reset()
         collector.step(1)
@@ -394,21 +411,21 @@ class TestCollectorWiring:
         )
         obs_batch = batch["obs"]
         assert isinstance(obs_batch, dict)
-        assert set(obs_batch) == {"image", "wp_cp"}
+        assert set(obs_batch) == {"image", "camera_pose"}
         assert obs_batch["image"].shape == (1, 1, 64, 64, 3)
         assert obs_batch["image"].dtype == np.uint8
-        assert obs_batch["wp_cp"].shape == (1, 1, 4116)
-        assert obs_batch["wp_cp"].dtype == np.float32
+        assert obs_batch["camera_pose"].shape == (1, 1, 9)
+        assert obs_batch["camera_pose"].dtype == np.float32
 
 
 class TestFullPipeline:
-    def test_cnn_observation_preparation_runs_through_training_pipeline(self, tmp_path):
+    def test_rgb_adapter_runs_through_the_training_pipeline(self, tmp_path):
         cfg = _tiny_cnn_cfg(tmp_path)
-        agent = R2DreamerAgent(cfg, jax.random.PRNGKey(0))
+        agent = _tiny_agent(cfg)
         env = _TinyCNNEnv()
         collector = ExperienceCollector(
             env=env,
-            adapter=CNNObservationPreparation(),
+            observe=RgbAdapter(),
             num_actions=cfg.num_actions,
             buffer=ReplayBuffer(
                 capacity=cfg.buffer_capacity,
