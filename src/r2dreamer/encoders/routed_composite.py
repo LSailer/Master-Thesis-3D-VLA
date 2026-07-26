@@ -106,7 +106,12 @@ class RoutedCompositeEncoder(nn.Module):
             down to. Applied exactly when the routing has more than one branch,
             so ``embed_size`` stays fixed no matter how many modalities a variant
             composes; a single-branch variant is its branch, unfused.
-        compute_dtype: Compute dtype forwarded to the branches.
+        compute_dtype: Compute dtype forwarded to every branch that has a dtype
+            knob (conv and pointnet) and to the fusion Dense. ``None`` - the
+            default, and what the ``full_bf16`` gate leaves it at when off -
+            means each branch keeps its own default, so the conv branch stays
+            float32 and the pointnet branch stays bfloat16. The MLP and GNN
+            branches have no dtype knob and always run in float32.
     """
 
     routes: tuple[Route, ...]
@@ -124,12 +129,19 @@ class RoutedCompositeEncoder(nn.Module):
     transformer_heads: int = 8
     transformer_compute_dtype: DTypeLike = jnp.bfloat16
     fusion_dim: int = 1024
-    compute_dtype: DTypeLike = jnp.float32
+    compute_dtype: DTypeLike | None = None
 
     @property
     def global_keys(self) -> tuple[str, ...]:
         """Keys encoded once per batch and broadcast over the leading dims."""
         return tuple(route.key for route in self.routes if route.live)
+
+    @property
+    def _dtype_kwargs(self) -> dict[str, DTypeLike]:
+        """``compute_dtype`` keyword for branches that take one, if set."""
+        if self.compute_dtype is None:
+            return {}
+        return {"compute_dtype": self.compute_dtype}
 
     def _branch(self, route: Route) -> nn.Module:
         key, encoder = route.key, route.encoder
@@ -138,7 +150,7 @@ class RoutedCompositeEncoder(nn.Module):
                 depth=self.conv_depth,
                 kernel_size=self.conv_kernel,
                 mults=self.conv_mults,
-                compute_dtype=self.compute_dtype,
+                **self._dtype_kwargs,
                 name=f"conv_{key}",
             )
         if encoder is Encoder.CONV_POINTS:
@@ -150,7 +162,7 @@ class RoutedCompositeEncoder(nn.Module):
                 # Projected to a fixed width: a full-resolution point map
                 # flattens to far more channels than an image does.
                 embed_dim=self.branch_embed_dim,
-                compute_dtype=self.compute_dtype,
+                **self._dtype_kwargs,
                 name=f"conv_points_{key}",
             )
         if encoder is Encoder.MLP:
@@ -165,6 +177,7 @@ class RoutedCompositeEncoder(nn.Module):
                 num_points=self.pointnet_num_points,
                 point_dim=route.shape[-1],
                 embed_dim=self.branch_embed_dim,
+                **self._dtype_kwargs,
                 name=f"pointnet_{key}",
             )
         if encoder is Encoder.GNN:
@@ -222,7 +235,9 @@ class RoutedCompositeEncoder(nn.Module):
         # size does not depend on how many branches a variant happens to use.
         if len(self.routes) > 1:
             out = nn.Dense(
-                self.fusion_dim, dtype=self.compute_dtype, name="fusion"
+                self.fusion_dim,
+                dtype=self.compute_dtype if self.compute_dtype is not None else jnp.float32,
+                name="fusion",
             )(out)
         return out
 

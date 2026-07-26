@@ -8,7 +8,7 @@ setup:
 comments:
   - "L1 geometry-only arm (3D-52): replay stores one vector per step - the 37x37 pooled VGGT point map flattened plus the camera pose (4116 float32) - routed to an MLP branch. No RGB field at all, so this arm is blind to appearance and the decoder probe is unavailable for it."
   - "Paired with habitat-l1-hybrid (adapter rgb_pointmap_pose), which is the same pipeline plus the image field; the pair isolates what appearance contributes."
-  - "The MLP branch runs at the routed encoder's default depth. The legacy depth-3 --mlp_layers flag no longer reaches the encoder after the adapter-routing migration, so it is not passed here rather than passed and ignored."
+  - "The MLP branch runs at the routed encoder's default depth. --mlp_layers still reaches it (the adapter-routing migration rewired the flag onto the MLP branch); it is simply not swept here."
 args:
   steps: 2000000
   prefill: 5000

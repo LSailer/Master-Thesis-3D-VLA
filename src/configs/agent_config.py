@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TypedDict
 
@@ -84,7 +83,9 @@ class R2DreamerConfig:
     """
 
     # --- Environment / agent interface ---
-    obs_shape: tuple[int, ...] | Mapping[str, tuple[int, ...]] = (64, 64, 3)
+    # No obs_shape: the encoder is composed from the adapter's routed fields,
+    # so a config-level shape would only be a stale value in the manifest. The
+    # render resolution the env is built at lives on HabitatEnvConfig.
     num_actions: int = 4
     max_episode_steps: int = 1000
 

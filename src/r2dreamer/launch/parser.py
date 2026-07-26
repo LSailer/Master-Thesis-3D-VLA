@@ -34,7 +34,9 @@ def _str2bool(value: str | bool) -> bool:
 def _add_basic_train_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--steps", type=int, default=2_400_000)
     p.add_argument("--prefill", type=int, default=5000)
-    p.add_argument("--output_dir", type=str, default="output/dev")
+    # None, not a literal default: a preset launch supplies its own run
+    # directory as a kwarg, and a defaulted flag would always shadow it.
+    p.add_argument("--output_dir", type=str, default=None)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--log_every", type=int, default=250)
     p.add_argument("--checkpoint_every", type=int, default=50_000)

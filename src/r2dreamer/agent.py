@@ -266,12 +266,15 @@ class R2DreamerAgent:
         # runs on.
         # Composition root: translate the config into branch overrides so the
         # run stays reproducible from the config alone; ``encoder_overrides``
-        # (e.g. fusion_dim) win over the translation.
+        # (e.g. fusion_dim) win over the translation. ``full_bf16`` is what
+        # extends ``compute_dtype`` to the branches - with the gate off each
+        # branch keeps its own default dtype.
         self.encoder_mod = routed_encoder_from_fields(
             fields,
             conv_depth=config.encoder_depth,
             conv_kernel=config.encoder_kernel,
             conv_mults=config.encoder_mults,
+            **compute_dtype_kwargs(config),
             **(encoder_overrides or {}),
         )
         self.rssm_mod = rssm_from_config(config)
@@ -447,8 +450,13 @@ class R2DreamerAgent:
         if not isinstance(encoder_obs, Mapping):
             return jnp.asarray(encoder_obs)[None]
         global_keys = getattr(self.encoder_mod, "global_keys", ())
+
+        def batched(key: str, value: Any) -> jnp.ndarray:
+            array = jnp.asarray(value)
+            return array if key in global_keys else array[None]
+
         return {
-            key: jnp.asarray(value) if key in global_keys else jnp.asarray(value)[None]
+            key: batched(key, value)
             for key, value in encoder_obs.items()
             if key != "is_first"
         }
@@ -724,12 +732,20 @@ class R2DreamerAgent:
         routed key so the encoder sees the same obs dict as at init time.
 
         Raises:
-            ValueError: If the encoder routes a global key but the batch
-                carries no global feature.
+            ValueError: If the encoder routes more than one global key, or
+                routes a global key but the batch carries no global feature.
         """
         global_keys = getattr(self.encoder_mod, "global_keys", ())
         if not global_keys:
             return batch.obs
+        if len(global_keys) > 1:
+            # The batch carries a single ``global_feature``, so a second live
+            # field has nowhere to ride; silently encoding only the first would
+            # train against an obs dict the adapter never produced.
+            raise ValueError(
+                f"encoder routes {len(global_keys)} global keys {global_keys}, "
+                "but a replay batch carries exactly one global_feature"
+            )
         if batch.global_feature is None:
             raise ValueError(
                 f"encoder routes global keys {global_keys} but the sampled "

@@ -40,6 +40,10 @@ from src.shared.dtypes import compute_jnp_dtype
 
 ENVS = ("habitat", "crafter")
 
+# Scratch run directory for an ad-hoc train launch that names neither a
+# --output_dir flag nor a shim kwarg.
+_DEFAULT_OUTPUT_DIR = "output/dev"
+
 
 @dataclass
 class TrainingRun:
@@ -281,16 +285,19 @@ def _effective_curriculum(*, env: str, args: Any, curriculum: str | None) -> str
 def _effective_run_metadata(
     *,
     args: Any,
+    output_dir: str | None,
     wandb_name: str | None,
     wandb_tags: list[str] | None,
-) -> tuple[ str | None, list[str]]:
-    # CLI value (non-None) wins over shim kwarg. The train parser defaults
-    # --output_dir to "output/dev", so eff_output_dir is always set here.
+) -> tuple[str, str | None, list[str]]:
+    # CLI value (non-None) wins over shim kwarg; neither set falls back to the
+    # scratch dir, so an ad-hoc `python -m src.main train` still has somewhere
+    # to write.
+    eff_output_dir = args.output_dir or output_dir or _DEFAULT_OUTPUT_DIR
     eff_wandb_name = args.wandb_name if args.wandb_name is not None else wandb_name
     eff_wandb_tags: list[str] = list(wandb_tags) if wandb_tags is not None else []
     if args.wandb_tags:
         eff_wandb_tags.extend(t.strip() for t in args.wandb_tags.split(","))
-    return  eff_wandb_name, eff_wandb_tags
+    return eff_output_dir, eff_wandb_name, eff_wandb_tags
 
 
 def _encoder_overrides_from_args(args: Any) -> dict[str, Any]:
@@ -485,11 +492,18 @@ def _compose_run(
                 num_actions=num_actions,
                 float_dtype=compute_jnp_dtype(agent_config.compute_dtype),
             )
+        observe = make_adapter(adapter_cls, args)
         collector = ExperienceCollector(
             env=env_instance,
-            observe=make_adapter(adapter_cls, args),
+            observe=observe,
             num_actions=num_actions,
             buffer=buffer,
+            # End-of-run health metrics are the recording rollout's: a variant
+            # that keeps accumulator state (e.g. the voxel buffer) reports it
+            # through this hook, and a variant without one reports nothing.
+            diagnostics_fn=(
+                getattr(observe, "diagnostics", None) if buffer is not None else None
+            ),
             episode_metrics_fn=(
                 # Only a recording run needs the rolling trackers: the eval loop
                 # reads success/SPL off the final frame itself.
@@ -548,6 +562,7 @@ def train(
     env: str,
     adapter: str,
     curriculum: str | None = None,
+    output_dir: str | None = None,
     wandb_name: str | None = None,
     wandb_tags: list[str] | None = None,
     argv: list[str] | None = None,
@@ -573,10 +588,10 @@ def train(
     args = _build_parser_train().parse_args(
         argv if argv is not None else sys.argv[1:]
     )
-    breakpoint()
     eff_curriculum = _effective_curriculum(env=env, args=args, curriculum=curriculum)
-    eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
+    eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
         args=args,
+        output_dir=output_dir,
         wandb_name=wandb_name,
         wandb_tags=wandb_tags,
     )
@@ -586,7 +601,7 @@ def train(
         args=args,
         curriculum=eff_curriculum,
         mode=args.mode,
-        output_dir=args.output_dir,
+        output_dir=eff_output_dir,
     )
     agent, collector = composed.agent, composed.collector
     print(f"adapter {adapter!r} -> embed_size {agent.embed_size}")
@@ -745,7 +760,6 @@ def main(argv: Sequence[str] | None = None) -> object:
     parser = _build_parser()
     args, rest = parser.parse_known_args(list(argv) if argv is not None else None)
     if args.command == "train":
-        breakpoint()
         return train(
             env=args.env,
             adapter=args.adapter,

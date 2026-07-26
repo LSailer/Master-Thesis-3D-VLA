@@ -27,7 +27,6 @@ from src.environments.observation import ObservationFrame
 ReplayObservationBatch: TypeAlias = jax.Array | dict[str, jax.Array]
 ObservationLeaf: TypeAlias = jnp.ndarray | np.ndarray
 
-#TODO Can remove the dataclass not need more
 @dataclass
 class HybridObservation:
     """Hybrid image plus compact world-point observation for one transition.
