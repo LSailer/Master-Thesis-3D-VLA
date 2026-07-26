@@ -102,7 +102,9 @@ def _variant_flags() -> set[str]:
     return flags - config_fields
 
 
-def _adapter_kwargs(adapter_cls: type, args: Any) -> dict[str, Any]:
+def _adapter_kwargs(
+    adapter_cls: type, args: Any, *, output_dir: str | None
+) -> dict[str, Any]:
     """Constructor keywords for one adapter, read off the CLI by name.
 
     The variant declares which flags it consumes (``RUN_FLAGS``) and receives
@@ -110,10 +112,17 @@ def _adapter_kwargs(adapter_cls: type, args: Any) -> dict[str, Any]:
     config dataclass. An unset flag is left out so the adapter's own default
     stands, and the launcher never learns which variant owns which knob.
 
+    ``output_dir`` is the exception: it names a config field rather than a
+    variant knob, so a claiming adapter gets the run directory the run actually
+    writes to, not the raw flag. The flag is only one of the sources that
+    directory is resolved from, and a preset launch supplies it as a kwarg.
+
     Args:
         adapter_cls: The variant's adapter class.
         args: Parsed CLI namespace. Flags missing from it (the eval parser
             defines fewer) count as unset.
+        output_dir: Resolved run directory, or ``None`` for a rollout that owns
+            no artifacts (the validation collector).
 
     Returns:
         Keyword arguments for the adapter constructor.
@@ -134,11 +143,16 @@ def _adapter_kwargs(adapter_cls: type, args: Any) -> dict[str, Any]:
             f"{adapter_cls.__name__} does not consume {unclaimed}; those flags "
             "belong to another adapter variant"
         )
-    return {
+    kwargs = {
         flag: getattr(args, flag)
         for flag in claimed
         if getattr(args, flag, None) is not None
     }
+    if "output_dir" in claimed:
+        kwargs.pop("output_dir", None)
+        if output_dir is not None:
+            kwargs["output_dir"] = output_dir
+    return kwargs
 
 
 def _without_variant_flags(args: Any) -> Any:
@@ -154,7 +168,9 @@ def _without_variant_flags(args: Any) -> Any:
     return stripped
 
 
-def make_adapter(adapter_cls: type, args: Any) -> AdapterFn:
+def make_adapter(
+    adapter_cls: type, args: Any, *, output_dir: str | None = None
+) -> AdapterFn:
     """Build one adapter, with its own extractor when the variant needs one.
 
     Called once per collector, so train and validation never share adapter or
@@ -166,11 +182,13 @@ def make_adapter(adapter_cls: type, args: Any) -> AdapterFn:
         adapter_cls: The variant's adapter class.
         args: Parsed CLI namespace, source of the per-run knobs the variant
             claims through ``RUN_FLAGS``.
+        output_dir: Resolved run directory handed to a variant that claims
+            ``output_dir``; ``None`` for a rollout that writes no artifacts.
 
     Returns:
         The per-step adapter the collector calls.
     """
-    kwargs = _adapter_kwargs(adapter_cls, args)
+    kwargs = _adapter_kwargs(adapter_cls, args, output_dir=output_dir)
     if adapter_cls.NEEDS_FEATURES:
         # Imported lazily: loading VGGT weights costs seconds and GPU memory,
         # and the RGB baseline must not pay for it.
@@ -492,7 +510,7 @@ def _compose_run(
                 num_actions=num_actions,
                 float_dtype=compute_jnp_dtype(agent_config.compute_dtype),
             )
-        observe = make_adapter(adapter_cls, args)
+        observe = make_adapter(adapter_cls, args, output_dir=output_dir)
         collector = ExperienceCollector(
             env=env_instance,
             observe=observe,
@@ -620,7 +638,9 @@ def train(
         )
         val_collector = ExperienceCollector(
             env=val_env,
-            observe=make_adapter(composed.adapter_cls, _without_variant_flags(args)),
+            observe=make_adapter(
+                composed.adapter_cls, _without_variant_flags(args), output_dir=None
+            ),
             num_actions=collector.num_actions,
             buffer=None,
             episode_metrics_fn=HabitatEpisodeMetrics(val_env, track_collision_rate=True),
@@ -703,7 +723,7 @@ def evaluate(
                 curriculum=eff_curriculum,
                 mode="eval",
             )
-            observe = make_adapter(adapter_cls, args)
+            observe = make_adapter(adapter_cls, args, output_dir=eff_output_dir)
             print("Using random agent")
             agent = RandomAgent(
                 env=env_instance, num_actions=env_instance.num_actions, seed=args.seed

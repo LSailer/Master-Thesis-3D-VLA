@@ -12,7 +12,7 @@ import pytest
 from src.adapters import ADAPTERS
 from src.adapters.house_voxels import DUMP_SUBDIR
 from src.adapters.rgb import RgbAdapter
-from src.main import make_adapter
+from src.main import _adapter_kwargs, make_adapter
 from src.r2dreamer.launch.parser import _build_parser_train
 
 from tests.adapters.conftest import FakeEnv, FakeExtractor
@@ -121,6 +121,28 @@ def test_asking_an_unclaiming_variant_to_dump_is_an_error():
 
     with pytest.raises(ValueError, match="pointcloud_dump_steps"):
         make_adapter(RgbAdapter, args)
+
+
+def test_the_dump_uses_the_run_directory_not_the_raw_flag():
+    """A preset launch names its run directory as a kwarg, never as --output_dir."""
+    args = _build_parser_train().parse_args(
+        ["--pointcloud_dump_steps", "2,4", "--output_dir", "output/ignored"]
+    )
+
+    kwargs = _adapter_kwargs(
+        ADAPTERS["rgb_house_voxels"], args, output_dir="output/runs/actual"
+    )
+
+    assert kwargs["output_dir"] == "output/runs/actual"
+
+
+def test_a_rollout_that_owns_no_artifacts_gets_no_run_directory():
+    """The validation collector must not write over the training run's dumps."""
+    args = _build_parser_train().parse_args(["--output_dir", "output/runs/actual"])
+
+    kwargs = _adapter_kwargs(ADAPTERS["rgb_house_voxels"], args, output_dir=None)
+
+    assert "output_dir" not in kwargs
 
 
 @pytest.mark.parametrize("name", sorted(ADAPTERS))

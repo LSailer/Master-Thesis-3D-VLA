@@ -271,11 +271,13 @@ class R2DreamerAgent:
         # branch keeps its own default dtype.
         self.encoder_mod = routed_encoder_from_fields(
             fields,
-            conv_depth=config.encoder_depth,
-            conv_kernel=config.encoder_kernel,
-            conv_mults=config.encoder_mults,
-            **compute_dtype_kwargs(config),
-            **(encoder_overrides or {}),
+            **{
+                "conv_depth": config.encoder_depth,
+                "conv_kernel": config.encoder_kernel,
+                "conv_mults": config.encoder_mults,
+                **compute_dtype_kwargs(config),
+                **(encoder_overrides or {}),
+            },
         )
         self.rssm_mod = rssm_from_config(config)
 
