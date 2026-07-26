@@ -1,0 +1,17 @@
+extends: hybrid_v1
+job_name: r2d-L4-hybrid
+output_dir: output/runs/r2dreamer-curriculum-l4-hybrid
+run_id: habitat-l4-hybrid
+curriculum_check: data/curriculum/level4_10houses_6goals.json
+comments:
+  - "L4 rung of the hybrid CNN + points arm: 10 houses x 6 goal categories. Identical to hybrid_v1 except for the curriculum."
+  - "L4 superimposes the goal axis (L2) and the scene axis (L3), so it isolates neither; it is the combined-difficulty endpoint of the ladder."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l4-hybrid/run-${SLURM_JOB_ID}
+  wandb_name: l4_hybrid_cnn_points-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,hybrid,cnn,wp-cp,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l4-hybrid-${TIMESTAMP}
+    wandb_name: l4-hybrid-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,level4,smoke,cnn+vggt

@@ -1,0 +1,17 @@
+extends: pointmap_pose_l1
+job_name: r2d-L3-pointmap-pose
+output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose
+run_id: habitat-l3-pointmap-pose
+curriculum_check: data/curriculum/level3_10houses_1goal.json
+comments:
+  - "L3 rung of the geometry-only WP/CP arm: 10 houses x chair only, the scene-generalization axis. Identical to pointmap_pose_l1 except for the curriculum."
+  - "This is the rung where a geometric prior should pay off if it pays off anywhere: geometry transfers across houses, goal semantics does not. L2 is the paired negative control - the same arm on the goal axis, where the prediction is no gain."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose/run-${SLURM_JOB_ID}
+  wandb_name: l3_pointmap_pose-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-pointmap-pose-${TIMESTAMP}
+    wandb_name: l3-pointmap-pose-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,geometry-only,level3,smoke

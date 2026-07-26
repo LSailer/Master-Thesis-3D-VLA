@@ -1,0 +1,33 @@
+extends: _base
+job_name: r2d-L1-cnn
+output_dir: output/runs/r2dreamer-curriculum-l1
+run_id: habitat-l1-cnn
+curriculum_check: data/curriculum/level1_1house_1goal.json
+comments:
+  - "L1 rung of the CNN baseline ladder: 1 house x chair only. The 2D control every 3D arm is read against."
+  - "Deliberately not l1_cnn_cap1m: that config belongs to the replay-capacity ablation (cap10k/100k/500k/1m), which is pinned at seed 42 and reported commit-pinned as its own study. This one carries the ladder's seed policy (seed: ${SEED}) and the ladder's step budget, so l1..l4_cnn differ in curriculum and nothing else."
+  - "Scalars-only run (video_log_every=0, val_every=0): episode videos and held-out eval metrics are regenerated offline from checkpoints, which keeps the two heaviest habitat GL paths out of training."
+sbatch:
+  time: "24:00:00"
+args:
+  # Ladder budget, shared by all five arms. At ~37 ms/step this arm reaches it
+  # in ~15 h, well inside the 24 h wall.
+  steps: 1500000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l1/run-${SLURM_JOB_ID}
+  seed: ${SEED}
+  log_every: 250
+  # Matches the l1_cnn_cap1m headline baseline rather than the 500k code
+  # default, and is shared by every rung of this ladder.
+  buffer_capacity: 1000000
+  wandb_project: 3d-vla-objectnav
+  wandb_name: r2d-L1-cnn-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,cnn,baseline,jax,2d-rgb
+  video_log_every: 0
+  val_every: 0
+smoke:
+  args:
+    output_dir: output/smoke/l1-cnn-${TIMESTAMP}
+    wandb_name: l1-cnn-smoke-${TIMESTAMP}
+    wandb_tags: cnn,baseline,level1,smoke

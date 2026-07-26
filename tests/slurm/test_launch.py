@@ -490,7 +490,7 @@ def test_aggregator_pooled_prod_args() -> None:
     assert python_cmd == "uv run python"
     assert script.endswith("run.py")
     assert run_id == "habitat-l1-aggregator-pooled"
-    assert flags["--steps"] == "2000000"
+    assert flags["--steps"] == "1500000"
     assert flags["--prefill"] == "5000"
     assert flags["--checkpoint_every"] == "100000"
     assert flags["--render_resolution"] == "518"

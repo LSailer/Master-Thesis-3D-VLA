@@ -1,0 +1,17 @@
+extends: aggregator_pooled_l1
+job_name: r2d-L2-agg-pooled
+output_dir: output/runs/r2dreamer-curriculum-l2-aggregator-pooled
+run_id: habitat-l2-aggregator-pooled
+curriculum_check: data/curriculum/level2_1house_6goals.json
+comments:
+  - "L2 rung of the pooled-token arm: 1 house x 6 goal categories, the goal-generalization axis. Identical to aggregator_pooled_l1 except for the curriculum."
+  - "The pooled readout is the floor of the token family: whatever it already explains is not evidence for the sequence arms above it."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l2-aggregator-pooled/run-${SLURM_JOB_ID}
+  wandb_name: l2_aggregator_pooled-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,vggt,aggregator-pooled,pool-on-device,skip-heads,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l2-aggregator-pooled-${TIMESTAMP}
+    wandb_name: l2-aggregator-pooled-smoke-${TIMESTAMP}
+    wandb_tags: aggregator-pooled,skip-heads,level2,smoke

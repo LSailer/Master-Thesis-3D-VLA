@@ -9,12 +9,18 @@ comments:
   - "L1 global-token context (3D-90): replay stores RGB_64 plus the 1374x1024 global half of the final aggregator tokens; the agent runs CNN(image) + Transformer(tokens) and concatenates. VGGT point/camera heads are off."
   - "buffer_capacity is capped deliberately: a token row is 2.8 MB, and the replay buffer preallocates capacity rows."
 args:
-  steps: 2000000
+  # Ladder budget, shared by all five arms. Known not to be reachable here: at
+  # the ~254 ms/step measured on egu6znfs this arm covers roughly 0.6-0.7M of
+  # it before the 48 h wall (the partition maximum), i.e. ~45% - the shortest
+  # reach of the ladder. Recorded rather than silently lowered, so the
+  # truncation is a disclosed limit of the comparison instead of an
+  # unexplained gap in the curve.
+  steps: 1500000
   prefill: 5000
   buffer_capacity: 20000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l1-rgb-global-tokens/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
   wandb_project: 3d-vla-objectnav
   wandb_name: l1_rgb_global_tokens-${SLURM_JOB_ID}

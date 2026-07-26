@@ -1,0 +1,17 @@
+extends: pointmap_pose_l1
+job_name: r2d-L4-pointmap-pose
+output_dir: output/runs/r2dreamer-curriculum-l4-pointmap-pose
+run_id: habitat-l4-pointmap-pose
+curriculum_check: data/curriculum/level4_10houses_6goals.json
+comments:
+  - "L4 rung of the geometry-only WP/CP arm: 10 houses x 6 goal categories. Identical to pointmap_pose_l1 except for the curriculum."
+  - "L4 superimposes the goal axis (L2) and the scene axis (L3), so it isolates neither; it is the combined-difficulty endpoint of the ladder, not the rung that carries the argument."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l4-pointmap-pose/run-${SLURM_JOB_ID}
+  wandb_name: l4_pointmap_pose-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l4-pointmap-pose-${TIMESTAMP}
+    wandb_name: l4-pointmap-pose-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,geometry-only,level4,smoke

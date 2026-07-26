@@ -1,0 +1,17 @@
+extends: global_tokens_l1
+job_name: r2d-L2-global-tokens
+output_dir: output/runs/r2dreamer-curriculum-l2-global-tokens
+run_id: habitat-l2-global-tokens
+curriculum_check: data/curriculum/level2_1house_6goals.json
+comments:
+  - "L2 rung of the hybrid CNN + token arm: 1 house x 6 goal categories, the goal-generalization axis. Identical to global_tokens_l1 except for the curriculum, including the 20000-row buffer cap that a 2.8 MB token row forces."
+  - "Slowest arm of the ladder at ~254 ms/step, so its step budget is what a common, walltime-achievable budget has to respect."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l2-global-tokens/run-${SLURM_JOB_ID}
+  wandb_name: l2_global_tokens-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,vggt,global-token-transformer,no-gate,rgb-replay,live-cache,bounded-cache,3d-90,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l2-global-tokens-${TIMESTAMP}
+    wandb_name: l2-global-tokens-smoke-${TIMESTAMP}
+    wandb_tags: global-token-transformer,level2,smoke,no-gate,rgb-replay,live-cache

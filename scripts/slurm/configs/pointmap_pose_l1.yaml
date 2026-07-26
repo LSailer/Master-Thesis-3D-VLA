@@ -10,12 +10,21 @@ comments:
   - "Paired with habitat-l1-hybrid (adapter rgb_pointmap_pose), which is the same pipeline plus the image field; the pair isolates what appearance contributes."
   - "The MLP branch runs at the routed encoder's default depth. --mlp_layers still reaches it (the adapter-routing migration rewired the flag onto the MLP branch); it is simply not swept here."
 args:
-  steps: 2000000
+  # Ladder budget, shared by all five arms. Known not to be reachable here: at
+  # the 106-121 ms/step measured on rx29922r / 7ty9rj26 this arm covers roughly
+  # 1.3-1.4M of it before the 48 h wall (the partition maximum), i.e. ~90%.
+  # Recorded rather than silently lowered, so the truncation is a disclosed
+  # limit of the comparison instead of an unexplained gap in the curve.
+  steps: 1500000
   prefill: 5000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
+  # Pinned rather than inherited from the 500k code default, so every rung of
+  # this arm replays the same capacity even if the default moves. A row is
+  # 4116 float32 = 16.5 KB, so 500k rows are ~8 GB of the node's 64 GB.
+  buffer_capacity: 500000
   wandb_project: 3d-vla-objectnav
   wandb_name: l1_pointmap_pose-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder

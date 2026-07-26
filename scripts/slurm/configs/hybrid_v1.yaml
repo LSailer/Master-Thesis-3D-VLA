@@ -3,6 +3,11 @@ job_name: hybrid-cnn-vggt-v1
 output_dir: output/runs/r2dreamer-curriculum-l1-hybrid
 run_id: habitat-l1-hybrid
 curriculum_check: data/curriculum/level1_1house_1goal.json
+setup:
+  # This arm runs VGGT, so it needs the external repos linked when launched
+  # from a worktree (a no-op in the main checkout). The other VGGT arms already
+  # declare it; this one was the outlier.
+  - scripts/slurm/hooks/link_external.sh
 comments:
   - "Hybrid 3D encoder: CNN(RGB_64) + zero-gated MLP(WP/CP 4116) fused into the RSSM posterior; logs hybrid/{gate,cnn_frac,vggt_frac} contribution metrics"
   - "Compares against the WP/CP-only baseline (W&B lhgoxh0y): hybrid keeps the strong CNN path and opens the VGGT branch from zero"
@@ -12,12 +17,22 @@ env:
   # otherwise-successful run (see Trainer.hard_exit_on_finish / d09ad3c).
   R2DREAMER_HARD_EXIT_ON_FINISH: "1"
 args:
-  steps: 2000000
+  # Ladder budget, shared by all five arms. Known not to be reachable here: at
+  # the ~164 ms/step measured on boi0cntv this arm covers roughly 1.0M of it
+  # before the 48 h wall (the partition maximum), i.e. ~70%. Recorded rather
+  # than silently lowered, so the truncation is a disclosed limit of the
+  # comparison instead of an unexplained gap in the curve.
+  steps: 1500000
   prefill: 5000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l1-hybrid/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
+  # Pinned rather than inherited from the 500k code default, so every rung of
+  # this arm replays the same capacity even if the default moves. A row is the
+  # RGB_64 image plus the 4116-float32 point map/pose, ~29 KB, so 500k rows are
+  # ~14 GB of the node's 64 GB.
+  buffer_capacity: 500000
   wandb_project: 3d-vla-objectnav
   wandb_name: hybrid-cnn-vggt-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,hybrid,cnn,wp-cp,jax,3d-encoder

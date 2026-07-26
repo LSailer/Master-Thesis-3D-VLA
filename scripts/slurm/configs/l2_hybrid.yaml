@@ -1,0 +1,17 @@
+extends: hybrid_v1
+job_name: r2d-L2-hybrid
+output_dir: output/runs/r2dreamer-curriculum-l2-hybrid
+run_id: habitat-l2-hybrid
+curriculum_check: data/curriculum/level2_1house_6goals.json
+comments:
+  - "L2 rung of the hybrid CNN + points arm: 1 house x 6 goal categories, the goal-generalization axis. Identical to hybrid_v1 except for the curriculum - same conv(RGB) + MLP(37x37 point map, camera pose) fusion, same replay capacity, same step budget."
+  - "Negative control for l3_hybrid: a geometric prior should help on the scene axis and not on the goal axis. That sign prediction is what a pure added-parameters explanation cannot make."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l2-hybrid/run-${SLURM_JOB_ID}
+  wandb_name: l2_hybrid_cnn_points-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,hybrid,cnn,wp-cp,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l2-hybrid-${TIMESTAMP}
+    wandb_name: l2-hybrid-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,level2,smoke,cnn+vggt

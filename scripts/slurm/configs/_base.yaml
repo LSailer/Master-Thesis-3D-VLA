@@ -20,6 +20,14 @@ env:
   # Defined here so every _base-derived variant inherits it, keeping the
   # CNN and VGGT arms symmetric under the smoke-then-prod afterok gate.
   R2DREAMER_HARD_EXIT_ON_FINISH: "1"
+  # Reproducible, arm-paired training seed. Curriculum configs write
+  # `seed: ${SEED}` instead of the old `seed: ${SLURM_JOB_ID}`, which was
+  # unknown before submit and differed per arm - so the 2D and 3D arms saw
+  # different episode orders and no run could be reproduced. Override per
+  # submission with `launch.sh <variant> --env SEED=2`; the same value pins
+  # every arm of one comparison. The seed reaches habitat's episode ordering
+  # (src/environments/habitat.py), so this is what makes arms paired.
+  SEED: "1"
 args:
   # Shared training-step budget for the curriculum family. The CNN and VGGT
   # arms share the same 2M budget for a fair comparison; variants may override.

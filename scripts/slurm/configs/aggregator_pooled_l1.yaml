@@ -10,12 +10,19 @@ comments:
   - "The cheap end of the token family: 12 KB/step against global_tokens_l1's 2.8 MB, so it needs no buffer_capacity cap. It bounds how much of the sequence arms' behaviour a plain pooled readout already explains."
   - "VGGT point/camera heads are off (EXTRACTOR_KWARGS on the adapter): this arm reads aggregator tokens only."
 args:
-  steps: 2000000
+  # Ladder budget, shared by all five arms. At the ~94 ms/step measured on
+  # l1-agg-mlp-cap500k (5959vo44) this arm reaches it in ~39 h, inside the 48 h
+  # wall with a thin margin.
+  steps: 1500000
   prefill: 5000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l1-aggregator-pooled/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
+  # Pinned rather than inherited from the 500k code default, so every rung of
+  # this arm replays the same capacity even if the default moves. A row is
+  # 3072 float32 = 12 KB, so 500k rows are ~6 GB of the node's 64 GB.
+  buffer_capacity: 500000
   wandb_project: 3d-vla-objectnav
   wandb_name: l1_aggregator_pooled-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,vggt,aggregator-pooled,pool-on-device,skip-heads,jax,3d-encoder

@@ -13,7 +13,7 @@ args:
   prefill: 5000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-context/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
   wandb_project: 3d-vla-objectnav
   wandb_name: l1_rgb_replay_vggt_house_context-${SLURM_JOB_ID}

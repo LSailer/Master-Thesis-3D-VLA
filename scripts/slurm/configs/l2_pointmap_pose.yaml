@@ -1,0 +1,17 @@
+extends: pointmap_pose_l1
+job_name: r2d-L2-pointmap-pose
+output_dir: output/runs/r2dreamer-curriculum-l2-pointmap-pose
+run_id: habitat-l2-pointmap-pose
+curriculum_check: data/curriculum/level2_1house_6goals.json
+comments:
+  - "L2 rung of the geometry-only WP/CP arm: 1 house x 6 goal categories, the goal-generalization axis. Identical to pointmap_pose_l1 except for the curriculum - same 37x37 pooled point map + camera pose, same MLP branch, same replay capacity, same step budget - so the L1/L2 difference is the curriculum and nothing else."
+  - "Read against l2_cnn (the 2D baseline on the same rung) and l2_hybrid (the same geometry plus appearance)."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l2-pointmap-pose/run-${SLURM_JOB_ID}
+  wandb_name: l2_pointmap_pose-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l2-pointmap-pose-${TIMESTAMP}
+    wandb_name: l2-pointmap-pose-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,geometry-only,level2,smoke

@@ -13,11 +13,18 @@ comments:
 sbatch:
   time: "24:00:00"
 args:
+  # Ladder budget, shared by all five arms. At ~37 ms/step this arm reaches it
+  # in ~15 h, well inside the 24 h wall.
+  steps: 1500000
   prefill: 5000
   checkpoint_every: 100000
   output_dir: output/runs/r2dreamer-curriculum-l2/run-${SLURM_JOB_ID}
-  seed: ${SLURM_JOB_ID}
+  seed: ${SEED}
   log_every: 250
+  # Explicit, not the 500k code default: the L1 headline baseline ran at 1M
+  # (l1_cnn_cap1m), so leaving this unset made the ladder's rungs differ in
+  # replay capacity as well as in curriculum.
+  buffer_capacity: 1000000
   wandb_project: 3d-vla-objectnav
   wandb_name: r2d-L2-cnn-${SLURM_JOB_ID}
   wandb_tags: curriculum,level2,1house,6goals,cnn,baseline,jax,2d-rgb

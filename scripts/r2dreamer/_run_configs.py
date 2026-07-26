@@ -62,7 +62,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
     ),
     # ── VGGT adapter variants / ablations ───────────────────────────────────
-    # L1 ``rgb_pointmap_pose`` — conv(RGB) + MLP over the pooled 37x37 point map
+    # L1–L4 ``rgb_pointmap_pose`` — conv(RGB) + MLP over the pooled 37x37 point map
     # concatenated with the camera pose, one replayed vector per step
     # (3D-50/51/52). The routed encoder fuses the two branches with a Dense;
     # the learned gate of the old HybridEncoder is gone.
@@ -74,6 +74,39 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_name="hybrid-cnn-vggt",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
+            "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
+        ],
+    ),
+    "habitat-l2-hybrid": dict(
+        env="habitat",
+        adapter="rgb_pointmap_pose",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2-hybrid",
+        wandb_name="l2_hybrid_cnn_points",
+        wandb_tags=[
+            "curriculum", "level2", "1house", "6goals", "vggt",
+            "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
+        ],
+    ),
+    "habitat-l3-hybrid": dict(
+        env="habitat",
+        adapter="rgb_pointmap_pose",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-hybrid",
+        wandb_name="l3_hybrid_cnn_points",
+        wandb_tags=[
+            "curriculum", "level3", "10houses", "chair-only", "vggt",
+            "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
+        ],
+    ),
+    "habitat-l4-hybrid": dict(
+        env="habitat",
+        adapter="rgb_pointmap_pose",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4-hybrid",
+        wandb_name="l4_hybrid_cnn_points",
+        wandb_tags=[
+            "curriculum", "level4", "10houses", "6goals", "vggt",
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
@@ -127,7 +160,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "gnn", "knn-graph", "prototype", "jax", "3d-encoder",
         ],
     ),
-    # L1 ``rgb_global_tokens`` — conv(RGB replay) + Transformer over the global half
+    # L1–L4 ``rgb_global_tokens`` — conv(RGB replay) + Transformer over the global half
     # of the final VGGT aggregator tokens (1374x1024). No point map: the context
     # is whatever the streaming attention cache carries, which is what this arm
     # measures. Point/camera heads are off. The tokens describe the *current*
@@ -142,6 +175,42 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
             "house-context", "global-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l2-global-tokens": dict(
+        env="habitat",
+        adapter="rgb_global_tokens",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2-global-tokens",
+        wandb_name="l2_global_tokens",
+        wandb_tags=[
+            "curriculum", "level2", "1house", "6goals", "vggt",
+            "global-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l3-global-tokens": dict(
+        env="habitat",
+        adapter="rgb_global_tokens",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-global-tokens",
+        wandb_name="l3_global_tokens",
+        wandb_tags=[
+            "curriculum", "level3", "10houses", "chair-only", "vggt",
+            "global-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l4-global-tokens": dict(
+        env="habitat",
+        adapter="rgb_global_tokens",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4-global-tokens",
+        wandb_name="l4_global_tokens",
+        wandb_tags=[
+            "curriculum", "level4", "10houses", "6goals", "vggt",
+            "global-token-transformer", "no-gate", "rgb-replay",
             "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
         ],
     ),
@@ -160,7 +229,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "live-cache", "bounded-cache", "3d-77", "jax", "3d-encoder",
         ],
     ),
-    # L1 ``aggregator_pooled`` — the cheap end of the token family: the global
+    # L1–L4 ``aggregator_pooled`` — the cheap end of the token family: the global
     # token half pooled to [camera, patch mean, patch max] (3072) through an MLP
     # branch. No appearance channel, no geometry, 12 KB/row.
     "habitat-l1-aggregator-pooled": dict(
@@ -175,8 +244,44 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "jax", "3d-encoder",
         ],
     ),
+    "habitat-l2-aggregator-pooled": dict(
+        env="habitat",
+        adapter="aggregator_pooled",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2-aggregator-pooled",
+        wandb_name="l2_aggregator_pooled",
+        wandb_tags=[
+            "curriculum", "level2", "1house", "6goals", "vggt",
+            "aggregator-pooled", "pool-on-device", "skip-heads",
+            "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l3-aggregator-pooled": dict(
+        env="habitat",
+        adapter="aggregator_pooled",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-aggregator-pooled",
+        wandb_name="l3_aggregator_pooled",
+        wandb_tags=[
+            "curriculum", "level3", "10houses", "chair-only", "vggt",
+            "aggregator-pooled", "pool-on-device", "skip-heads",
+            "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l4-aggregator-pooled": dict(
+        env="habitat",
+        adapter="aggregator_pooled",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4-aggregator-pooled",
+        wandb_name="l4_aggregator_pooled",
+        wandb_tags=[
+            "curriculum", "level4", "10houses", "6goals", "vggt",
+            "aggregator-pooled", "pool-on-device", "skip-heads",
+            "jax", "3d-encoder",
+        ],
+    ),
     # ── Geometry-only arms (no appearance channel, hence no decoder target) ──
-    # L1 ``pointmap_pose`` — the ``rgb_pointmap_pose`` arm above with the image
+    # L1–L4 ``pointmap_pose`` — the ``rgb_pointmap_pose`` arm above with the image
     # field removed: only the 37x37 pooled point map plus camera pose, through an
     # MLP branch. The pair isolates what appearance contributes.
     "habitat-l1-pointmap-pose": dict(
@@ -187,6 +292,39 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
         wandb_name="l1_pointmap_pose",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
+            "pointmap-pose", "geometry-only", "3d-52", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l2-pointmap-pose": dict(
+        env="habitat",
+        adapter="pointmap_pose",
+        curriculum="L2",
+        output_dir="output/runs/r2dreamer-curriculum-l2-pointmap-pose",
+        wandb_name="l2_pointmap_pose",
+        wandb_tags=[
+            "curriculum", "level2", "1house", "6goals", "vggt",
+            "pointmap-pose", "geometry-only", "3d-52", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l3-pointmap-pose": dict(
+        env="habitat",
+        adapter="pointmap_pose",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-pointmap-pose",
+        wandb_name="l3_pointmap_pose",
+        wandb_tags=[
+            "curriculum", "level3", "10houses", "chair-only", "vggt",
+            "pointmap-pose", "geometry-only", "3d-52", "jax", "3d-encoder",
+        ],
+    ),
+    "habitat-l4-pointmap-pose": dict(
+        env="habitat",
+        adapter="pointmap_pose",
+        curriculum="L4",
+        output_dir="output/runs/r2dreamer-curriculum-l4-pointmap-pose",
+        wandb_name="l4_pointmap_pose",
+        wandb_tags=[
+            "curriculum", "level4", "10houses", "6goals", "vggt",
             "pointmap-pose", "geometry-only", "3d-52", "jax", "3d-encoder",
         ],
     ),
