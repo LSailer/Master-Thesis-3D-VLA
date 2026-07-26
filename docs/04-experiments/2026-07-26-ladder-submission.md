@@ -42,13 +42,53 @@ später prüft, vergleiche `git_sha` statt `git_dirty`.
 
 | Arm | Adapter | L1 | L2 | L3 | L4 |
 |---|---|---|---|---|---|
-| CNN-Baseline | `rgb` | 6045919/20 | 6045922/23 | 6045924/25 | 6045926/27 |
-| WPCP 37,37 | `pointmap_pose` | 6045928/29 | 6045930/31 | 6045932/33 | 6045934/35 |
+| CNN-Baseline | `rgb` | 6045919/20 | 6045922/23 | 6045924/25 | **6046027/28** |
+| WPCP 37,37 | `pointmap_pose` | 6045928/29 | 6045930/31 | 6045932/33 | **6046029/30** |
 | Token Pooled Aggregator | `aggregator_pooled` | 6045936/37 | 6045938/39 | 6045940/41 | 6045942/43 |
-| Hybrid CNN + Points | `rgb_pointmap_pose` | 6045944/45 | 6045946/47 | 6045948/49 | 6045950/51 |
+| Hybrid CNN + Points | `rgb_pointmap_pose` | 6045944/45 | 6045946/47 | 6045948/49 | **6046069/70** |
 | Hybrid CNN + Tokens | `rgb_global_tokens` | 6045952/53 | 6045954/55 | 6045956/57 | 6045958/59 |
 
-Jeweils `smoke/prod`.
+Jeweils `smoke/prod`. Fett = zweite Einreichung, siehe unten.
+
+### L4-Smoke-Abbrüche in der ersten Runde
+
+Drei L4-Smokes brachen mit Exit 134 (SIGABRT) ab und rissen über
+`--kill-on-invalid-dep=yes` ihre Prod-Jobs mit: `l4_cnn` (6045926),
+`l4_pointmap_pose` (6045934), `l4_hybrid` (6045950). Alle drei auf zweiter
+Einreichung sauber durchgelaufen.
+
+**Kein Code- und kein Curriculum-Defekt.** Der Traceback endet mitten im
+Prefill in `habitat_sim/sensors/sensor_wrapper.py:214 get_observation`
+(`loops.py:377` -> `experience.py:225` -> `habitat.py:377`), `metrics.csv` hatte
+0 Zeilen. Das ist *nicht* der bekannte GL-Teardown, der nur den Exit-Code
+vergiftet - hier ist gar nichts entstanden. Das Smoke-Gate hat also korrekt
+gegriffen.
+
+Das Muster über beide Runden:
+
+| Node | gleichzeitige Habitat-Jobs | Ergebnis |
+|---|---|---|
+| `uc3n105` | 4 (L4-cnn + pointmap L1/L2/L3) | **L4 bricht ab**, L1-L3 laufen |
+| `uc3n107` | 4 (L4-pointmap + agg-pooled L1/L2/L3) | **L4 bricht ab**, L1-L3 laufen |
+| `uc3n105` | 4 (L4-hybrid + global-tokens L1/L2/L3) | **L4 bricht ab**, L1-L3 laufen |
+| `uc3n088` | 2 | beide laufen |
+| `uc3n088` | 3 (die drei Wiedereinreichungen) | alle drei laufen |
+
+Immer trifft es den L4-Job, nie einen L1-L3-Job, und nur bei vier
+gleichzeitigen Habitat-Jobs auf einem Node. L3 und L4 teilen sich beide
+auffälligen Szenen (`W9YAR9qcuvN`, `XfUxBGTFQQb`), und L3 lief auf genau dem
+Node durch, auf dem L4 abbrach - an den Szenendaten liegt es also nicht. Der
+Host-RAM lag bei 2.75-8.55 GB von 64 GB, es ist kein OOM.
+
+Bleibt: L4 lädt das größte Szenenset und damit den meisten GL-/Texturspeicher
+und verliert unter Ko-Tenant-Last den Sensor-Read.
+
+**Konsequenz für weitere Runden:** L4-Jobs nicht mit drei weiteren
+Habitat-Jobs auf denselben Node packen. Praktisch entweder L4 zeitlich
+versetzt einreichen oder die auffälligen Nodes per `--exclude` meiden. Und
+generell: nach jeder Runde `sacct` auf Exit 134 prüfen, statt anzunehmen, dass
+`--smoke-then-prod` schon alles abgefangen hat - das Gate greift zwar, aber es
+nimmt den Prod-Job mit.
 
 ## Erwartete Reichweite - offengelegt, nicht stillschweigend
 
