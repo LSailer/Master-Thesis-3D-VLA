@@ -2,7 +2,10 @@
 
 Status: implemented 2026-07-26 (PR #212)
 Date: 2026-07-26
-Supersedes: ADR 0001 (Observation Preparation as the public input-mode boundary)
+Supersedes: ADR 0001, "Use Observation Preparation as the public input-mode
+boundary" (added 2026-06-15 in `03b36a3`, deleted here). Its problem statement
+and its failed remedy are both carried forward in the Context below, so the file
+itself held nothing but a pointer saying to ignore it.
 
 ## Context
 
