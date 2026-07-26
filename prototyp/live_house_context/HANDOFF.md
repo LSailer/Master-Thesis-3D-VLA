@@ -48,8 +48,13 @@ bash scripts/slurm/launch.sh house_points_pose_l1_live --prod
   `src/vggt/jax/feature_extractor.py` (in-extract is_first to reset_for_scene).
 - **Tests:** `tests/vggt/test_reset_for_scene.py`,
   `tests/r2dreamer/launch/test_encoders.py` (PERSIST + scene-aware callback).
-- **Protocol + diagnostic (this folder):** `IDEA.md`, `PROTOCOL.md`,
-  `PROBLEMS.md`, `HANDOFF.md`, `check_persist_alignment.py`, `run_alignment.sbatch`.
+- **Protocol (this folder):** `IDEA.md`, `PROTOCOL.md`, `PROBLEMS.md`,
+  `HANDOFF.md`.
+- **Diagnostic (removed):** `check_persist_alignment.py` and its launcher
+  `run_alignment.sbatch` were deleted in the adapter-routing refactor - they
+  targeted `src.r2dreamer.encoders.base` and `src.r2dreamer.launch.habitat_setup`,
+  neither of which survived it. What they measured and found is preserved in
+  PROTOCOL §7.
 
 ## Reproduce the verification
 
@@ -58,8 +63,9 @@ bash scripts/slurm/launch.sh house_points_pose_l1_live --prod
 JAX_PLATFORMS=cpu uv run pytest tests/vggt/test_reset_for_scene.py \
     "tests/r2dreamer/launch/test_encoders.py::TestVGGTEncoderConfiguration" -q
 
-# 2. PERSIST frame-preservation diagnostic (GPU, ~3 min)
-sbatch src/prototyp/live_house_context/run_alignment.sbatch
+# 2. PERSIST frame-preservation diagnostic — no longer reproducible: the
+#    script and its sbatch wrapper were removed in the adapter-routing
+#    refactor. Its verdict is recorded in PROTOCOL §7.
 
 # 3. Full-pipeline smoke (GPU, ~8 min, 30-min cap)
 bash scripts/slurm/launch.sh house_points_pose_l1_live --smoke

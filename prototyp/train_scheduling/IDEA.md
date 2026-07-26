@@ -48,7 +48,9 @@ threaded vs interleaved measures true overlap.
   `sample()` are not thread-safe: unguarded `idx`/`size` mutation and ring
   gather). The wrapper is swapped into the real `ExperienceCollector.buffer`
   attribute for threaded mode only.
-- **Reuse the composition root**: `run_scheduling_experiment.py` builds env,
+- **Reuse the composition root** (as it stood before the adapter-routing
+  refactor, which removed `src.r2dreamer.launch.registries` and with it this
+  script — see HANDOFF): `run_scheduling_experiment.py` built env,
   encoder/adapter, agent, and collector by importing the same helpers
   `src.r2dreamer.launch.train.train()` uses (`_make_encoder_bundle`,
   `_make_env_instances`, `_make_agent_config`, `_make_collectors`, ...) and
