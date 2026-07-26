@@ -90,6 +90,25 @@ def test_mlp_branch_depth_round_trips_through_the_manifest(tmp_path):
     )
 
 
+def test_compute_dtype_gate_round_trips_through_the_manifest(tmp_path):
+    """The precision gate changes compute, not shapes, so nothing else catches it.
+
+    ``full_bf16`` leaves the param tree bit-identical, so ``_assert_params_match``
+    passes whether or not it is recovered; a run trained under the gate would
+    silently be evaluated in float32.
+    """
+    trained = R2DreamerConfig(full_bf16=True, compute_dtype="bfloat16")
+    ckpt = _write_manifest(tmp_path, config_snapshot(trained))
+
+    overrides = arch_overrides_from_manifest(ckpt)
+    at_eval = replace(R2DreamerConfig(), **overrides)
+
+    assert at_eval.full_bf16 is True
+    assert encoder_overrides_from_config(at_eval) == encoder_overrides_from_config(
+        trained
+    )
+
+
 def test_a_deeper_mlp_branch_really_builds_more_params(tmp_path):
     """Guards the test above: the depth must be observable in the param tree."""
     fields = [

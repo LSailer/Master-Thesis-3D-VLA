@@ -29,11 +29,14 @@ in `jax/` is the production path; `reference/` wraps the PyTorch StreamVGGT mode
 
 ## R2Dreamer integration
 
-- `src/r2dreamer/adapters/vggt_adapter.py` calls VGGT readouts.
-- `src/r2dreamer/observation_preparation/vggt_readouts.py` emits WP/CP, dense point-map,
-  pooled aggregator, or full-token observations.
-- Encoder variants live in `src/r2dreamer/encoders/__init__.py`: `vggt`,
-  `vggt_aggregator_mlp`, `vggt_wp_dense_cnn`, `vggt_wp_cp_64`, `hybrid`.
+- Observation adapters in `src/adapters/` hold the extractor and call `extract()`:
+  `global_tokens.py` (global/full/pooled aggregator tokens), `pointmap_pose.py` and
+  `pointmap_dense.py` (WP/CP and dense point map), `house_voxels.py` and
+  `house_cloud_episodes.py` (accumulated world points).
+- An adapter declares its model composition by returning `AdapterField(key, encoder, ...)`
+  values, where `encoder` is a member of the `Encoder` enum in `src/adapters/contract.py`.
+  That routing - not a config string - selects the branch modules in
+  `src/r2dreamer/encoders/`.
 
 ## Gotchas
 

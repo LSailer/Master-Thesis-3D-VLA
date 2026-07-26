@@ -30,7 +30,9 @@ from src.shared.video_utils import (
 _ACTIONS = {0: "STOP", 1: "MOVE_FORWARD", 2: "TURN_LEFT", 3: "TURN_RIGHT"}
 
 # Architecture fields that must match the trained run: the adapter supplies the
-# encoder routing, but RSSM/head widths come from the run's own config.
+# encoder routing, but RSSM/head widths come from the run's own config. The
+# compute-dtype gate belongs here too - it leaves param shapes untouched, so
+# ``_assert_params_match`` cannot catch a run rebuilt in the wrong precision.
 _ARCH_FIELDS = (
     "deter_size",
     "hidden_size",
@@ -51,6 +53,8 @@ _ARCH_FIELDS = (
     "mlp_layers_critic",
     "twohot_bins",
     "decoder",
+    "compute_dtype",
+    "full_bf16",
 )
 
 
