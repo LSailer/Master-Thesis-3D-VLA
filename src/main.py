@@ -40,6 +40,11 @@ from src.shared.dtypes import compute_jnp_dtype
 
 ENVS = ("habitat", "crafter")
 
+# Typed fallback for the optional ``RUN_FLAGS`` constant. A bare ``()`` default
+# would make ``getattr`` yield ``tuple[()]``, whose element type is ``Never``,
+# and every dict built from those flags would infer as ``dict[Never, Any]``.
+_NO_RUN_FLAGS: tuple[str, ...] = ()
+
 # Scratch run directory for an ad-hoc train launch that names neither a
 # --output_dir flag nor a shim kwarg.
 _DEFAULT_OUTPUT_DIR = "output/dev"
@@ -97,7 +102,9 @@ def _variant_flags() -> set[str]:
         for field in fields(config_cls)
     }
     flags = {
-        flag for cls in ADAPTERS.values() for flag in getattr(cls, "RUN_FLAGS", ())
+        flag
+        for cls in ADAPTERS.values()
+        for flag in getattr(cls, "RUN_FLAGS", _NO_RUN_FLAGS)
     }
     return flags - config_fields
 
@@ -132,7 +139,7 @@ def _adapter_kwargs(
             claim. These knobs drive diagnostics, and a diagnostic that quietly
             does not run costs a whole cluster job to discover.
     """
-    claimed = tuple(getattr(adapter_cls, "RUN_FLAGS", ()))
+    claimed = tuple(getattr(adapter_cls, "RUN_FLAGS", _NO_RUN_FLAGS))
     unclaimed = sorted(
         flag
         for flag in _variant_flags().difference(claimed)
