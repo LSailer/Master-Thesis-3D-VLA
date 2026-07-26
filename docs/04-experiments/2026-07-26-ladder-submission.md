@@ -3,11 +3,29 @@
 Umsetzung von P3/P4/P5 aus [dem Rerun-Plan](2026-07-26-rerun-plan.md).
 Fünf Arme über je vier Sprossen, alle vom selben SHA, ein Seed, ein Step-Budget.
 
-**SHA:** `4738326` (`experiments(slurm): complete the 5-arm x 4-level curriculum ladder at HEAD`)
+**SHA:** `9ba143a`, Code identisch mit `4738326`
+(`experiments(slurm): complete the 5-arm x 4-level curriculum ladder at HEAD`;
+`9ba143a` fügt nur dieses Dokument hinzu)
 **Seed:** `SEED=1` über alle 20 Jobs (`--env SEED=1`)
 **Budget:** `steps: 1500000` über alle 20 Jobs
 **Modus:** `--smoke-then-prod`, Prod hängt an `afterok` des Smokes
 **Ausgeschlossen:** `uc3n089` (bricht Habitat-GL-Sensor-Reads mit Exit 134 ab)
+
+### Ausnahme zu §8: `git_dirty: true`
+
+Alle 20 Prod-Läufe tragen `git_dirty: true`. Das ist bekannt und bewusst in
+Kauf genommen, keine Unachtsamkeit.
+
+`manifest.py:54` berechnet `git_dirty` als `bool(git status --porcelain)`, also
+über das gesamte Repository. Beim Start der Jobs war `CLAUDE.md` uncommittet -
+eine Datei, die am Trainingspfad nichts ändert. Der ausgeführte Code ist exakt
+`9ba143a` und über alle 20 Läufe identisch; das Flag zeigt hier eine
+Repo-Eigenschaft an, keine Abweichung im Modellcode.
+
+Die Läufe bleiben damit untereinander vergleichbar. Für §8 gilt diese Notiz als
+die geforderte Offenlegung: gemeinsam berichten ja, aber mit dem Hinweis, dass
+das `git_dirty`-Flag in diesem Fall nicht aussagekräftig ist. Wer die Läufe
+später prüft, vergleiche `git_sha` statt `git_dirty`.
 
 ## Job-IDs
 
