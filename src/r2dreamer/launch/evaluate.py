@@ -43,6 +43,7 @@ _ARCH_FIELDS = (
     "encoder_depth",
     "encoder_kernel",
     "encoder_mults",
+    "mlp_layers",
     "mlp_units",
     "mlp_layers_reward",
     "mlp_layers_cont",

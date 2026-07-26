@@ -109,6 +109,34 @@ def _add_encoder_l2_metric(metrics: dict[str, Any], params: dict[str, Any]) -> N
     metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
 
 
+def encoder_overrides_from_config(cfg: R2DreamerConfig) -> dict[str, Any]:
+    """Translate the agent config into ``RoutedCompositeEncoder`` overrides.
+
+    Every branch knob the config owns must pass through here, because this is
+    what makes a checkpoint self-describing: the same fields travel into
+    MANIFEST.json and come back out through ``arch_overrides_from_manifest``,
+    so evaluation rebuilds the branch the run trained. A knob reaching the
+    encoder from anywhere else is one ``_assert_params_match`` will reject at
+    eval with nothing on disk to recover it from.
+
+    ``full_bf16`` is what extends ``compute_dtype`` to the branches; with the
+    gate off each branch keeps its own default dtype.
+
+    Args:
+        cfg: The run's agent config.
+
+    Returns:
+        Keyword overrides for :func:`routed_encoder_from_fields`.
+    """
+    return {
+        "conv_depth": cfg.encoder_depth,
+        "conv_kernel": cfg.encoder_kernel,
+        "conv_mults": cfg.encoder_mults,
+        "mlp_layers": cfg.mlp_layers,
+        **compute_dtype_kwargs(cfg),
+    }
+
+
 def _assert_params_match(fresh: Any, loaded: Any) -> None:
     """Check a freshly built param tree against one loaded from a checkpoint.
 
@@ -266,16 +294,11 @@ class R2DreamerAgent:
         # runs on.
         # Composition root: translate the config into branch overrides so the
         # run stays reproducible from the config alone; ``encoder_overrides``
-        # (e.g. fusion_dim) win over the translation. ``full_bf16`` is what
-        # extends ``compute_dtype`` to the branches - with the gate off each
-        # branch keeps its own default dtype.
+        # (e.g. fusion_dim) win over the translation.
         self.encoder_mod = routed_encoder_from_fields(
             fields,
             **{
-                "conv_depth": config.encoder_depth,
-                "conv_kernel": config.encoder_kernel,
-                "conv_mults": config.encoder_mults,
-                **compute_dtype_kwargs(config),
+                **encoder_overrides_from_config(config),
                 **(encoder_overrides or {}),
             },
         )

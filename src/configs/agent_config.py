@@ -107,6 +107,11 @@ class R2DreamerConfig:
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: tuple[int, ...] = (2, 3, 4, 4)
+    # Depth of the composite encoder's MLP branch (not an MLP head - those are
+    # the ``mlp_layers_*`` fields below). A config field rather than a bare CLI
+    # override so the manifest records it and evaluation can rebuild the same
+    # branch from the checkpoint alone.
+    mlp_layers: int = 1
     decoder: bool = False
     scale_decoder: float = 1.0
     compute_dtype: str = "bfloat16"

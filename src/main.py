@@ -318,18 +318,6 @@ def _effective_run_metadata(
     return eff_output_dir, eff_wandb_name, eff_wandb_tags
 
 
-def _encoder_overrides_from_args(args: Any) -> dict[str, Any]:
-    """Composite-encoder branch overrides that come from CLI flags.
-
-    Branch shape is normally the adapter's business (``ENCODER_OVERRIDES``), but
-    a few knobs are swept per run rather than per variant.
-    """
-    overrides: dict[str, Any] = {}
-    if getattr(args, "mlp_layers", None) is not None:
-        overrides["mlp_layers"] = args.mlp_layers
-    return overrides
-
-
 def _renamed_agent_flags(args: Any) -> dict[str, Any]:
     """Agent-config values whose CLI flag is named differently or derived.
 
@@ -538,10 +526,7 @@ def _compose_run(
         # that second reset costs one episode of the iterator and keeps the
         # collector the only owner of the rollout.
         first_fields = collector.reset_fields()
-        encoder_overrides = {
-            **dict(adapter_cls.ENCODER_OVERRIDES),
-            **_encoder_overrides_from_args(args),
-        }
+        encoder_overrides = dict(adapter_cls.ENCODER_OVERRIDES)
         if checkpoint is not None:
             agent = R2DreamerAgent.from_checkpoint(
                 checkpoint,

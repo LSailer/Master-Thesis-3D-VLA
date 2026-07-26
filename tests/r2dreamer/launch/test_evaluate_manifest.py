@@ -1,11 +1,16 @@
 """Tests for evaluate-launcher manifest discovery, arch overrides, and the loop."""
 
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import jax
 
 from src.adapters.contract import AdapterField, Encoder
+from src.configs.agent_config import R2DreamerConfig
+from src.r2dreamer.agent import encoder_overrides_from_config
+from src.r2dreamer.checkpointing import config_snapshot
+from src.r2dreamer.encoders.routed_composite import routed_encoder_from_fields
 from src.r2dreamer.launch import evaluate as eval_module
 from src.r2dreamer.launch.evaluate import (
     arch_overrides_from_manifest,
@@ -62,6 +67,53 @@ def test_arch_overrides_recovers_rssm_and_head_widths(tmp_path):
     assert overrides["twohot_bins"] == 41
     assert "buffer_capacity" not in overrides
     assert "adapter" not in overrides
+
+
+def test_mlp_branch_depth_round_trips_through_the_manifest(tmp_path):
+    """A swept branch depth must survive to eval, or the run is unevaluatable.
+
+    ``--mlp_layers`` used to reach the encoder as a bare CLI override that no
+    artifact recorded, so evaluation rebuilt the branch at the default depth and
+    ``_assert_params_match`` rejected the checkpoint with nothing on disk to
+    recover the value from.
+    """
+    trained = R2DreamerConfig(mlp_layers=3)
+    ckpt = _write_manifest(tmp_path, config_snapshot(trained))
+
+    overrides = arch_overrides_from_manifest(ckpt)
+    at_eval = replace(R2DreamerConfig(), **overrides)
+
+    assert overrides["mlp_layers"] == 3
+    assert at_eval.mlp_layers == 3
+    assert encoder_overrides_from_config(at_eval) == encoder_overrides_from_config(
+        trained
+    )
+
+
+def test_a_deeper_mlp_branch_really_builds_more_params(tmp_path):
+    """Guards the test above: the depth must be observable in the param tree."""
+    fields = [
+        AdapterField(
+            key="pose",
+            encoder=Encoder.MLP,
+            buffer=True,
+            value=jax.numpy.zeros((8,)),
+        )
+    ]
+    obs = {"pose": jax.numpy.zeros((1, 8))}
+
+    def params_for(cfg):
+        encoder = routed_encoder_from_fields(
+            fields, **encoder_overrides_from_config(cfg)
+        )
+        return jax.tree_util.tree_structure(
+            encoder.init(jax.random.PRNGKey(0), obs)
+        )
+
+    deep = params_for(R2DreamerConfig(mlp_layers=3))
+
+    assert params_for(R2DreamerConfig(mlp_layers=1)) != deep
+    assert params_for(replace(R2DreamerConfig(), mlp_layers=3)) == deep
 
 
 def test_arch_overrides_without_manifest_is_empty(tmp_path):
