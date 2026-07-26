@@ -12,13 +12,15 @@ from src.adapters.contract import (
 )
 from src.adapters.replay_image import replay_image
 from src.environments.observation import ObservationFrame
+from src.r2dreamer.encoders.constants import AGG_REGISTER_TOKENS
 from src.vggt.jax.feature_extractor import VGGT_IMAGE_SIZE, VGGTExtractOutput
 
 # Aggregator token layout along axis 0 (src/vggt/jax/aggregator.py): one camera
-# token, then the register tokens, then one token per image patch. Repeated here
-# rather than imported so the token arms read without the encoder constants.
+# token, then the register tokens, then one token per image patch. The register
+# count is imported rather than restated: the pooled arm below slices past it
+# while ``TokenTransformerEncoder`` drops it, and two copies drifting apart
+# would silently pool the wrong tokens.
 AGG_CAMERA_TOKEN_IDX = 0
-AGG_REGISTER_TOKENS = 4
 AGG_PATCH_START_IDX = 1 + AGG_REGISTER_TOKENS
 
 

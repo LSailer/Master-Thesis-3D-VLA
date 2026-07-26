@@ -65,13 +65,30 @@ done
 # half covered as untested. Cobertura XML, not JSON: diff-cover only parses XML
 # and lcov, and handed a coverage.json it dies on "Unknown syntax in lcov
 # report" - which is why the original coverage step never produced a number.
-uv run --no-sync python -m coverage combine .coverage.core .coverage.vggt
-uv run --no-sync python -m coverage xml -o coverage.xml
+#
+# Reporting is measured, never blocking: a half that is killed rather than
+# failing (srun hitting the time limit, an allocation dying) writes no
+# `.coverage.<name>` at all, and under `set -e` an aborting `coverage combine`
+# would swallow the test verdict below and exit with coverage's status instead.
+coverage_files=()
+for part in core vggt; do
+    if [[ -f ".coverage.$part" ]]; then
+        coverage_files+=(".coverage.$part")
+    fi
+done
+if ((${#coverage_files[@]} > 0)); then
+    uv run --no-sync python -m coverage combine "${coverage_files[@]}" &&
+        uv run --no-sync python -m coverage xml -o coverage.xml || true
+else
+    echo "No coverage data written by either half; skipping coverage report." >&2
+fi
 
 # Coverage of changed lines feeds the risk score (measured, not blocking).
 # uvx, not `uv run`: diff-cover is a reporting tool, not a project dependency.
-uvx diff-cover coverage.xml --compare-branch origin/main \
-    --json-report .no-mistakes/diff-cover.json || true
+if [[ -f coverage.xml ]]; then
+    uvx diff-cover coverage.xml --compare-branch origin/main \
+        --json-report .no-mistakes/diff-cover.json || true
+fi
 
 if ((core_status != 0 || vggt_status != 0)); then
     echo "FAILED: core=$core_status vggt=$vggt_status (full logs in output/gate/)" >&2
