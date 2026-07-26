@@ -4,29 +4,29 @@ This context defines the project language for R2Dreamer/VGGT ObjectNav experimen
 
 ## Language
 
-**Observation Preparation**:
-The boundary that turns environment observations into replay-buffer observations and agent-ready observations for a chosen input mode. It owns the input mode's contract language: shapes, dtypes, normalization, reset hooks, and packing into Encoder Module tensors.
-_Avoid_: encoder, preprocessing, adapter-only
+**Adapter**:
+The per-variant boundary that turns one environment observation into the routed fields for that experiment arm. It owns the arm's observation language: render resolution, frozen extraction, shapes, dtypes, normalization, and which branch consumes what.
+_Avoid_: encoder, preprocessing, observation preparation
 
-**Encoder Module**:
-The Flax module inside `R2DreamerAgent` that maps prepared observation tensors to Dreamer embeddings consumed by the RSSM.
+**Routed Field**:
+One named value an Adapter emits for a step, carrying its own routing: the Encoder Branch that consumes it, whether it is replayed, and whether it is the Decoder Target. `AdapterField` in `src/adapters/contract.py`.
+_Avoid_: input mode, encoder input contract, shape contract, prepared observation
+
+**Encoder Branch**:
+The Flax module that consumes one Routed Field and produces its part of the Dreamer embedding. Selected by the field's `Encoder` enum member; the modules live in `src/r2dreamer/encoders/`.
 _Avoid_: encoder contract, VGGT extractor, adapter
 
+**Composite Encoder**:
+The Flax module inside `R2DreamerAgent` that runs one Encoder Branch per Routed Field and fuses their outputs into the embedding the RSSM consumes. Fusion applies exactly when a variant has more than one branch.
+_Avoid_: encoder module, hybrid encoder
+
 **Feature Extractor**:
-An external or auxiliary model that derives features from raw environment observations before replay or acting, such as VGGT.
-_Avoid_: encoder module, Dreamer encoder
+An external or auxiliary model that derives features from raw environment observations before replay or acting, such as VGGT. Adapters that need one hold it and call it themselves.
+_Avoid_: encoder branch, Dreamer encoder
 
-**Encoder Input Contract**:
-The agreement inside Observation Preparation that connects replay-buffer observations and agent-ready observations to an Encoder Module for one input mode.
-_Avoid_: encoder, adapter spec
-
-**Observation Form Contract**:
-The form vocabulary inside the Encoder Input Contract for the observations that Observation Preparation accepts, produces, stores, and turns into Encoder Module input. A form includes structure, shape, dtype, and observation-specific metadata.
-_Avoid_: shape constants, buffer schema, shape contract
-
-**Prepared Observation**:
-The result of preparing one environment observation for both replay storage and immediate agent use. It contains a replay-buffer observation and an agent-ready observation, even when those two forms are identical.
-_Avoid_: transformed observation, adapter output
+**Decoder Target**:
+The single Routed Field the debug decoder probe reconstructs. It must be replayed, because the probe reads its target from the sampled batch.
+_Avoid_: decoder input, reconstruction key
 
 **ReplaySequenceBatch**:
 Raw fixed-length sequences sampled from replay storage before conversion into agent training format.

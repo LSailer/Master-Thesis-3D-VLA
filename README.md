@@ -41,24 +41,24 @@ matching sbatch script.
 
 ```bash
 # Render only; submits nothing.
-bash scripts/slurm/launch.sh l1_vggt --dry-run
-bash scripts/slurm/launch.sh l1_vggt --smoke --dry-run
+bash scripts/slurm/launch.sh l1_cnn_cap1m --dry-run
+bash scripts/slurm/launch.sh l1_cnn_cap1m --smoke --dry-run
 
 # Submit jobs.
-bash scripts/slurm/launch.sh l1_vggt --smoke
-bash scripts/slurm/launch.sh l1_vggt --prod
-bash scripts/slurm/launch.sh l1_vggt --smoke-then-prod
+bash scripts/slurm/launch.sh l1_cnn_cap1m --smoke
+bash scripts/slurm/launch.sh l1_cnn_cap1m --prod
+bash scripts/slurm/launch.sh l1_cnn_cap1m --smoke-then-prod
 
 # Sweep variants and override config env values.
-bash scripts/slurm/launch.sh l{1,2,3,4}_vggt --smoke
-bash scripts/slurm/launch.sh l1_vggt --env WANDB_MODE=offline --smoke
+bash scripts/slurm/launch.sh l1_cnn_cap{10k,100k,500k,1m} --smoke
+bash scripts/slurm/launch.sh l1_cnn_cap1m --env WANDB_MODE=offline --smoke
 ```
 
 Add new experiment launchers by copying an existing YAML config, editing the
 small variant-specific delta, then checking both render modes before submitting:
 
 ```bash
-cp scripts/slurm/configs/l1_vggt.yaml scripts/slurm/configs/<name>.yaml
+cp scripts/slurm/configs/l1_cnn_cap1m.yaml scripts/slurm/configs/<name>.yaml
 bash scripts/slurm/launch.sh <name> --dry-run
 bash scripts/slurm/launch.sh <name> --smoke --dry-run
 ```

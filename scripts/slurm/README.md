@@ -242,14 +242,8 @@ Covers: `--smoke-then-prod` issues the prod submit with
 `--dependency=afterok:<smoke_jid>`; fail-fast validation before any sbatch call;
 recursive `extends` (incl. cycle rejection); multi-variant sweep submits every
 variant; strict-bash and timestamp behavior; and `--env` / `--time` override
-handling.
-
-> **Stale.** The suite still parametrizes over configs that the adapter-routing
-> migration deleted (`l1_vggt`, `l2_vggt`..`l4_vggt`, `aggregator_mlp_v1`,
-> `l1_agg_mlp_cap500k`, `l1_vggt_wpcp{37,64}_cap500k`,
-> `house_full_tokens_nogate*`, `house_global_embedding_l1`,
-> `gnn_edge_house_points_pose_l1_live`, `profile_training_vggt`), so those cases
-> fail with `FileNotFoundError` until they are repointed at surviving variants.
+handling. The parametrized cases were repointed at the surviving variants during
+the adapter-routing migration, so the suite passes as-is.
 
 ## Monitoring a submitted job
 

@@ -2,7 +2,7 @@
 
 Scope: `prototyp/house_context_multi_episode/run_multi_episode.py::prefill`, the
 `JAXVGGTFeatureExtractor.extract` KV-cache path (`src/vggt/jax/feature_extractor.py`),
-and the `HouseContextAdapter` (`src/adapters/house_context.py`). Primary sources:
+and the `HouseCloudEpisodesAdapter` (`src/adapters/house_cloud_episodes.py`). Primary sources:
 JAX docs (docs.jax.dev), JAX source (github.com/jax-ml/jax), danijar/dreamerv3 +
 embodied, and this repo's code.
 
@@ -261,7 +261,7 @@ DreamerV3 / embodied (github.com/danijar):
   repo ships with dynamic (non-override) budgets that would make the aggregator
   `static_argnums` tuple vary per frame. Default constructor is safe; confirm no
   YAML/config sets `budgets_static` to a per-frame-varying source.
-- Whether `replay_buffer.add` / `transition_from_fields` / `HouseContextAdapter`
+- Whether `replay_buffer.add` / `transition_from_fields` / `HouseCloudEpisodesAdapter`
   perform a `np.asarray`/`device_get` on live device arrays each step (I did not
   read those files) — this is a probable second per-step host sync worth auditing.
 - Habitat env: whether it supports async/vectorized stepping to overlap render with
