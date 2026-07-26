@@ -65,6 +65,10 @@ class ReplayTransition:
             observations. Opaque ints so the buffer stays decoupled from any
             encoder registry; the buffer treats this as schema — locked in by
             the first added transition and required to stay identical after.
+            It exists for that guard: no consumer builds a model from it (the
+            encoder is composed from the adapter's live fields in
+            ``R2DreamerAgent.__init__``), it is what lets ``add`` refuse rows
+            whose routing changed mid-run instead of silently mixing them.
         global_feature: Optional live, batch-wide feature (e.g. the current
             house-context map). The buffer keeps only the latest value across
             all adds — one element, not a per-step series — and returns it on

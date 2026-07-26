@@ -172,5 +172,14 @@ def encoder_obs_from_fields(fields: AdapterOutput) -> dict[str, jnp.ndarray]:
 
 
 def routing_from_batch(batch: ReplayBatch) -> dict[str, Encoder]:
-    """Recover the ``key -> Encoder`` routing from a sampled batch."""
+    """Recover the ``key -> Encoder`` routing from a sampled batch.
+
+    Not dead code, and not how the encoder is built: the model is deliberately
+    composed from the adapter's live fields in ``R2DreamerAgent.__init__``, not
+    from ``batch.encoders``. The routing rides through replay so the buffer can
+    refuse to mix rows whose routing changed mid-run (see the ``ValueError`` in
+    :meth:`src.buffer.replay_buffer.ReplayBuffer.add`) - a failure mode an
+    adapter-declared composition makes reachable - and so a stored batch stays
+    interpretable on its own.
+    """
     return {key: Encoder(value) for key, value in (batch.encoders or {}).items()}

@@ -758,7 +758,9 @@ def _build_parser() -> argparse.ArgumentParser:
         sub.add_argument("--env", default="habitat", choices=list(ENVS))
         # Default is the appearance-only control baseline.
         sub.add_argument("--adapter", default="rgb", choices=sorted(ADAPTERS))
-        sub.add_argument("--curriculum", default="L1")
+        # No default: the level must stay unset for envs that reject one, and
+        # _effective_curriculum is what enforces habitat's requirement.
+        sub.add_argument("--curriculum", default=None)
     return parser
 
 

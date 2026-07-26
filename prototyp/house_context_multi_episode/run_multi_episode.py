@@ -6,8 +6,8 @@ from typing import cast
 import jax
 import jax.numpy as jnp
 
-from src.adapters.contract import FeatureAdapterFn, transition_from_fields
-from src.adapters.house_context import HouseContextAdapter
+from src.adapters.contract import AdapterFn, transition_from_fields
+from src.adapters.house_cloud_episodes import HouseCloudEpisodesAdapter
 from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.agent_config import R2DreamerConfig
 from src.environments.habitat import HabitatEnvConfig, HabitatObjectNavEnv
@@ -20,9 +20,8 @@ SEED = jax.random.PRNGKey(42)
     
 def prefill(
     env: Env,
-    adapter_fn: FeatureAdapterFn,
+    adapter_fn: AdapterFn,
     replay_buffer: ReplayBuffer,
-    feature_extractor: JAXVGGTFeatureExtractor,
     rng_key: jnp.ndarray,
     prefill_steps: int = 100,
 ) -> jnp.ndarray:
@@ -30,12 +29,12 @@ def prefill(
 
     Reset frames pass through the adapter (so the house cloud compacts at
     episode boundaries) but are not stored: they carry no previous action.
-    The VGGT cache resets per episode; the house cloud persists.
+    The VGGT cache resets per episode (the adapter's extractor does that off
+    ``frame.is_first``); the house cloud persists.
     """
 
     def ingest_reset() -> None:
-        frame = env.reset()
-        adapter_fn(frame, feature_extractor.extract(frame.image))
+        adapter_fn(env.reset())
 
     ingest_reset()
     t0 = time.perf_counter()
@@ -43,7 +42,7 @@ def prefill(
         rng_key, action_key = jax.random.split(rng_key)
         action = int(jax.random.randint(action_key, (), 0, env.num_actions))
         frame = env.step(action)
-        adapted = adapter_fn(frame, feature_extractor.extract(frame.image))
+        adapted = adapter_fn(frame)
         transition = transition_from_fields(frame, adapted)
         replay_buffer.add(transition)
         if (i + 1) % 50 == 0:
@@ -54,7 +53,6 @@ def prefill(
             )
             t0 = time.perf_counter()
         if frame.done:
-            feature_extractor.reset()
             ingest_reset()
     return rng_key
 
@@ -77,12 +75,11 @@ def main():
     config = HabitatEnvConfig()
     env = HabitatObjectNavEnv(config=config)
     feature_extractor = JAXVGGTFeatureExtractor()
-    adapter_fn = HouseContextAdapter()
+    adapter_fn = HouseCloudEpisodesAdapter(feature_extractor)
 
     # One adapter call on the first frame supplies the encoder routing and
     # field shapes the agent needs at init — no encoder_type in the config.
-    first_frame = env.reset()
-    first_fields = adapter_fn(first_frame, feature_extractor.extract(first_frame.image))
+    first_fields = adapter_fn(env.reset())
     encoder_mapping = {f.key: f.encoder.value for f in first_fields}
     print(f"encoder routing: {encoder_mapping}")
     replay_buffer = ReplayBuffer(100_000, env.num_actions)
@@ -104,7 +101,7 @@ def main():
     print("prefilling 1000 steps...")
     t0 = time.perf_counter()
     rng_key = prefill(
-        env, adapter_fn, replay_buffer, feature_extractor, rng_key,
+        env, adapter_fn, replay_buffer, rng_key,
     )
     elapsed = time.perf_counter() - t0
     print(
