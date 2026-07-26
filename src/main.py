@@ -481,8 +481,10 @@ def _compose_run(
         args: Parsed CLI namespace of the calling entry point.
         curriculum: Effective habitat curriculum level.
         mode: Curriculum split the env rolls out in.
-        output_dir: Run directory, recorded as the fresh config's ``logdir``.
-            Unused with a checkpoint, whose config comes from its manifest.
+        output_dir: Run directory. Handed to a variant that claims it on both
+            paths, so an adapter always sees the directory the run writes to;
+            additionally recorded as the fresh config's ``logdir`` when there is
+            no checkpoint, since a checkpoint's config comes from its manifest.
         checkpoint: Parameters to load. ``None`` initialises them fresh from the
             CLI config and gives the collector a replay buffer, because a run
             that owns its parameters is the run that trains them.
