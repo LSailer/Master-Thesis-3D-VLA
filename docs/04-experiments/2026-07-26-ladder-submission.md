@@ -3,9 +3,20 @@
 Umsetzung von P3/P4/P5 aus [dem Rerun-Plan](2026-07-26-rerun-plan.md).
 Fünf Arme über je vier Sprossen, alle vom selben SHA, ein Seed, ein Step-Budget.
 
-**SHA:** `9ba143a`, Code identisch mit `4738326`
-(`experiments(slurm): complete the 5-arm x 4-level curriculum ladder at HEAD`;
-`9ba143a` fügt nur dieses Dokument hinzu)
+**Code-SHA:** `4738326`
+(`experiments(slurm): complete the 5-arm x 4-level curriculum ladder at HEAD`)
+
+Der in den Manifesten eingetragene `git_sha` variiert über die 20 Läufe, weil
+er beim *Start* des Jobs gelesen wird und die Jobs über Stunden aus der Queue
+laufen. Alle Commits ab `4738326` bis zum Start des letzten Prod-Jobs betreffen
+ausschließlich `docs/`; der ausgeführte Trainingscode ist über alle 20 Läufe
+identisch mit `4738326`. Nachprüfbar mit
+
+```bash
+git diff --stat 4738326 <sha-aus-MANIFEST.json> -- src/ scripts/
+```
+
+Ein leeres Diff bestätigt, dass die Läufe denselben Code ausgeführt haben.
 **Seed:** `SEED=1` über alle 20 Jobs (`--env SEED=1`)
 **Budget:** `steps: 1500000` über alle 20 Jobs
 **Modus:** `--smoke-then-prod`, Prod hängt an `afterok` des Smokes
