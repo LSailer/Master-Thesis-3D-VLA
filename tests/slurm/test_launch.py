@@ -1,5 +1,13 @@
 
-"""SLURM launch-script regression tests."""
+"""SLURM launch-script regression tests.
+
+Two kinds of test live here. Launcher *behavior* (extends resolution, mode
+overrides, strict bash, setup hooks, the GPU-memory sidecar) is asserted against
+configs discovered by globbing ``scripts/slurm/configs``, because the config set
+turns over with every migrated experiment arm and a hardcoded list goes stale.
+A handful of tests instead lock in one arm's validated run shape; those name
+their config on purpose, and should be deleted with the arm.
+"""
 from __future__ import annotations
 
 import importlib.util
@@ -8,8 +16,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +40,61 @@ def _load_launch_module():
 launch = _load_launch_module()
 
 
+def discovered_configs() -> list[str]:
+    """Every launchable config name, found by globbing the config directory.
+
+    ``_``-prefixed files are shared bases pulled in via ``extends``, not
+    variants that can be submitted, so they are excluded.
+    """
+    return sorted(
+        path.stem for path in CONFIG_DIR.glob("*.yaml") if not path.stem.startswith("_")
+    )
+
+
+CONFIGS = discovered_configs()
+
+
+def _raw(name: str) -> dict[str, Any]:
+    """The config's own YAML, before ``extends`` merging."""
+    return yaml.safe_load((CONFIG_DIR / f"{name}.yaml").read_text()) or {}
+
+
+def _extends_chain(name: str) -> list[str]:
+    """Config names from ``name`` up to its root base, inclusive."""
+    chain = [name]
+    while (parent := _raw(chain[-1]).get("extends")) is not None:
+        assert parent not in chain, f"circular extends: {chain + [parent]}"
+        chain.append(parent)
+    return chain
+
+
+def _first_declared(chain: list[str], *keys: str) -> Any:
+    """Value of the nested ``keys`` from the nearest config in ``chain`` declaring it."""
+    for name in chain:
+        node: Any = _raw(name)
+        for key in keys:
+            if not isinstance(node, dict) or key not in node:
+                node = None
+                break
+            node = node[key]
+        if node is not None:
+            return node
+    raise AssertionError(f"no config in {chain} declares {keys}")
+
+
+def _first_launchable() -> str:
+    """Any config that names a run; abstract ``extends`` parents null their run_id."""
+    for name in CONFIGS:
+        if launch.load_config(name).run_id is not None:
+            return name
+    raise AssertionError(f"no launchable config among {CONFIGS}")
+
+
+# Stand-in for "some real config" in tests about launcher behavior rather than
+# about one experiment arm.
+ANY_CONFIG = _first_launchable()
+
+
 def run_launch(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["bash", "scripts/slurm/launch.sh", *args],
@@ -48,13 +113,14 @@ def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
 
     ``run_id`` is the optional leading positional emitted for dispatcher
     entrypoints (``run.py``), else ``None``. The invocation head is the first
-    backslash-continued line that names a ``.py`` script (the curriculum-check
-    ``generate_curriculum.py`` guard line has no trailing backslash)."""
+    unindented, non-comment line naming a ``.py`` script: the curriculum-check
+    ``generate_curriculum.py`` guard sits inside an ``if`` block and is indented,
+    and a config with no args renders its command without a trailing backslash."""
 
     lines = text.splitlines()
     idx = next(
         i for i, line in enumerate(lines)
-        if line.rstrip().endswith(" \\") and ".py" in line
+        if ".py" in line and not line.startswith(("#", " ", "\t"))
     )
     head = lines[idx].strip().rstrip(" \\")
     tokens = head.split()
@@ -70,6 +136,29 @@ def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
         flag, _, value = stripped.partition(" ")
         flags[flag] = value.strip().strip('"')
     return python_cmd, script, run_id, flags
+
+
+# --------------------------------------------------------------------------- #
+# Config discovery                                                             #
+# --------------------------------------------------------------------------- #
+
+
+def test_config_directory_is_not_empty() -> None:
+    # Every discovery-driven test below silently becomes vacuous if the glob
+    # stops matching, so assert the glob itself works.
+    assert CONFIGS
+
+
+@pytest.mark.parametrize("name", CONFIGS)
+def test_every_config_resolves_and_renders_both_modes(name: str) -> None:
+    """A config in the directory must validate and render, prod and smoke."""
+    config = launch.load_config(name)
+
+    for mode in ("prod", "smoke"):
+        rendered = launch.render_sbatch(config, mode=mode)
+        assert rendered.startswith("#!/bin/bash")
+        assert f"#SBATCH --gres={config.sbatch.gres}" in rendered
+        training_command(rendered)
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +182,7 @@ def test_smoke_then_prod_uses_afterok_dependency_before_prod_submit(tmp_path: Pa
     fake_sbatch.chmod(0o755)
 
     result = run_launch(
-        "l1_vggt",
+        ANY_CONFIG,
         "--smoke-then-prod",
         env={"PATH": f"{tmp_path}:{os.environ['PATH']}", "SBATCH_CALLS": str(calls_file)},
     )
@@ -138,24 +227,26 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
 
 
 # --------------------------------------------------------------------------- #
-# s2 — curriculum L2/L3/L4 via recursive `extends`                             #
+# s2 — recursive `extends`                                                     #
 # --------------------------------------------------------------------------- #
 
 
 def test_extends_chain_is_recursive() -> None:
-    """l2_vggt -> l1_vggt -> _base must fully resolve (no leftover `extends`)."""
+    """The deepest chain in the tree must fully resolve, leaf overrides winning.
 
-    config = launch.load_config("l2_vggt")
-    # Inherited from _base via l1_vggt:
-    assert config.sbatch.gres == "gpu:1"
-    assert config.args["render_resolution"] == 518
-    # Scalars-only flags inherited from l1_vggt (videos/eval regenerated offline):
-    assert config.args["video_log_every"] == 0
-    assert config.args["val_every"] == 0
-    # script is inherited from _base (the shared run.py dispatcher); the run is
-    # selected by run_id, which l2_vggt sets as its own override:
-    assert config.script.endswith("run.py")
-    assert config.run_id == "habitat-l2-vggt"
+    Picked by depth rather than by name so the assertion keeps exercising real
+    multi-level inheritance as arms come and go.
+    """
+    chain = max((_extends_chain(name) for name in CONFIGS), key=len)
+    assert len(chain) >= 3, f"no multi-level extends chain to exercise: {chain}"
+
+    config = launch.load_config(chain[0])
+
+    # The leaf's own keys win over every ancestor's.
+    assert config.job_name == _raw(chain[0])["job_name"]
+    # Keys only an ancestor declares are still inherited, however deep.
+    assert config.script == _first_declared(chain, "script")
+    assert config.sbatch.gres == _first_declared(chain, "sbatch", "gres")
     # The stale replay-buffer val flags were dropped (parser no longer accepts them):
     assert "val_data" not in config.args
     assert "val_loss_every" not in config.args
@@ -184,62 +275,153 @@ def test_sweep_submits_every_variant(tmp_path: Path) -> None:
         "wc -l < \"$SBATCH_CALLS\"\n"
     )
     fake_sbatch.chmod(0o755)
+    variants = CONFIGS[:4]
+    assert len(variants) == 4
 
     result = run_launch(
-        "l1_vggt", "l2_vggt", "l3_vggt", "l4_vggt", "--smoke",
+        *variants, "--smoke",
         env={"PATH": f"{tmp_path}:{os.environ['PATH']}", "SBATCH_CALLS": str(calls_file)},
     )
 
     assert result.returncode == 0, result.stderr
-    assert len(calls_file.read_text().splitlines()) == 4
+    assert len(calls_file.read_text().splitlines()) == len(variants)
 
 
 # --------------------------------------------------------------------------- #
-# s3 — aggregator-MLP family (variable args, timestamp naming)                 #
+# Rendering behavior, asserted over whatever configs exist                     #
 # --------------------------------------------------------------------------- #
 
 
-def test_aggregator_prod_args() -> None:
-    rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
-    python_cmd, script, run_id, flags = training_command(rendered)
+@pytest.mark.parametrize("name", CONFIGS)
+def test_strict_bash_is_opt_in_for_prod_and_always_on_for_smoke(name: str) -> None:
+    config = launch.load_config(name)
 
-    assert python_cmd == "uv run python"
-    assert script.endswith("run.py")
-    assert run_id == "habitat-l1-vggt-aggregator-mlp"
-    assert flags["--steps"] == "2000000"
-    assert flags["--prefill"] == "5000"
-    assert flags["--checkpoint_every"] == "50000"
-    assert flags["--wandb_tags"] == "agg-mlp-prod-v1,pool-on-device,skip-heads,prod-42h"
-    # No wandb_project / render_resolution for this script family.
-    assert "--wandb_project" not in flags
-    assert "--render_resolution" not in flags
-    # Timestamp-based run id requires a TIMESTAMP definition in the script body.
-    assert "TIMESTAMP=$(date +%Y%m%d-%H%M%S)" in rendered
-    assert flags["--output_dir"] == "output/prod/agg-mlp-prod-v1-${TIMESTAMP}"
+    prod = launch.render_sbatch(config, mode="prod")
+    smoke = launch.render_sbatch(launch.load_config(name), mode="smoke")
+
+    assert ("set -euo pipefail" in prod) is config.strict_bash
+    assert "set -euo pipefail" in smoke
 
 
-def test_aggregator_smoke_overrides() -> None:
-    rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="smoke")
-    _, _, _, flags = training_command(rendered)
+@pytest.mark.parametrize("name", CONFIGS)
+def test_timestamp_is_defined_exactly_when_a_rendered_value_uses_it(name: str) -> None:
+    # A bare ``${TIMESTAMP}`` in a path would expand to the empty string and
+    # silently collapse every run into one directory.
+    for mode in ("prod", "smoke"):
+        config = launch.load_config(name)
+        rendered = launch.render_sbatch(config, mode=mode)
+        _sbatch, args = launch._resolve_mode(launch.load_config(name), mode)
+        uses_timestamp = any(
+            "${TIMESTAMP}" in str(value)
+            for value in (*args.values(), *config.env.values())
+        )
+        assert ("TIMESTAMP=$(date +%Y%m%d-%H%M%S)" in rendered) is uses_timestamp
 
-    assert flags["--steps"] == "800"
-    assert flags["--prefill"] == "200"
-    assert "#SBATCH --time=00:20:00" in rendered
-    assert "agg-mlp-fast-path-smoke" in flags["--wandb_tags"]
+
+@pytest.mark.parametrize("name", CONFIGS)
+def test_setup_hooks_are_rendered_before_the_training_command(name: str) -> None:
+    config = launch.load_config(name)
+    if not config.setup:
+        pytest.skip(f"{name} declares no setup hooks")
+    rendered = launch.render_sbatch(config, mode="smoke")
+
+    training_line = rendered.index(config.script)
+    for hook in config.setup:
+        assert hook in rendered
+        assert rendered.index(hook) < training_line
+
+
+@pytest.mark.parametrize("name", CONFIGS)
+def test_standalone_scripts_keep_their_own_interpreter_and_take_no_run_id(
+    name: str,
+) -> None:
+    """Profiling-style configs run a script directly, with no run id and no --steps."""
+    config = launch.load_config(name)
+    if config.script.endswith("run.py"):
+        pytest.skip(f"{name} uses the run.py dispatcher")
+    rendered = launch.render_sbatch(config, mode="smoke")
+    _python_cmd, script, run_id, flags = training_command(rendered)
+
+    assert f"{config.python} {config.script}" in rendered
+    assert script == config.script
+    assert run_id is None
+    assert "--steps" not in flags
+
+
+def _train_parser_option_strings() -> set[str]:
+    from src.r2dreamer.launch.parser import _build_parser_train
+
+    return {
+        option
+        for action in _build_parser_train()._actions
+        for option in action.option_strings
+    }
+
+
+@pytest.mark.parametrize("name", CONFIGS)
+def test_every_rendered_flag_is_accepted_by_the_train_parser(name: str) -> None:
+    """A config may only render flags the train CLI still defines.
+
+    The launcher passes ``args:`` through verbatim, so a knob deleted from the
+    parser leaves a config that renders fine and then dies at ``argparse`` on the
+    cluster. This is the only place that drift is visible without submitting.
+    """
+    config = launch.load_config(name)
+    if not config.script.endswith("run.py"):
+        pytest.skip(f"{name} runs a standalone script with its own flags")
+    known = _train_parser_option_strings()
+
+    for mode in ("prod", "smoke"):
+        _sbatch, args = launch._resolve_mode(launch.load_config(name), mode)
+        unknown = sorted(
+            launch._flag(key, config.arg_style)
+            for key in args
+            if launch._flag(key, config.arg_style) not in known
+        )
+        assert not unknown, f"{name} ({mode}) renders unknown train flags: {unknown}"
+
+
+def test_rendered_sbatch_logs_gpu_memory_csv() -> None:
+    # Emitted for every job, so the log path is derived from the config rather
+    # than pinned to one arm's output tree.
+    config = launch.load_config(ANY_CONFIG)
+    rendered = launch.render_sbatch(config, mode="prod")
+
+    assert (
+        f'GPU_MEMORY_LOG="{config.output_dir}/gpu-memory-${{SLURM_JOB_ID}}.csv"'
+    ) in rendered
+    assert "--query-gpu=timestamp,index,name,memory.used,memory.total,utilization.gpu" in rendered
+    assert '--format=csv -l 5 > "$GPU_MEMORY_LOG"' in rendered
+    assert 'echo "GPU memory log: $GPU_MEMORY_LOG"' in rendered
+
+
+def test_smoke_renders_a_pass_gate_when_the_config_asserts_an_artifact() -> None:
+    # Inherited from _base: every curriculum smoke must prove it wrote metrics.
+    config = launch.load_config(ANY_CONFIG)
+    assert config.smoke.assert_file
+
+    rendered = launch.render_sbatch(config, mode="smoke")
+
+    assert config.smoke.assert_file in rendered
+    assert "=== Smoke PASS ===" in rendered
+
+
+# --------------------------------------------------------------------------- #
+# Mode / CLI overrides                                                         #
+# --------------------------------------------------------------------------- #
 
 
 def test_time_override_applies_to_selected_mode() -> None:
     rendered = launch.render_sbatch(
-        launch.load_config("house_context_l1"), mode="prod", time_override="04:00:00",
+        launch.load_config(ANY_CONFIG), mode="prod", time_override="04:00:00",
     )
 
     assert "#SBATCH --time=04:00:00" in rendered
-    assert "habitat-l1-vggt-house-context" in rendered
 
 
 def test_partition_override_applies_to_selected_mode() -> None:
     rendered = launch.render_sbatch(
-        launch.load_config("house_context_l1"), mode="prod", partition_override="gpu_h100",
+        launch.load_config(ANY_CONFIG), mode="prod", partition_override="gpu_h100",
     )
 
     assert "#SBATCH --partition=gpu_h100" in rendered
@@ -247,14 +429,14 @@ def test_partition_override_applies_to_selected_mode() -> None:
 
 
 def test_launch_wrapper_forwards_time_override() -> None:
-    result = run_launch("house_context_l1", "--prod", "--time", "04:00:00", "--dry-run")
+    result = run_launch(ANY_CONFIG, "--prod", "--time", "04:00:00", "--dry-run")
 
     assert result.returncode == 0, result.stderr
     assert "#SBATCH --time=04:00:00" in result.stdout
 
 
 def test_launch_wrapper_forwards_partition_override() -> None:
-    result = run_launch("house_context_l1", "--prod", "--partition", "gpu_h100", "--dry-run")
+    result = run_launch(ANY_CONFIG, "--prod", "--partition", "gpu_h100", "--dry-run")
 
     assert result.returncode == 0, result.stderr
     assert "#SBATCH --partition=gpu_h100" in result.stdout
@@ -262,40 +444,73 @@ def test_launch_wrapper_forwards_partition_override() -> None:
 
 
 def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:
-    result = run_launch("house_context_l1", "--time", "04:00:00", "--dry-run")
+    config = launch.load_config(ANY_CONFIG)
+    result = run_launch(ANY_CONFIG, "--time", "04:00:00", "--dry-run")
 
     assert result.returncode == 0, result.stderr
-    assert "#SBATCH --job-name=vggt-house-context-l1" in result.stdout
+    assert f"#SBATCH --job-name={config.job_name}" in result.stdout
     assert "#SBATCH --time=04:00:00" in result.stdout
-    assert "--steps 2000000" in result.stdout
+    assert f"--steps {config.args['steps']}" in result.stdout
 
 
-def test_house_full_tokens_nogate_smoke_uses_new_run_id() -> None:
-    rendered = launch.render_sbatch(
-        launch.load_config("house_full_tokens_nogate_l1"), mode="smoke",
-    )
+# --------------------------------------------------------------------------- #
+# Per-arm run shapes (delete a case together with its arm)                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_full_tokens_smoke_run_shape() -> None:
+    rendered = launch.render_sbatch(launch.load_config("full_tokens_l1"), mode="smoke")
     _, _, run_id, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-vggt-house-full-tokens-nogate"
-    assert "#SBATCH --job-name=smoke-vggt-house-full-tokens-nogate-l1" in rendered
-    assert flags["--output_dir"] == "output/smoke/vggt-house-full-tokens-nogate-${TIMESTAMP}"
-    assert flags["--wandb_name"] == "vggt-house-full-tokens-nogate-smoke-${TIMESTAMP}"
+    assert run_id == "habitat-l1-full-tokens"
+    assert "#SBATCH --job-name=smoke-rgb-full-tokens-l1" in rendered
+    assert flags["--output_dir"] == "output/smoke/rgb-full-tokens-${TIMESTAMP}"
+    assert flags["--wandb_name"] == "rgb-full-tokens-smoke-${TIMESTAMP}"
     assert "no-gate" in flags["--wandb_tags"]
+    # A token row is 5.6 MB, so the capped replay capacity is load-bearing.
+    assert flags["--buffer_capacity"] == "500"
     assert "=== Smoke PASS ===" in rendered
 
 
-def test_house_global_embedding_smoke_uses_new_run_id_and_dump_knob() -> None:
-    rendered = launch.render_sbatch(
-        launch.load_config("house_global_embedding_l1"), mode="smoke",
-    )
+def test_global_tokens_smoke_run_shape() -> None:
+    rendered = launch.render_sbatch(launch.load_config("global_tokens_l1"), mode="smoke")
     _, _, run_id, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-vggt-house-global-embedding"
-    assert "#SBATCH --job-name=smoke-vggt-house-global-embedding-l1" in rendered
-    assert flags["--output_dir"] == "output/smoke/vggt-house-global-embedding-${TIMESTAMP}"
-    assert flags["--pointcloud_dump_every"] == "300"
-    assert "pointnet-reducer" in flags["--wandb_tags"]
+    assert run_id == "habitat-l1-vggt-house-global-tokens-nogate"
+    assert "#SBATCH --job-name=smoke-rgb-global-tokens-l1" in rendered
+    assert flags["--output_dir"] == "output/smoke/rgb-global-tokens-${TIMESTAMP}"
+    assert flags["--buffer_capacity"] == "1000"
     assert "=== Smoke PASS ===" in rendered
+
+
+def test_aggregator_pooled_prod_args() -> None:
+    rendered = launch.render_sbatch(launch.load_config("aggregator_pooled_l1"), mode="prod")
+    python_cmd, script, run_id, flags = training_command(rendered)
+
+    assert python_cmd == "uv run python"
+    assert script.endswith("run.py")
+    assert run_id == "habitat-l1-aggregator-pooled"
+    assert flags["--steps"] == "2000000"
+    assert flags["--prefill"] == "5000"
+    assert flags["--checkpoint_every"] == "100000"
+    assert flags["--render_resolution"] == "518"
+    assert "aggregator-pooled" in flags["--wandb_tags"]
+    assert "skip-heads" in flags["--wandb_tags"]
+
+
+def test_aggregator_pooled_smoke_overrides() -> None:
+    rendered = launch.render_sbatch(launch.load_config("aggregator_pooled_l1"), mode="smoke")
+    python_cmd, _, _, flags = training_command(rendered)
+
+    # Smokes skip the slow uv dependency resync.
+    assert python_cmd == "uv run --no-sync python"
+    assert flags["--steps"] == "800"
+    assert flags["--prefill"] == "200"
+    assert "#SBATCH --time=00:20:00" in rendered
+    assert "smoke" in flags["--wandb_tags"]
+    # Timestamp-based run id requires a TIMESTAMP definition in the script body.
+    assert "TIMESTAMP=$(date +%Y%m%d-%H%M%S)" in rendered
+    assert flags["--output_dir"] == "output/smoke/aggregator-pooled-${TIMESTAMP}"
 
 
 def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
@@ -321,193 +536,36 @@ def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
     assert "=== Smoke PASS ===" in rendered
 
 
-@pytest.mark.parametrize(
-    "variant,script",
-    [
-        ("profile_encoder_cost", "scripts/profiling/profile_encoders_3d5253.py"),
-        ("profile_training_vggt", "scripts/profiling/profile_training.py"),
-        ("profile_agg_pipeline", "scripts/profiling/profile_pipeline_aggregator_mlp.py"),
-    ],
-)
-def test_profiling_configs_render_standalone_scripts(variant: str, script: str) -> None:
-    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
-
-    assert f".venv/bin/python {script}" in rendered
-    assert "output/profiling" in rendered
-    assert "scripts/slurm/hooks/link_external.sh" in rendered
-    assert "--steps" not in rendered
-
-def test_aggregator_prod_is_strict_bash() -> None:
-    rendered = launch.render_sbatch(launch.load_config("aggregator_mlp_v1"), mode="prod")
-    assert "set -euo pipefail" in rendered
-
-
-@pytest.mark.parametrize(
-    "variant,run_id,capacity,tag",
-    [
-        ("l1_cnn_cap1m", "habitat-l1-cnn", "1000000", "cap-1m"),
-        ("l1_cnn_cap500k", "habitat-l1-cnn", "500000", "cap-500k"),
-        ("l1_cnn_cap100k", "habitat-l1-cnn", "100000", "cap-100k"),
-        ("l1_cnn_cap10k", "habitat-l1-cnn", "10000", "cap-10k"),
-        ("l1_vggt_wpcp37_cap500k", "habitat-l1-vggt", "500000", "cap-500k"),
-        ("l1_vggt_wpcp64_cap500k", "habitat-l1-vggt-wp-cp-64", "500000", "cap-500k"),
-        ("l1_agg_mlp_cap500k", "habitat-l1-vggt-aggregator-mlp", "500000", "cap-500k"),
-    ],
-)
-def test_l1_replay_capacity_ablation_configs(
-    variant: str, run_id: str, capacity: str, tag: str,
-) -> None:
-    rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
-    _, script, rendered_run_id, flags = training_command(rendered)
-
-    assert script.endswith("run.py")
-    assert rendered_run_id == run_id
-    assert flags["--seed"] == "42"
-    assert flags["--buffer_capacity"] == capacity
-    assert tag in flags["--wandb_tags"]
-    assert "3d-63" in flags["--wandb_tags"]
-    assert flags["--video_log_every"] == "0"
-    assert flags["--val_every"] == "0"
-
-
-def test_l1_aggregator_capacity_ablation_keeps_encoder_batch_defaults() -> None:
-    rendered = launch.render_sbatch(launch.load_config("l1_agg_mlp_cap500k"), mode="prod")
-    _, _, _, flags = training_command(rendered)
-
-    assert flags["--buffer_capacity"] == "500000"
-    assert "--batch_size" not in flags
-    assert "--seq_len" not in flags
-    assert "--train_ratio" not in flags
-
-
-@pytest.mark.parametrize(
-    "variant",
-    [
-        "l1_vggt_wpcp37_cap500k",
-        "l1_vggt_wpcp64_cap500k",
-        "l1_agg_mlp_cap500k",
-    ],
-)
-def test_l1_vggt_capacity_ablation_links_external_repos(variant: str) -> None:
-    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
-
-    assert "./scripts/slurm/hooks/link_external.sh" in rendered
-
-
-def test_rendered_sbatch_logs_gpu_memory_csv() -> None:
-    rendered = launch.render_sbatch(
-        launch.load_config("l1_cnn_cap1m_seed42_fp32_probe"), mode="prod",
-    )
-
-    assert (
-        'GPU_MEMORY_LOG="output/probes/3d-87/cnn-cap1m-fp32-seed42/'
-        'gpu-memory-${SLURM_JOB_ID}.csv"'
-    ) in rendered
-    assert "--query-gpu=timestamp,index,name,memory.used,memory.total,utilization.gpu" in rendered
-    assert '--format=csv -l 5 > "$GPU_MEMORY_LOG"' in rendered
-    assert 'echo "GPU memory log: $GPU_MEMORY_LOG"' in rendered
-
-
-@pytest.mark.parametrize(
-    "variant,dtype_flag,run_id,output_dir,wandb_name,tag_fragments,steps",
-    [
-        (
-            "house_full_tokens_nogate_prodshape_probe_l1",
-            "float32",
-            "habitat-l1-vggt-house-full-tokens-nogate",
-            "output/probes/3d-87/full-token-nogate-fp32-prodshape/run-${SLURM_JOB_ID}",
-            "full-token-nogate-fp32-prodshape-probe-${SLURM_JOB_ID}",
-            [
-                "3d-87", "prodshape-probe", "fp32", "full-token-transformer",
-                "no-gate", "b16", "t64", "seed-42",
-            ],
-            "6000",
-        ),
-        (
-            "house_full_tokens_nogate_bf16_prodshape_probe_l1",
-            "bfloat16",
-            "habitat-l1-vggt-house-full-tokens-nogate",
-            "output/probes/3d-87/full-token-nogate-bf16-prodshape/run-${SLURM_JOB_ID}",
-            "full-token-nogate-bf16-prodshape-probe-${SLURM_JOB_ID}",
-            [
-                "3d-87", "prodshape-probe", "bf16", "full-token-transformer",
-                "no-gate", "b16", "t64", "seed-42",
-            ],
-            "6000",
-        ),
-        (
-            "l1_cnn_cap1m_seed42_fp32_probe",
-            "float32",
-            "habitat-l1-cnn",
-            "output/probes/3d-87/cnn-cap1m-fp32-seed42/run-${SLURM_JOB_ID}",
-            "l1-cnn-cap1m-fp32-seed42-probe-${SLURM_JOB_ID}",
-            ["3d-87", "cnn-baseline", "dtype-plumbing-noop", "fp32", "seed-42", "cap-1m"],
-            "50000",
-        ),
-        (
-            "l1_cnn_cap1m_seed42_bf16_probe",
-            "bfloat16",
-            "habitat-l1-cnn",
-            "output/probes/3d-87/cnn-cap1m-bf16-seed42/run-${SLURM_JOB_ID}",
-            "l1-cnn-cap1m-bf16-seed42-probe-${SLURM_JOB_ID}",
-            ["3d-87", "cnn-baseline", "dtype-plumbing-noop", "bf16", "seed-42", "cap-1m"],
-            "50000",
-        ),
-    ],
-)
-def test_3d87_probe_configs_render_expected_flags_paths_and_tags(
-    variant: str,
-    dtype_flag: str | None,
-    run_id: str,
-    output_dir: str,
-    wandb_name: str,
-    tag_fragments: list[str],
-    steps: str,
-) -> None:
-    rendered = launch.render_sbatch(launch.load_config(variant), mode="prod")
-    _, script, rendered_run_id, flags = training_command(rendered)
-
-    assert script.endswith("run.py")
-    assert rendered_run_id == run_id
-    assert flags["--steps"] == steps
-    assert flags["--prefill"] == "5000"
-    assert flags["--checkpoint_every"] == "1000000"
-    assert flags["--output_dir"] == output_dir
-    assert flags["--seed"] == "42"
-    if variant.startswith("house_full_tokens_nogate_"):
-        assert flags["--batch_size"] == "16"
-        assert flags["--seq_len"] == "64"
-    assert flags["--wandb_name"] == wandb_name
-    assert flags["--video_log_every"] == "0"
-    assert flags["--val_every"] == "0"
-    if dtype_flag is None:
-        assert "--compute_dtype" not in flags
-    else:
-        assert flags["--compute_dtype"] == dtype_flag
-    for fragment in tag_fragments:
-        assert fragment in flags["--wandb_tags"]
-
-
-@pytest.mark.parametrize(
-    "variant, run_id",
-    [
-        ("gnn_house_points_pose_l1_live", "habitat-l1-gnn-house-points-pose"),
-        ("gnn_edge_house_points_pose_l1_live", "habitat-l1-gnn-edge-house-points-pose"),
-    ],
-)
-def test_gnn_smoke_configs_render_stability_gate(variant: str, run_id: str) -> None:
+def test_gnn_smoke_config_renders_stability_gate() -> None:
     # Locks in the validated GNN smoke path (jobs 5744825/5744826): >=15-min
     # duration (4500 train steps, measured ~20 min on H100), the teardown
     # hard-exit guard, and the metrics gate.
-    rendered = launch.render_sbatch(launch.load_config(variant), mode="smoke")
-    _, _, positional, flags = training_command(rendered)
+    rendered = launch.render_sbatch(
+        launch.load_config("gnn_house_points_pose_l1_live"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
 
-    assert positional == run_id
+    assert run_id == "habitat-l1-gnn-house-points-pose"
     assert flags["--steps"] == "4500"
     assert flags["--prefill"] == "1000"
     assert "#SBATCH --partition=gpu_h100_short" in rendered
     assert 'export R2DREAMER_HARD_EXIT_ON_FINISH="1"' in rendered
     assert "metrics.csv" in rendered
+
+
+def test_gnn_plydump_smoke_keeps_the_parent_shape_under_its_own_name() -> None:
+    # A diagnostic leaf reuses the parent's validated smoke shape and only
+    # re-points the job name and output tree.
+    rendered = launch.render_sbatch(
+        launch.load_config("gnn_house_points_pose_l1_live_plydump"), mode="smoke",
+    )
+    _, _, run_id, flags = training_command(rendered)
+
+    assert run_id == "habitat-l1-gnn-house-points-pose"
+    assert "#SBATCH --job-name=smoke-gnn-house-points-pose-l1-live-plydump" in rendered
+    assert flags["--steps"] == "4500"
+    assert "gnn-house-points-pose-live-plydump" in flags["--output_dir"]
+    assert "=== Smoke PASS ===" in rendered
 
 
 def test_hybrid_house_points_smoke_config_inherits_parent_shape() -> None:
@@ -516,9 +574,92 @@ def test_hybrid_house_points_smoke_config_inherits_parent_shape() -> None:
     rendered = launch.render_sbatch(
         launch.load_config("hybrid_house_points_pose_l1_live"), mode="smoke"
     )
-    _, _, positional, flags = training_command(rendered)
+    _, _, run_id, flags = training_command(rendered)
 
-    assert positional == "habitat-l1-vggt-hybrid-house-points-pose"
+    assert run_id == "habitat-l1-vggt-hybrid-house-points-pose"
     assert flags["--steps"] == "2000"
     assert flags["--prefill"] == "1000"
     assert "vggt-hybrid-house-points-pose-live" in flags["--output_dir"]
+
+
+# --------------------------------------------------------------------------- #
+# 3D-63 replay-capacity ablation / 3D-87 dtype probes                          #
+# --------------------------------------------------------------------------- #
+
+
+def _configs_tagged(fragment: str) -> list[str]:
+    """Config names whose prod ``wandb_tags`` carry ``fragment`` as a whole tag."""
+    tagged = []
+    for name in CONFIGS:
+        tags = str(launch.load_config(name).args.get("wandb_tags", ""))
+        if fragment in tags.split(","):
+            tagged.append(name)
+    return tagged
+
+
+REPLAY_CAPACITY_CONFIGS = _configs_tagged("replay-capacity")
+DTYPE_PROBE_CONFIGS = _configs_tagged("dtype-plumbing-noop")
+
+
+@pytest.mark.parametrize("variant", REPLAY_CAPACITY_CONFIGS)
+def test_l1_replay_capacity_ablation_configs(variant: str) -> None:
+    config = launch.load_config(variant)
+    rendered = launch.render_sbatch(config, mode="prod")
+    _, script, run_id, flags = training_command(rendered)
+
+    assert script.endswith("run.py")
+    assert run_id == config.run_id
+    # The ablation varies capacity only: the seed and the scalars-only logging
+    # shape are shared, or the success-rate comparison is not apples to apples.
+    assert flags["--seed"] == "42"
+    assert flags["--buffer_capacity"] == str(config.args["buffer_capacity"])
+    assert "3d-63" in flags["--wandb_tags"]
+    assert flags["--video_log_every"] == "0"
+    assert flags["--val_every"] == "0"
+
+
+def test_replay_capacity_ablation_covers_more_than_one_capacity() -> None:
+    capacities = {
+        launch.load_config(name).args["buffer_capacity"]
+        for name in REPLAY_CAPACITY_CONFIGS
+    }
+    assert len(capacities) > 1, capacities
+
+
+def test_capacity_override_does_not_drag_batch_defaults_along() -> None:
+    rendered = launch.render_sbatch(launch.load_config("l1_cnn_cap10k"), mode="prod")
+    _, _, _, flags = training_command(rendered)
+
+    assert flags["--buffer_capacity"] == "10000"
+    assert "--batch_size" not in flags
+    assert "--seq_len" not in flags
+    assert "--train_ratio" not in flags
+
+
+@pytest.mark.parametrize("variant", DTYPE_PROBE_CONFIGS)
+def test_3d87_probe_configs_render_expected_flags_paths_and_tags(variant: str) -> None:
+    config = launch.load_config(variant)
+    rendered = launch.render_sbatch(config, mode="prod")
+    _, script, run_id, flags = training_command(rendered)
+
+    assert script.endswith("run.py")
+    assert run_id == config.run_id
+    assert flags["--steps"] == "50000"
+    assert flags["--prefill"] == "5000"
+    assert flags["--checkpoint_every"] == "1000000"
+    assert flags["--output_dir"] == config.args["output_dir"]
+    assert flags["--seed"] == "42"
+    assert flags["--wandb_name"] == config.args["wandb_name"]
+    assert flags["--video_log_every"] == "0"
+    assert flags["--val_every"] == "0"
+    # The probe family exists to compare dtypes, so each arm must name one.
+    assert flags["--compute_dtype"] == config.args["compute_dtype"]
+    for fragment in ("3d-87", "seed-42"):
+        assert fragment in flags["--wandb_tags"]
+
+
+def test_3d87_probes_cover_more_than_one_compute_dtype() -> None:
+    dtypes = {
+        launch.load_config(name).args["compute_dtype"] for name in DTYPE_PROBE_CONFIGS
+    }
+    assert len(dtypes) > 1, dtypes

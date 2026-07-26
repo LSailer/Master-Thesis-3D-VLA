@@ -2,16 +2,16 @@
 
 DRY: the per-run ``run_jax_*.py`` shims used to each repeat the same ~5-line
 ``sys.path`` bootstrap plus a hardcoded ``train(...)`` call differing only in
-env/encoder/curriculum/output_dir/wandb_name/wandb_tags. That metadata now lives
+env/adapter/curriculum/output_dir/wandb_name/wandb_tags. That metadata now lives
 here as one ``RUN_CONFIGS`` table, launched by the single ``run.py`` dispatcher::
 
     uv run python scripts/r2dreamer/run.py <run-id> [train flags...]
 
 Slurm configs select a run via the ``run_id:`` field (rendered as that leading
 positional by ``scripts/slurm/launch.py``); ad-hoc / legacy ``*.sbatch`` files
-call ``run.py <run-id>`` directly. ``launch_run`` validates the encoder against
-the canonical ``encoder_registry`` at launch, so a typo fails fast instead of at
-train-time.
+call ``run.py <run-id>`` directly. ``launch_run`` validates the adapter against
+``src.adapters.ADAPTERS`` at launch, so a typo - or a variant not yet migrated
+to the routed adapter contract - fails fast instead of at train-time.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     # ── CNN curriculum baselines (L1–L4) ────────────────────────────────────
     "habitat-l1-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        adapter="rgb",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1",
         wandb_name="r2d-L1-1house-chair",
@@ -39,7 +39,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l2-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        adapter="rgb",
         curriculum="L2",
         output_dir="output/runs/r2dreamer-curriculum-l2",
         wandb_name="r2d-L2-buffix",
@@ -47,7 +47,7 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l3-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        adapter="rgb",
         curriculum="L3",
         output_dir="output/runs/r2dreamer-curriculum-l3",
         wandb_name="r2d-L3-buffix",
@@ -55,53 +55,20 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
     ),
     "habitat-l4-cnn": dict(
         env="habitat",
-        encoder="cnn",
+        adapter="rgb",
         curriculum="L4",
         output_dir="output/runs/r2dreamer-curriculum-l4",
         wandb_name="r2d-L4-buffix",
         wandb_tags=["curriculum", "level4", "10houses", "6goals", "buffer-fix", "rerun"],
     ),
-    # ── VGGT 3D-encoder curriculum (L1–L4) ──────────────────────────────────
-    "habitat-l1-vggt": dict(
-        env="habitat",
-        encoder="vggt",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt",
-        wandb_name="vggt_jax",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "vggt_jax", "jax", "3d-encoder",
-        ],
-    ),
-    "habitat-l2-vggt": dict(
-        env="habitat",
-        encoder="vggt",
-        curriculum="L2",
-        output_dir="output/runs/r2dreamer-curriculum-l2-vggt",
-        wandb_name="r2d-L2-vggt",
-        wandb_tags=["curriculum", "level2", "1house", "6goals", "vggt", "jax", "3d-encoder"],
-    ),
-    "habitat-l3-vggt": dict(
-        env="habitat",
-        encoder="vggt",
-        curriculum="L3",
-        output_dir="output/runs/r2dreamer-curriculum-l3-vggt",
-        wandb_name="r2d-L3-vggt",
-        wandb_tags=["curriculum", "level3", "10houses", "chair-only", "vggt", "jax", "3d-encoder"],
-    ),
-    "habitat-l4-vggt": dict(
-        env="habitat",
-        encoder="vggt",
-        curriculum="L4",
-        output_dir="output/runs/r2dreamer-curriculum-l4-vggt",
-        wandb_name="r2d-L4-vggt",
-        wandb_tags=["curriculum", "level4", "10houses", "6goals", "vggt", "jax", "3d-encoder"],
-    ),
-    # ── VGGT encoder variants / ablations ───────────────────────────────────
-    # L1 Hybrid — CNN(RGB) + gated MLP(WP/CP) hybrid encoder (3D-50/51/52).
+    # ── VGGT adapter variants / ablations ───────────────────────────────────
+    # L1 ``rgb_pointmap_pose`` — conv(RGB) + MLP over the pooled 37x37 point map
+    # concatenated with the camera pose, one replayed vector per step
+    # (3D-50/51/52). The routed encoder fuses the two branches with a Dense;
+    # the learned gate of the old HybridEncoder is gone.
     "habitat-l1-hybrid": dict(
         env="habitat",
-        encoder="hybrid",
+        adapter="rgb_pointmap_pose",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-hybrid",
         wandb_name="hybrid-cnn-vggt",
@@ -110,10 +77,14 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "hybrid", "cnn", "wp-cp", "3d-encoder", "jax",
         ],
     ),
-    # L1 House Context — RGB replay + live full-token InfiniteVGGT scene memory.
+    # L1 ``rgb_house_cloud_episodes`` — conv(RGB replay) + one PointNet cloud that
+    # survives episode boundaries: every frame's world points are appended and
+    # the cloud is voxel-downsampled at each episode start. No camera pose, no
+    # per-scene separation - the arm that asks whether cross-episode context
+    # helps at all. The cloud is the single live (``buffer=False``) field.
     "habitat-l1-vggt-house-context": dict(
         env="habitat",
-        encoder="vggt_house_context",
+        adapter="rgb_house_cloud_episodes",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-context",
         wandb_name="l1_rgb_replay_vggt_house_context",
@@ -123,25 +94,14 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "3d-77", "jax", "3d-encoder",
         ],
     ),
-    # L1 house points + current VGGT camera pose; PointNet house branch
-    # (src/r2dreamer/encoders/pointnet.py).
-    "habitat-l1-vggt-house-points-pose": dict(
-        env="habitat",
-        encoder="vggt_house_points_pose",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose",
-        wandb_name="l1_static_house_points_pose",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-points", "static-sidecar", "camera-pose-replay",
-            "pointnet", "tnet", "jax", "3d-encoder",
-        ],
-    ),
-    # L1 additive hybrid: rgb64 CNN backbone + zero-init-gated live house
-    # points/pose branches (starts exactly at the CNN baseline).
+    # L1 ``rgb_house_voxels`` — conv(RGB replay) + MLP(camera pose) + PointNet over
+    # a live per-scene voxel-deduplicated house map (PERSIST_SCENE, so every
+    # episode of one house extends a single map). The cloud is emitted at a
+    # fixed 16384x6 so the branch never recompiles as the map grows; it is the
+    # single live (``buffer=False``) field.
     "habitat-l1-vggt-hybrid-house-points-pose": dict(
         env="habitat",
-        encoder="vggt_hybrid_house_points_pose",
+        adapter="rgb_house_voxels",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-hybrid-house-points-pose",
         wandb_name="l1_hybrid_house_points_pose",
@@ -152,10 +112,12 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "jax", "3d-encoder",
         ],
     ),
-    # L1 live house points + GNN house branch (src/r2dreamer/encoders/gnn_house.py).
+    # L1 ``rgb_house_voxels_gnn`` — the arm above with the house cloud routed to the
+    # k-NN-GCN branch instead of PointNet. Identical replay fields, voxel
+    # accumulator and extractor policy, which is what keeps the two comparable.
     "habitat-l1-gnn-house-points-pose": dict(
         env="habitat",
-        encoder="gnn_house_points_pose",
+        adapter="rgb_house_voxels_gnn",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose",
         wandb_name="l1_gnn_house_points_pose",
@@ -165,37 +127,15 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "gnn", "knn-graph", "prototype", "jax", "3d-encoder",
         ],
     ),
-    # L1 live house points + EdgeConv-variant GNN house branch (gnn_house.py).
-    "habitat-l1-gnn-edge-house-points-pose": dict(
-        env="habitat",
-        encoder="gnn_edge_house_points_pose",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-gnn-edge-house-points-pose",
-        wandb_name="l1_gnn_edge_house_points_pose",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-points", "live-buffer", "camera-pose-replay",
-            "gnn", "knn-graph", "edgeconv", "residual", "prototype",
-            "jax", "3d-encoder",
-        ],
-    ),
-    # L1 full-token no-gate — RGB replay + live full-token Transformer inside agent.
-    "habitat-l1-vggt-house-full-tokens-nogate": dict(
-        env="habitat",
-        encoder="vggt_house_full_tokens_nogate",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-full-tokens-nogate",
-        wandb_name="l1_rgb_replay_vggt_house_full_tokens_nogate",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-context", "full-token-transformer", "no-gate", "rgb-replay",
-            "live-cache", "bounded-cache", "3d-77", "jax", "3d-encoder",
-        ],
-    ),
-    # L1 global-token no-gate — RGB replay + singleton live global-token context.
+    # L1 ``rgb_global_tokens`` — conv(RGB replay) + Transformer over the global half
+    # of the final VGGT aggregator tokens (1374x1024). No point map: the context
+    # is whatever the streaming attention cache carries, which is what this arm
+    # measures. Point/camera heads are off. The tokens describe the *current*
+    # frame, so they are replayed per step - at 2.8 MB/row, runs of this variant
+    # must cap ``--buffer_capacity``.
     "habitat-l1-vggt-house-global-tokens-nogate": dict(
         env="habitat",
-        encoder="vggt_house_global_tokens_nogate",
+        adapter="rgb_global_tokens",
         curriculum="L1",
         output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-global-tokens-nogate",
         wandb_name="l1_rgb_replay_vggt_house_global_tokens_nogate",
@@ -205,86 +145,84 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "live-cache", "bounded-cache", "3d-90", "jax", "3d-encoder",
         ],
     ),
-    # L1 house global embedding — RGB replay + split VGGT global tokens fed to
-    # a PointNet reducer (max-pool over 1369 patch tokens; camera token on its
-    # own side branch). PERSIST_SCENE, heads off (src/prototyp/
-    # house_global_embedding/IDEA.md).
-    "habitat-l1-vggt-house-global-embedding": dict(
+    # L1 ``rgb_full_tokens`` — the arm above with both halves of the aggregator
+    # tokens (1374x2048) instead of the global half only, so it measures what the
+    # frame half adds. At 5.6 MB/row it needs a tighter ``--buffer_capacity``.
+    "habitat-l1-full-tokens": dict(
         env="habitat",
-        encoder="vggt_house_global_embedding",
+        adapter="rgb_full_tokens",
         curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-house-global-embedding",
-        wandb_name="l1_rgb_replay_vggt_house_global_embedding",
+        output_dir="output/runs/r2dreamer-curriculum-l1-rgb-full-tokens",
+        wandb_name="l1_rgb_full_tokens",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "house-context", "global-embedding", "pointnet-reducer", "rgb-replay",
-            "live-cache", "persist-scene", "heads-off", "jax", "3d-encoder",
+            "full-token-transformer", "no-gate", "rgb-replay",
+            "live-cache", "bounded-cache", "3d-77", "jax", "3d-encoder",
         ],
     ),
-    # L1 VGGT — WP+CP MLP at a 64x64 world-point grid (3D-52/3D-53).
-    "habitat-l1-vggt-wp-cp-64": dict(
+    # L1 ``aggregator_pooled`` — the cheap end of the token family: the global
+    # token half pooled to [camera, patch mean, patch max] (3072) through an MLP
+    # branch. No appearance channel, no geometry, 12 KB/row.
+    "habitat-l1-aggregator-pooled": dict(
         env="habitat",
-        encoder="vggt_wp_cp_64",
+        adapter="aggregator_pooled",
         curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp-cp-64",
-        wandb_name="wp-cp-mlp-64",
+        output_dir="output/runs/r2dreamer-curriculum-l1-aggregator-pooled",
+        wandb_name="l1_aggregator_pooled",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "wp-cp", "mlp-3layer", "wp-64", "3d-52", "jax", "3d-encoder",
+            "aggregator-pooled", "pool-on-device", "skip-heads",
+            "jax", "3d-encoder",
         ],
     ),
-    # L1 VGGT — 64x64 world-point CNN + camera-pose MLP encoder (3D-89).
-    "habitat-l1-vggt-wp64-cnn-cp-mlp": dict(
+    # ── Geometry-only arms (no appearance channel, hence no decoder target) ──
+    # L1 ``pointmap_pose`` — the ``rgb_pointmap_pose`` arm above with the image
+    # field removed: only the 37x37 pooled point map plus camera pose, through an
+    # MLP branch. The pair isolates what appearance contributes.
+    "habitat-l1-pointmap-pose": dict(
         env="habitat",
-        encoder="vggt_wp64_cnn_cp_mlp",
+        adapter="pointmap_pose",
         curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp64-cnn-cp-mlp",
-        wandb_name="wp64-cnn-cp-mlp",
+        output_dir="output/runs/r2dreamer-curriculum-l1-pointmap-pose",
+        wandb_name="l1_pointmap_pose",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "wp-64", "wp-cnn", "cp-mlp", "3d-89", "jax", "3d-encoder",
+            "pointmap-pose", "geometry-only", "3d-52", "jax", "3d-encoder",
         ],
     ),
-    # L1 VGGT — full-resolution 518x518x3 world-point CNN encoder (3D-53).
-    "habitat-l1-vggt-wp-dense": dict(
+    # L1 ``pointmap_pose_64`` — resolution ablation of the arm above: identical
+    # pipeline, point map reduced to 64x64 instead of the 37x37 patch grid.
+    "habitat-l1-pointmap-pose-64": dict(
         env="habitat",
-        encoder="vggt_wp_dense_cnn",
+        adapter="pointmap_pose_64",
         curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-wp-dense",
-        wandb_name="vggt_wp_dense_cnn",
+        output_dir="output/runs/r2dreamer-curriculum-l1-pointmap-pose-64",
+        wandb_name="l1_pointmap_pose_64",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "wp-dense", "full-res-518", "cnn", "jax", "3d-encoder",
+            "pointmap-pose", "pointmap-64", "geometry-only", "3d-52",
+            "jax", "3d-encoder",
         ],
     ),
-    # L1 VGGT aggregator-MLP encoder (variant-1).
-    "habitat-l1-vggt-aggregator-mlp": dict(
+    # L1 ``pointmap_dense`` — the unpooled 518x518x3 point map through a conv
+    # branch, so the geometry keeps its spatial structure. At 1.6 MB/row runs of
+    # this variant must cap ``--buffer_capacity``.
+    "habitat-l1-pointmap-dense": dict(
         env="habitat",
-        encoder="vggt_aggregator_mlp",
+        adapter="pointmap_dense",
         curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-aggregator-mlp",
-        wandb_name="variant-1-aggregator-mlp",
+        output_dir="output/runs/r2dreamer-curriculum-l1-pointmap-dense",
+        wandb_name="l1_pointmap_dense",
         wandb_tags=[
             "curriculum", "level1", "1house", "chair-only", "vggt",
-            "aggregator-mlp", "variant-1", "jax", "3d-encoder",
-        ],
-    ),
-    # L1 VGGT full aggregator-token Transformer encoder (3D-75).
-    "habitat-l1-vggt-agg-token-transformer": dict(
-        env="habitat",
-        encoder="vggt_agg_token_transformer",
-        curriculum="L1",
-        output_dir="output/runs/r2dreamer-curriculum-l1-vggt-agg-token-transformer",
-        wandb_name="vggt-agg-token-transformer",
-        wandb_tags=[
-            "curriculum", "level1", "1house", "chair-only", "vggt",
-            "aggregator-tokens", "token-transformer", "3d-75", "jax", "3d-encoder",
+            "pointmap-dense", "full-res-518", "conv-points", "geometry-only",
+            "3d-53", "jax", "3d-encoder",
         ],
     ),
     # ── Crafter (non-curriculum sanity env) ─────────────────────────────────
     "crafter-cnn": dict(
         env="crafter",
-        encoder="cnn",
+        adapter="rgb",
         curriculum=None,
         output_dir="output/runs/r2dreamer-crafter",
         wandb_name="r2d-crafter",
@@ -305,13 +243,14 @@ def launch_run(name: str, *, argv: list[str] | None = None):
         raise KeyError(f"Unknown run {name!r}. Available: {sorted(RUN_CONFIGS)}")
     cfg = RUN_CONFIGS[name]
 
-    # Fail fast on an encoder typo, against the canonical registry.
-    from src.r2dreamer.launch.registries import encoder_registry
+    # Fail fast on an adapter typo (or a variant not yet migrated to the routed
+    # adapter contract), against the canonical registry.
+    from src.adapters import ADAPTERS
 
-    if cfg["encoder"] not in encoder_registry:
+    if cfg["adapter"] not in ADAPTERS:
         raise KeyError(
-            f"Run {name!r} uses unknown encoder {cfg['encoder']!r}. "
-            f"Available: {sorted(encoder_registry)}"
+            f"Run {name!r} uses unknown adapter {cfg['adapter']!r}. "
+            f"Available: {sorted(ADAPTERS)}"
         )
 
     from src.main import train

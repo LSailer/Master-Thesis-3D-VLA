@@ -1,6 +1,5 @@
 """Convolutional observation encoders."""
 
-from collections.abc import Mapping
 from typing import Literal
 
 import flax.linen as nn
@@ -12,7 +11,6 @@ from src.r2dreamer.encoders.shape_utils import (
     normalize_image_obs,
     restore_leading,
 )
-from src.r2dreamer.observation_keys import HYBRID_IMAGE_KEY, WORLD_POINTS_KEY
 from src.r2dreamer.world_model.rssm import RMSNorm
 
 
@@ -46,15 +44,6 @@ class ConvEncoder(nn.Module):
     @nn.compact
     def __call__(self, obs: jnp.ndarray) -> jnp.ndarray:
         """Encode ``(..., H, W, C)`` observations, preserving leading dims."""
-        if isinstance(obs, Mapping):
-            if self.input_kind == "world_points":
-                obs = (
-                    obs[WORLD_POINTS_KEY]
-                    if WORLD_POINTS_KEY in obs
-                    else obs["features"]
-                )
-            else:
-                obs = obs[HYBRID_IMAGE_KEY]
         x, leading_shape = flatten_event(obs, event_ndims=3)
         if self.input_kind == "rgb":
             x = normalize_image_obs(x, dtype=self.compute_dtype) - 0.5
@@ -83,21 +72,3 @@ class ConvEncoder(nn.Module):
         if self.embed_dim is not None:
             x = nn.Dense(self.embed_dim, name="proj", dtype=self.compute_dtype)(x)
         return restore_leading(x, leading_shape)
-
-
-def make_rgb_conv_encoder(
-    *,
-    depth: int,
-    kernel_size: int,
-    mults: tuple[int, ...],
-    name: str,
-    compute_dtype: DTypeLike = jnp.float32,
-) -> ConvEncoder:
-    """Create a named RGB ``ConvEncoder`` submodule with shared defaults."""
-    return ConvEncoder(
-        depth=depth,
-        kernel_size=kernel_size,
-        mults=mults,
-        name=name,
-        compute_dtype=compute_dtype,
-    )

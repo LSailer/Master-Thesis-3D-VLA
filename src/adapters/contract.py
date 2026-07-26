@@ -1,9 +1,18 @@
-"""Adapter contract for the multi-episode house-context prototype.
+"""Adapter contract: one call per frame returns a flat list of routed fields.
 
-One transform call returns a flat list of routed fields. Each field says
-which encoder branch consumes it (``encoder``) and whether it is stored in
-replay (``buffer``). ``is_first`` is NOT part of the transform output - the
-collector passes it explicitly when appending to the buffer.
+Each field says which encoder branch consumes it (``encoder``), whether it is
+stored in replay (``buffer``), and whether the decoder probe reconstructs it
+(``decoder_target``). ``is_first`` is NOT part of the output - the collector
+passes it explicitly when appending to the buffer.
+
+This module is the single place where observation routing is declared. No
+encoder-type string, no parallel shape table: the adapter emits the value and
+its routing together, and every consumer (replay buffer, composite encoder,
+decoder probe) reads the routing off the fields.
+
+Frozen extraction lives inside the adapter: a variant that needs VGGT takes a
+:class:`FeatureExtractor` at construction and calls it itself, so every adapter
+has the same one-argument call shape and the collector never sees VGGT.
 """
 
 from __future__ import annotations
@@ -21,12 +30,24 @@ from src.vggt.jax.feature_extractor import VGGTExtractOutput
 
 
 class Encoder(Enum):
-    """Trainable encoder branch that consumes a field live."""
+    """Trainable encoder branch that consumes a field live.
+
+    Every member must have a case in
+    :meth:`src.r2dreamer.encoders.routed_composite.RoutedCompositeEncoder._branch`,
+    which resolves it to a module in ``src/r2dreamer/encoders/``; that module
+    validates the field shape it was handed. A member no adapter routes to does
+    not belong here.
+    """
 
     CONV = auto()
+    # Spatial convolution over a metric point map rather than an image: same
+    # architecture, but symlog compression instead of RGB centering, because
+    # world coordinates are unbounded.
+    CONV_POINTS = auto()
     MLP = auto()
     POINTNET = auto()
     GNN = auto()
+    TRANSFORMER = auto()
 
 
 @dataclass(frozen=True)
@@ -34,49 +55,79 @@ class AdapterField:
     """One routed observation field.
 
     Attributes:
-        key: Field name, unique within one transform output.
-        encoder: Encoder branch that consumes this field live. ``None`` means
-            the field is not a live encoder input (buffer-only, e.g. compact
-            replay image).
-        buffer: Whether this field is stored in the replay buffer.
+        key: Field name, unique within one adapter output.
+        encoder: Encoder branch that consumes this field live.
+        buffer: Whether this field is stored in the replay buffer. Exactly one
+            field per adapter may be ``False``: that value is not replayed but
+            rides along as the live ``global_feature`` (latest value only).
         value: The field payload for this step.
+        decoder_target: Whether the debug decoder probe reconstructs this
+            field. At most one field per adapter, and it must be replayed
+            (``buffer=True``) because the probe reads its target from the
+            sampled batch.
     """
 
     key: str
-    encoder: Encoder 
+    encoder: Encoder
     buffer: bool
     value: jnp.ndarray
+    decoder_target: bool = False
 
 
 AdapterOutput = list[AdapterField]
 
 
-class FrameAdapterFn(Protocol):
-    """Adapter needing only the raw env frame."""
+class AdapterFn(Protocol):
+    """Turns one env frame into routed fields.
+
+    The only adapter shape. Variants that need frozen features hold their
+    extractor and call it inside this method, so callers never branch on the
+    kind of adapter they hold.
+    """
 
     def __call__(self, frame: ObservationFrame) -> AdapterOutput: ...
 
 
-class FeatureAdapterFn(Protocol):
-    """Adapter needing the frame plus frozen VGGT features."""
+class FeatureExtractor(Protocol):
+    """The slice of the frozen VGGT extractor an adapter needs.
 
-    def __call__(
-        self,
-        frame: ObservationFrame,
-        features: VGGTExtractOutput,
-    ) -> AdapterOutput: ...
-
-
-AdapterFn = FrameAdapterFn | FeatureAdapterFn
-
-
-def ignore_features(fn: FrameAdapterFn) -> FeatureAdapterFn:
-    """Lift a frame-only adapter to the feature signature (features unused).
-
-    Lets the run loop deal with a single call shape when VGGT runs anyway;
-    the branch on adapter kind happens once at wiring time, not per step.
+    Handed the whole frame, not just the image: the extractor owns its cache
+    lifetime and reads ``is_first``/``scene_id`` off the frame to apply the reset
+    policy it was constructed with (``ResetMode.FULL`` wipes per episode,
+    ``PERSIST_SCENE`` saves and restores per scene). Cache lifetime therefore
+    never leaks into adapters or the collector, and the reset cannot end up
+    ordered after the first extract of an episode.
     """
-    return lambda frame, features: fn(frame)
+
+    def extract(self, source: ObservationFrame) -> VGGTExtractOutput: ...
+
+
+def decoder_target_key(fields: AdapterOutput) -> str:
+    """Return the key of the single field the decoder probe reconstructs.
+
+    Args:
+        fields: Adapter output for one representative frame.
+
+    Returns:
+        The ``decoder_target`` field's key.
+
+    Raises:
+        ValueError: If not exactly one field is flagged, or if the flagged
+            field is not replayed (the probe reads targets from replay).
+    """
+    targets = [f for f in fields if f.decoder_target]
+    if len(targets) != 1:
+        raise ValueError(
+            "decoder=True needs exactly one decoder_target field, got "
+            f"{[f.key for f in targets]}"
+        )
+    target = targets[0]
+    if not target.buffer:
+        raise ValueError(
+            f"decoder_target field {target.key!r} must be stored in replay "
+            "(buffer=True) - the probe reads its target from the sampled batch"
+        )
+    return target.key
 
 
 def transition_from_fields(
@@ -108,6 +159,16 @@ def transition_from_fields(
         encoders=encoders,
         global_feature=live[0].value if live else None,
     )
+
+
+def encoder_obs_from_fields(fields: AdapterOutput) -> dict[str, jnp.ndarray]:
+    """Return the live encoder observation for one step (no leading dims).
+
+    Both replayed and live fields are included: acting needs the same obs dict
+    the encoder saw at init, just for a single env step. The agent adds the
+    batch dim, skipping live fields (which stay one global event).
+    """
+    return {f.key: f.value for f in fields}
 
 
 def routing_from_batch(batch: ReplayBatch) -> dict[str, Encoder]:

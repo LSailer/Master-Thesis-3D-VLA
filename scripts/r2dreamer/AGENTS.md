@@ -12,16 +12,20 @@ and plots. Keep scripts thin; heavy logic belongs in `src/r2dreamer/`.
 
 - `run.py <run-id> [train flags...]` is the live-training dispatcher.
 - `RUN_CONFIGS` in `_run_configs.py` is the single source of truth for run ids and
-  `(env, encoder, curriculum, output_dir, wandb_name, wandb_tags)`.
+  `(env, adapter, curriculum, output_dir, wandb_name, wandb_tags)`.
+- `adapter` is a key of `src.adapters.ADAPTERS`, not an encoder-type string;
+  `launch_run` validates it against that registry before importing `src.main`.
 - To add a run, add one `RUN_CONFIGS` entry plus a `scripts/slurm/configs/*.yaml`
   whose `run_id:` names it. Do not add a new Python shim.
-- Eval shims are `eval_habitat.py` and `eval_habitat_vggt.py`.
+- `eval_habitat.py` is the only eval shim; it passes `adapter="rgb"`. For any
+  other variant call `src.main.evaluate(adapter=...)` directly.
 - Dash-style argparse flags; use `--no-wandb` for local smoke runs.
 
 ## Gotchas
 
-- Feature dims are load-bearing: WP/CP `4116`, aggregator `3072`, hybrid `16404`,
-  agent obs `64×64`.
+- Shapes come from the adapter's routed fields, not from a shape table: the
+  agent is built from one live adapter call on the first frame. Agent obs is
+  `64×64` for every variant's replayed image branch.
 - Training, profiling, Habitat, VGGT, and smoke runs must use `srun`/sbatch; never
   run them directly on a login node.
 - In fresh worktrees, run `./scripts/setup_worktree.sh` before training/eval.

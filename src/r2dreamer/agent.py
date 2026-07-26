@@ -15,6 +15,7 @@ gradient signal under one `jax.grad`.
 """
 
 import functools
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Dict, NamedTuple, cast
 
@@ -22,34 +23,27 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from src.adapters.contract import AdapterOutput
+from src.adapters.contract import (
+    AdapterOutput,
+    decoder_target_key,
+    encoder_obs_from_fields,
+)
 from src.buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.decoder_targets import decoder_rgb_target, replay_batch_shape
-from src.r2dreamer.encoder_types import RGB_BEARING_ENCODER_TYPES
-from src.r2dreamer.encoders.shape_utils import batch_live_observation
 from src.shared.optim import agc, laprop
 
 from .behavior.loss import behavior_loss
 from .behavior.return_ema import ReturnEMA
 from .checkpointing import load_checkpoint
 from .encoders.decoder import ConvDecoder
-from .encoders.factory import (
-    _compute_dtype_kwargs,
-    _dummy_encoder_obs,
-    _make_encoder,
-    _make_rssm,
-)
-from .encoders.routed_composite import (
-    dummy_obs_from_fields,
-    routed_encoder_from_fields,
-)
+from .encoders.routed_composite import routed_encoder_from_fields
 from .learning_types import AgentLossAux, WorldModelForward
-from .observation_preparation.contracts import recover_encoder_input_contract
 from .representation.barlow import Projector
 from .representation.loss import representation_loss
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss
+from .world_model.rssm_factory import compute_dtype_kwargs, rssm_from_config
 
 
 class ActState(NamedTuple):
@@ -115,34 +109,43 @@ def _add_encoder_l2_metric(metrics: dict[str, Any], params: dict[str, Any]) -> N
     metrics["params/encoder_l2"] = jnp.sqrt(enc_sq)
 
 
-def _add_hybrid_contribution_metrics(
-    metrics: dict[str, Any],
-    *,
-    cfg: R2DreamerConfig,
-    params: dict[str, Any],
-    forward: WorldModelForward,
-    B: int,
-    T: int,
-) -> None:
-    # Reuse the already-computed fused embed instead of a second encoder
-    # forward: embed == concat([cnn_e, gate * vggt_mlp(...)]), so the
-    # leading cnn_dim columns are the CNN branch and the rest are the
-    # gated VGGT branch. The raw gate scalar is read straight from params.
-    embed_flat = forward.embed.reshape(B * T, -1)
-    cnn_dim = embed_flat.shape[-1] - cfg.vggt_embed_dim
-    cnn_e = embed_flat[:, :cnn_dim]
-    vggt_e = embed_flat[:, cnn_dim:]
-    gate = params["encoder"]["params"]["gate"]
-    cnn_l2 = jnp.sqrt(jnp.mean(jnp.sum(cnn_e**2, axis=-1)))
-    vggt_l2 = jnp.sqrt(jnp.mean(jnp.sum(vggt_e**2, axis=-1)))
-    denom = cnn_l2 + vggt_l2 + 1e-8
-    metrics["hybrid/gate"] = gate
-    metrics["hybrid/cnn_l2"] = cnn_l2
-    metrics["hybrid/vggt_l2"] = vggt_l2
-    metrics["hybrid/cnn_std"] = jnp.std(cnn_e)
-    metrics["hybrid/vggt_std"] = jnp.std(vggt_e)
-    metrics["hybrid/cnn_frac"] = cnn_l2 / denom
-    metrics["hybrid/vggt_frac"] = vggt_l2 / denom
+def _assert_params_match(fresh: Any, loaded: Any) -> None:
+    """Check a freshly built param tree against one loaded from a checkpoint.
+
+    Routed runs rebuild the encoder from a live adapter call instead of from a
+    stored architecture description, so a config or adapter change since the
+    checkpoint was written shows up here - as a named path, rather than as a
+    shape error deep inside a jitted apply.
+
+    Args:
+        fresh: Params of the freshly initialized agent.
+        loaded: Params read from the checkpoint.
+
+    Raises:
+        ValueError: On the first structural or shape difference.
+    """
+
+    def shapes(tree: Any) -> dict[str, tuple[int, ...]]:
+        return {
+            jax.tree_util.keystr(path): jnp.shape(leaf)
+            for path, leaf in jax.tree_util.tree_flatten_with_path(tree)[0]
+        }
+
+    fresh_shapes, loaded_shapes = shapes(fresh), shapes(loaded)
+    missing = sorted(set(fresh_shapes) - set(loaded_shapes))
+    extra = sorted(set(loaded_shapes) - set(fresh_shapes))
+    if missing or extra:
+        raise ValueError(
+            "checkpoint params do not match the rebuilt architecture: "
+            f"missing in checkpoint {missing[:5]}, unknown in checkpoint "
+            f"{extra[:5]}"
+        )
+    for path, shape in fresh_shapes.items():
+        if loaded_shapes[path] != shape:
+            raise ValueError(
+                f"checkpoint param shape mismatch at {path}: rebuilt {shape}, "
+                f"checkpoint {loaded_shapes[path]}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -205,55 +208,41 @@ class R2DreamerAgent:
         cls,
         path: str | Path,
         *,
-        obs_shape: tuple[int, ...] | dict[str, tuple[int, ...]] | None = None,
         num_actions: int,
         seed: int,
+        fields: AdapterOutput,
+        encoder_overrides: Dict[str, Any] | None = None,
         **config_kwargs: Any,
     ) -> "R2DreamerAgent":
         """Build an agent and load ``params`` + ``slow_critic_params`` from disk.
 
-        Extra ``config_kwargs`` flow into :class:`R2DreamerConfig` so callers
-        that need ``encoder_type`` / ``encoder_module_cls`` (e.g. evaluate)
-        can pass them through. When the checkpoint contains a durable Encoder
-        Input Contract snapshot, missing encoder config is recovered from it.
-        The loaded checkpoint's ``step`` is stashed on the returned agent as
-        ``checkpoint_step`` (``-1`` if absent).
+        The encoder is rebuilt from ``fields`` (one live adapter call) and only
+        the parameters come from disk - the checkpoint carries no architecture
+        description. ``_assert_params_match`` then guards against an
+        architecture that drifted since the checkpoint was written.
+
+        Args:
+            path: Checkpoint path.
+            num_actions: Action count of the env being evaluated.
+            seed: PRNG seed for the throwaway init pass.
+            fields: Adapter output for one representative frame; supplies the
+                per-field routing the encoder is composed from.
+            encoder_overrides: Branch overrides for the composite encoder.
+            **config_kwargs: Extra :class:`R2DreamerConfig` fields (e.g. the
+                architecture fields recovered from the run manifest).
+
+        Returns:
+            The agent, with the loaded checkpoint's ``step`` stashed as
+            ``checkpoint_step`` (``-1`` if absent).
         """
         ckpt = load_policy_checkpoint(path)
-        contract_snapshot = ckpt.get("encoder_input_contract")
-        if contract_snapshot is not None:
-            contract = recover_encoder_input_contract(contract_snapshot)
-            if obs_shape is None:
-                obs_shape = contract.encoder_input.buffer_shape()
-            requested_type = config_kwargs.get("encoder_type")
-            if requested_type is not None and requested_type != contract.encoder_type:
-                raise ValueError(
-                    "checkpoint encoder contract mismatch: requested "
-                    f"{requested_type!r}, checkpoint has {contract.encoder_type!r}"
-                )
-            requested_shape = obs_shape
-            contract_shape = contract.encoder_input.buffer_shape()
-            if requested_shape != contract_shape:
-                raise ValueError(
-                    "checkpoint encoder shape mismatch: requested "
-                    f"{requested_shape!r}, checkpoint has {contract_shape!r}"
-                )
-            config_kwargs["encoder_type"] = contract.encoder_type
-            config_kwargs["encoder_module_cls"] = contract.encoder_module_cls
-            config_kwargs["encoder_input_contract"] = contract_snapshot
-        if obs_shape is None:
-            raise ValueError(
-                "obs_shape must be provided when checkpoint has no Encoder Input "
-                "Contract snapshot"
-            )
-        config = R2DreamerConfig(
-            obs_shape=obs_shape,
-            num_actions=num_actions,
-            **config_kwargs,
+        config = R2DreamerConfig(num_actions=num_actions, **config_kwargs)
+        rng_key, init_key = jax.random.split(jax.random.PRNGKey(seed))
+        del rng_key
+        agent = cls(
+            config, init_key, fields=fields, encoder_overrides=encoder_overrides
         )
-        rng_key = jax.random.PRNGKey(seed)
-        rng_key, init_key = jax.random.split(rng_key)
-        agent = cls(config, init_key)
+        _assert_params_match(agent.params, ckpt["params"])
         agent.params = jax.tree.map(jnp.asarray, ckpt["params"])
         agent.slow_critic_params = jax.tree.map(jnp.asarray, ckpt["slow_critic_params"])
         agent.checkpoint_step = int(ckpt.get("step", -1))
@@ -263,7 +252,7 @@ class R2DreamerAgent:
         self,
         config: R2DreamerConfig,
         rng_key: jnp.ndarray,
-        fields: AdapterOutput | None = None,
+        fields: AdapterOutput,
         encoder_overrides: Dict[str, Any] | None = None,
     ):
         self.cfg = config
@@ -271,33 +260,31 @@ class R2DreamerAgent:
         self.twohot = R2TwoHotDist(num_bins=config.twohot_bins)
 
         # ---- Instantiate Flax modules (for .apply) ----
-        # ``fields`` (a sample adapter output) overrides ``cfg.encoder_type``:
+        # ``fields`` (a sample adapter output) is the architecture description:
         # the routed composite encoder is built from the per-field Encoder
-        # routing, and the dummy obs comes from the sample field shapes.
-        if fields is not None:
-            # Composition root: translate the config into branch overrides so
-            # the run stays reproducible from the config alone;
-            # ``encoder_overrides`` (e.g. fusion_dim) win over the translation.
-            self.encoder_mod = routed_encoder_from_fields(
-                fields,
-                conv_depth=config.encoder_depth,
-                conv_kernel=config.encoder_kernel,
-                conv_mults=config.encoder_mults,
-                **(encoder_overrides or {}),
-            )
-        else:
-            self.encoder_mod = _make_encoder(config)
-        self.rssm_mod = _make_rssm(config)
-
-        # Dummy forward to discover embed_size
-        rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        dummy_obs = (
-            dummy_obs_from_fields(fields)
-            if fields is not None
-            else _dummy_encoder_obs(config)
+        # routing, and the same fields supply the observation the init forward
+        # runs on.
+        # Composition root: translate the config into branch overrides so the
+        # run stays reproducible from the config alone; ``encoder_overrides``
+        # (e.g. fusion_dim) win over the translation.
+        self.encoder_mod = routed_encoder_from_fields(
+            fields,
+            conv_depth=config.encoder_depth,
+            conv_kernel=config.encoder_kernel,
+            conv_mults=config.encoder_mults,
+            **(encoder_overrides or {}),
         )
-        enc_params = self.encoder_mod.init(k1, dummy_obs)
-        embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, dummy_obs))
+        self.rssm_mod = rssm_from_config(config)
+
+        # Forward the real first-frame observation to discover embed_size.
+        # ``fields`` already holds live values in the acting layout, so
+        # ``_batch_live_obs`` (which needs ``encoder_mod`` for ``global_keys``,
+        # assigned above) is the single place that knows which fields take the
+        # single-env batch dim - no zero-filled stand-in to keep in sync.
+        rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
+        init_obs = self._batch_live_obs(encoder_obs_from_fields(fields))
+        enc_params = self.encoder_mod.init(k1, init_obs)
+        embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, init_obs))
         self.embed_size = embed.shape[-1]
 
         # RSSM
@@ -317,7 +304,7 @@ class R2DreamerAgent:
 
         # MLP heads (outscale matches PyTorch: 0.0 for reward/critic, 0.01 for actor)
         rng_key, k_rew, k_con, k_act, k_cri = jax.random.split(rng_key, 5)
-        head_dtype_kwargs = _compute_dtype_kwargs(config)
+        head_dtype_kwargs = compute_dtype_kwargs(config)
         self.reward_mod = R2MLP(
             hidden=config.mlp_units,
             layers=config.mlp_layers_reward,
@@ -358,21 +345,7 @@ class R2DreamerAgent:
         # Left unbuilt by default so the params pytree (and thus checkpoints) of
         # CNN/VGGT runs is unchanged.
         self.decoder_mod = None
-        dec_params = None
-        if config.decoder:
-            if config.encoder_type not in RGB_BEARING_ENCODER_TYPES:
-                raise ValueError(
-                    "decoder=True requires an RGB-bearing encoder_type — the "
-                    "ConvDecoder reconstructs an RGB image, but "
-                    f"{config.encoder_type!r} carries no RGB modality to reconstruct."
-                )
-            rng_key, k_dec = jax.random.split(rng_key)
-            self.decoder_mod = ConvDecoder(
-                depth=config.encoder_depth,
-                kernel_size=config.encoder_kernel,
-                mults=config.encoder_mults,
-            )
-            dec_params = self.decoder_mod.init(k_dec, feat0)
+        self._decoder_rgb_key: str | None = None
 
         # ---- Bundle all params ----
         params = {
@@ -396,8 +369,19 @@ class R2DreamerAgent:
             "critic": self.critic_mod,
         }
 
+        # Built here, next to the bundles it joins, so the optional params never
+        # travel as a possibly-None local.
         if config.decoder:
-            params["decoder"] = dec_params
+            # Which replay field the probe reconstructs: the adapter flags it
+            # with ``decoder_target=True``.
+            self._decoder_rgb_key = decoder_target_key(fields)
+            rng_key, k_dec = jax.random.split(rng_key)
+            self.decoder_mod = ConvDecoder(
+                depth=config.encoder_depth,
+                kernel_size=config.encoder_kernel,
+                mults=config.encoder_mults,
+            )
+            params["decoder"] = self.decoder_mod.init(k_dec, feat0)
             self._modules["decoder"] = self.decoder_mod
 
         # ---- Optimizer: LaProp with linear warmup ----
@@ -453,6 +437,22 @@ class R2DreamerAgent:
         """Restore the legacy mutable wrapper's acting state."""
         self._act_state = state
 
+    def _batch_live_obs(self, encoder_obs: Any) -> Any:
+        """Add the single-env batch dim to one live observation tree.
+
+        Live (``buffer=False``) fields are one global event that the encoder
+        broadcasts itself, so they must NOT gain a batch dim - the branch would
+        see an extra axis and its shape check would fail.
+        """
+        if not isinstance(encoder_obs, Mapping):
+            return jnp.asarray(encoder_obs)[None]
+        global_keys = getattr(self.encoder_mod, "global_keys", ())
+        return {
+            key: jnp.asarray(value) if key in global_keys else jnp.asarray(value)[None]
+            for key, value in encoder_obs.items()
+            if key != "is_first"
+        }
+
     def act(
         self,
         encoder_obs: Any,
@@ -473,7 +473,7 @@ class R2DreamerAgent:
             Integer action in [0, num_actions).
         """
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
-        batched_obs = batch_live_observation(encoder_obs)
+        batched_obs = self._batch_live_obs(encoder_obs)
         action_int, self._act_state = self._jit_act_with_state(
             self.params, batched_obs, self._act_state, reset, rng_key, training
         )
@@ -494,7 +494,7 @@ class R2DreamerAgent:
     ) -> tuple[int, ActState]:
         """Functional acting wrapper for one raw live encoder observation."""
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
-        batched_obs = batch_live_observation(encoder_obs)
+        batched_obs = self._batch_live_obs(encoder_obs)
         action_int, new_state = self._jit_act_with_state(
             self.params, batched_obs, state, reset, rng_key, training
         )
@@ -561,7 +561,10 @@ class R2DreamerAgent:
         (fixed sample key) — called by the trainer at log cadence for W&B image
         logging, so it is intentionally cheap-and-occasional rather than fast.
         """
-        if not self.cfg.decoder or self.decoder_mod is None:
+        # Bound to a local so the target key is narrowed for the whole body: all
+        # three are set together when the probe is built, or none of them are.
+        rgb_key = self._decoder_rgb_key
+        if not self.cfg.decoder or self.decoder_mod is None or rgb_key is None:
             return None
         params = self.params
         B, T = replay_batch_shape(batch)
@@ -596,7 +599,7 @@ class R2DreamerAgent:
             ),
         )
         recon = self.decoder_mod.apply(params["decoder"], feat.reshape(B * T, -1))
-        target = decoder_rgb_target(batch, self.cfg.encoder_type)
+        target = decoder_rgb_target(batch, rgb_key)
         return target, recon
 
     # ------------------------------------------------------------------
@@ -826,6 +829,7 @@ class R2DreamerAgent:
             modules=self._modules,
             cfg=cfg,
             twohot=self.twohot,
+            decoder_rgb_key=self._decoder_rgb_key,
         )
 
         rng_key, k_behavior = jax.random.split(rng_key)
@@ -878,21 +882,6 @@ class R2DreamerAgent:
         }
         _add_loss_metrics(metrics, losses)
         _add_encoder_l2_metric(metrics, params)
-
-        # ---- Hybrid contribution diagnostics (3D-50) ----
-        # Re-split the fused embed into its CNN and gated-VGGT branches via the
-        # encoder's `branches` method (shares params with the forward pass) and
-        # log how much each modality drives the latent. `gate` starts at 0 and
-        # opens over training; `*_frac` is each branch's share of the embed norm.
-        if cfg.encoder_type in ("hybrid", "vggt_house_context"):
-            _add_hybrid_contribution_metrics(
-                metrics,
-                cfg=cfg,
-                params=params,
-                forward=forward,
-                B=B,
-                T=T,
-            )
 
         aux = AgentLossAux(
             metrics=metrics,

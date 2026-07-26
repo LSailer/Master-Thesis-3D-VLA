@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     cat >&2 <<'EOF'
-Usage: scripts/slurm/launch.sh <variant>... [--smoke | --prod | --smoke-then-prod] [--time SLURM_TIME] [--env K=V]... [--dry-run]
+Usage: scripts/slurm/launch.sh <variant>... [--smoke | --prod | --smoke-then-prod] [--time SLURM_TIME] [--exclude NODES] [--env K=V]... [--dry-run]
 
 Variants:
   One or more config names (scripts/slurm/configs/<variant>.yaml). Bash brace
@@ -17,6 +17,10 @@ Modes:
                      (with --smoke-then-prod, applies to both submitted jobs)
   --partition NAME   override the selected mode's partition, e.g. gpu_h100
                      (with --smoke-then-prod, applies to both submitted jobs)
+  --exclude NODES    keep the job off these nodes, e.g. uc3n089 (a node that
+                     aborts habitat's GL sensor reads). Passed to sbatch as -x;
+                     the SBATCH_EXCLUDE env var is NOT read by Slurm 25.11, so
+                     this flag is the only way to exclude a node here.
   --env K=V          override a config env var (repeatable); wins over the YAML
   --dry-run          render the sbatch script(s) instead of calling sbatch
 EOF
@@ -33,6 +37,8 @@ variants=()
 env_args=()
 time_args=()
 partition_args=()
+# sbatch flags (not renderer flags): they never reach launch.py, only sbatch.
+exclude_args=()
 mode="prod"
 dry_run=0
 
@@ -54,6 +60,12 @@ while [[ $# -gt 0 ]]; do
             partition_args+=(--partition "$1")
             ;;
         --partition=*)      partition_args+=(--partition "${1#--partition=}") ;;
+        --exclude)
+            shift
+            [[ $# -gt 0 ]] || { echo "--exclude requires a node list" >&2; exit 2; }
+            exclude_args+=(--exclude "$1")
+            ;;
+        --exclude=*)        exclude_args+=(--exclude "${1#--exclude=}") ;;
         --env)
             shift
             [[ $# -gt 0 ]] || { echo "--env requires KEY=VALUE" >&2; exit 2; }
@@ -89,7 +101,7 @@ submit() {
     if [[ "$render_status" -ne 0 ]]; then
         return "$render_status"
     fi
-    sbatch --parsable "$@" <<< "$script"
+    sbatch --parsable ${exclude_args[@]+"${exclude_args[@]}"} "$@" <<< "$script"
 }
 
 for variant in "${variants[@]}"; do

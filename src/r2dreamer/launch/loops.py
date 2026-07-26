@@ -70,7 +70,11 @@ class R2DreamerAgentLike(Protocol):
         training: bool = True,
     ) -> int: ...
 
-    def reconstruct(self, batch: Any) -> tuple[np.ndarray, np.ndarray] | None: ...
+    # ``(target, recon)`` as device arrays, or None without a decoder. The
+    # second element is the raw Flax ``apply`` result: its static type is a
+    # union the stubs cannot narrow, and the loops only device_get and index it,
+    # so pinning it tighter here would only lie about the implementation.
+    def reconstruct(self, batch: Any) -> tuple[jnp.ndarray, Any] | None: ...
 
 
 class RunLoggerLike(Protocol):
@@ -270,32 +274,24 @@ class RunLogger:
     def log_adapter_summary(
         self,
         stats: dict[str, float],
-        history: list[tuple[int, int]],
         final_step: int,
     ) -> None:
-        """Write end-of-run adapter diagnostics and the buffer growth curve.
+        """Write the adapter's end-of-run diagnostics.
 
-        Growth rows are keyed by the adapter's own env-step counter (which
-        includes prefill), not the trainer step, and land in ``metrics.csv``
-        as ``house_buffer/points_growth``. Final stats also go to the W&B
-        run summary when W&B is active.
+        Rows land in ``metrics.csv`` under the final trainer step; the same
+        stats also go to the W&B run summary when W&B is active. Adapters
+        without a diagnostics hook report nothing and this is a no-op.
         """
         if not stats:
             return
         for k, v in stats.items():
             self._writer.writerow([final_step, k, v])
-        for env_step, points in history:
-            self._writer.writerow([env_step, "house_buffer/points_growth", points])
         self._file.flush()
         if self._wandb is not None:
             self._wandb.summary.update(stats)
-        print("=== house buffer summary ===")
+        print("=== adapter summary ===")
         for k, v in stats.items():
             print(f"  {k}: {v}")
-        if history:
-            print("  growth (env_step -> total_points):")
-            for env_step, points in history:
-                print(f"    {env_step:>9d} -> {points}")
 
     def close_metrics_file(self) -> None:
         """Close metrics.csv (idempotent); called before the final checkpoint."""
@@ -748,9 +744,7 @@ def run_training(
                 start_step=resume_step,
                 val_experience=val_experience,
             )
-        logger.log_adapter_summary(
-            experience.diagnostics(), experience.growth_history, tcfg.total_steps
-        )
+        logger.log_adapter_summary(experience.diagnostics(), tcfg.total_steps)
         logger.close_metrics_file()
 
         save_checkpoint(agent, tcfg.total_steps, tcfg.output_dir)

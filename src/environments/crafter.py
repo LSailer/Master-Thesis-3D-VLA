@@ -2,8 +2,6 @@
 
 from typing import Any, cast
 
-import jax.numpy as jnp
-
 from src.environments.observation import ObservationFrame
 
 

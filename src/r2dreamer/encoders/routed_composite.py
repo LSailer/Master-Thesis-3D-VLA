@@ -2,20 +2,29 @@
 
 Instead of resolving one encoder class from ``cfg.encoder_type``, this module
 composes one branch per observation key from the adapter's routed fields: the
-``Encoder`` enum on each field selects the branch architecture, and global
+``Encoder`` enum on each field selects the branch architecture, and live
 (``buffer=False``) fields are encoded once per batch and broadcast over the
 ``(B, T)`` leading dims of the per-step fields.
 
-The branches reuse the existing modules where their contracts fit
-(``ConvEncoder`` handles arbitrary leading dims natively); the PointNet cloud
-branch is a standalone re-composition of the proven PointNet math (``TNet`` +
-shared MLPs + max pool) because ``PointNetHousePointsCameraEncoder`` is
-inseparable from its camera-pose plumbing.
+Each branch validates the shape it is handed in its own ``__call__``, so a
+misrouted field fails at init with the branch's own message rather than deep
+inside a jitted apply. Leading dims are whatever the caller supplies - ``(B, T)``
+in training, ``(1,)`` at init - and every branch restores them, so
+``embed.shape[:-1]`` always matches the replay batch.
+
+This module only composes: every branch is a sibling module in this package,
+so a reader chasing one architecture opens one file. The branches reuse the
+existing modules where their contracts fit (``ConvEncoder`` and ``MLPEncoder``
+handle arbitrary leading dims natively); the cloud branches are standalone
+re-compositions of the proven PointNet and k-NN-GCN math, because
+``PointNetHousePointsCameraEncoder`` and ``GnnHousePointsCameraEncoder`` are
+inseparable from their camera-pose plumbing.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import flax.linen as nn
@@ -24,111 +33,106 @@ from jax.typing import DTypeLike
 
 from src.adapters.contract import AdapterOutput, Encoder
 from src.r2dreamer.encoders.cnn import ConvEncoder
-from src.r2dreamer.encoders.mlp import RMSNorm
-from src.r2dreamer.encoders.pointnet import TNet
+from src.r2dreamer.encoders.gnn import GnnCloudEncoder
+from src.r2dreamer.encoders.mlp import MLPEncoder
+from src.r2dreamer.encoders.pointnet import PointNetCloudEncoder
+from src.r2dreamer.encoders.transformer import TokenSequenceEncoder
 
 
-class PointNetCloudEncoder(nn.Module):
-    """Classic PointNet over one unbatched ``(N, point_dim)`` cloud.
+@dataclass(frozen=True)
+class Route:
+    """One branch assignment, derived from an :class:`AdapterField`.
 
-    Same architecture as ``PointNetHousePointsCameraEncoder._house_embedding``
-    (input/feature T-Nets, shared MLPs, max pool, optional projection) without
-    the snapshot/camera plumbing: the input is the raw live cloud, subsampled
-    with an even stride to at most ``num_points`` rows.
-
-    TODO(house-padding): once the cloud is padded to a static ``max_points``
-    with a valid-count, thread the count in and mask like production's
-    ``HOUSE_CONTEXT_SIZE_KEY`` path — until then every new N recompiles.
+    Attributes:
+        key: Observation key this branch reads.
+        encoder: Branch architecture.
+        shape: Event shape of the field (no leading batch/time dims).
+        live: Whether the field arrives as one global event that is encoded
+            once and broadcast over the per-step leading dims (the adapter's
+            ``buffer=False`` field).
     """
 
-    num_points: int = 16384
-    point_dim: int = 6
-    embed_dim: int = 1024
-    tnet_mlp: tuple[int, ...] = (64, 128, 1024)
-    tnet_fc: tuple[int, ...] = (512, 256)
-    mlp1: tuple[int, ...] = (64, 64)
-    mlp2: tuple[int, ...] = (64, 128, 1024)
-    compute_dtype: DTypeLike = jnp.bfloat16
+    key: str
+    encoder: Encoder
+    shape: tuple[int, ...]
+    live: bool
 
-    @nn.compact
-    def __call__(self, points: jnp.ndarray) -> jnp.ndarray:
-        """Encode ``(N, point_dim)`` points into one ``(embed_dim,)`` vector."""
-        if points.ndim != 2 or points.shape[-1] != self.point_dim:
-            raise ValueError(
-                f"expected (N, {self.point_dim}) cloud, got {points.shape}"
-            )
-        n_points = points.shape[0]
-        m = min(self.num_points, n_points)
-        sample_idx = (jnp.arange(m, dtype=jnp.int32) * n_points) // m
-        xyz = points[sample_idx, :3]
 
-        # Centering/scale in float32: metric world offsets exceed bfloat16
-        # precision. The normalized cloud is O(1), so casting down is safe.
-        center = xyz.mean(axis=0)
-        scale = jnp.maximum(xyz.std(), 1e-6)
-        xyz_n = ((xyz - center) / scale).astype(self.compute_dtype)
+def routes_from_fields(fields: AdapterOutput) -> tuple[Route, ...]:
+    """Derive the sorted branch routing from one sample adapter output.
 
-        input_transform = TNet(
-            k=3,
-            mlp_widths=self.tnet_mlp,
-            fc_widths=self.tnet_fc,
-            compute_dtype=self.compute_dtype,
-            name="input_tnet",
-        )(xyz_n)
-        x = xyz_n @ input_transform
-        for i, width in enumerate(self.mlp1):
-            x = nn.Dense(width, dtype=self.compute_dtype, name=f"mlp1_{i}")(x)
-            x = RMSNorm(name=f"mlp1_norm{i}")(x)
-            x = nn.silu(x)
-        feature_transform = TNet(
-            k=self.mlp1[-1],
-            mlp_widths=self.tnet_mlp,
-            fc_widths=self.tnet_fc,
-            compute_dtype=self.compute_dtype,
-            name="feature_tnet",
-        )(x)
-        x = x.astype(self.compute_dtype) @ feature_transform
-        for i, width in enumerate(self.mlp2):
-            x = nn.Dense(width, dtype=self.compute_dtype, name=f"mlp2_{i}")(x)
-            x = RMSNorm(name=f"mlp2_norm{i}")(x)
-            x = nn.silu(x)
+    Sorting by key makes concatenation order deterministic across runs, which
+    keeps the params pytree (and hence checkpoints) stable. Each branch
+    validates the shape it was handed itself, at init time.
 
-        embed = x.max(axis=0)
-        if self.mlp2[-1] != self.embed_dim:
-            embed = nn.Dense(
-                self.embed_dim, dtype=self.compute_dtype, name="proj"
-            )(embed)
-        return embed
+    Args:
+        fields: Adapter output for one representative frame. Field values carry
+            no leading dims there, so their shape *is* the event shape.
+
+    Returns:
+        One :class:`Route` per field, sorted by key.
+    """
+    return tuple(
+        Route(
+            key=field.key,
+            encoder=field.encoder,
+            shape=tuple(jnp.shape(field.value)),
+            live=not field.buffer,
+        )
+        for field in sorted(fields, key=lambda f: f.key)
+    )
 
 
 class RoutedCompositeEncoder(nn.Module):
     """One branch per obs key, selected by adapter routing, concatenated.
 
     Attributes:
-        routing: Sorted ``(key, encoder id)`` pairs (``Encoder.value`` ints;
-            tuples keep the module hashable for Flax). Concatenation follows
-            this order, so it must be deterministic across runs.
-        global_keys: Keys whose obs leaf is one unbatched event (no ``(B, T)``
-            prefix, e.g. the live house cloud). Encoded once, then broadcast
-            over the per-step leading dims.
+        routes: Sorted branch assignments (see :func:`routes_from_fields`).
+            Concatenation follows this order, so it must be deterministic
+            across runs.
         conv_depth / conv_kernel / conv_mults: ``ConvEncoder`` branch config.
+        mlp_hidden / mlp_layers: ``MLPEncoder`` branch config.
+        branch_embed_dim: Output width of every non-conv branch.
         pointnet_num_points: Subsample budget of the PointNet cloud branch.
-        fusion_dim: When set, a final Dense fuses the concatenated branch
-            embeddings down to this width, so ``embed_size`` stays fixed
-            regardless of how many branches the routing composes.
+        gnn_num_nodes / gnn_message_mode / gnn_residual: GNN cloud branch config.
+        transformer_layers / transformer_heads: Token branch config.
+        transformer_compute_dtype: Compute dtype of the token branch only. Kept
+            separate from ``compute_dtype`` because the token branch is the one
+            path that never waited for the ``full_bf16`` gate: self-attention
+            over the 1374 aggregator tokens is quadratic in sequence length and
+            runs once per replay step, so it dominates the training arena and
+            has been bfloat16 since it was introduced.
+        fusion_dim: Width a final Dense fuses the concatenated branch embeddings
+            down to. Applied exactly when the routing has more than one branch,
+            so ``embed_size`` stays fixed no matter how many modalities a variant
+            composes; a single-branch variant is its branch, unfused.
         compute_dtype: Compute dtype forwarded to the branches.
     """
 
-    routing: tuple[tuple[str, int], ...]
-    global_keys: tuple[str, ...] = ()
+    routes: tuple[Route, ...]
     conv_depth: int = 16
     conv_kernel: int = 5
     conv_mults: tuple[int, ...] = (2, 3, 4, 4)
+    mlp_hidden: int = 1024
+    mlp_layers: int = 1
+    branch_embed_dim: int = 1024
     pointnet_num_points: int = 16384
-    fusion_dim: int | None = None
+    gnn_num_nodes: int = 4096
+    gnn_message_mode: str = "sage"
+    gnn_residual: bool = False
+    transformer_layers: int = 2
+    transformer_heads: int = 8
+    transformer_compute_dtype: DTypeLike = jnp.bfloat16
+    fusion_dim: int = 1024
     compute_dtype: DTypeLike = jnp.float32
 
-    def _branch(self, key: str, encoder: Encoder) -> nn.Module:
+    @property
+    def global_keys(self) -> tuple[str, ...]:
+        """Keys encoded once per batch and broadcast over the leading dims."""
+        return tuple(route.key for route in self.routes if route.live)
+
+    def _branch(self, route: Route) -> nn.Module:
+        key, encoder = route.key, route.encoder
         if encoder is Encoder.CONV:
             return ConvEncoder(
                 depth=self.conv_depth,
@@ -137,10 +141,50 @@ class RoutedCompositeEncoder(nn.Module):
                 compute_dtype=self.compute_dtype,
                 name=f"conv_{key}",
             )
+        if encoder is Encoder.CONV_POINTS:
+            return ConvEncoder(
+                depth=self.conv_depth,
+                kernel_size=self.conv_kernel,
+                mults=self.conv_mults,
+                input_kind="world_points",
+                # Projected to a fixed width: a full-resolution point map
+                # flattens to far more channels than an image does.
+                embed_dim=self.branch_embed_dim,
+                compute_dtype=self.compute_dtype,
+                name=f"conv_points_{key}",
+            )
+        if encoder is Encoder.MLP:
+            return MLPEncoder(
+                embed_dim=self.branch_embed_dim,
+                hidden=self.mlp_hidden,
+                num_layers=self.mlp_layers,
+                name=f"mlp_{key}",
+            )
         if encoder is Encoder.POINTNET:
             return PointNetCloudEncoder(
                 num_points=self.pointnet_num_points,
+                point_dim=route.shape[-1],
+                embed_dim=self.branch_embed_dim,
                 name=f"pointnet_{key}",
+            )
+        if encoder is Encoder.GNN:
+            return GnnCloudEncoder(
+                num_graph_nodes=self.gnn_num_nodes,
+                point_dim=route.shape[-1],
+                embed_dim=self.branch_embed_dim,
+                message_mode=self.gnn_message_mode,
+                residual=self.gnn_residual,
+                name=f"gnn_{key}",
+            )
+        if encoder is Encoder.TRANSFORMER:
+            return TokenSequenceEncoder(
+                num_tokens=route.shape[0],
+                token_dim=route.shape[1],
+                embed_dim=self.branch_embed_dim,
+                layers=self.transformer_layers,
+                heads=self.transformer_heads,
+                compute_dtype=self.transformer_compute_dtype,
+                name=f"transformer_{key}",
             )
         raise NotImplementedError(
             f"no routed branch for {encoder} (field {key!r}) yet"
@@ -151,35 +195,36 @@ class RoutedCompositeEncoder(nn.Module):
         """Encode the obs dict into ``(*leading, embed)`` concatenated features.
 
         ``leading`` comes from the per-step keys (e.g. ``(B, T)`` in training,
-        ``(1,)`` at init/act time); global keys contribute one embedding
+        ``(1,)`` at init/act time); live keys contribute one embedding
         broadcast to the same leading shape.
+
+        Raises:
+            ValueError: If the routing has no per-step key to take the leading
+                dims from.
         """
-        step_keys = [key for key, _ in self.routing if key not in self.global_keys]
-        if not step_keys:
+        step_embeds: list[jnp.ndarray] = []
+        live_embeds: list[jnp.ndarray] = []
+        for route in self.routes:
+            embed = self._branch(route)(obs[route.key])
+            (live_embeds if route.live else step_embeds).append(embed)
+        if not step_embeds:
             raise ValueError("routing needs at least one per-step key")
 
-        step_embeds: list[jnp.ndarray] = []
-        global_embeds: list[jnp.ndarray] = []
-        for key, encoder_id in self.routing:
-            branch = self._branch(key, Encoder(encoder_id))
-            if key in self.global_keys:
-                global_embeds.append(branch(obs[key]))
-            else:
-                step_embeds.append(branch(obs[key]))
-
         leading = step_embeds[0].shape[:-1]
-        step_out = jnp.concatenate(step_embeds, axis=-1)
-        if global_embeds:
-            global_out = jnp.concatenate(global_embeds, axis=-1)
-            global_out = jnp.broadcast_to(
-                global_out.astype(step_out.dtype), (*leading, global_out.shape[-1])
+        out = jnp.concatenate(step_embeds, axis=-1)
+        if live_embeds:
+            live_out = jnp.concatenate(live_embeds, axis=-1)
+            live_out = jnp.broadcast_to(
+                live_out.astype(out.dtype), (*leading, live_out.shape[-1])
             )
-            step_out = jnp.concatenate([step_out, global_out], axis=-1)
-        if self.fusion_dim is not None:
-            step_out = nn.Dense(
+            out = jnp.concatenate([out, live_out], axis=-1)
+        # More than one modality: fuse to a fixed width, so the RSSM's input
+        # size does not depend on how many branches a variant happens to use.
+        if len(self.routes) > 1:
+            out = nn.Dense(
                 self.fusion_dim, dtype=self.compute_dtype, name="fusion"
-            )(step_out)
-        return step_out
+            )(out)
+        return out
 
 
 def routed_encoder_from_fields(
@@ -195,32 +240,11 @@ def routed_encoder_from_fields(
 
     Args:
         fields: Adapter output for one representative frame; supplies the
-            key -> encoder routing and which keys are global (``buffer=False``).
+            key -> encoder routing, the event shapes, and which keys are live
+            (``buffer=False``).
         **overrides: ``RoutedCompositeEncoder`` attribute overrides.
 
     Returns:
         The routing-driven encoder module (parameters not yet initialized).
     """
-    routing = tuple(sorted((f.key, f.encoder.value) for f in fields))
-    global_keys = tuple(sorted(f.key for f in fields if not f.buffer))
-    return RoutedCompositeEncoder(
-        routing=routing, global_keys=global_keys, **overrides
-    )
-
-
-def dummy_obs_from_fields(fields: AdapterOutput) -> dict[str, jnp.ndarray]:
-    """Zero observations shaped like ``fields`` for init-time shape discovery.
-
-    Per-step keys get a leading singleton batch dim (matching the agent's
-    dummy-forward convention); global keys keep their raw event shape.
-    """
-    return {
-        f.key: jnp.zeros(
-            (1, *jnp.shape(f.value)) if f.buffer else jnp.shape(f.value),
-            dtype=f.value.dtype,
-        )
-        for f in fields
-    }
-
-
-
+    return RoutedCompositeEncoder(routes=routes_from_fields(fields), **overrides)

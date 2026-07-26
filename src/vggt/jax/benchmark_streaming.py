@@ -122,7 +122,7 @@ def bench_jax(
 
     ext.reset()
     for i in range(WARMUP_FRAMES):
-        out = ext.extract(_make_synthetic_rgb_frame(i))
+        out = ext.extract(jnp.asarray(_make_synthetic_rgb_frame(i)))
         # block until ready without host transfer
         _ = out.world_points.block_until_ready()
 
@@ -130,7 +130,10 @@ def bench_jax(
     latencies = []
     for i in range(n_frames):
         t0 = time.perf_counter()
-        out = ext.extract(_make_synthetic_rgb_frame(1000 + i))
+        # The synthetic frame is host numpy; stage it on device inside the timed
+        # region so the measured cost still includes the same host-to-device
+        # transfer the real ObservationFrame path pays.
+        out = ext.extract(jnp.asarray(_make_synthetic_rgb_frame(1000 + i)))
         out.world_points.block_until_ready()
         latencies.append((time.perf_counter() - t0) * 1000.0)
 

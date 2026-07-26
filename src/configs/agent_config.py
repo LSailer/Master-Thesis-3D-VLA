@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from typing import TypedDict
 
 # Model-size presets from the R2-Dreamer table. Each row scales the RSSM width,
 # stochastic latent shape, CNN encoder depth, and prediction-head MLP width.
@@ -98,30 +98,21 @@ class R2DreamerConfig:
     obs_layers: int = 1
     img_layers: int = 2
 
-    # --- Encoder --- 
-    #TODO: Adapter make this -> Yaml File
-    encoder_type: str = "cnn"
-    encoder_module_cls: Any = None
+    # --- Encoder ---
+    # ``adapter`` is the variant name from ``src.adapters.ADAPTERS``. It is pure
+    # provenance (manifest/W&B) - the architecture comes from the adapter's
+    # field routing, never from this string.
+    adapter: str = ""
     encoder_depth: int = 16
     encoder_kernel: int = 5
     encoder_mults: tuple[int, ...] = (2, 3, 4, 4)
-    vggt_embed_dim: int = 1024
-    vggt_mlp_layers: int = 1
-    vggt_token_transformer_layers: int = 2
-    vggt_token_transformer_heads: int = 8
-    vggt_token_projection_dim: int = 256
-    vggt_token_transformer_mlp_ratio: int = 2
-    vggt_token_transformer_dropout: float = 0.0
-    vggt_keep_register_tokens: bool = True
-    mlp_vggt_hidden: int = 1024
-    mlp_vggt_layers: int = 2
-    # House-branch metric XYZ normalization for the MLP/Hybrid house-points
-    # encoders: "symlog" compresses channels [:3] (default), "none" passes raw
-    # coordinates. PointNet/GNN house encoders ignore this knob.
-    house_point_norm: str = "symlog"
     decoder: bool = False
     scale_decoder: float = 1.0
     compute_dtype: str = "bfloat16"
+    # Extends ``compute_dtype`` from the token transformer to the encoders, RSSM
+    # and heads (see world_model/rssm_factory.compute_dtype_kwargs). Without this
+    # field the ``--full_bf16`` flag is silently dropped by the config builder.
+    full_bf16: bool = False
 
     # --- MLP heads ---
     mlp_units: int = 256

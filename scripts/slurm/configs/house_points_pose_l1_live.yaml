@@ -1,14 +1,17 @@
 extends: house_context_l1
 job_name: vggt-house-points-pose-l1-live
 output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose-live
-run_id: habitat-l1-vggt-house-points-pose
+# Explicit null, not an omitted key: omitting it would silently inherit
+# house_context_l1's run_id and launch the wrong arm under this job name.
+run_id: null
 setup:
   - scripts/slurm/hooks/link_external.sh
 comments:
+  - "ABSTRACT PARENT — run_id is nulled above, so this config renders a run.py command with no run id and cannot be launched directly. Its own arm (the map-as-replacement `habitat-l1-vggt-house-points-pose` run) was dropped in the adapter-routing migration; the shared sbatch/smoke shape below is still the base of gnn_house_points_pose_l1_live and hybrid_house_points_pose_l1_live, which set their own run_id."
   - "L1 LIVE per-scene house-points buffer (no static PLY sidecar): VGGT world points accumulate into a per-scene voxel buffer that persists across episodes of one house."
-  - "ResetMode.PERSIST_SCENE (set on VGGTHousePointsPoseEncoder) keeps every episode of one house in a single VGGT world frame, so the buffer builds one coherent map instead of ghost copies (fixes the 3.4M-points-in-1200-steps misalignment of job 5706115)."
-  - "Replay stores only current camera_pose; the encoder gets a fixed-shape (max_points,6) XYZRGB snapshot + HOUSE_CONTEXT_SIZE_KEY valid count for the valid-prefix subsample. The trainer logs the per-scene buffer growth curve (house_buffer/points_growth) — the go/no-go for PERSIST is that it saturates rather than climbs linearly."
-  - "House branch is classic PointNet (src/r2dreamer/encoders/pointnet.py): even-stride subsample to 16384 points, input/feature T-Nets, shared MLPs (64,64)/(64,128,1024), max pool to one 1024-d global feature."
+  - "ResetMode.PERSIST_SCENE (EXTRACTOR_KWARGS on the house_voxels adapters) keeps every episode of one house in a single VGGT world frame, so the buffer builds one coherent map instead of ghost copies (fixes the 3.4M-points-in-1200-steps misalignment of job 5706115)."
+  - "Replay stores only the current camera_pose; the house cloud is the adapter's single buffer=False live field, emitted at a fixed (N,6) XYZRGB size so the branch does not recompile as the buffer grows. The trainer logs the per-scene buffer growth curve (house_buffer/points_growth) — the go/no-go for PERSIST is that it saturates rather than climbs linearly."
+  - "Default house branch is classic PointNet (PointNetCloudEncoder in src/r2dreamer/encoders/pointnet.py): even-stride subsample to 16384 points, input/feature T-Nets, shared MLPs (64,64)/(64,128,1024), max pool to one 1024-d global feature."
 args:
   output_dir: output/runs/r2dreamer-curriculum-l1-vggt-house-points-pose-live/run-${SLURM_JOB_ID}
   wandb_name: l1_live_house_points_pose-${SLURM_JOB_ID}
