@@ -100,11 +100,19 @@ Gewertete Laeufe sind ohnehin so definiert (siehe `RULES.md`), damit ist das
 Problem umgangen. Keine Node-Excludes sammeln, keine Zeit in Fehlersuche
 stecken.
 
-**Welche der drei Variablen es ausloest und warum, ist ungeklaert.** Keine hat
-einen erkennbaren Mechanismus, der in `get_observation` zu einem `abort()`
-fuehrt; `MEM_FRACTION=0.7` gibt dem Renderer sogar mehr Platz als der
-Default 0.75. Ein Ausbisektieren kostet drei Laeufe zu je sieben Minuten plus
-Queue und lohnt innerhalb des Duells nicht.
+**Inzwischen geaendert:** `launch.py` exportiert im Smoke-Modus nur noch
+`WANDB_MODE=offline`. `PYTHONFAULTHANDLER=1`,
+`XLA_PYTHON_CLIENT_PREALLOCATE=false` und
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.7` sind entfernt. Begruendung: ein
+Smoke-Lauf beantwortet nur dann "startet die Prod-Konfiguration", wenn er in
+der Prod-Umgebung laeuft. Der einzige beabsichtigte Unterschied ist, wohin
+W&B schreibt. `set -euo pipefail` bleibt, das betrifft das Wrapper-Skript und
+nicht die Umgebung des Trainingsprozesses.
+
+**Offen bleibt:** ob damit auch der Absturz weg ist. Falls ausgerechnet
+`WANDB_MODE=offline` der Ausloeser war, stirbt der Smoke weiter - dann ist es
+mit einem Lauf nachgewiesen statt mit dreien. Bis das geprueft ist, gilt
+weiterhin: gewertete Laeufe sind `--prod`.
 
 **Was ausgeschlossen ist:**
 

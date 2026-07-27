@@ -233,14 +233,14 @@ def render_sbatch(
         lines.extend(["set -euo pipefail", ""])
 
     if mode == "smoke":
-        lines.extend([
-            "export WANDB_MODE=offline",
-            "export PYTHONFAULTHANDLER=1",
-            # Reduce JAX/habitat CUDA contention on short queues
-            "export XLA_PYTHON_CLIENT_PREALLOCATE=false",
-            "export XLA_PYTHON_CLIENT_MEM_FRACTION=0.7",
-            "",
-        ])
+        # A smoke run answers "does the prod configuration start and survive".
+        # It can only answer that if it runs in the prod environment, so the
+        # single deliberate difference is where W&B logs to. Smoke previously
+        # also set PYTHONFAULTHANDLER=1 and two XLA allocator knobs; one of
+        # those made habitat_sim SIGABRT in prefill on runs that succeeded
+        # under prod (jobs 6056684, 6056813 against 6056750, 2026-07-27), so a
+        # green smoke and a red smoke both said nothing about prod.
+        lines.extend(['export WANDB_MODE=offline', ""])
 
     lines.extend([f"mkdir -p {log_dir}", ""])
     lines.extend([
