@@ -1,0 +1,20 @@
+extends: l3_aggregator_pooled_short
+job_name: r2d-L3-agg-pooled-short-lowent
+output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-short-lowent
+comments:
+  - "l3_aggregator_pooled_short with one further knob: act_entropy 3e-2 -> 3e-3. Everything else identical, so the pair isolates the entropy coefficient."
+  - "Motivation from the CNN baseline (SLURM 6056750). Over 59322 steps the action distribution never leaves uniform (step 499: stop 0.264 / forward 0.252; step 59322: stop 0.220 / forward 0.256 / left 0.318 / right 0.206) and episode/path_length stays at 2-6 m while episode/shortest_path is 3-9 m. The agent turns on the spot and collides instead of walking; metrics/dtg ends at 6.14 m against 5.36 m at the start, so there is no net progress at all. Locomotion, not perception, is what caps the success rate on this horizon."
+  - "3e-2 is 100x the DreamerV3 default and was set because 3e-4 collapses the policy (src/r2dreamer/launch/parser.py:135-142). At that strength the entropy bonus dominates the advantage term in src/r2dreamer/behavior/loss.py:141, which is consistent with a policy that never moves off uniform. 3e-3 is a deliberate middle: 10x weaker than the current value, still 10x stronger than the value known to collapse."
+  - "Failure mode to watch, and the reason this is a second arm and not a change to the first: if the actor commits to STOP or to a turn instead of to forward, coverage gets worse, not better. Read action/forward_pct against action/stop_pct before reading metrics/sr."
+env:
+  SEED: "42"
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-short-lowent/run-${SLURM_JOB_ID}
+  act_entropy: 0.003
+  wandb_name: l3_agg_pooled_short_lowent-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,vggt,aggregator-pooled,duell,short-horizon,low-entropy,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-agg-pooled-short-lowent-${TIMESTAMP}
+    wandb_name: l3-agg-pooled-short-lowent-smoke-${TIMESTAMP}
+    wandb_tags: aggregator-pooled,level3,smoke,duell,low-entropy

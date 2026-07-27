@@ -1,0 +1,19 @@
+extends: l3_hybrid
+job_name: r2d-L3-hybrid-short
+output_dir: output/runs/r2dreamer-curriculum-l3-hybrid-short
+comments:
+  - "Short-horizon rung of the hybrid CNN + WP/CP arm, same two re-tuned constants as l3_aggregator_pooled_short (prefill 2048, log_every 100) and for the same reason: prefill is a step count, so it eats ~48 % of a 30-minute budget at ~200 ms/step against 8.4 % for the CNN baseline (30.3 ms/step, SLURM 6056750)."
+  - "Third distinct routing in the duel, next to pooled tokens and pooled geometry. l3_hybrid.yaml calls this the main axis of the comparison, because it keeps the strong CNN path and opens the VGGT branch from a zero gate."
+env:
+  SEED: "42"
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-hybrid-short/run-${SLURM_JOB_ID}
+  prefill: 2048
+  log_every: 100
+  wandb_name: l3_hybrid_short-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,hybrid,cnn,wp-cp,duell,short-horizon,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-hybrid-short-${TIMESTAMP}
+    wandb_name: l3-hybrid-short-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,level3,smoke,duell
