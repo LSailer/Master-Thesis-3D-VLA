@@ -1,0 +1,19 @@
+extends: l3_pointmap_pose_short
+job_name: r2d-L3-pointmap-pose-short-lowent
+output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short-lowent
+comments:
+  - "l3_pointmap_pose_short with act_entropy 3e-2 -> 3e-3, the geometry-arm twin of l3_aggregator_pooled_short_lowent. Everything else identical, so the two lowent arms differ only in what the encoder reads: pooled semantic tokens against a pooled point map plus camera pose."
+  - "That pairing is the actual 3D question on this horizon. If letting the actor commit to a direction is what raises coverage, the arm that sees free space geometrically should convert that freedom into distance better than the arm that sees only pooled appearance tokens."
+  - "Rationale for the entropy value is written out in l3_aggregator_pooled_short_lowent.yaml and not repeated here."
+env:
+  SEED: "42"
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short-lowent/run-${SLURM_JOB_ID}
+  act_entropy: 0.003
+  wandb_name: l3_pointmap_pose_short_lowent-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,vggt,pointmap-pose,geometry-only,duell,short-horizon,low-entropy,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-pointmap-pose-short-lowent-${TIMESTAMP}
+    wandb_name: l3-pointmap-pose-short-lowent-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,level3,smoke,duell,low-entropy
