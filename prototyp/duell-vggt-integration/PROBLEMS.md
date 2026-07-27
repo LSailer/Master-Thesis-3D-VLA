@@ -44,6 +44,39 @@ inzwischen von Luca behoben. Sie stehen hier, damit niemand sie erneut
    Keys kamen erst nach allen L3-Jobs dazu. Am HEAD werden sie geloggt, alte
    Zahlen sind nicht vergleichbar.
 
+## Sporadischer SIGABRT im Prefill (beobachtet 2026-07-27)
+
+**Symptom:** Der Job stirbt mit exit 134 (`SIGABRT`) in
+`habitat_sim/sensors/sensor_wrapper.py get_observation`, aufgerufen aus
+`loops.py prefill`. Kein Traceback aus `src/`, keine GL- oder EGL-Meldung, kein
+OOM.
+
+**Reaktion: neu absetzen, nicht debuggen.** Belegt an Job 6056684 und 6056750:
+derselbe Node `uc3n105`, der erste stirbt nach 7:25 im Prefill, der zweite
+laeuft durch. Es ist sporadisch, nicht nodegebunden. Keine Excludes sammeln.
+Erst wenn dreimal hintereinander an derselben Stelle abgebrochen wird, ist es
+etwas anderes und gehoert gemeldet statt weiterprobiert.
+
+**Was ausgeschlossen ist:** kein CPU-OOM (2.76 von 64 GB), kein
+EGL-Kontextproblem (`OpenGL version: 4.6.0 NVIDIA 595.71.05` wurde erfolgreich
+initialisiert), keine Fehlermeldung vor dem Abort.
+
+**Offene Hypothese, nicht bewiesen:** der Absturz trat im `--smoke`-Modus auf,
+der in `launch.py:236-243` `XLA_PYTHON_CLIENT_PREALLOCATE=false` setzt. JAX
+fordert damit GPU-Speicher waehrend des Laufs nach, parallel zu dem, was der
+habitat-Renderer pro Frame allokiert. Eine fehlgeschlagene GL-Allokation
+behandelt Magnum mit `abort()` statt mit einer Exception, was zum
+beobachteten stillen SIGABRT passt. Im `--prod`-Modus praealloziert JAX
+stattdessen einmalig beim Start.
+
+Ebenfalls smoke-only: `PYTHONFAULTHANDLER=1`. Deshalb erzeugt derselbe Abort
+im Smoke-Modus einen Thread-Dump und im Prod-Modus nur einen stillen exit 134.
+Ein prod-Lauf ist also nicht automatisch gesund, nur leiser.
+
+Da gewertete Laeufe ohnehin `--prod` sind (siehe `RULES.md`), ist die
+Hypothese fuers Duell nicht entscheidend. Sie steht hier, damit niemand sie
+neu erarbeitet.
+
 ## Cluster-Stolperfallen
 
 - **Login-Node.** Training, Eval, Habitat, VGGT und Smoke-Tests niemals dort

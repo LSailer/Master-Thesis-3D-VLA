@@ -9,6 +9,13 @@ DreamerV3 integriert werden.
 Gemessen wird an einem **30-Minuten-Trainingslauf**, nicht an einem vollen
 2M-Step-Lauf. Der Vergleichsmassstab ist der CNN-Image-Encoder-Baseline.
 
+Ein gewerteter Lauf ist immer ein **`--prod`-Lauf mit 30 Minuten Walltime**,
+nie `--smoke`. `--smoke` ist kein Zeitbudget, sondern ein Step-Budget: es
+deckelt bei 1500 Steps (`_base.yaml:40-45`) und waere nach gut einer Minute
+Training vorbei. Der gewertete Lauf laeuft stattdessen in die Walltime und
+endet als SLURM `TIMEOUT`. Das ist erwartetes Verhalten, kein Fehler; die
+`metrics.csv` wird fortlaufend geschrieben und verliert dadurch nichts.
+
 ## Format
 
 Zwei Parteien treten unabhaengig gegeneinander an:

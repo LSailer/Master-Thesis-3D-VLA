@@ -56,7 +56,18 @@ Alles andere ist erlaubt und ausdruecklich erwuenscht:
     sofort auf `gpu_h100_short` wechseln und nicht debuggen.
   - `uc3n089` immer per `--exclude` ausschliessen (bricht bei habitat GL-Reads ab).
 - **Maximal 2 parallele GPU-Jobs** pro Seite. Die Queue nicht zustellen.
-- Ein gewerteter Lauf ist **30 Minuten** Walltime.
+- Ein gewerteter Lauf ist **30 Minuten Walltime im `--prod`-Modus**:
+
+  ```bash
+  bash scripts/slurm/launch.sh <variante> --prod --time 00:30:00 \
+      --partition gpu_h100_short --env SEED=42
+  ```
+
+  `--smoke` ist fuer gewertete Laeufe **verboten**. Es deckelt bei 1500 Steps
+  statt bei 30 Minuten und setzt zusaetzlich eigene JAX-Speicheroptionen
+  (`launch.py:236-243`), die das Laufzeitverhalten veraendern. Fuer schnelle
+  Syntax- und Startchecks bleibt `--smoke` erlaubt; ein Absturz dort sagt
+  nichts ueber die Aenderung aus.
 - GPU-Code niemals auf dem Login-Node ausfuehren, immer ueber `srun` bzw.
   `sbatch`.
 
