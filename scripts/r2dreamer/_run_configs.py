@@ -268,6 +268,18 @@ RUN_CONFIGS: dict[str, dict[str, Any]] = {
             "jax", "3d-encoder",
         ],
     ),
+    "habitat-l3-aggregator-pooled-b200k": dict(
+        env="habitat",
+        adapter="aggregator_pooled_b200k",
+        curriculum="L3",
+        output_dir="output/runs/r2dreamer-curriculum-l3-aggregator-pooled-b200k",
+        wandb_name="l3_aggregator_pooled_b200k",
+        wandb_tags=[
+            "curriculum", "level3", "10houses", "chair-only", "vggt",
+            "aggregator-pooled", "pool-on-device", "skip-heads",
+            "kv-budget-200k", "jax", "3d-encoder",
+        ],
+    ),
     "habitat-l4-aggregator-pooled": dict(
         env="habitat",
         adapter="aggregator_pooled",

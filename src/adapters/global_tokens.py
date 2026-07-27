@@ -155,3 +155,21 @@ class AggregatorPooledAdapter(GlobalTokensAdapter):
                 patches.max(axis=0),
             ]
         ).astype(jnp.float32)
+
+
+class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
+    """The pooled arm with the streaming KV cache capped at 200 000 slots.
+
+    The extractor default of 1 200 000 slots (50 000 per aggregator block)
+    saturates after ~36 frames; from then on every step pays a full-cache
+    eviction ``top_k`` per block. 200 000 slots shrink the temporal window
+    to ~6 frames and cut that eviction cost. The pooled readout itself is
+    unchanged - the shorter context window is the explicit trade of this
+    variant, matching the 200k budget the streaming benchmark uses as its
+    reference point.
+    """
+
+    EXTRACTOR_KWARGS: dict[str, object] = {
+        "compute_heads": False,
+        "total_budget": 200_000,
+    }

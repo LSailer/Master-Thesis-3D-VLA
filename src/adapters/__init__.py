@@ -15,6 +15,7 @@ its absence means the arm is deliberately blind to appearance:
     rgb_global_tokens          appearance + the global half of the VGGT tokens
     rgb_full_tokens            appearance + both halves, full-width tokens
     aggregator_pooled          pooled tokens only, no appearance channel
+    aggregator_pooled_b200k    pooled tokens, KV cache capped at 200k slots
 
 Everything the run needs to know about a variant is declared on the adapter
 itself, because those are properties of the observation pipeline, not of the
@@ -50,6 +51,7 @@ from __future__ import annotations
 
 from src.adapters.global_tokens import (
     AggregatorPooledAdapter,
+    AggregatorPooledBudget200kAdapter,
     FullTokensAdapter,
     GlobalTokensAdapter,
 )
@@ -75,11 +77,13 @@ ADAPTERS: dict[str, type] = {
     "rgb_global_tokens": GlobalTokensAdapter,
     "rgb_full_tokens": FullTokensAdapter,
     "aggregator_pooled": AggregatorPooledAdapter,
+    "aggregator_pooled_b200k": AggregatorPooledBudget200kAdapter,
 }
 
 __all__ = [
     "ADAPTERS",
     "AggregatorPooledAdapter",
+    "AggregatorPooledBudget200kAdapter",
     "FullTokensAdapter",
     "GlobalTokensAdapter",
     "HouseCloudEpisodesAdapter",

@@ -1,0 +1,11 @@
+extends: l3_aggregator_pooled
+job_name: r2d-L3du-agg
+output_dir: output/runs/duell-l3-aggpool-p2048
+env:
+  SEED: "42"
+comments:
+  - "Duell 2026-07-27 wave 1: thin variant of l3_aggregator_pooled for a 30-minute scored prod probe. Only prefill differs (2048 instead of the prod default 5000) to reach the replay gate (batch_size*seq_len=1024) faster and roughly double the trained steps inside the 30-minute window. See prototyp/duell-vggt-integration/2026-07-27/README.md."
+args:
+  prefill: 2048
+  output_dir: output/runs/duell-l3-aggpool-p2048/run-${SLURM_JOB_ID}
+  wandb_name: duell-l3-aggpool-p2048-s${SEED}-${SLURM_JOB_ID}
