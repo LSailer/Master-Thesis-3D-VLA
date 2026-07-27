@@ -85,14 +85,26 @@ veraendert nichts an der Success Rate.
 `loops.py prefill`. Kein Traceback aus `src/`, keine GL- oder EGL-Meldung, kein
 OOM.
 
-**Der Absturz trifft `--smoke`, nicht `--prod`.** Stand 2026-07-27: zwei
-abgestuerzte Smoke-Laeufe gegen zwei durchgelaufene Prod-Laeufe, teils auf
-demselben Node (`uc3n105`). Das ist ein Modus-Unterschied, kein Zufall und
-kein Node-Problem.
+**Der Absturz haengt an drei Umgebungsvariablen**, die `launch.py:236-243` im
+Smoke-Modus setzt. Reproduziert am 2026-07-27:
 
-**Reaktion: `--prod` verwenden, nicht debuggen.** Gewertete Laeufe sind
-ohnehin `--prod` (siehe `RULES.md`), damit ist das Problem fuers Duell
-umgangen. Keine Node-Excludes sammeln, keine Zeit in Fehlersuche stecken.
+| Konfiguration | Ergebnis |
+|---|---|
+| `--prod` ohne Zusatzvariablen | laeuft 30 min durch (6056750) |
+| `--prod` + `WANDB_MODE=offline`, `PYTHONFAULTHANDLER=1`, `XLA_PYTHON_CLIENT_MEM_FRACTION=0.7` | stirbt nach 7:01 (6056813) |
+| `--smoke` (setzt sie selbst) | stirbt nach 7:25 (6056684) |
+| `--smoke` + `XLA_PYTHON_CLIENT_PREALLOCATE=true` | stirbt ebenfalls |
+
+**Reaktion: `--prod` ohne diese Variablen verwenden, nicht debuggen.**
+Gewertete Laeufe sind ohnehin so definiert (siehe `RULES.md`), damit ist das
+Problem umgangen. Keine Node-Excludes sammeln, keine Zeit in Fehlersuche
+stecken.
+
+**Welche der drei Variablen es ausloest und warum, ist ungeklaert.** Keine hat
+einen erkennbaren Mechanismus, der in `get_observation` zu einem `abort()`
+fuehrt; `MEM_FRACTION=0.7` gibt dem Renderer sogar mehr Platz als der
+Default 0.75. Ein Ausbisektieren kostet drei Laeufe zu je sieben Minuten plus
+Queue und lohnt innerhalb des Duells nicht.
 
 **Was ausgeschlossen ist:**
 
