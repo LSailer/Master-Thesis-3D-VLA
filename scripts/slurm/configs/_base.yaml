@@ -39,7 +39,15 @@ smoke:
   assert_min_rows: 5
   args:
     steps: 1500
-    prefill: 500
+    # Must stay >= batch_size * seq_len (16 * 64 = 1024), the replay gate in
+    # train_loop. Below that the gate opens mid-run instead of at step 0, which
+    # shifts the parity of the gradient-update steps and puts the smoke in a
+    # different regime than prod (which prefills 5000). That divergence is what
+    # let the train-metric logging bug reach production unseen: the smoke's
+    # updates happened to land on the log_every steps, so it logged metrics
+    # while every prod run silently logged none. 2048 = 2x the gate, so the
+    # smoke keeps matching prod if batch_size or seq_len grow moderately.
+    prefill: 2048
     checkpoint_every: 1000000
     seed: 42
     log_every: 50
