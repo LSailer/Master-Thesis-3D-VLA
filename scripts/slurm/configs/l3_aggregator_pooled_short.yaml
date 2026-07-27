@@ -5,6 +5,11 @@ comments:
   - "Short-horizon rung of the pooled-token arm, for a 30-minute walltime budget instead of the 1.5M-step ladder budget. Same encoder, same routing, same buffer: only the two constants that are tuned for a multi-day run are re-tuned for a 30-minute one."
   - "prefill 5000 is a step-count constant, so it costs every arm the same number of steps but a very different share of a walltime-capped run: the CNN baseline (30.3 ms/step, 59322 steps in 30 min, SLURM 6056750) spends 8.4 % of its budget on random prefill, a VGGT arm at ~170 ms/step spends ~50 %. Dropping to 2048 restores a comparable share (~20 %) and is still 2x the replay gate of batch_size * seq_len = 1024, so the gate still opens at the first train step exactly as it does in prod."
   - "log_every 100 instead of 250: metrics/sr is the duel's decision variable and the run ends in TIMEOUT at an unknown step, so the read-off point has to be sampled densely enough to land near the final step. Pure logging density, no effect on the training loop."
+env:
+  # Pinned in the config rather than left to `launch.sh --env SEED=42`, so the
+  # duel seed is reproducible from the file alone and the duel gate
+  # (prototyp/duell-vggt-integration/verify.sh, check 3) can see it.
+  SEED: "42"
 args:
   output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-short/run-${SLURM_JOB_ID}
   prefill: 2048

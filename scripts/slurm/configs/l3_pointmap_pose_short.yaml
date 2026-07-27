@@ -4,6 +4,11 @@ output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short
 comments:
   - "Short-horizon rung of the geometry-only arm, for a 30-minute walltime budget instead of the 1.5M-step ladder budget. Same encoder, same routing, same buffer: only the two constants tuned for a multi-day run are re-tuned for a 30-minute one. Rationale identical to l3_aggregator_pooled_short."
   - "Paired with l3_aggregator_pooled_short under the same seed: pooled semantic tokens against pooled geometry, both at the fast end of the VGGT family, so the pair is readable inside one walltime budget."
+env:
+  # Pinned in the config rather than left to `launch.sh --env SEED=42`, so the
+  # duel seed is reproducible from the file alone and the duel gate
+  # (prototyp/duell-vggt-integration/verify.sh, check 3) can see it.
+  SEED: "42"
 args:
   output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short/run-${SLURM_JOB_ID}
   prefill: 2048
