@@ -97,8 +97,8 @@ loest. Beides ist unabhaengig davon, welche 3D-Features anliegen.
 | 0b | dito | - | 6057297 | - | - | - | - | - | - | `gescheitert` |
 | 1 | Gepoolte Aggregator-Tokens, Prefill-Anteil auf CNN-Niveau gebracht | `prefill 5000->2048`, `log_every 250->100` | 6057316 | 8501 | **0.0588** | **0.0** | **+5.88 pp** | 211.7 | 500 | **`besser`** |
 | 2 | dito, aber gepoolte Geometrie statt Tokens | `prefill 5000->2048`, `log_every 250->100` | 6057317 | 8301 | 0.0 | 0.0 | 0.00 pp | 216.8 | 500 | `neutral` |
-| 3 | Niedrigere Aktor-Entropie laesst die Policy sich festlegen, Tokens | `+ act_entropy 3e-2->3e-3` | 6057422 | laeuft | laeuft | | | | | offen |
-| 4 | dito, Geometrie | `+ act_entropy 3e-2->3e-3` | 6057423 | laeuft | laeuft | | | | | offen |
+| 3 | Niedrigere Aktor-Entropie laesst die Policy sich festlegen, Tokens | `+ act_entropy 3e-2->3e-3` | 6057422 | 7701 | 0.0 | 0.0 | 0.00 pp | 233.7 | 500 | `schlechter` |
+| 4 | dito, Geometrie | `+ act_entropy 3e-2->3e-3` | 6057423 | 7499 | 0.0 | 0.0 | 0.00 pp | 240.0 | 500 | `schlechter` |
 
 Verdikt-Vokabular: `besser` / `schlechter` / `neutral` / `gescheitert`
 (gescheitert = Job kam nicht durch, keine verwertbare Zahl).
@@ -188,15 +188,35 @@ verbuchte.
    Details und die zwischenzeitlich falsche Diagnose stehen in
    `agents/launcher/NOTES.md`. Worktrees fuer SLURM-Jobs gehoeren nach `$HOME`.
 
-2. **`act_entropy 3e-2 -> 3e-3`.** Die Hypothese war: bei 3e-2 dominiert der
-   Entropie-Bonus in `src/r2dreamer/behavior/loss.py:141` den Advantage-Term,
-   die Policy kann sich nicht festlegen, und `forward` ist die einzige Aktion
-   mit systematisch positivem Advantage unter `geodesic_delta`. Zahlen siehe
-   Versuche 3 und 4. Die Aktionsverteilung loest sich auch mit einem Zehntel
-   des Koeffizienten nicht von uniform; sie schwankt nur staerker von Episode
-   zu Episode. Bei ~3200 Gradientenschritten ist der Aktor an seiner
-   Initialisierung, und der Entropie-Term ist nicht das, was ihn dort haelt.
-   Nicht ohne deutlich mehr Gradientenschritte erneut probieren.
+2. **`act_entropy 3e-2 -> 3e-3` macht das Verhalten schlechter, nicht besser.**
+   Die Hypothese war: bei 3e-2 dominiert der Entropie-Bonus in
+   `src/r2dreamer/behavior/loss.py:141` den Advantage-Term, die Policy kann sich
+   nicht festlegen, und `forward` ist die einzige Aktion mit systematisch
+   positivem Advantage unter `geodesic_delta`.
+
+   Die erste Haelfte trifft zu, die entscheidende nicht. Die Policy legt sich
+   fest, ab Episode 7 sichtbar, aber sie legt sich aufs **Drehen** fest.
+   Mittel ueber die Episoden 9-15 beider Arme (W&B `ikrjoqrn`, `mljupjg0`),
+   uniform waere stop 0.25 / forward 0.25 / left+right 0.50:
+
+   | | `stop_pct` | `forward_pct` | `left_pct + right_pct` |
+   |---|---|---|---|
+   | 6057422 Tokens | 0.133 | 0.170 | **0.697** |
+   | 6057423 Geometrie | 0.151 | 0.216 | **0.634** |
+   | CNN-Baseline ueber 59 322 Steps | 0.22-0.26 | 0.25-0.26 | ~0.50 |
+
+   `STOP` wird korrekt abgeraeumt - es ist ein No-op, das nur `step_penalty`
+   sammelt. Die freiwerdende Masse geht aber auf die Drehungen, und
+   `episode/path_length` bricht in den letzten Episoden auf 0.08-2.2 m ein
+   (6057422 Episode 15: **0.076 m** in 500 Aktionen). Der Agent lernt, nicht
+   stehenzubleiben, und dreht sich stattdessen auf der Stelle.
+
+   Damit ist die Warnung in `src/r2dreamer/launch/parser.py:139-141`, dass zu
+   kleine Werte die Policy kollabieren lassen, auf diesem Budget bestaetigt -
+   und die Richtung des Kollapses ist jetzt gemessen: Rotation, nicht
+   Stillstand. Nicht ohne deutlich mehr Gradientenschritte erneut probieren.
+   Wer es doch tut, muss `forward` getrennt bevorzugen, nicht nur Entropie
+   wegnehmen.
 
 3. **Berater-Subagents.** Drei Anlaeufe (zwei Personas, dann ein zweiter
    Versuch) starben an `API Error: 529 Overloaded`, ohne eine Zeile zu
@@ -234,4 +254,31 @@ verbuchte.
 
 | PR | Branch | SR | Delta | Status |
 |---|---|---|---|---|
-| | | | | |
+| [#215](https://github.com/LSailer/Master-Thesis-3D-VLA/pull/215) | `duell/2026-07-27-3d-short-horizon` | 0.0588 (6057316) | +5.88 pp | offen, Merge liegt bei Luca |
+
+## Was am Ende offen blieb
+
+**Logs und `metrics.csv` liegen nicht in `runs/`.** Der Cluster-Zugang lief
+ueber einen bestehenden ControlMaster-Socket des Nutzers (`ssh uc3`); dieser
+fiel gegen 11:00 Cluster-Zeit weg, und der lokale ssh-agent hat keine
+Identitaet, also war keine Neuanmeldung moeglich. Ab diesem Punkt kamen alle
+Zahlen aus W&B (Projekt `sailer-luca-university-ulm/3d-vla-objectnav`), was fuer
+die Auswertung reicht, aber nicht fuer das in `RULES.md:130-131` geforderte
+Kopieren der Rohdateien. Nachzuziehen mit:
+
+```
+cp ~/Master-Thesis-3D-VLA/output/runs/r2dreamer-curriculum-l3-*-short*/run-60573*/metrics.csv \
+   ~/Master-Thesis-3D-VLA/output/runs/r2dreamer-curriculum-l3-*-short*/slurm-60573*.{out,err} \
+   prototyp/duell-vggt-integration/2026-07-27/runs/
+```
+
+Betroffene Laeufe: 6057316, 6057317, 6057422, 6057423.
+
+**Die Personas haben nicht beraten.** Drei Anlaeufe, jedes Mal
+`API Error: 529 Overloaded`. `agents/danijar-hafner/NOTES.md` und
+`agents/jianyuan-wang/NOTES.md` sind leere Stubs. Die Fragen, die dort haetten
+beantwortet werden sollen, stehen unter "Offene Faeden" 1 und 2.
+
+## Konsolidierung mit Luca
+
+Hierher kommt nach Ablauf der zwei Stunden das gemeinsame Fazit.
