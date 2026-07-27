@@ -97,8 +97,9 @@ gepoolte Semantik-Tokens gegen gepoolte Geometrie, beide am schnellen Ende.
 
 ## Fehlschlag 1: exit 2 nach 23 Sekunden (Job 6057269)
 
-Beide Jobs 08:26Z abgesetzt. 6057269 ging sofort auf `uc3n082` in RUNNING und
-war 23 Sekunden spaeter aus der Queue: `sacct` meldet `FAILED`, ExitCode `2:0`.
+Beide Jobs kurz nach 08:05Z abgesetzt. 6057269 ging sofort auf `uc3n082` in
+RUNNING und war 23 Sekunden spaeter aus der Queue: `sacct` meldet `FAILED`,
+ExitCode `2:0`.
 
 Erster Verdacht war der dev-GL-Abbruch aus `PROBLEMS.md` - **falsch**. Kein
 Logfile, kein Output-Verzeichnis, gar nichts entstanden.
@@ -121,11 +122,33 @@ Der dev-GL-Abbruch aus `PROBLEMS.md` ist hier nicht aufgetreten.
 
 Alle `--prod --time 00:30:00 --exclude uc3n089 --env SEED=42`.
 
+Zeitangaben sind Zulu und aus belastbaren Quellen rekonstruiert (`sacct`
+Elapsed, W&B `createdAt`, `_runtime`). Eine frueher hier notierte Version mit
+08:26Z / 08:36Z fuer die ersten Submits war falsch: sie stammte aus einer
+fehlgelesenen lokalen Uhrzeit und widersprach dem Start von 6057316 um 08:14Z.
+
 | Job | Arm | Partition | Ergebnis |
 |---|---|---|---|
-| 6057269 | l3_aggregator_pooled_short | dev_gpu_h100 | FAILED 2:0 nach 23 s, fehlendes output_dir |
-| 6057270 | l3_pointmap_pose_short | gpu_h100_short | abgesetzt 08:26Z, PENDING (Resources) |
-| 6057297 | l3_aggregator_pooled_short | dev_gpu_h100 | abgesetzt 08:36Z, RUNNING auf uc3n082 |
+| 6057269 | l3_aggregator_pooled_short | dev_gpu_h100 | ~08:05Z, FAILED 2:0 nach 23 s |
+| 6057270 | l3_pointmap_pose_short | gpu_h100_short | ~08:05Z, vor dem Start gecancelt |
+| 6057297 | l3_aggregator_pooled_short | dev_gpu_h100 | ~08:09Z, FAILED 2:0 nach 21 s |
+| 6057316 | l3_aggregator_pooled_short | dev_gpu_h100 | 08:14Z RUNNING, Ende 08:44Z, **N = 8501, SR 0.0588** |
+| 6057317 | l3_pointmap_pose_short | gpu_h100_short | 08:14Z RUNNING, Ende 08:45Z, N = 8301, SR 0.0 |
+| 6057422 | l3_aggregator_pooled_short_lowent | dev_gpu_h100 | 08:50Z, Ende 09:16Z, N = 7701, SR 0.0 |
+| 6057423 | l3_pointmap_pose_short_lowent | gpu_h100_short | 08:50Z, Ende 09:16Z, N = 7499, SR 0.0 |
+
+Die Ursache der beiden Fehlschlaege steht in `agents/launcher/NOTES.md`. Die dort
+zuerst notierte Diagnose (fehlendes `output_dir`) war falsch; es war der
+Worktree unter `/tmp`.
 
 `verify.sh`: PASS (Check 2 SKIP, weil `data/` auf dem Mac nicht liegt; auf dem
-Cluster nachgezogen).
+Cluster nachgezogen, dort ebenfalls PASS).
+
+## Ab 09:00Z ohne Cluster-Zugang
+
+Der ControlMaster-Socket, ueber den `ssh uc3` lief, fiel weg; `ssh-add -l`
+meldet "The agent has no identities", also war keine Neuanmeldung moeglich. Alle
+Zahlen ab diesem Punkt kommen aus W&B (Projekt
+`sailer-luca-university-ulm/3d-vla-objectnav`). Das reicht fuer die Auswertung,
+nicht fuer das Kopieren der Rohdateien nach `runs/` - siehe LEDGER, Abschnitt
+"Was am Ende offen blieb".
