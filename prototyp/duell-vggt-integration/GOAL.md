@@ -1,13 +1,14 @@
-# Goal - Duell: VGGT-Features optimal in DreamerV3 integrieren
+# Goal - Duell 2: VGGT-Features optimal in DreamerV3 integrieren
 
 ## Ziel
 
-Innerhalb von **zwei Stunden Gesamtzeit** die bestmögliche Success Rate auf
-**Curriculum Level 3** erreichen, indem 3D-Features (VGGT / UNITE) besser in
-DreamerV3 integriert werden.
+Innerhalb von **drei Stunden Gesamtzeit** den besten Arm aus Duell 1 schlagen,
+indem 3D-Features (VGGT / UNITE) besser in DreamerV3 integriert werden.
+Gemessen auf **Curriculum Level 3**.
 
 Gemessen wird an einem **30-Minuten-Trainingslauf**, nicht an einem vollen
-2M-Step-Lauf. Der Vergleichsmassstab ist der CNN-Image-Encoder-Baseline.
+2M-Step-Lauf. Der Vergleichsmassstab ist **nicht mehr die CNN-Baseline**,
+sondern der Gewinner von Duell 1 (siehe Referenz unten).
 
 Ein gewerteter Lauf ist immer ein **`--prod`-Lauf mit 30 Minuten Walltime**,
 nie `--smoke`. `--smoke` ist kein Zeitbudget, sondern ein Step-Budget: es
@@ -18,65 +19,108 @@ endet als SLURM `TIMEOUT`. Das ist erwartetes Verhalten, kein Fehler; die
 
 ## Format
 
-Zwei Parteien treten unabhaengig gegeneinander an:
+Der Agent laeuft **allein**. Es gibt in diesem Durchlauf keine Gegenseite und
+keine Blindheit. Der Agent meldet nach jeder Welle in drei Zeilen den Stand an
+Luca.
 
-- **Luca** (Mensch)
-- **Der Agent** (dieses Setup, laeuft direkt auf bwUniCluster)
+## Referenz - die Latte
 
-Beide arbeiten **blind**: waehrend der zwei Stunden erfaehrt keine Seite, was
-die andere versucht. Nach Ablauf treffen sich beide und konsolidieren ihr
-Wissen: was wurde probiert, was hat gewirkt, was ist tot.
+SLURM **6057641**, Arm `aggregator_pooled` mit `prefill 2048`, 30 Minuten
+`--prod`, Seed 42. Quelle:
+`prototyp/duell-vggt-integration/2026-07-27/runs/6057641-aggpool-p2048/metrics.csv`.
 
-## Erfolgskriterien
+| Treffer | sr | spl | softspl | dtg | ms/Step | Episoden | N |
+|---|---|---|---|---|---|---|---|
+| 1 | 0.0556 | 0.0201 | 0.0605 | 5.193 | 134.1 | 18 | 9001 |
 
-**Primaer: Success Rate.**
-`metrics/sr` (gleitender Mittelwert ueber 100 Episoden) am Ende des
-30-Minuten-Laufs, verglichen mit dem CNN-Baseline-Lauf **bei gleicher
-Step-Zahl**.
+`ms/Step` ist der Steady-State-Wert aus dem letzten geloggten
+`perf/ms_per_step_interval`, nicht der aus der Walltime gerechnete Wert 203.4.
 
-Das ist der Kern des Messprotokolls. Der CNN-Encoder laeuft mit ~28 ms/Step,
-die VGGT-Arme mit 171-219 ms/Step. In derselben Wall-Clock-Zeit schafft der
-CNN-Arm ~64 000 Steps, ein 3D-Arm nur ~8 000-10 000. Ein Vergleich bei
-gleicher Zeit wuerde nur Encoder-Kosten messen, nicht Integrationsqualitaet.
-Deshalb: `N` = die Step-Zahl, die der 3D-Lauf erreicht hat; die Baseline-SR
-wird aus deren `metrics.csv` **bei genau Step N** abgelesen.
+## Erfolgskriterien - die Wertungsmatrix
 
-**Sekundaer: Effizienz.**
-`episode/steps` (Mittel der letzten 100 Episoden) und die Zeit pro Step.
-Zaehlt **nur als Tie-Break**, wenn die SR-Differenz unter 3 Prozentpunkten
-liegt.
-
-Die Zeit pro Step wird **aus Walltime und Step-Zahl gerechnet**, nicht aus
-`perf/ms_per_step_interval` abgelesen. Der Baseline-Lauf 6056750 hat gezeigt,
-dass die `perf/`-Keys nicht in der `metrics.csv` ankommen, obwohl
-`loops.py:206-210` sie schreibt:
+Jede Metrik geht als **relative Aenderung zur Referenz** ein,
+richtungskorrigiert, gekappt, gewichtet summiert:
 
 ```
-ms_pro_step = (Walltime in Sekunden) / (erreichte Steps) * 1000
+rel = (wert - referenz) / |referenz|          fuer "hoeher ist besser"
+rel = (referenz - wert) / |referenz|          fuer "niedriger ist besser"
+
+Score = Summe ueber alle Metriken von (Gewicht * rel)
 ```
 
-Fuer die Baseline: 1800 s / 59322 Steps = **30.3 ms/Step**.
+| Metrik | Richtung | Referenz | Gewicht | Kappung |
+|---|---|---|---|---|
+| **Treffer** | hoch | 1 | **0.45** | +200 % |
+| `softspl` | hoch | 0.0605 | 0.15 | +/-100 % |
+| `dtg` | niedrig | 5.193 | 0.15 | +/-100 % |
+| `spl` | hoch | 0.0201 | 0.10 | +/-100 % |
+| `ms/Step` | niedrig | 134.1 | 0.10 | +/-100 % |
+| Episoden | hoch | 18 | 0.05 | +/-100 % |
+| (`sr`) | hoch | 0.0556 | nur Bericht | - |
 
-Hinweis: ms/Step zu senken ist ein legitimer und erwuenschter Hebel. Weniger
-Zeit pro Step bedeutet mehr Steps in denselben 30 Minuten und damit potenziell
-eine hoehere SR. Das ist explizit Teil des Spielfelds.
+- **Score > 0** heisst besser und kommt so ins Ledger.
+- **Score >= +0.10** ist die PR-Schwelle.
+- Der Arm mit dem hoechsten Score wird auf **Seed 43** bestaetigt. Bei
+  Gleichstand bekommen beide einen Bestaetigungslauf. Ueber den PR entscheidet
+  der **Mittelwert beider Seeds**.
+- Ein Job, der nicht durchkommt, ist `gescheitert`: kein Score, zaehlt nicht
+  gegen die Variante.
+
+## Ableseprotokoll
+
+- **Treffer** = Anzahl der Zeilen mit `episode/success == 1` in der
+  `metrics.csv`. Nicht aus `sr * Episoden` gerechnet.
+- Alle uebrigen Werte = **letzter geloggter Wert innerhalb des Slots**
+  (`metrics/spl`, `metrics/softspl`, `metrics/dtg`, `episode/count`,
+  `perf/ms_per_step_interval`).
+- Fehlt `perf/ms_per_step_interval` in einem Lauf, gilt ersatzweise
+  `Elapsed_s / N * 1000` mit Vermerk im Ledger.
+
+## Was sich gegenueber Duell 1 geaendert hat, und warum
+
+**Der feste 30-Minuten-Slot ersetzt den Abgleich bei gleicher Step-Zahl.**
+Duell 1 las die Baseline-SR bei genau der Step-Zahl `N` ab, die der 3D-Lauf
+erreicht hatte. Das hat sich gerecht, aber es hat den schnellen Arm bestraft:
+Lauf #4 war 2.2x so schnell wie #2, landete damit in einem Fenster, in dem die
+Baseline ihren eigenen Zufallserfolg schon hatte, und kam trotz gleicher
+Trefferzahl auf Delta 0. Jetzt zaehlt nur noch, wer in denselben 30 Minuten
+weiter kommt. Geschwindigkeit ist damit ein echter Hebel und kein Eigentor.
+
+**Treffer statt Rate im Score.** `metrics/sr` ist ein Mittelwert ueber die
+abgeschlossenen Episoden. Bei wenigen Episoden blaeht ein einzelner
+Zufallstreffer den Wert auf: ein Arm mit 6 Episoden und einem Treffer stuende
+bei 16.7 % und wuerde einen Arm mit 40 Episoden und zwei Treffern schlagen.
+Die Trefferzahl dreht das um. Mehr Episoden in denselben 30 Minuten heissen
+mehr Chancen auf einen Treffer, und genau das soll belohnt werden. Deshalb
+braucht es auch keine Untergrenze fuer die Episodenzahl.
+
+**Reward ist aus der Wertung raus.** Reward-Shaping bleibt freies Spielfeld
+(`RULES.md`, Abschnitt 3). Beides zusammen hiesse, der Agent darf seine eigene
+Note schreiben. `sr`, `spl`, `softspl` und `dtg` kommen dagegen alle aus
+`src/environments/habitat.py` und damit aus der eingefrorenen Zone.
+
+**`ms/Step` bleibt bewusst in der Matrix**, obwohl der Zeit-Slot
+Geschwindigkeit ohnehin schon ueber mehr Steps und mehr Episoden belohnt. Das
+Gewicht 0.10 ist klein und die Doppelzaehlung gewollt: weniger Zeit pro Step
+ist fuer diese Arbeit ein Ergebnis fuer sich.
 
 ## Hypothese
 
 Die Art, wie VGGT-Features in den World Model Encoder geroutet werden
 (Aggregator-Tokens, Global Tokens, Pointmaps, World-Points/Camera-Pose,
 Hybrid-CNN-VGGT, FiLM-Konditionierung), bestimmt massgeblich, wie schnell der
-Agent auf L3 anlernt. Eine bessere Integration schlaegt den reinen
-CNN-Encoder bereits bei gleicher, kleiner Step-Zahl.
+Agent auf L3 anlernt. Eine bessere Integration schlaegt den bisher besten Arm
+im selben 30-Minuten-Fenster.
 
 ## Ehrlicher Vorbehalt
 
-Bei ~8 000-10 000 Steps abzueglich 5 000 Steps Prefill bleiben etwa 3 000-5 000
-echte Trainingsschritte. Die SR aller Arme liegt dort voraussichtlich nahe null
-und die Unterschiede koennen im Rauschen liegen. Dieser erste Durchlauf misst
-daher eher "laeuft es und lernt es ueberhaupt an" als "welche Integration ist
-langfristig besser". Das ist fuer einen ersten Test des Duell-Formats
-akzeptiert und bewusst so gewaehlt.
+Die Referenz steht bei **einem** Treffer in 18 Episoden. Zwei Treffer statt
+einem sind statistisch kaum von einem Muenzwurf zu unterscheiden. Genau
+deshalb tragen `dtg` und `softspl` zusammen 0.30 der Wertung: die sind dicht,
+jede Episode liefert einen Wert, und sie zeigen Annaeherung an das Ziel auch
+dann, wenn kein Erfolg zustande kommt. Und deshalb muss der Gewinner auf einem
+zweiten Seed bestaetigt werden. Ein Score ohne Seed 43 ist ein Kandidat, kein
+Ergebnis.
 
 ## Kontext zu Level 3
 
@@ -92,3 +136,8 @@ akzeptiert und bewusst so gewaehlt.
 Historische L3-Zahlen (alle pre-migration, nicht als Baseline verwendbar):
 CNN 32 % SR / 0.21 SPL (W&B `rsopsua1`), bester VGGT-Arm 22 % (W&B `6rrf50u3`,
 SLURM TIMEOUT bei 48 h), Random 3.84 %.
+
+Zur Einordnung des Duell-Fensters: die CNN-Baseline 6056750 erreichte in
+30 Minuten 59 322 Steps bei 2 % SR, also unter dem Random-Agenten. In diesem
+Fenster lernt kein Arm die Aufgabe. Gemessen wird, welche Integration am
+schnellsten anfaengt, sich in die richtige Richtung zu bewegen.
