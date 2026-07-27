@@ -1,0 +1,18 @@
+Job 6060403 on uc3n105.localdomain at Mon Jul 27 03:21:26 PM CEST 2026
+GPU: NVIDIA H100
+GPU memory log: output/runs/duell2-l3-aggpool-b200k-p2048/gpu-memory-6060403.csv
+
+============================= JOB FEEDBACK =============================
+
+NodeName=uc3n105
+Job ID: 6060403
+Cluster: uc3
+User/Group: ul_hfj15/ul_student
+State: FAILED (exit code 2)
+Nodes: 1
+Cores per node: 8
+CPU Utilized: 00:00:03
+CPU Efficiency: 1.21% of 00:04:08 core-walltime
+Job Wall-clock time: 00:00:31
+Memory Utilized: 34.71 MB
+Memory Efficiency: 0.05% of 64.00 GB (64.00 GB/node)

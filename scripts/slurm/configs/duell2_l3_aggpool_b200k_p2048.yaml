@@ -1,0 +1,12 @@
+extends: l3_aggregator_pooled
+job_name: r2d-L3d2-b200k
+output_dir: output/runs/duell2-l3-aggpool-b200k-p2048
+run_id: habitat-l3-aggregator-pooled-b200k
+env:
+  SEED: "42"
+comments:
+  - "Duell 2 (2026-07-27-r2) wave 1, slot B: isolates the KV-budget-200k adapter from the lottery knobs. Same prefill 2048 as the reference run 6057641 (duell_l3_aggpool_p2048), same training schedule (train_ratio 512, act_entropy default), only the adapter differs (aggregator_pooled_b200k). If this scores close to the lottery arm, the knobs are noise and the budget cap is the whole effect."
+args:
+  prefill: 2048
+  output_dir: output/runs/duell2-l3-aggpool-b200k-p2048/run-${SLURM_JOB_ID}
+  wandb_name: duell2-l3-aggpool-b200k-p2048-s${SEED}-${SLURM_JOB_ID}

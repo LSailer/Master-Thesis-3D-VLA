@@ -1,0 +1,11 @@
+extends: l3_pointmap_pose
+job_name: r2d-L3d2-pmp
+output_dir: output/runs/duell2-l3-pointmap-p2048
+env:
+  SEED: "42"
+comments:
+  - "Duell 2 (2026-07-27-r2) wave 1, slot D: first 30-minute probe of the geometry-only pointmap_pose arm. Prefill cut to 2048 like the reference so the window is spent training, not prefetching. Hypothesis: the geometric prior moves the dense metrics dtg/softspl (0.30 of the scoring matrix) even when no success lands."
+args:
+  prefill: 2048
+  output_dir: output/runs/duell2-l3-pointmap-p2048/run-${SLURM_JOB_ID}
+  wandb_name: duell2-l3-pointmap-p2048-s${SEED}-${SLURM_JOB_ID}
