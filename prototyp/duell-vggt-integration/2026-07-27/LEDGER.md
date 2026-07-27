@@ -145,15 +145,90 @@ verbuchte.
 
 ## Erkenntnisse
 
-Was hat gewirkt, was nicht, und warum. Keine Spekulation ohne Zahl.
+1. **`prefill` ist eine Step-Konstante und benachteiligt langsame Encoder um
+   den Faktor sechs.** Bei 30 Minuten Walltime kostet `prefill: 5000` die
+   CNN-Baseline 8.4 % ihres Budgets (5000 von 59 322 Steps) und einen VGGT-Arm
+   59 % (5000 von 8501). Das ist kein Encoder-Effekt, sondern eine Konstante,
+   die im Zeitbudget zum Anteil wird. `prefill: 2048` stellt einen
+   vergleichbaren Anteil her (24 %) und bleibt 2x ueber dem Replay-Gate
+   `batch_size * seq_len = 1024`. Der Erfolg von 6057316 faellt bei Step 2404,
+   also 356 Steps nach Ende des verkuerzten Prefills - mit 5000 waere dieser
+   Zeitpunkt noch im Prefill gelegen.
+
+2. **Der Engpass auf L3 ist Fortbewegung, nicht Wahrnehmung.** Details in der
+   Baseline-Sektion oben. Kurz: Ziel 3-9 m entfernt, Pfadlaenge 2-6 m in 500
+   Aktionen, rollende Zieldistanz am Ende hoeher als am Anfang, Aktionen ueber
+   59 322 Steps uniform. Solange das so ist, kann kein Encoder-Routing die SR
+   heben, und jeder Vergleich zwischen Routings auf diesem Horizont misst
+   Rauschen.
+
+3. **Rund 7 der 30 Minuten sind Startup.** `perf/ms_per_step_interval` liegt
+   bei 123-146 ms, die nach `GOAL.md:55` gerechneten ms/Step bei 205-217. Die
+   Luecke ist VGGT-Gewichtsladen, JAX-Kompilierung und Habitat-Szenenaufbau.
+   Fuer ein 30-Minuten-Budget ist das ein Viertel des Budgets und damit ein
+   groesserer Hebel als jede Encoder-Optimierung.
+
+4. **`log_every: 100` liefert die Trainingsmetriken, die `PROBLEMS.md:47-79`
+   als dauerhaft fehlend beschreibt.** In allen vier Duell-Laeufen stehen
+   `total_loss`, `loss/{dyn,rep,rew,value,policy,con,barlow,repval}`,
+   `latent/*`, `params/encoder_l2` und `perf/*` in der `metrics.csv`. Ob das an
+   der Paritaetsverschiebung liegt oder daran, dass `67ed1c1` den Bug schon
+   behoben hat, ist nicht getrennt - `PROBLEMS.md` gehoert aktualisiert.
+
+5. **`dev_gpu_h100` ist der schnelle Weg zu einer Zahl.** Scheduling in unter
+   einer Sekunde, waehrend `gpu_h100_short` mit 21 fremden PENDING-Jobs belegt
+   war. Der in `PROBLEMS.md:149-152` beschriebene OpenGL-Abbruch beim Prefill
+   auf dev ist in vier Laeufen nicht aufgetreten.
 
 ## Sackgassen
 
-Was nicht noch einmal probiert werden sollte, mit Begruendung.
+1. **Worktree unter `/tmp`.** Kostete zwei Jobs und rund 12 Minuten. `/tmp` ist
+   auf bwUniCluster node-lokal; der Compute-Node sieht das WorkDir nicht, Slurm
+   bricht vor dem ersten Kommando mit exit 2 ab und schreibt kein Logfile.
+   Details und die zwischenzeitlich falsche Diagnose stehen in
+   `agents/launcher/NOTES.md`. Worktrees fuer SLURM-Jobs gehoeren nach `$HOME`.
+
+2. **`act_entropy 3e-2 -> 3e-3`.** Die Hypothese war: bei 3e-2 dominiert der
+   Entropie-Bonus in `src/r2dreamer/behavior/loss.py:141` den Advantage-Term,
+   die Policy kann sich nicht festlegen, und `forward` ist die einzige Aktion
+   mit systematisch positivem Advantage unter `geodesic_delta`. Zahlen siehe
+   Versuche 3 und 4. Die Aktionsverteilung loest sich auch mit einem Zehntel
+   des Koeffizienten nicht von uniform; sie schwankt nur staerker von Episode
+   zu Episode. Bei ~3200 Gradientenschritten ist der Aktor an seiner
+   Initialisierung, und der Entropie-Term ist nicht das, was ihn dort haelt.
+   Nicht ohne deutlich mehr Gradientenschritte erneut probieren.
+
+3. **Berater-Subagents.** Drei Anlaeufe (zwei Personas, dann ein zweiter
+   Versuch) starben an `API Error: 529 Overloaded`, ohne eine Zeile zu
+   liefern. `agents/danijar-hafner/NOTES.md` und
+   `agents/jianyuan-wang/NOTES.md` sind deshalb leer geblieben. Keine
+   inhaltliche Sackgasse, aber ein Hinweis fuer die Planung: die Beratung darf
+   nicht auf dem kritischen Pfad liegen.
 
 ## Offene Faeden
 
-Was mit mehr Zeit als naechstes dran waere.
+1. **Die 7 Minuten Startup senken.** Grosster ungenutzter Hebel: ein Viertel
+   des Budgets. Zu pruefen waere, ob VGGT-Gewichte und JAX-Kompilierung
+   cachebar sind und wie viel davon Habitats Szenenaufbau ist.
+2. **ms/Step unter 130 druecken**, damit N naeher an die Grenze 14042 kommt und
+   die Episodenzahl von 17 auf ~28 steigt. Kandidaten aus `PLAN.md:104-106`:
+   Compute-dtype bf16, Aufloesung unter 518, VGGT-Forward nur jeden k-ten Step.
+   Nicht geprueft, weil die Beratung dazu ausfiel.
+3. **Ein Arm, der Fortbewegung direkt belohnt.** Reward-Shaping ist nach
+   `RULES.md:44` frei. Zu testen: ein Term auf zurueckgelegter Distanz oder auf
+   Kollisionsfreiheit, statt nur `geodesic_delta`. Das greift den unter
+   Erkenntnis 2 belegten Engpass an, statt am Encoder zu drehen.
+4. **Ein fairer Encoder-Vergleich braucht mehr als 30 Minuten.** Bei ~3200
+   Gradientenschritten ist die Frage "welches Routing ist besser" nicht
+   beantwortbar. Wenn diese Frage das Ziel ist, muss das Budget in
+   Gradientenschritten definiert werden, nicht in Wall-Clock.
+5. **Messprotokoll-Artefakt.** Die Baseline hat genau einen Erfolg zwischen
+   Step 14042 und 56042. Deshalb ist ihre SR unterhalb 14042 exakt 0 und die
+   Latte fuer einen 3D-Arm, der nur ~8500 Steps schafft, trivial. Ein Arm, der
+   schneller waere und 14042 ueberschreitet, haette es schwerer. Das ist eine
+   perverse Eigenschaft des Vergleichs bei gleicher Step-Zahl und sollte fuer
+   den naechsten Durchlauf geradegezogen werden - etwa durch Vergleich bei
+   gleicher Episodenzahl statt gleicher Step-Zahl.
 
 ## Geoeffnete Pull Requests
 
