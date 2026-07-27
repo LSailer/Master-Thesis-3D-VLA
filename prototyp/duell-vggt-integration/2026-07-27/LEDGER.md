@@ -93,10 +93,55 @@ loest. Beides ist unabhaengig davon, welche 3D-Features anliegen.
 
 | # | Hypothese | Aenderung | SLURM | Steps N | SR | Baseline-SR @ N | Delta | ms/Step | ep/steps | Verdikt |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 1 | | | | | | | | | | |
+| 0a | Worktree unter `/tmp` ist auf dem Compute-Node nicht sichtbar | - | 6057269 | - | - | - | - | - | - | `gescheitert` |
+| 0b | dito | - | 6057297 | - | - | - | - | - | - | `gescheitert` |
+| 1 | Gepoolte Aggregator-Tokens, Prefill-Anteil auf CNN-Niveau gebracht | `prefill 5000->2048`, `log_every 250->100` | 6057316 | 8501 | **0.0588** | **0.0** | **+5.88 pp** | 211.7 | 500 | **`besser`** |
+| 2 | dito, aber gepoolte Geometrie statt Tokens | `prefill 5000->2048`, `log_every 250->100` | 6057317 | 8301 | 0.0 | 0.0 | 0.00 pp | 216.8 | 500 | `neutral` |
+| 3 | Niedrigere Aktor-Entropie laesst die Policy sich festlegen, Tokens | `+ act_entropy 3e-2->3e-3` | 6057422 | laeuft | laeuft | | | | | offen |
+| 4 | dito, Geometrie | `+ act_entropy 3e-2->3e-3` | 6057423 | laeuft | laeuft | | | | | offen |
 
 Verdikt-Vokabular: `besser` / `schlechter` / `neutral` / `gescheitert`
 (gescheitert = Job kam nicht durch, keine verwertbare Zahl).
+
+ms/Step nach `GOAL.md:55` aus 1800 s Walltime und N gerechnet. Das liegt ueber
+dem geloggten `perf/ms_per_step_interval` (123-144 ms), weil rund 7 der 30
+Minuten fuer VGGT-Gewichte, JAX-Kompilierung und Habitat-Szenenaufbau vergehen,
+bevor der erste Step laeuft. Beide Zahlen stehen unten je Lauf.
+
+Quellen fuer jede Zeile: W&B-Projekt `sailer-luca-university-ulm/3d-vla-objectnav`,
+Run-Ids `3sqrld07` (6057316), `74k1yvo0` (6057317), `ikrjoqrn` (6057422),
+`mljupjg0` (6057423), `m7wae8m4` (Baseline 6056750).
+
+### Versuch 1 im Detail, der einzige Gewinner
+
+| Groesse | Wert | Quelle |
+|---|---|---|
+| Arm | `l3_aggregator_pooled_short` | `scripts/slurm/configs/l3_aggregator_pooled_short.yaml` |
+| SLURM / W&B | 6057316 / `3sqrld07` | |
+| N | 8501 | `_step` |
+| `metrics/sr` | 0.0588 = **1/17** | |
+| Baseline `metrics/sr` bei Step 8499 | **0.0** | `run-6056750/metrics.csv` |
+| Delta | **+5.88 pp** | |
+| Erfolge | 1 | `episode/success == 1` bei Step 2404 |
+| Episoden | 17 | `episode/count` |
+| `metrics/spl` | 0.0213 | |
+| `perf/ms_per_step_interval` | 123.07 ms | |
+| ms/Step nach GOAL.md:55 | 211.7 ms | 1800 s / 8501 |
+| Aktionen am Ende | forward 0.256 / stop 0.258 / left 0.256 / right 0.230 | |
+
+Die Erfolgsepisode (Step 2404, Episode 5, Szene `u5atqC7vRCY`): `episode/steps`
+405 statt 500, `episode/dtg` 0.158 m, `episode/path_length` 10.32 m bei
+`episode/shortest_path` 3.74 m, `episode/reward` +9.54, `episode/spl` 0.363.
+Also eine echte Ankunft am Ziel, kein Messartefakt: die Episode endet vor dem
+500-Step-Cap, was ausschliesslich bei Erfolg passiert.
+
+**Wie belastbar ist das?** Ehrlich: ein einziger Erfolg. `metrics/sr` ist bei 17
+Episoden ein Quotient mit Nenner 17, kein Mittel ueber 100. Der Vergleich ist
+formal korrekt nach `GOAL.md:32-42` und `PLAN.md:58-68`, aber die Effektgroesse
+ist nicht von Glueck zu trennen. Bemerkenswert bleibt, dass die
+CNN-Baseline mit **demselben Seed 42 und demselben Curriculum** in ihren ersten
+28 Episoden keinen einzigen Erfolg hatte und ihren ersten erst bei Step 14042
+verbuchte.
 
 ## Erkenntnisse
 
