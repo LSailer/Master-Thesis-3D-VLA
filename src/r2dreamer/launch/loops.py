@@ -426,6 +426,7 @@ def train_loop(
     logger.start_timing(start_step)
     batch_steps = acfg.batch_size * acfg.seq_len
     train_credit = 0.0
+    log_pending = False
     video_next_step = start_step
     if _should_record_video(tcfg, logger, experience, start_step, video_next_step):
         experience.start_video_capture()
@@ -451,7 +452,11 @@ def train_loop(
         # --- Train ---
         if experience.buffer_size >= batch_steps:
             train_credit += acfg.train_ratio / batch_steps
-            will_log = step % tcfg.log_every == 0
+            if step % tcfg.log_every == 0:
+                log_pending = True
+            # With fractional credit the update and the log cadence can have
+            # opposite parity, so a due log waits for the next real update.
+            will_log = log_pending and train_credit >= 1.0
             batch = None
             metrics = None
             while train_credit >= 1.0:
@@ -462,6 +467,7 @@ def train_loop(
 
             if will_log and metrics is not None:
                 logger.log_train_metrics(metrics, step)
+                log_pending = False
                 if (
                     getattr(acfg, "decoder", False)
                     and batch is not None
