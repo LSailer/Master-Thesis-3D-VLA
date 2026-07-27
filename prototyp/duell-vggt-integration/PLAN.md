@@ -70,20 +70,34 @@ nicht, sie beraten.
 Beide Zahlen stehen als Long-Format in `<output_dir>/metrics.csv`
 (`step,metric,value`). Das funktioniert auch bei `WANDB_MODE=offline`.
 
-## Bekanntes Startproblem
+## Ausgangslage
 
-**Es gibt derzeit keine 3D-Arm-Run-Id fuer L3.** `_run_configs.py` fuehrt
-Nicht-`rgb`-Adapter ausschliesslich fuer L1. Der erste konkrete Schritt ist
-deshalb, eine L3-Variante eines 3D-Arms anzulegen: ein Eintrag in
-`RUN_CONFIGS` plus eine YAML unter `scripts/slurm/configs/`. Kein neuer
-Python-Shim (`scripts/r2dreamer/AGENTS.md:18-20`).
+Seit Commit `4738326` existiert die vollstaendige Leiter: fuenf Arme x vier
+Level, alle mit `seed: ${SEED}` und explizitem `buffer_capacity`. Fuer L3
+direkt startbar:
+
+| Run-Id | Config | Arm |
+|---|---|---|
+| `habitat-l3-cnn` | `l3_cnn.yaml` | CNN-Baseline (`rgb`) |
+| `habitat-l3-aggregator-pooled` | `l3_aggregator_pooled.yaml` | pooled Tokens |
+| `habitat-l3-global-tokens` | `l3_global_tokens.yaml` | Hybrid CNN + Global Tokens |
+| `habitat-l3-pointmap-pose` | `l3_pointmap_pose.yaml` | WP/CP 37x37 |
+| `habitat-l3-hybrid` | `l3_hybrid.yaml` | Hybrid CNN + Pointmap/Pose |
+
+Das heisst: der erste 3D-Lauf kann sofort abgesetzt werden, ohne vorher eine
+Config zu bauen. Das ist der schnellste Weg zu einer ersten Zahl und sollte
+Schritt eins sein, noch waehrend die Hypothesen entstehen.
 
 ## Kandidaten fuer die Integration (Startpunkte, nicht abschliessend)
 
-Vorhandene Varianten auf L1, die auf L3 portiert werden koennen:
-Aggregator-Pooled, Aggregator-MLP, Global Tokens, Pointmap + Pose,
-World-Points/Camera-Pose (WP/CP), Hybrid CNN+VGGT, FiLM-Konditionierung,
-House-Context / GNN.
+Die vier 3D-Arme oben sind der Ausgangspunkt. Darueber hinaus existieren auf
+L1 weitere Varianten, die auf L3 portiert werden koennen: Aggregator-MLP,
+FiLM-Konditionierung, House-Context / GNN, Pointmap-Dense.
+
+Neue Varianten folgen dem Muster aus `src/r2dreamer/AGENTS.md:44-56`: Adapter +
+`ADAPTERS`-Registrierung + Encoder-Routing + Branch unter `encoders/` +
+Verdrahtung in `routed_composite.py` + `RUN_CONFIGS`-Eintrag + SLURM-YAML.
+Kein neuer Python-Shim (`scripts/r2dreamer/AGENTS.md:18-20`).
 
 Aus der Laufzeitanalyse: Aggregator-MLP ist mit 38.1k Steps/h der schnellste
 3D-Arm, Aggregator-raw mit 6.3k Steps/h der langsamste und fuer ein

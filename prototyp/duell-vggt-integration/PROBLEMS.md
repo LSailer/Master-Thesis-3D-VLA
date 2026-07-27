@@ -3,38 +3,44 @@
 Stand vor Duellbeginn, aus der Codebasis verifiziert. Waehrend des Duells
 fortschreiben.
 
+## Bereits erledigt (Commit `4738326`, 2026-07-26)
+
+Diese drei Punkte waren beim Entwurf des Duells noch Blocker und sind
+inzwischen von Luca behoben. Sie stehen hier, damit niemand sie erneut
+"repariert".
+
+- **L3-Rungs fuer alle Arme existieren.** `_run_configs.py` fuehrt jetzt
+  `habitat-l3-{cnn,hybrid,global-tokens,aggregator-pooled,pointmap-pose}`,
+  dazu die YAMLs `l3_{cnn,hybrid,global_tokens,aggregator_pooled,pointmap_pose}.yaml`.
+  Fuenf Arme x vier Level, die sich nur im Curriculum unterscheiden.
+- **Seed ist reproduzierbar.** Alle Curriculum-Configs nutzen `seed: ${SEED}`
+  gegen den Default `SEED: "1"` in `_base.yaml:30`. `--env SEED=42` greift
+  damit. Fuer das Duell gilt weiterhin **42**.
+- **`buffer_capacity` ist ueberall explizit gesetzt.** Nicht uniform ueber die
+  Arme, und das ist Absicht: eine Global-Token-Zeile ist 2.8 MB, dieser Arm
+  bleibt bei 20000 gedeckelt.
+
 ## Blocker, die Zeit kosten koennen
 
-1. **Keine 3D-Arm-Run-Id fuer L3.** `scripts/r2dreamer/_run_configs.py` hat
-   Nicht-`rgb`-Adapter nur fuer L1. Eine L3-Variante muss erst angelegt werden
-   (RUN_CONFIGS-Eintrag + YAML unter `scripts/slurm/configs/`).
-
-2. **Seed ist aktuell die SLURM-Job-Id.** `scripts/slurm/configs/l3_cnn.yaml:19`
-   setzt `seed: ${SLURM_JOB_ID}`. Fuer das Duell muss `seed: ${SEED}` mit
-   `env: {SEED: "42"}` gesetzt werden. Neue Configs von Anfang an so anlegen.
-
-3. **`--curriculum_path` ist im r2dreamer-Pfad tot.** Es wird geparst
+1. **`--curriculum_path` ist im r2dreamer-Pfad tot.** Es wird geparst
    (`parser.py:58-62`), aber nirgends weitergereicht.
    `resolve_habitat_curriculum_path` akzeptiert nur die Namen `L1..L4`
    (`src/environments/habitat.py:68-78`). Nur `src/baselines/random_agent.py`
    nutzt einen echten Pfad. Also: mit `--curriculum L3` arbeiten, nicht mit
    einem Pfad.
 
-4. **Alte Checkpoints laden nicht auf HEAD.** Der Adapter-Refactor hat
+2. **Alte Checkpoints laden nicht auf HEAD.** Der Adapter-Refactor hat
    Flax-Modulpfade umbenannt. Ein Warmstart aus einem bestehenden L3-Checkpoint
    funktioniert nicht. Jeder Lauf startet von Null.
 
-5. **`curriculum_check`-Guard zeigt ins Leere.** `l3_cnn.yaml:5` rendert einen
-   Guard, der `scripts/environments/generate_curriculum.py` aufruft. Dieser Pfad
-   existiert nicht (nur `__archiv__/environments/generate_curriculum.py`). Wenn
-   das L3-JSON auf dem Cluster fehlt, laeuft der Job trotzdem an und stirbt
+3. **`curriculum_check`-Guard zeigt ins Leere.** Die L3-Configs setzen
+   `curriculum_check: data/curriculum/level3_10houses_1goal.json`; der daraus
+   gerenderte Guard ruft `scripts/environments/generate_curriculum.py` auf.
+   Dieser Pfad existiert nicht (nur `__archiv__/environments/generate_curriculum.py`).
+   Wenn das L3-JSON auf dem Cluster fehlt, laeuft der Job trotzdem an und stirbt
    spaeter beim Oeffnen der Datei (`habitat.py:182`).
 
-6. **`l3_cnn.yaml` setzt kein `buffer_capacity`.** Es laeuft damit auf dem
-   Default 500k, waehrend die L1-Headline-Zahl mit 1M lief. Bei einem
-   30-Minuten-Lauf irrelevant, aber beim Vergleich mit alten Zahlen relevant.
-
-7. **`perf/ms_per_step_interval` gibt es in keinem historischen L3-Lauf.** Die
+4. **`perf/ms_per_step_interval` gibt es in keinem historischen L3-Lauf.** Die
    Keys kamen erst nach allen L3-Jobs dazu. Am HEAD werden sie geloggt, alte
    Zahlen sind nicht vergleichbar.
 
