@@ -4,9 +4,8 @@ from typing import Any
 
 import jax.numpy as jnp
 
+from src.adapters.replay_image import REPLAY_IMAGE_SHAPE
 from src.buffer.replay_buffer import ReplayBatch
-
-RGB_SHAPE = (64, 64, 3)
 
 
 def _normalize_image_obs(image: Any) -> jnp.ndarray:
@@ -37,4 +36,4 @@ def decoder_rgb_target(batch: ReplayBatch, rgb_key: str) -> jnp.ndarray:
     """
     batch_size, time_steps = replay_batch_shape(batch)
     flat = batch_size * time_steps
-    return _normalize_image_obs(batch.obs[rgb_key]).reshape(flat, *RGB_SHAPE)
+    return _normalize_image_obs(batch.obs[rgb_key]).reshape(flat, *REPLAY_IMAGE_SHAPE)

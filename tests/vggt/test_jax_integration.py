@@ -19,6 +19,8 @@ jax.config.update("jax_default_matmul_precision", "highest")
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
+from src.adapters.pointmap import pool_point_map, squeeze_frame_axis  # noqa: E402
+
 
 try:
     HAS_CUDA_JAX = bool(jax.devices("gpu"))
@@ -38,13 +40,13 @@ both = pytest.mark.skipif(
 
 
 def _make_frame(seed: int = 0) -> np.ndarray:
-    """Synthetic 518x518 RGB frame (CHW, uint8)."""
+    """Synthetic 518x518 RGB frame (HWC, uint8)."""
     rng = np.random.default_rng(seed)
     return rng.integers(0, 256, size=(518, 518, 3), dtype=np.uint8)
 
 
 def _real_habitat_frame(index: int = 0) -> np.ndarray:
-    """Real Habitat RGB frame fixture (CHW, uint8)."""
+    """Real Habitat RGB frame fixture (HWC, uint8)."""
     fixture = (
         Path(__file__).parents[1]
         / "r2dreamer"
@@ -52,19 +54,52 @@ def _real_habitat_frame(index: int = 0) -> np.ndarray:
         / "fixtures"
         / "sample_habitat_obs.npz"
     )
-    return np.load(fixture)["frames"][index]
+    frame = np.load(fixture)["frames"][index]
+    # The blob predates the repo-wide HWC image contract (commit b263c89,
+    # 2026-07-22) and still stores frames as (3, 518, 518) CHW. Regenerating it
+    # needs a live Habitat sim, so transpose on load instead.
+    return np.ascontiguousarray(np.transpose(frame, (1, 2, 0)))
 
 
 def _aggregator_features(out) -> np.ndarray:
     """Reconstruct the full aggregator token tensor from a ``VGGTExtractOutput``.
 
-    The extractor splits the ``(1374, 1024)`` aggregator tokens into equal
-    ``frame_tokens`` / ``global_tokens`` halves; concatenating them recovers the
-    ``aggregator_features`` map the dict-based API used to expose directly.
+    The extractor splits the ``(1374, 2048)`` aggregator tokens into equal
+    ``frame_tokens`` / ``global_tokens`` halves of ``(1374, 1024)``;
+    concatenating them recovers the ``aggregator_features`` map the dict-based
+    API used to expose directly.
     """
     return np.concatenate(
         [np.asarray(out.frame_tokens), np.asarray(out.global_tokens)], axis=-1
     )
+
+
+def _expected_aggregator_shape(extractor) -> tuple[int, int]:
+    """Full-width aggregator token shape: one half per ``frame``/``global``."""
+    n_tokens, half_width = extractor.aggregator_feature_shape
+    return (n_tokens, 2 * half_width)
+
+
+def _assert_full_res_point_map(extractor, world_points) -> None:
+    """Assert the current point-map contract: ``(1, 518, 518, 3)`` full-res.
+
+    Pooling to the 37x37 patch grid moved out of the extractor and into the
+    adapters (``src/adapters/pointmap.py``), so the extractor now returns the
+    full-resolution world point map behind a leading singleton frame axis.
+    """
+    squeezed = squeeze_frame_axis(world_points)
+    assert world_points.shape == (1, *squeezed.shape), (
+        f"expected a leading singleton frame axis, got {world_points.shape}"
+    )
+    side = extractor.image_size
+    assert squeezed.shape == (side, side, 3)
+
+
+# Commit 33530a4 dropped the extractor's ``_pool_head_outputs`` wrapper: the
+# same migration that stopped pooling the point map also stopped squeezing the
+# camera head's batch axis, so the pose encoding now carries a leading
+# singleton batch dim. Consumers ``jnp.ravel`` it (see src/adapters/*.py).
+_POSE_SHAPE = (1, 9)
 
 
 @gpu_jax
@@ -81,9 +116,9 @@ class TestJAXFeatureExtractorContract:
         extractor.reset()
         out = extractor.extract(_real_habitat_frame(index=0))
         aggregator = _aggregator_features(out)
-        assert out.world_points.shape == (37, 37, 3)
-        assert out.camera_pose.shape == (9,)
-        assert aggregator.shape == (1374, 1024)
+        _assert_full_res_point_map(extractor, out.world_points)
+        assert out.camera_pose.shape == _POSE_SHAPE
+        assert aggregator.shape == _expected_aggregator_shape(extractor)
         assert out.world_points.dtype == np.float32
         assert out.camera_pose.dtype == np.float32
         assert aggregator.dtype == np.float32
@@ -94,8 +129,8 @@ class TestJAXFeatureExtractorContract:
         extractor.reset()
         for i in range(5):
             out = extractor.extract(_make_frame(seed=i))
-            assert out.world_points.shape == (37, 37, 3)
-            assert out.camera_pose.shape == (9,)
+            _assert_full_res_point_map(extractor, out.world_points)
+            assert out.camera_pose.shape == _POSE_SHAPE
             assert not np.any(np.isnan(out.world_points)), f"NaN at frame {i}"
             assert not np.any(np.isnan(out.camera_pose)), f"NaN at frame {i}"
 
@@ -128,21 +163,41 @@ class TestJAXFeatureExtractorContract:
         out2 = extractor.extract(_make_frame(seed=11))
         assert not np.allclose(out2.camera_pose, 0.0, atol=1e-6)
 
-    def test_camera_cache_overflow_raises(self):
-        """Extracting past max_camera_frames must raise, not silently corrupt.
+    def test_camera_cache_overflow_slides_window(self):
+        """Extracting past max_camera_frames slides the window, never corrupts.
 
-        Configures a fresh extractor with ``max_camera_frames=3`` (so
-        ``_CAM_MAX = 3 × num_iterations = 12``).  Three calls succeed;
-        the fourth must raise ``RuntimeError``.
+        Commit 6977127 ("feat(vggt): camera-head sliding-window eviction")
+        deliberately replaced the old ``RuntimeError`` guard with per-frame
+        eviction, matching the reference extractor's
+        ``k[:, :, -max_camera_tokens:, :]`` window. With
+        ``max_camera_frames=3`` the padded cache holds
+        ``_cam_max = 3 x num_iterations = 12`` rows: the first three frames
+        fill it, and every later frame must still return finite output while
+        ``valid_len`` stays pinned at ``_cam_max``.
         """
         from src.vggt.jax import JAXVGGTFeatureExtractor
 
-        ext = JAXVGGTFeatureExtractor(device="cuda", max_camera_frames=3)
+        max_frames = 3
+        ext = JAXVGGTFeatureExtractor(device="cuda", max_camera_frames=max_frames)
         ext.reset()
-        for i in range(3):
+        assert ext._cam_max == max_frames * ext._cam_num_iters
+
+        for i in range(max_frames):
             ext.extract(_make_frame(seed=500 + i))
-        with pytest.raises(RuntimeError, match="Camera-head padded cache overflow"):
-            ext.extract(_make_frame(seed=599))
+        assert all(
+            int(np.asarray(valid_len)) == ext._cam_max
+            for _, _, valid_len in ext._past_kvs_camera
+        ), "cache should be exactly full after max_camera_frames frames"
+
+        # Three more frames past the boundary: no raise, no cache growth.
+        for i in range(3):
+            out = ext.extract(_make_frame(seed=600 + i))
+            assert np.all(np.isfinite(out.camera_pose)), f"non-finite pose at +{i}"
+            assert np.all(np.isfinite(out.world_points)), f"non-finite points at +{i}"
+            for k_pad, v_pad, valid_len in ext._past_kvs_camera:
+                assert k_pad.shape[2] == ext._cam_max
+                assert v_pad.shape[2] == ext._cam_max
+                assert int(np.asarray(valid_len)) == ext._cam_max
 
     def test_compute_heads_false_returns_only_aggregator(self):
         """compute_heads=False skips camera/point heads and world_points wrapper."""
@@ -154,7 +209,7 @@ class TestJAXFeatureExtractorContract:
         aggregator = _aggregator_features(out)
         assert out.world_points is None
         assert out.camera_pose is None
-        assert aggregator.shape == (1374, 1024)
+        assert aggregator.shape == _expected_aggregator_shape(ext)
         assert aggregator.dtype == np.float32
         assert not np.any(np.isnan(aggregator))
 
@@ -221,7 +276,14 @@ class TestJAXvsPyTorchExtractor:
         torch.cuda.empty_cache()
 
     def test_rollout_parity(self, jax_ext, pt_ext):
-        """5-frame rollout: JAX outputs match PyTorch within Level-4 atol."""
+        """5-frame rollout: JAX outputs match PyTorch within Level-4 atol.
+
+        The JAX extractor returns the full-resolution ``(1, 518, 518, 3)`` map
+        while the PyTorch reference still pools to the 37x37 patch grid by
+        default, so the JAX side goes through the adapters' ``pool_point_map``
+        (an exact box mean at the 518 -> 37 integer factor, i.e. the same
+        reduction as torch's ``adaptive_avg_pool2d``) before comparing.
+        """
         frames = [_make_frame(seed=300 + i) for i in range(self.N_FRAMES)]
 
         jax_ext.reset()
@@ -231,7 +293,10 @@ class TestJAXvsPyTorchExtractor:
         pt_outs = [pt_ext.extract(f) for f in frames]
 
         for i, (jx, pt) in enumerate(zip(jax_outs, pt_outs)):
-            wp_err = np.max(np.abs(jx.world_points - pt["world_points"]))
+            pooled = np.asarray(
+                pool_point_map(jx.world_points, pt["world_points"].shape[0])
+            )
+            wp_err = np.max(np.abs(pooled - pt["world_points"]))
             cp_err = np.max(np.abs(jx.camera_pose - pt["camera_pose"]))
             assert wp_err <= self.ROLLOUT_ATOL, (
                 f"frame {i} world_points err={wp_err:.3e} "

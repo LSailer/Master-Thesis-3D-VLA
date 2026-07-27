@@ -134,7 +134,7 @@ class HouseVoxelsAdapter:
             else None
         )
         self._steps = 0
-        self._episode_starts = 0
+        self._first_episode_dumped = False
 
     def _buffer_for(self, scene_id: str) -> HouseContextPoseBuffer:
         """Return this scene's voxel buffer, creating it on first sight."""
@@ -185,19 +185,19 @@ class HouseVoxelsAdapter:
 
     def __call__(self, frame: ObservationFrame) -> AdapterOutput:
         """Accumulate this frame's points and route the three fields."""
-        # The second episode's first frame is the earliest moment at which
-        # episode one is complete, and dumping before the add keeps this
-        # snapshot exactly what one episode of exploration mapped.
-        if frame.is_first:
-            self._episode_starts += 1
-            if self._episode_starts == 2:
-                self._dump("end_of_first_episode")
         features = self._extractor.extract(frame)
         buffer = self._buffer_for(frame.scene_id)
         buffer.add(features, frame)
         self._steps += 1
         if self._steps in self._dump_steps:
             self._dump(f"step_{self._steps:09d}")
+        # Keyed off the observed episode end, not a reset count: composition and
+        # prefill each reset the collector before any exploration happens, so
+        # counting resets would fire this snapshot on the very first frames and
+        # label a near-empty map "one episode".
+        if frame.is_episode_end and not self._first_episode_dumped:
+            self._first_episode_dumped = True
+            self._dump("end_of_first_episode")
         return [
             AdapterField(
                 key="image",

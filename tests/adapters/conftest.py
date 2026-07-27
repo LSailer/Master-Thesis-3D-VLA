@@ -88,7 +88,12 @@ class FakeExtractor:
         """Return a shape-correct output derived from the frame's mean intensity.
 
         ``world_points`` matches the frame's spatial layout, as the real point
-        head does - adapters zip the point map against the RGB frame.
+        head does - adapters zip the point map against the RGB frame - and
+        carries the same leading singleton axes the streaming extractor emits
+        (``pts3d[:, 0]`` / ``conf[:, 0]`` / ``pose[:, 0, :]``): ``(1, H, W, 3)``,
+        ``(1, H, W)`` and ``(1, 9)``. Without them the adapters' frame-axis
+        squeezes and pose ravels would be unexercised, which is exactly the
+        drift these fakes exist to catch.
         """
         if source.is_first:
             self.scene_resets.append(source.scene_id)
@@ -101,12 +106,12 @@ class FakeExtractor:
         rows = jnp.linspace(0.0, 1.0, height)[:, None, None]
         cols = jnp.linspace(0.0, 1.0, width)[None, :, None]
         world_points = jnp.broadcast_to(
-            offset + rows + cols, (height, width, 3)
+            offset + rows + cols, (1, height, width, 3)
         ).astype(jnp.float32)
         return VGGTExtractOutput(
             world_points=world_points,
-            confidence=jnp.full((height, width), FAKE_CONFIDENCE, dtype=jnp.float32),
-            camera_pose=jnp.arange(9, dtype=jnp.float32) * offset,
+            confidence=jnp.full((1, height, width), FAKE_CONFIDENCE, dtype=jnp.float32),
+            camera_pose=(jnp.arange(9, dtype=jnp.float32) * offset)[None],
             frame_tokens=jnp.zeros((AGG_TOKENS, AGG_HALF_DIM), dtype=jnp.float32),
             global_tokens=jnp.full(
                 (AGG_TOKENS, AGG_HALF_DIM), offset, dtype=jnp.float32

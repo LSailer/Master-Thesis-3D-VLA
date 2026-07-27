@@ -30,7 +30,7 @@ def compute_dtype_kwargs(cfg: R2DreamerConfig) -> dict[str, Any]:
     Returns:
         ``{"compute_dtype": <jnp dtype>}`` when the gate is on, else ``{}``.
     """
-    if getattr(cfg, "full_bf16", False):
+    if cfg.full_bf16:
         return {"compute_dtype": compute_jnp_dtype(cfg.compute_dtype)}
     return {}
 

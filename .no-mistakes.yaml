@@ -1,8 +1,13 @@
 agent: claude                     # reviewer/fixer = claude headless
 
 commands:
-  lint: "uv run pyright src && uv run python -m pylint src"   # login node
-  format: "uv run ruff format src"
+  # uvx for tools that are not project dependencies (pyright, ruff): it runs
+  # them in a throwaway env and leaves the shared .venv alone. Plain `uv run`
+  # re-syncs that venv - it once started pulling ~3 GB of CUDA wheels here and
+  # died building jaxkd-cuda. pylint is different: it imports the code, so it
+  # needs the project env, hence `uv run --no-sync`.
+  lint: "uvx pyright src && uv run --no-sync python -m pylint src"  # login node
+  format: "uvx ruff format src"
   test: "bash scripts/gate-test.sh"                           # GPU allocation
 
 ignore_patterns:

@@ -76,3 +76,12 @@ skills-lock.json
 # unaffected; use `git add -f` to force-track a note you do want to commit)
 docs/notes/*.md
 __archiv__/baselines/plot_random_baseline.py
+
+# Coverage artifacts from scripts/gate-test.sh
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+
+# no-mistakes run artifacts (the .no-mistakes.yaml config itself IS tracked)
+.no-mistakes/

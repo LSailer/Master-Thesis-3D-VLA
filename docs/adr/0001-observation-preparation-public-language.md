@@ -1,3 +1,0 @@
-# Use Observation Preparation as the public input-mode boundary
-
-The existing public and internal `encoder` language is overloaded: it refers to launcher choices, replay-buffer observation preparation, VGGT feature extraction, and the Dreamer-side Flax module that maps prepared tensors into embeddings. We will use **Observation Preparation** as the public input-mode boundary and reserve **Encoder Module** for the Dreamer-side Flax module, even though this creates a deliberate public break from `--encoder` to `--observation-preparation`. This makes the data-flow contract explicit and prevents future VGGT, hybrid, replay, and decoder-target behavior from leaking through string-based encoder conditionals.

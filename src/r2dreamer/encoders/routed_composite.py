@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import flax.linen as nn
 import jax.numpy as jnp
@@ -37,6 +37,19 @@ from src.r2dreamer.encoders.gnn import GnnCloudEncoder
 from src.r2dreamer.encoders.mlp import MLPEncoder
 from src.r2dreamer.encoders.pointnet import PointNetCloudEncoder
 from src.r2dreamer.encoders.transformer import TokenSequenceEncoder
+
+
+class _DtypeKwargs(TypedDict, total=False):
+    """Branch keyword for the compute dtype, present only when one is set.
+
+    A ``TypedDict`` rather than ``dict[str, DTypeLike]``: when a plain
+    string-keyed dict is splatted into a constructor, a type checker has to
+    assume any key could land on any parameter, so it reports the dtype as
+    unassignable to every unrelated one (``parent``, ``tnet_mlp``, ...). Naming
+    the single key makes ``**self._dtype_kwargs`` check exactly as it behaves.
+    """
+
+    compute_dtype: DTypeLike
 
 
 @dataclass(frozen=True)
@@ -137,7 +150,7 @@ class RoutedCompositeEncoder(nn.Module):
         return tuple(route.key for route in self.routes if route.live)
 
     @property
-    def _dtype_kwargs(self) -> dict[str, DTypeLike]:
+    def _dtype_kwargs(self) -> _DtypeKwargs:
         """``compute_dtype`` keyword for branches that take one, if set."""
         if self.compute_dtype is None:
             return {}

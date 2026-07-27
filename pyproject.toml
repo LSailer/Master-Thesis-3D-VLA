@@ -59,6 +59,14 @@ dependencies = [
     "jaxkd[cuda]>=0.1.2; sys_platform == 'linux'",
 ]
 
+[dependency-groups]
+# Needed inside the project env because pytest loads them as plugins; tools
+# that only read the code (pyright, ruff, diff-cover) are run through `uvx`
+# instead, so they never force a re-sync of the shared .venv.
+dev = [
+    "pytest-cov>=5.0",
+]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
