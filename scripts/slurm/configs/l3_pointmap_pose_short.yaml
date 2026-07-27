@@ -1,0 +1,17 @@
+extends: l3_pointmap_pose
+job_name: r2d-L3-pointmap-pose-short
+output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short
+comments:
+  - "Short-horizon rung of the geometry-only arm, for a 30-minute walltime budget instead of the 1.5M-step ladder budget. Same encoder, same routing, same buffer: only the two constants tuned for a multi-day run are re-tuned for a 30-minute one. Rationale identical to l3_aggregator_pooled_short."
+  - "Paired with l3_aggregator_pooled_short under the same seed: pooled semantic tokens against pooled geometry, both at the fast end of the VGGT family, so the pair is readable inside one walltime budget."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-pointmap-pose-short/run-${SLURM_JOB_ID}
+  prefill: 2048
+  log_every: 100
+  wandb_name: l3_pointmap_pose_short-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,vggt,pointmap-pose,geometry-only,duell,short-horizon,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-pointmap-pose-short-${TIMESTAMP}
+    wandb_name: l3-pointmap-pose-short-smoke-${TIMESTAMP}
+    wandb_tags: pointmap-pose,level3,smoke,duell

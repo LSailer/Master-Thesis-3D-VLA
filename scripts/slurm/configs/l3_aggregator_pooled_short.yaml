@@ -1,0 +1,18 @@
+extends: l3_aggregator_pooled
+job_name: r2d-L3-agg-pooled-short
+output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-short
+comments:
+  - "Short-horizon rung of the pooled-token arm, for a 30-minute walltime budget instead of the 1.5M-step ladder budget. Same encoder, same routing, same buffer: only the two constants that are tuned for a multi-day run are re-tuned for a 30-minute one."
+  - "prefill 5000 is a step-count constant, so it costs every arm the same number of steps but a very different share of a walltime-capped run: the CNN baseline (30.3 ms/step, 59322 steps in 30 min, SLURM 6056750) spends 8.4 % of its budget on random prefill, a VGGT arm at ~170 ms/step spends ~50 %. Dropping to 2048 restores a comparable share (~20 %) and is still 2x the replay gate of batch_size * seq_len = 1024, so the gate still opens at the first train step exactly as it does in prod."
+  - "log_every 100 instead of 250: metrics/sr is the duel's decision variable and the run ends in TIMEOUT at an unknown step, so the read-off point has to be sampled densely enough to land near the final step. Pure logging density, no effect on the training loop."
+args:
+  output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-short/run-${SLURM_JOB_ID}
+  prefill: 2048
+  log_every: 100
+  wandb_name: l3_agg_pooled_short-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,vggt,aggregator-pooled,duell,short-horizon,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-agg-pooled-short-${TIMESTAMP}
+    wandb_name: l3-agg-pooled-short-smoke-${TIMESTAMP}
+    wandb_tags: aggregator-pooled,level3,smoke,duell
