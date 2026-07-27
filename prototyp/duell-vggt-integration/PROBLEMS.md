@@ -51,31 +51,39 @@ inzwischen von Luca behoben. Sie stehen hier, damit niemand sie erneut
 `loops.py prefill`. Kein Traceback aus `src/`, keine GL- oder EGL-Meldung, kein
 OOM.
 
-**Reaktion: neu absetzen, nicht debuggen.** Belegt an Job 6056684 und 6056750:
-derselbe Node `uc3n105`, der erste stirbt nach 7:25 im Prefill, der zweite
-laeuft durch. Es ist sporadisch, nicht nodegebunden. Keine Excludes sammeln.
-Erst wenn dreimal hintereinander an derselben Stelle abgebrochen wird, ist es
-etwas anderes und gehoert gemeldet statt weiterprobiert.
+**Der Absturz trifft `--smoke`, nicht `--prod`.** Stand 2026-07-27: zwei
+abgestuerzte Smoke-Laeufe gegen zwei durchgelaufene Prod-Laeufe, teils auf
+demselben Node (`uc3n105`). Das ist ein Modus-Unterschied, kein Zufall und
+kein Node-Problem.
 
-**Was ausgeschlossen ist:** kein CPU-OOM (2.76 von 64 GB), kein
-EGL-Kontextproblem (`OpenGL version: 4.6.0 NVIDIA 595.71.05` wurde erfolgreich
-initialisiert), keine Fehlermeldung vor dem Abort.
+**Reaktion: `--prod` verwenden, nicht debuggen.** Gewertete Laeufe sind
+ohnehin `--prod` (siehe `RULES.md`), damit ist das Problem fuers Duell
+umgangen. Keine Node-Excludes sammeln, keine Zeit in Fehlersuche stecken.
 
-**Offene Hypothese, nicht bewiesen:** der Absturz trat im `--smoke`-Modus auf,
-der in `launch.py:236-243` `XLA_PYTHON_CLIENT_PREALLOCATE=false` setzt. JAX
-fordert damit GPU-Speicher waehrend des Laufs nach, parallel zu dem, was der
-habitat-Renderer pro Frame allokiert. Eine fehlgeschlagene GL-Allokation
-behandelt Magnum mit `abort()` statt mit einer Exception, was zum
-beobachteten stillen SIGABRT passt. Im `--prod`-Modus praealloziert JAX
-stattdessen einmalig beim Start.
+**Was ausgeschlossen ist:**
 
-Ebenfalls smoke-only: `PYTHONFAULTHANDLER=1`. Deshalb erzeugt derselbe Abort
-im Smoke-Modus einen Thread-Dump und im Prod-Modus nur einen stillen exit 134.
-Ein prod-Lauf ist also nicht automatisch gesund, nur leiser.
+- CPU-OOM (2.76 von 64 GB benutzt)
+- EGL-/Kontextproblem (`OpenGL version: 4.6.0 NVIDIA 595.71.05` wurde
+  erfolgreich initialisiert, komplette Extension-Liste im Log)
+- `XLA_PYTHON_CLIENT_PREALLOCATE=false`: ein Smoke mit
+  `--env XLA_PYTHON_CLIENT_PREALLOCATE=true` stuerzt genauso ab
+- Node-Bindung: derselbe Node traegt Absturz und Erfolg
 
-Da gewertete Laeufe ohnehin `--prod` sind (siehe `RULES.md`), ist die
-Hypothese fuers Duell nicht entscheidend. Sie steht hier, damit niemand sie
-neu erarbeitet.
+**Ungeklaert bleibt, was am Smoke-Modus es ausloest.** Uebrige Unterschiede
+gegenueber `--prod`, keiner davon geprueft:
+
+- Env aus `launch.py:236-243`: `WANDB_MODE=offline`, `PYTHONFAULTHANDLER=1`,
+  `XLA_PYTHON_CLIENT_MEM_FRACTION=0.7`, `set -euo pipefail`
+- Args aus `_base.yaml:40-51`: `prefill: 500` statt 5000, `steps: 1500`,
+  `log_every: 50`, `wandb_project: 3d-vla-objectnav-smoke`
+
+Der entscheidende Test waere ein `--prod`-Lauf mit den Smoke-Env-Variablen:
+laeuft er durch, liegt es an den Smoke-Args, stirbt er, an den Variablen.
+Das ist eine eigene Untersuchung und gehoert nicht in die Duell-Zeit.
+
+Nebenbefund: `PYTHONFAULTHANDLER=1` ist smoke-only. Derselbe Abort erzeugt im
+Smoke-Modus einen Thread-Dump und im Prod-Modus nur einen stillen exit 134.
+Ein Prod-Lauf ist also nicht automatisch gesund, nur leiser.
 
 ## Cluster-Stolperfallen
 
