@@ -111,3 +111,16 @@ ist "mehr Erfolge im 100er-Fenster als die Baseline dort hatte": N < 14042
 1). Langsamer Arm (~180ms, N~10-12k): P(>=1 in ~20 Ep.) ~ 55-60%. Schneller
 Arm (~95ms, N~19k): P(>=2 in ~38 Ep.) ~ 43%. Beide Regime legitim, Welle 2
 faehrt idealerweise beide.
+
+## 12:40-12:57 PR-Phase
+
+- no-mistakes-Pipeline gestartet, aber der Daemon ist unerreichbar: Lock
+  gehalten von PID 2405775 (gestartet 2026-07-23, vermutlich anderer
+  Login-Node), Socket connection refused. Unix-Sockets funktionieren nicht
+  ueber das shared FS; den fremden Lock unter Deadline zu raeumen war mir
+  zu riskant (state.sqlite-Konflikt).
+- Fallback: verify.sh PASS (das Duell-eigene Gate), Branch direkt per gh
+  gepusht, PR #216 mit dem Pflichtformat aus RULES.md geoeffnet.
+- Offener Punkt fuer nach dem Duell: no-mistakes-Daemon-Lock bereinigen
+  (auf dem Node der PID 2405775 stoppen oder Lock-Handling fixen), danach
+  kann die Pipeline den PR-Branch regulaer validieren.

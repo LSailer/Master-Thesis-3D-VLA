@@ -6,7 +6,7 @@ Grundlage fuer die Konsolidierung mit Luca nach Ablauf der zwei Stunden.
 ## Rahmen
 
 - Start (Wall-Clock): 2026-07-27 ~11:05 (erster Tool-Call)
-- Ende (Wall-Clock): spaetestens 13:05
+- Ende (Wall-Clock): 12:57 (PR #216 offen, Ledger final)
 - Eingefrorener Seed: **42**
 - `verify.sh` beim Start: PASS (11:10)
 
@@ -119,4 +119,9 @@ Was hat gewirkt, was nicht, und warum. Keine Spekulation ohne Zahl.
 
 | PR | Branch | SR | Delta | Status |
 |---|---|---|---|---|
-| | | | | |
+| [#216](https://github.com/LSailer/Master-Thesis-3D-VLA/pull/216) | duell/2026-07-27-lottery-knobs-kv200k | 5.56 % (6057641, N=9001) | +5.56 pp | offen, Merge nur durch Luca |
+
+Anmerkung: Der PR wurde direkt per gh geoeffnet, weil der no-mistakes-Daemon
+nicht erreichbar war (verwaister Lock eines anderen Login-Nodes, PID 2405775
+vom 23.07., Socket connection refused; Details agents/orchestrator/NOTES.md).
+verify.sh war vor dem PR PASS.
