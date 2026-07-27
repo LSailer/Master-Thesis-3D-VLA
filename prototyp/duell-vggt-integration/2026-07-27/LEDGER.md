@@ -33,10 +33,10 @@ derselben Zeit schafft (Groessenordnung 10 000), ist die Baseline-SR
 voraussichtlich 0. Die Zahl misst in diesem Durchlauf also eher, ob ein Lauf
 ueberhaupt durchkommt, als welche Integration besser ist.
 
-**Offener Punkt an der Baseline:** in der `metrics.csv` fehlen saemtliche
-Trainingsmetriken (`total_loss`, `loss/*`, `perf/*`). Nur Episoden- und
-Aktionsmetriken sind vorhanden. Ob der Lauf tatsaechlich trainiert hat oder
-nur gesammelt, ist zu klaeren, bevor die Baseline-Zahl belastbar ist.
+**Die Baseline ist gueltig.** In der `metrics.csv` fehlen zwar saemtliche
+Trainingsmetriken (`total_loss`, `loss/*`, `perf/*`), aber der Lauf hat
+trainiert: rund 29 660 Gradientenschritte bei 59 322 Env-Steps. Es ist ein
+Logging-Bug, kein Trainingsausfall (siehe `PROBLEMS.md`).
 
 ## Versuche
 

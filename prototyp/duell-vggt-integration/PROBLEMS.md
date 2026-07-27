@@ -44,6 +44,40 @@ inzwischen von Luca behoben. Sie stehen hier, damit niemand sie erneut
    Keys kamen erst nach allen L3-Jobs dazu. Am HEAD werden sie geloggt, alte
    Zahlen sind nicht vergleichbar.
 
+## Trainingsmetriken werden nie geloggt (deterministisch, betrifft alle Arme)
+
+**Symptom:** In der `metrics.csv` eines Prod-Laufs stehen ausschliesslich
+Episoden- und Aktionsmetriken. `total_loss`, `loss/dyn`, `loss/rew`,
+`loss/value`, `loss/policy` und die `perf/*`-Keys fehlen vollstaendig, und im
+Slurm-Log gibt es keine einzige `[step ...]`-Zeile.
+
+**Es ist ein Logging-Bug, kein Trainingsausfall.** Der Lauf trainiert normal.
+
+**Mechanik** (`loops.py:452-464`):
+
+```
+batch_steps   = batch_size * seq_len = 16 * 64 = 1024
+train_credit += train_ratio / batch_steps = 512 / 1024 = 0.5   pro Env-Step
+```
+
+`train_credit` erreicht 1.0 auf den ungeraden Steps, dort laeuft die
+While-Schleife und setzt `metrics`. Die Logbedingung
+`will_log = step % log_every == 0` mit `log_every = 250` trifft dagegen nur
+gerade Steps. Auf jedem Log-Step ist `metrics` deshalb `None`, und
+`if will_log and metrics is not None` faellt durch. Die Paritaeten koennen
+sich nie treffen, also wird nie geloggt.
+
+**Reichweite:** `train_ratio 512`, `batch_size 16`, `seq_len 64`,
+`log_every 250` sind die Defaults in `agent_config.py:136-138,178` und
+`trainer_config.py:24-29`. Betroffen ist damit jeder Prod-Lauf am HEAD, ueber
+alle Arme und Level hinweg.
+
+**Konsequenz fuers Duell:** Trainingsverlaeufe sind nicht ablesbar, `SR`,
+`SPL` und die Episodenmetriken dagegen schon. Da das Duell ueber `metrics/sr`
+entschieden wird, ist es nicht blockierend. Wer den Bug beheben will, darf das
+(die Zone ist frei) - es ist aber keine Aufgabe des Duells, und ein Fix
+veraendert nichts an der Success Rate.
+
 ## Sporadischer SIGABRT im Prefill (beobachtet 2026-07-27)
 
 **Symptom:** Der Job stirbt mit exit 134 (`SIGABRT`) in
