@@ -6,7 +6,7 @@ One folder per feature/problem: `prototyp/<feature>/`.
 
 Create `prototyp/<feature>/` containing:
 
-- `IDEA.md` — goal, hypothesis, planned approach
+- `GOAL.md` — goal, hypothesis, planned approach
 - `PROBLEMS.md` — open problems, dead ends, research notes (append as they come up)
 - `HANDOFF.md` — session-to-session handoff state
 - experiment scripts and their helpers, all *inside* the folder
