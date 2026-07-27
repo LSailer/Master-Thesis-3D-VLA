@@ -51,6 +51,11 @@ Never relay agent transcripts; the user does not see them and does not want to.
 
 ## Worktree hygiene for subagents
 Any agent working in a worktree must be told explicitly:
+- Run `./scripts/setup_worktree.sh` from the worktree root first, before any
+  test or training command. It symlinks the shared `data/`, `.venv/` and
+  `output/` plus the external model repos from the main checkout. It is
+  idempotent, so re-running it on an already-bootstrapped worktree is safe.
+  Skipping it is what makes `uv` create a fresh stub `.venv` in the worktree.
 - Use `uv run --no-sync`. Plain `uv run` re-syncs the shared `.venv` and can
   leave a stub that fakes test failures.
 - Set `PYTHONPATH=<worktree>` for script-mode runs, otherwise the editable
