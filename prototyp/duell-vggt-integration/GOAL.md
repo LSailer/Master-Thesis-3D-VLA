@@ -42,9 +42,20 @@ Deshalb: `N` = die Step-Zahl, die der 3D-Lauf erreicht hat; die Baseline-SR
 wird aus deren `metrics.csv` **bei genau Step N** abgelesen.
 
 **Sekundaer: Effizienz.**
-`episode/steps` (Mittel der letzten 100 Episoden) und
-`perf/ms_per_step_interval`. Zaehlt **nur als Tie-Break**, wenn die
-SR-Differenz unter 3 Prozentpunkten liegt.
+`episode/steps` (Mittel der letzten 100 Episoden) und die Zeit pro Step.
+Zaehlt **nur als Tie-Break**, wenn die SR-Differenz unter 3 Prozentpunkten
+liegt.
+
+Die Zeit pro Step wird **aus Walltime und Step-Zahl gerechnet**, nicht aus
+`perf/ms_per_step_interval` abgelesen. Der Baseline-Lauf 6056750 hat gezeigt,
+dass die `perf/`-Keys nicht in der `metrics.csv` ankommen, obwohl
+`loops.py:206-210` sie schreibt:
+
+```
+ms_pro_step = (Walltime in Sekunden) / (erreichte Steps) * 1000
+```
+
+Fuer die Baseline: 1800 s / 59322 Steps = **30.3 ms/Step**.
 
 Hinweis: ms/Step zu senken ist ein legitimer und erwuenschter Hebel. Weniger
 Zeit pro Step bedeutet mehr Steps in denselben 30 Minuten und damit potenziell
