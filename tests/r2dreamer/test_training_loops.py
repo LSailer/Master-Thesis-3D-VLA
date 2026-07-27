@@ -144,6 +144,7 @@ class _FakeLogger:
 
     def __init__(self):
         self.rows: list[list] = []
+        self.train_metric_calls: list[tuple[int, dict]] = []
         self.videos: list[tuple[str, int]] = []
         self.adapter_summaries: list[tuple[dict, int]] = []
         self.wandb_active = False
@@ -159,6 +160,7 @@ class _FakeLogger:
         self.videos.append((key, step))
 
     def log_train_metrics(self, metrics, step: int) -> None:
+        self.train_metric_calls.append((step, dict(metrics)))
         for k, v in metrics.items():
             self.rows.append([step, k, v])
 
@@ -514,10 +516,28 @@ class TestTrainLoopCadences:
     def test_materialize_is_true_only_on_log_steps(self, tmp_path, build_agent):
         cfg, agent, spy = build_agent(train_ratio=2)
 
-        _run_train_loop(tmp_path, cfg, agent, total_steps=6, log_every=2)
+        logger, _ = _run_train_loop(tmp_path, cfg, agent, total_steps=6, log_every=2)
 
-        # Gate opens at step 1, one update per step for steps 1..5;
-        # will_log = step % 2 == 0 => True at steps 2 and 4.
+        # Gate opens at step 1, one update per step for steps 1..5; credit is
+        # always >= 1.0 here, so the pending log fires on its own step:
+        # steps 2 and 4.
+        assert spy.materialize_flags == [False, True, False, True, False]
+        assert [step for step, _ in logger.train_metric_calls] == [2, 4]
+
+    def test_fractional_credit_still_logs_train_metrics(self, tmp_path, build_agent):
+        # batch_steps = 1 * 9 = 9, train_ratio 3 => +1/3 credit per env step.
+        # The gate opens at step 8, so updates land on steps 10, 13, 16, 19, 22
+        # while log_every=6 marks steps 12 and 18: no update ever coincides
+        # with a log step, which is the production parity mismatch.
+        cfg, agent, spy = build_agent(seq_len=9, train_ratio=3)
+
+        logger, _ = _run_train_loop(tmp_path, cfg, agent, total_steps=24, log_every=6)
+
+        assert spy.train_steps == 5
+        # The latched flag defers each pending log to the next real update.
+        assert [step for step, _ in logger.train_metric_calls] == [13, 19]
+        assert all(metrics for _, metrics in logger.train_metric_calls)
+        # materialize is True exactly on the iterations that log.
         assert spy.materialize_flags == [False, True, False, True, False]
 
     def test_val_loop_runs_on_cadence_when_val_experience_present(
