@@ -27,6 +27,7 @@ from src.environments.observation import ObservationFrame
 ReplayObservationBatch: TypeAlias = jax.Array | dict[str, jax.Array]
 ObservationLeaf: TypeAlias = jnp.ndarray | np.ndarray
 
+
 @dataclass
 class HybridObservation:
     """Hybrid image plus compact world-point observation for one transition.
@@ -80,9 +81,7 @@ class ReplayTransition:
     reward: float | np.floating
     is_first: bool | np.bool_
     is_episode_end: bool | np.bool_
-    encoders: Mapping[str, int] | None = struct.field(
-        pytree_node=False, default=None
-    )
+    encoders: Mapping[str, int] | None = struct.field(pytree_node=False, default=None)
     global_feature: ObservationLeaf | None = None
 
     @classmethod
@@ -154,9 +153,7 @@ class ReplayBatch:
     is_first: jax.Array
     is_episode_end: jax.Array
     global_feature: jax.Array | None = None
-    encoders: Mapping[str, int] | None = struct.field(
-        pytree_node=False, default=None
-    )
+    encoders: Mapping[str, int] | None = struct.field(pytree_node=False, default=None)
 
 
 ReplayTransitionBatch: TypeAlias = list[list[ReplayTransition]]
