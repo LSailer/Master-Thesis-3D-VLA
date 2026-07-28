@@ -18,7 +18,11 @@ import pytest
 from src.adapters.contract import AdapterField, AdapterOutput, Encoder
 from src.buffer.replay_buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.agent import (
+    R2DreamerAgent,
+    _batch_live_obs,
+    materialize_metrics,
+)
 
 IMAGE_SHAPE = (64, 64, 3)
 POSE_DIM = 9
@@ -151,6 +155,39 @@ def _live_obs(fields: AdapterOutput) -> dict[str, jnp.ndarray]:
     return {f.key: f.value for f in fields}
 
 
+def _train(agent, batch, rng_key, *, materialize: bool = True) -> dict[str, float]:
+    """One gradient step the way a loop drives it: reassign, then materialize."""
+    agent.train_state, metrics = agent.train_step(
+        agent.train_state, batch, rng_key, materialize=materialize
+    )
+    return materialize_metrics(metrics)
+
+
+def _act(agent, encoder_obs, is_first, rng_key, state=None, *, training=True):
+    """One acting step from ``state`` (default: a fresh carry)."""
+    action, next_state = agent.act(
+        agent.params,
+        encoder_obs,
+        is_first,
+        agent.initial_act_state() if state is None else state,
+        rng_key,
+        training,
+    )
+    return int(action), next_state
+
+
+def _argmax_action(agent, state) -> int:
+    """The greedy action implied by an acting carry, recomputed by hand."""
+    feat = agent.rssm_mod.apply(
+        agent.params["rssm"],
+        state.stoch,
+        state.deter,
+        method=agent.rssm_mod.get_feat,
+    )
+    logits = agent.actor_mod.apply(agent.params["actor"], feat)
+    return int(jnp.argmax(logits, axis=-1)[0])
+
+
 def _tree_allclose(left, right, *, atol=1e-6) -> bool:
     pairs = zip(jax.tree_util.tree_leaves(left), jax.tree_util.tree_leaves(right))
     return all(np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in pairs)
@@ -208,37 +245,70 @@ class TestConstruction:
 
 
 class TestActing:
-    def test_act_returns_an_action_in_range(self, rgb_agent):
+    def test_act_returns_an_action_in_range_and_a_next_carry(self, rgb_agent):
         agent, fields = rgb_agent
 
-        action = agent.act(_live_obs(fields), True, jax.random.PRNGKey(0))
+        action, state = _act(agent, _live_obs(fields), True, jax.random.PRNGKey(0))
 
         assert 0 <= action < agent.cfg.num_actions
+        assert state.stoch.shape == (1, agent.cfg.stoch_classes, agent.cfg.stoch_discrete)
+        assert state.deter.shape == (1, agent.cfg.deter_size)
+        # The carry advanced: a fresh one is all zeros, this one is not.
+        assert _tree_any_changed(agent.initial_act_state(), state)
 
-    def test_act_with_state_matches_mutable_act_and_jits(self, rgb_agent):
+    def test_act_is_pure_in_params_state_and_key(self, rgb_agent):
+        # The jitted body takes ``self`` as a static argument, so nothing may
+        # ride on the agent object between calls: same inputs, same outputs.
         agent, fields = rgb_agent
-        state = agent.initial_act_state()
         encoder_obs = _live_obs(fields)
+        key = jax.random.PRNGKey(3)
 
-        for step, is_first in enumerate((True, False, True, False)):
-            key = jax.random.PRNGKey(step)
-            mutable_action = agent.act(encoder_obs, is_first, key, training=False)
-            state_action, state = agent.act_with_state(
-                encoder_obs, is_first, state, key, training=False
+        first_action, first_state = _act(agent, encoder_obs, True, key)
+        again_action, again_state = _act(agent, encoder_obs, True, key)
+        next_action, next_state = _act(agent, encoder_obs, False, key, first_state)
+
+        assert again_action == first_action
+        assert _tree_allclose(again_state, first_state)
+        # Threading the carry forward changes the posterior, so the step after
+        # a reset is genuinely conditioned on the previous one.
+        assert _tree_any_changed(next_state, first_state)
+        assert 0 <= next_action < agent.cfg.num_actions
+
+    def test_is_first_resets_the_carry(self, rgb_agent):
+        agent, fields = rgb_agent
+        encoder_obs = _live_obs(fields)
+        key = jax.random.PRNGKey(5)
+        _action, stale = _act(agent, encoder_obs, True, key)
+
+        reset_action, reset_state = _act(agent, encoder_obs, True, key, stale)
+        fresh_action, fresh_state = _act(agent, encoder_obs, False, key)
+
+        assert reset_action == fresh_action
+        assert _tree_allclose(reset_state, fresh_state)
+
+    def test_training_false_takes_the_argmax_branch(self, rgb_agent):
+        # The key also drives the RSSM posterior sample, so "greedy" cannot mean
+        # key-independent: it means the action is the argmax of the actor logits
+        # at the carry this very call produced.
+        agent, fields = rgb_agent
+        encoder_obs = _live_obs(fields)
+        disagreements = 0
+
+        for seed in range(8):
+            key = jax.random.PRNGKey(seed)
+            greedy, greedy_state = _act(
+                agent, encoder_obs, True, key, training=False
             )
-            assert state_action == mutable_action
-            assert _tree_allclose(state, agent.snapshot_act_state())
+            sampled, sampled_state = _act(agent, encoder_obs, True, key)
 
-        compiled = jax.jit(agent.act_with_state_pure)
-        action, _state = compiled(
-            agent.params,
-            {"image": encoder_obs["image"][None]},
-            agent.initial_act_state(),
-            jnp.asarray(True),
-            jax.random.PRNGKey(99),
-            False,
-        )
-        assert 0 <= int(action) < agent.cfg.num_actions
+            assert greedy == _argmax_action(agent, greedy_state)
+            # Same key => same posterior, so the two runs differ only in how the
+            # action was drawn from identical logits.
+            assert _tree_allclose(greedy_state.deter, sampled_state.deter)
+            disagreements += int(sampled != greedy)
+
+        # Otherwise ``training`` would be a dead flag.
+        assert disagreements > 0
 
     def test_act_does_not_add_a_batch_dim_to_the_live_field(self):
         # The live field is one global event the encoder broadcasts itself; an
@@ -246,18 +316,18 @@ class TestActing:
         fields = [_image_field(), _cloud_field()]
         agent = _agent(_cfg(), fields)
 
-        batched = agent._batch_live_obs(_live_obs(fields))
+        batched = _batch_live_obs(_live_obs(fields), agent._global_keys())
 
         assert batched["image"].shape == (1, *IMAGE_SHAPE)
         assert batched["house_context"].shape == (CLOUD_ROWS, POINT_DIM)
-        assert 0 <= agent.act(_live_obs(fields), True, jax.random.PRNGKey(1)) < 4
+        assert 0 <= _act(agent, _live_obs(fields), True, jax.random.PRNGKey(1))[0] < 4
 
 
 class TestTrainStep:
     def test_produces_finite_metrics_for_every_sub_loss(self, rgb_agent):
         agent, fields = rgb_agent
 
-        metrics = agent.train_step(_batch(agent.cfg, fields), jax.random.PRNGKey(1))
+        metrics = _train(agent, _batch(agent.cfg, fields), jax.random.PRNGKey(1))
 
         for key in ("barlow", "dyn", "rep", "rew", "con", "policy", "value", "repval"):
             assert f"loss/{key}" in metrics
@@ -271,7 +341,7 @@ class TestTrainStep:
 
         for _ in range(3):
             rng, key = jax.random.split(rng)
-            metrics = agent.train_step(batch, key)
+            metrics = _train(agent, batch, key)
             assert np.isfinite(metrics["total_loss"])
 
     def test_is_deterministic_updates_params_and_composes_total_loss(self):
@@ -283,8 +353,8 @@ class TestTrainStep:
         agent_b = _agent(cfg, fields, seed=7)
         before = jax.tree.map(jnp.copy, agent_a.params)
 
-        metrics_a = agent_a.train_step(batch, train_rng)
-        metrics_b = agent_b.train_step(batch, train_rng)
+        metrics_a = _train(agent_a, batch, train_rng)
+        metrics_b = _train(agent_b, batch, train_rng)
 
         assert metrics_a.keys() == metrics_b.keys()
         for key in metrics_a:
@@ -316,7 +386,7 @@ class TestTrainStep:
         agent = _agent(_cfg(), fields)
         before = jax.tree.map(jnp.copy, agent.params["encoder"])
 
-        metrics = agent.train_step(_batch(agent.cfg, fields), jax.random.PRNGKey(3))
+        metrics = _train(agent, _batch(agent.cfg, fields), jax.random.PRNGKey(3))
 
         assert np.isfinite(metrics["total_loss"])
         assert _tree_any_changed(before, agent.params["encoder"])
@@ -329,7 +399,7 @@ class TestTrainStep:
         batch = _batch(agent.cfg, fields, global_feature=None)
 
         with pytest.raises(ValueError, match="global_feature"):
-            agent.train_step(batch, jax.random.PRNGKey(5))
+            _train(agent, batch, jax.random.PRNGKey(5))
 
     def test_params_stay_float32_under_the_full_bf16_gate(self):
         # ``full_bf16`` changes compute, not storage: the params pytree (and so
@@ -337,7 +407,7 @@ class TestTrainStep:
         fields = [_image_field()]
         agent = _agent(_cfg(full_bf16=True, compute_dtype="bfloat16"), fields)
 
-        metrics = agent.train_step(_batch(agent.cfg, fields), jax.random.PRNGKey(6))
+        metrics = _train(agent, _batch(agent.cfg, fields), jax.random.PRNGKey(6))
 
         assert all(
             leaf.dtype == jnp.float32
@@ -372,8 +442,8 @@ class TestDecoderProbe:
         with_decoder = _agent(_cfg(decoder=True), fields, seed=init_rng)
         before_decoder = jax.tree.map(jnp.copy, with_decoder.params["decoder"])
 
-        baseline_metrics = baseline.train_step(batch, train_rng)
-        decoder_metrics = with_decoder.train_step(batch, train_rng)
+        baseline_metrics = _train(baseline, batch, train_rng)
+        decoder_metrics = _train(with_decoder, batch, train_rng)
 
         assert np.isfinite(decoder_metrics["loss/decoder"])
         assert decoder_metrics["opt_loss"] == pytest.approx(

@@ -57,8 +57,7 @@ class GnnCloudEncoder(nn.Module):
             )
         if self.message_mode not in ("sage", "edgeconv"):
             raise ValueError(
-                f"message_mode must be 'sage' or 'edgeconv', got "
-                f"{self.message_mode!r}"
+                f"message_mode must be 'sage' or 'edgeconv', got {self.message_mode!r}"
             )
         n_points = points.shape[0]
         m = min(self.num_graph_nodes, n_points)

@@ -8,6 +8,7 @@ from typing import Any
 
 import jax.numpy as jnp
 
+
 @dataclass(frozen=True)
 class ObservationFrame:
     """Raw observation returned by environment wrappers.

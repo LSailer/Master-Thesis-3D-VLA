@@ -8,7 +8,8 @@ raises *before* any job is submitted.
 
 The schema is intentionally job-family-agnostic. A config supplies a ``script``
 entrypoint plus a free-form ``args`` mapping; the renderer turns each ``args``
-entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted).
+entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted),
+except booleans, which render as a bare ``--flag`` (true) or not at all (false).
 Optional ``env``/``setup``/``curriculum_check`` blocks cover env vars, pre-run
 hooks, and the curriculum-generation guard used by the habitat training jobs.
 """
@@ -30,6 +31,11 @@ CONFIG_DIR = ROOT / "scripts" / "slurm" / "configs"
 
 Mode = Literal["prod", "smoke"]
 
+# Exactly the YAML leaf types an ``args`` entry may hold: what the renderer can
+# turn into a flag. Everything else (dict, list, and the other things a YAML
+# scalar can load as, such as null or a date) is rejected by ``_validate_args``.
+Scalar = str | int | float | bool
+
 
 class SbatchConfig(BaseModel):
     """#SBATCH resource directives shared by all modes."""
@@ -44,6 +50,45 @@ class SbatchConfig(BaseModel):
     time: str
 
 
+def _validate_args(value: dict[str, object], *, prefix: str) -> dict[str, Scalar]:
+    """Reject args entries the renderer cannot turn into a well-formed flag.
+
+    Applied to every mapping that feeds the rendered command - both the
+    top-level ``args`` and ``smoke.args``, which is merged onto it in smoke
+    mode - so the same config is accepted or rejected regardless of the mode
+    it would be submitted in.
+
+    Args:
+      value: Raw ``args`` mapping straight off the YAML loader, so its values
+        are still unproven.
+      prefix: Path used in error messages, e.g. ``args`` or ``smoke.args``.
+
+    Returns:
+      The same mapping, with every value proven to be a ``Scalar``.
+
+    Raises:
+      ValueError: If a value is not a scalar, or is a quoted boolean string.
+    """
+
+    validated: dict[str, Scalar] = {}
+    for key, item in value.items():
+        if not isinstance(item, (str, int, float, bool)):
+            raise ValueError(
+                f"{prefix}.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
+            )
+        # A quoted boolean is a string, so it would render as the pair
+        # `--flag false` instead of the bare switch a real bool renders as,
+        # and what that pair means depends on how the target parser declares
+        # the flag. Reject it outright and ask for the unquoted YAML boolean.
+        if isinstance(item, str) and item.lower() in ("true", "false"):
+            raise ValueError(
+                f"{prefix}.{key} is the quoted string {item!r}, not a boolean; "
+                f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
+            )
+        validated[key] = item
+    return validated
+
+
 class SmokeConfig(BaseModel):
     """Mode-specific overrides for short dev-cluster smoke submissions."""
 
@@ -54,6 +99,11 @@ class SmokeConfig(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     assert_file: str | None = None  # path under the run dir the smoke must produce
     assert_min_rows: int | None = None  # minimum `wc -l` for assert_file (if a table)
+
+    @field_validator("args")
+    @classmethod
+    def _args_scalar(cls, value: dict[str, object]) -> dict[str, Scalar]:
+        return _validate_args(value, prefix="smoke.args")
 
 
 class LaunchConfig(BaseModel):
@@ -90,13 +140,8 @@ class LaunchConfig(BaseModel):
 
     @field_validator("args")
     @classmethod
-    def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
-        for key, item in value.items():
-            if isinstance(item, (dict, list)):
-                raise ValueError(
-                    f"args.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
-                )
-        return value
+    def _args_scalar(cls, value: dict[str, object]) -> dict[str, Scalar]:
+        return _validate_args(value, prefix="args")
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -179,11 +224,31 @@ def _needs_quote(value: str) -> bool:
     return value == "" or any(ch in value for ch in " \t$,")
 
 
-def _format_arg(name: str, value: Any, arg_style: str) -> str:
+def _format_arg(name: str, value: Scalar, arg_style: str) -> str | None:
+    """Render one ``args`` entry as an indented command-line continuation.
+
+    Booleans are rendered as switches rather than as ``--flag value`` pairs:
+    ``True`` emits the bare flag, ``False`` emits nothing at all. Every other
+    value keeps the ``--flag value`` form, quoted when shell-significant.
+
+    Args:
+      name: The YAML ``args`` key.
+      value: The YAML value; ``bool`` is special-cased, anything else is
+        stringified.
+      arg_style: ``"underscore"`` or ``"hyphen"`` flag spelling.
+
+    Returns:
+      The rendered line, or ``None`` when the entry contributes no line
+      (a boolean that is ``False``).
+    """
+
+    flag = _flag(name, arg_style)
+    if isinstance(value, bool):
+        return f"    {flag}" if value else None
     rendered = str(value)
     if _needs_quote(rendered):
         rendered = f'"{rendered}"'
-    return f"    {_flag(name, arg_style)} {rendered}"
+    return f"    {flag} {rendered}"
 
 
 def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
@@ -283,7 +348,11 @@ def render_sbatch(
 
     python_cmd = _python_cmd(config, mode)
     entrypoint = config.script if config.run_id is None else f"{config.script} {config.run_id}"
-    arg_lines = [_format_arg(name, value, config.arg_style) for name, value in args.items()]
+    arg_lines = [
+        line
+        for name, value in args.items()
+        if (line := _format_arg(name, value, config.arg_style)) is not None
+    ]
     if arg_lines:
         lines.append(f"{python_cmd} {entrypoint} \\")
         lines.extend(f"{line} \\" for line in arg_lines[:-1])
