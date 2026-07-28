@@ -55,7 +55,9 @@ class Env(Protocol):
 # Called at episode end with the final observation and episode aggregates. The
 # env (if needed) is bound by the callable itself (e.g. HabitatEpisodeMetrics),
 # so it is not passed here.
-EpisodeMetricsFn = Callable[[ObservationFrame, float, int, np.ndarray], dict[str, Any]]
+EpisodeMetricsFn = Callable[
+    [ObservationFrame, float, int, np.ndarray], dict[str, Any]
+]
 
 
 @dataclass(frozen=True)

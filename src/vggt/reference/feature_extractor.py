@@ -218,12 +218,9 @@ class VGGTFeatureExtractor:
         # --- prepare input tensor -------------------------------------------
         # uint8 HWC → CHW float32 [0, 1], add batch dim → (1, 3, 518, 518).
         # The observation contract is HWC; torch model internals stay CHW.
-        img = (
-            torch.from_numpy(np.ascontiguousarray(rgb)).to(
-                dtype=torch.float32, device=self.device
-            )
-            / 255.0
-        )
+        img = torch.from_numpy(np.ascontiguousarray(rgb)).to(
+            dtype=torch.float32, device=self.device
+        ) / 255.0
         if img.dim() == 3:
             img = img.permute(2, 0, 1).unsqueeze(0)  # (1, C, H, W)
 
@@ -291,13 +288,9 @@ class VGGTFeatureExtractor:
                 pts_chw, (_PATCH_GRID, _PATCH_GRID)
             )  # (1, 3, 37, 37)
             world_points = pts_down.permute(0, 2, 3, 1).squeeze(0)  # (37, 37, 3)
-            confidence = (
-                F.adaptive_avg_pool2d(
-                    conf.unsqueeze(1).float(), (_PATCH_GRID, _PATCH_GRID)
-                )
-                .squeeze(1)
-                .squeeze(0)
-            )  # (37, 37)
+            confidence = F.adaptive_avg_pool2d(
+                conf.unsqueeze(1).float(), (_PATCH_GRID, _PATCH_GRID)
+            ).squeeze(1).squeeze(0)  # (37, 37)
 
         # --- to numpy --------------------------------------------------------
         world_points_np = world_points.cpu().float().numpy()

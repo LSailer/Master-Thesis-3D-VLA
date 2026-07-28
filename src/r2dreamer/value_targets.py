@@ -28,7 +28,10 @@ def lambda_return(inputs: LambdaReturnInputs):
     """
     live = (1.0 - inputs.term)[..., 1:, :] * inputs.disc
     cont = (1.0 - inputs.last)[..., 1:, :] * inputs.lamb
-    interm = inputs.reward[..., 1:, :] + (1.0 - cont) * live * inputs.boot[..., 1:, :]
+    interm = (
+        inputs.reward[..., 1:, :]
+        + (1.0 - cont) * live * inputs.boot[..., 1:, :]
+    )
     time_minus_one = live.shape[-2]
 
     def _scan_fn(carry, i):

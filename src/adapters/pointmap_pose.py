@@ -60,7 +60,9 @@ class PointMapPoseAdapter:
             [world_points.reshape(-1), jnp.ravel(features.camera_pose)]
         ).astype(jnp.float32)
         fields = [
-            AdapterField(key="wp_cp", encoder=Encoder.MLP, buffer=True, value=wp_cp)
+            AdapterField(
+                key="wp_cp", encoder=Encoder.MLP, buffer=True, value=wp_cp
+            )
         ]
         if self.WITH_RGB:
             fields.append(

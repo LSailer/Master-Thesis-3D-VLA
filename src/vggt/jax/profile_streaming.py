@@ -170,7 +170,9 @@ def run(n_frames: int, dtype_name: str, trace_dir: Path | None) -> None:
         )
 
     # Aggregate.
-    print(f"\nPer-phase wall time (ms), n={n_frames} frames, dtype={dtype_name}")
+    print(
+        f"\nPer-phase wall time (ms), n={n_frames} frames, dtype={dtype_name}"
+    )
     print("-" * 78)
     print(
         f"{'phase':<18} {'mean':>10} {'median':>10} {'std':>10} {'min':>10} {'max':>10} {'%':>6}"

@@ -212,7 +212,9 @@ class RoutedCompositeEncoder(nn.Module):
                 compute_dtype=self.transformer_compute_dtype,
                 name=f"transformer_{key}",
             )
-        raise NotImplementedError(f"no routed branch for {encoder} (field {key!r}) yet")
+        raise NotImplementedError(
+            f"no routed branch for {encoder} (field {key!r}) yet"
+        )
 
     @nn.compact
     def __call__(self, obs: Mapping[str, jnp.ndarray]) -> jnp.ndarray:
@@ -247,9 +249,7 @@ class RoutedCompositeEncoder(nn.Module):
         if len(self.routes) > 1:
             out = nn.Dense(
                 self.fusion_dim,
-                dtype=self.compute_dtype
-                if self.compute_dtype is not None
-                else jnp.float32,
+                dtype=self.compute_dtype if self.compute_dtype is not None else jnp.float32,
                 name="fusion",
             )(out)
         return out

@@ -492,9 +492,7 @@ class JAXVGGTFeatureExtractor:
         # Frame 0: padded cache with valid_len=0 on every block.
         past0 = [self._new_padded_cache_entry() for _ in range(self._agg_depth)]
         last0 = jnp.zeros((self._agg_depth,), dtype=jnp.float32)
-        bud0 = self._compute_static_budgets(
-            jnp.zeros(self._agg_depth, dtype=jnp.float32)
-        )
+        bud0 = self._compute_static_budgets(jnp.zeros(self._agg_depth, dtype=jnp.float32))
         out0 = self._aggregator_apply(
             self._agg_params,
             dummy,
@@ -585,9 +583,7 @@ class JAXVGGTFeatureExtractor:
             return entry
         keys, values = entry
         batch, num_heads, seq_len, head_dim = keys.shape
-        k_pad = jnp.zeros(
-            (batch, num_heads, self._cache_max, head_dim), dtype=keys.dtype
-        )
+        k_pad = jnp.zeros((batch, num_heads, self._cache_max, head_dim), dtype=keys.dtype)
         v_pad = jnp.zeros(
             (batch, num_heads, self._cache_max, head_dim), dtype=values.dtype
         )
@@ -618,15 +614,11 @@ class JAXVGGTFeatureExtractor:
         """
         return AggregatorCacheSnapshot(
             past_kvs_padded=(
-                tuple(self._past_kvs_padded)
-                if self._past_kvs_padded is not None
-                else None
+                tuple(self._past_kvs_padded) if self._past_kvs_padded is not None else None
             ),
             last_scores=self._last_scores,
             past_kvs_camera=(
-                tuple(self._past_kvs_camera)
-                if self._past_kvs_camera is not None
-                else None
+                tuple(self._past_kvs_camera) if self._past_kvs_camera is not None else None
             ),
             frame_idx=self._frame_idx,
         )
@@ -640,15 +632,11 @@ class JAXVGGTFeatureExtractor:
         padded cache shapes will not match the compiled apply functions.
         """
         self._past_kvs_padded = (
-            list(snapshot.past_kvs_padded)
-            if snapshot.past_kvs_padded is not None
-            else None
+            list(snapshot.past_kvs_padded) if snapshot.past_kvs_padded is not None else None
         )
         self._last_scores = snapshot.last_scores
         self._past_kvs_camera = (
-            list(snapshot.past_kvs_camera)
-            if snapshot.past_kvs_camera is not None
-            else None
+            list(snapshot.past_kvs_camera) if snapshot.past_kvs_camera is not None else None
         )
         self._frame_idx = snapshot.frame_idx
 
@@ -704,7 +692,9 @@ class JAXVGGTFeatureExtractor:
                 # one. The reset lives here (not in the trainer's
                 # ``on_episode_reset`` callback) because only the frame carries
                 # the incoming ``scene_id`` the restore needs.
-                self.reset_for_scene(getattr(source, "scene_id", None) or "scene")
+                self.reset_for_scene(
+                    getattr(source, "scene_id", None) or "scene"
+                )
             return source.image
         return source
 

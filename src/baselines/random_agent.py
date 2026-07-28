@@ -182,9 +182,7 @@ def _run_episode(
         obs = agent.act()
         action = obs.previous_action
         if action is None:
-            raise RuntimeError(
-                "random-agent step observation is missing previous_action"
-            )
+            raise RuntimeError("random-agent step observation is missing previous_action")
         action_counts[action] += 1
         total_reward += obs.reward
         steps += 1

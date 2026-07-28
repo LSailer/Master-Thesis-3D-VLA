@@ -203,11 +203,9 @@ def _probe_round(
         jnp.arange(frame.active.shape[0], dtype=jnp.int32),
         inactive_order,
     )
-    winner_by_slot = (
-        jnp.full((config.hash_table_size,), inactive_order, dtype=jnp.int32)
-        .at[slots]
-        .min(contender_order)
-    )
+    winner_by_slot = jnp.full(
+        (config.hash_table_size,), inactive_order, dtype=jnp.int32
+    ).at[slots].min(contender_order)
     wins = empty_candidate & (winner_by_slot[slots] == contender_order)
     voxel_state = _store_winning_voxels(
         loop_state.voxel_state,
@@ -279,7 +277,9 @@ def _add_frame_to_state(
     confidence = jnp.asarray(frame.confidence, dtype=jnp.float32)
     finite_xyz, voxel_keys = _quantize_points(flat_xyz, config.voxel_size_m)
     valid = (
-        finite_xyz & jnp.isfinite(confidence) & (confidence >= config.confidence_score)
+        finite_xyz
+        & jnp.isfinite(confidence)
+        & (confidence >= config.confidence_score)
     )
     unique = _unique_frame_voxels(flat_xyz, flat_rgb, valid, voxel_keys)
     return _insert_unique_voxels(state, unique, config)
@@ -464,9 +464,7 @@ class HouseContextPoseBuffer:
         xyz = seed[:, : self.XYZ_CHANNELS]
         rgb01 = jnp.clip(seed[:, self.XYZ_CHANNELS :], 0.0, 1.0)
         rgb = jnp.rint(rgb01 * 255.0).astype(jnp.uint8)
-        confidence = jnp.full(
-            (seed.shape[0],), self.confidence_score, dtype=jnp.float32
-        )
+        confidence = jnp.full((seed.shape[0],), self.confidence_score, dtype=jnp.float32)
         frame = _FlattenedFrame(xyz=xyz, rgb=rgb, confidence=confidence)
         self._state = _add_frame_to_state(self._state, frame, self._config)
 
@@ -559,3 +557,4 @@ class HouseContextPoseBuffer:
         safe_chars = [char if char.isalnum() or char in "._-" else "_" for char in name]
         safe_name = "".join(safe_chars).strip("._")
         return safe_name or "scene"
+
