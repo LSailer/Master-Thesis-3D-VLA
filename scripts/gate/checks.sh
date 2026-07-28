@@ -7,8 +7,9 @@ set -uo pipefail
 # Writes a per-stage summary to .gate/last-results.md (consumed by gate.sh
 # for the PR body) and full stage logs to output/gate/<stage>.log.
 #
-# basedpyright is pinned: the baseline in .basedpyright/baseline.json is only
-# stable against the version that wrote it.
+# basedpyright is pinned: the ratchet counts in
+# scripts/gate/basedpyright-baseline.json are only stable against the
+# version that produced them.
 
 BASEDPYRIGHT_VERSION=1.39.9
 
@@ -40,12 +41,18 @@ run_stage() {
 }
 
 typecheck() {
-    uvx "basedpyright@$BASEDPYRIGHT_VERSION"
+    # `|| true`: basedpyright exits 1 while the baselined findings exist;
+    # the ratchet is the authority on pass/fail.
+    (uvx "basedpyright@$BASEDPYRIGHT_VERSION" --outputjson || true) \
+        | uv run --no-sync python scripts/gate/ratchet.py \
+            --format basedpyright \
+            --baseline scripts/gate/basedpyright-baseline.json
 }
 
 lint() {
     uv run --no-sync python -m pylint src -f json --exit-zero \
-        | uv run --no-sync python scripts/gate/pylint_ratchet.py \
+        | uv run --no-sync python scripts/gate/ratchet.py \
+            --format pylint \
             --baseline scripts/gate/pylint-baseline.json
 }
 
