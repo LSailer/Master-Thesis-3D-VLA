@@ -2,7 +2,7 @@ extends: hybrid_hpp_prodshape_probe
 job_name: vggt-hybrid-hpp-bf16-prodshape-probe
 output_dir: output/probes/step-time-opt/hybrid-bf16-prodshape
 comments:
-  - "Step-time optimization pipeline-full-bf16 probe: identical to hybrid_hpp_prodshape_probe except full_bf16=true — the whole JAX model (CNN backbone, house/pose MLPs, RSSM, heads) computes in bfloat16 with float32 master params and float32-pinned logits. Probe-vs-probe partner of the control; see .scratch/optimize-step-time/fvwuoux3.md."
+  - "Step-time optimization pipeline-full-bf16 probe: identical to hybrid_hpp_prodshape_probe except full_bf16=true - the whole JAX model (CNN backbone, house/pose MLPs, RSSM, heads) computes in bfloat16 with float32 master params and float32-pinned logits. Probe-vs-probe partner of the control; see .scratch/optimize-step-time/fvwuoux3.md."
 args:
   full_bf16: true
   output_dir: output/probes/step-time-opt/hybrid-bf16-prodshape/run-${SLURM_JOB_ID}

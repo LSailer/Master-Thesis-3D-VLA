@@ -1,6 +1,0 @@
-extends: _profiling_base
-job_name: profile-encoder-cost
-output_dir: output/profiling/encoder-cost
-script: scripts/profiling/profile_encoders_3d5253.py
-comments:
-  - "Profile VGGT extraction, train_step, and encoder forward costs for WP/CP vs dense WP."

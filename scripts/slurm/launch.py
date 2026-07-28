@@ -8,10 +8,16 @@ raises *before* any job is submitted.
 
 The schema is intentionally job-family-agnostic. A config supplies a ``script``
 entrypoint plus a free-form ``args`` mapping; the renderer turns each ``args``
-entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted),
-except booleans, which render as a bare ``--flag`` (true) or not at all (false).
-Optional ``env``/``setup``/``curriculum_check`` blocks cover env vars, pre-run
-hooks, and the curriculum-generation guard used by the habitat training jobs.
+entry into a ``--flag value`` line (auto-quoted), except booleans, which render
+as a bare ``--flag`` (true) or not at all (false). Optional
+``env``/``setup``/``curriculum_check`` blocks cover env vars, pre-run hooks, and
+the curriculum-generation guard used by the habitat training jobs.
+
+Every training config points ``script`` at ``-m src.main`` and selects its arm
+through ordinary flags (``env``/``adapter``/``curriculum`` in ``args``). The
+``-m`` lives in the ``script`` string rather than in a field of its own: the
+renderer only ever splices ``script`` between the interpreter and the flags, so
+a module target needs no schema of its own.
 """
 
 from __future__ import annotations
@@ -35,6 +41,13 @@ Mode = Literal["prod", "smoke"]
 # turn into a flag. Everything else (dict, list, and the other things a YAML
 # scalar can load as, such as null or a date) is rejected by ``_validate_args``.
 Scalar = str | int | float | bool
+
+# Strings a reader takes for a boolean but the YAML 1.2 core schema (ruamel's
+# ``typ="safe"``) loads as plain text. ``true``/``false`` because they were
+# quoted; the YAML 1.1 spellings because ruamel no longer resolves them at all.
+# Each would render as a ``--flag <word>`` pair instead of the bare switch a
+# real bool renders as, so they are rejected by name rather than guessed at.
+BOOLEAN_LOOKING_STRINGS = ("true", "false", "yes", "no", "on", "off")
 
 
 class SbatchConfig(BaseModel):
@@ -67,7 +80,7 @@ def _validate_args(value: dict[str, object], *, prefix: str) -> dict[str, Scalar
       The same mapping, with every value proven to be a ``Scalar``.
 
     Raises:
-      ValueError: If a value is not a scalar, or is a quoted boolean string.
+      ValueError: If a value is not a scalar, or is a boolean-looking string.
     """
 
     validated: dict[str, Scalar] = {}
@@ -76,14 +89,15 @@ def _validate_args(value: dict[str, object], *, prefix: str) -> dict[str, Scalar
             raise ValueError(
                 f"{prefix}.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
             )
-        # A quoted boolean is a string, so it would render as the pair
-        # `--flag false` instead of the bare switch a real bool renders as,
-        # and what that pair means depends on how the target parser declares
-        # the flag. Reject it outright and ask for the unquoted YAML boolean.
-        if isinstance(item, str) and item.lower() in ("true", "false"):
+        # A boolean-looking string would render as the pair `--flag false`
+        # instead of the bare switch a real bool renders as, and what that pair
+        # means depends on how the target parser declares the flag. Reject it
+        # outright and ask for a canonical unquoted YAML boolean.
+        if isinstance(item, str) and item.lower() in BOOLEAN_LOOKING_STRINGS:
+            intent = "true" if item.lower() in ("true", "yes", "on") else "false"
             raise ValueError(
-                f"{prefix}.{key} is the quoted string {item!r}, not a boolean; "
-                f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
+                f"{prefix}.{key} is the string {item!r}, not a boolean; "
+                f"write `{key}: {intent}` unquoted so it renders as a flag"
             )
         validated[key] = item
     return validated
@@ -113,16 +127,9 @@ class LaunchConfig(BaseModel):
 
     job_name: str
     output_dir: str  # directory for #SBATCH logs (the run dir lives in args)
-    script: str  # repo-relative python entrypoint
+    script: str  # repo-relative python entrypoint, or ``-m <module>``
     sbatch: SbatchConfig
 
-    # Optional leading positional for a dispatcher entrypoint (e.g. run.py's
-    # run id). Rendered as ``<python> <script> <run_id> <flags>``; when unset
-    # the command is just ``<python> <script> <flags>`` as before.
-    run_id: str | None = None
-    python: str = "uv run python"  # interpreter prefix (e.g. ".venv/bin/python")
-    arg_style: Literal["underscore", "hyphen"] = "underscore"
-    strict_bash: bool = False  # emit `set -euo pipefail` in prod too (always on for smoke)
     curriculum_check: str | None = None  # json path; emits a generate-if-missing guard
 
     args: dict[str, Any] = Field(default_factory=dict)
@@ -212,19 +219,13 @@ def _resolve_mode(config: LaunchConfig, mode: Mode) -> tuple[SbatchConfig, dict[
     return sbatch, args
 
 
-def _flag(name: str, arg_style: str) -> str:
-    if arg_style == "hyphen":
-        name = name.replace("_", "-")
-    return f"--{name}"
-
-
 def _needs_quote(value: str) -> bool:
     """Quote shell-significant values (matches the hand-written sbatch convention)."""
 
     return value == "" or any(ch in value for ch in " \t$,")
 
 
-def _format_arg(name: str, value: Scalar, arg_style: str) -> str | None:
+def _format_arg(name: str, value: Scalar) -> str | None:
     """Render one ``args`` entry as an indented command-line continuation.
 
     Booleans are rendered as switches rather than as ``--flag value`` pairs:
@@ -232,17 +233,16 @@ def _format_arg(name: str, value: Scalar, arg_style: str) -> str | None:
     value keeps the ``--flag value`` form, quoted when shell-significant.
 
     Args:
-      name: The YAML ``args`` key.
+      name: The YAML ``args`` key, rendered verbatim as ``--<key>``.
       value: The YAML value; ``bool`` is special-cased, anything else is
         stringified.
-      arg_style: ``"underscore"`` or ``"hyphen"`` flag spelling.
 
     Returns:
       The rendered line, or ``None`` when the entry contributes no line
       (a boolean that is ``False``).
     """
 
-    flag = _flag(name, arg_style)
+    flag = f"--{name}"
     if isinstance(value, bool):
         return f"    {flag}" if value else None
     rendered = str(value)
@@ -251,11 +251,10 @@ def _format_arg(name: str, value: Scalar, arg_style: str) -> str | None:
     return f"    {flag} {rendered}"
 
 
-def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
-    # Skip the (slow) dependency resync for the default uv interpreter on smokes.
-    if mode == "smoke" and config.python == "uv run python":
-        return "uv run --no-sync python"
-    return config.python
+def _python_cmd(mode: Mode) -> str:
+    # Skip the (slow) dependency resync on smokes, which run under a 30-minute
+    # partition cap and cannot afford it.
+    return "uv run --no-sync python" if mode == "smoke" else "uv run python"
 
 
 def _run_dir(args: dict[str, Any], config: LaunchConfig) -> str:
@@ -294,10 +293,8 @@ def render_sbatch(
         "",
     ]
 
-    if config.strict_bash or mode == "smoke":
-        lines.extend(["set -euo pipefail", ""])
-
     if mode == "smoke":
+        lines.extend(["set -euo pipefail", ""])
         # A smoke run answers "does the prod configuration start and survive".
         # It can only answer that if it runs in the prod environment, so the
         # single deliberate difference is where W&B logs to. Smoke previously
@@ -346,19 +343,18 @@ def render_sbatch(
 
     lines.extend(f"# {comment}" for comment in config.comments)
 
-    python_cmd = _python_cmd(config, mode)
-    entrypoint = config.script if config.run_id is None else f"{config.script} {config.run_id}"
+    python_cmd = _python_cmd(mode)
     arg_lines = [
         line
         for name, value in args.items()
-        if (line := _format_arg(name, value, config.arg_style)) is not None
+        if (line := _format_arg(name, value)) is not None
     ]
     if arg_lines:
-        lines.append(f"{python_cmd} {entrypoint} \\")
+        lines.append(f"{python_cmd} {config.script} \\")
         lines.extend(f"{line} \\" for line in arg_lines[:-1])
         lines.append(arg_lines[-1])
     else:
-        lines.append(f"{python_cmd} {entrypoint}")
+        lines.append(f"{python_cmd} {config.script}")
 
     if mode == "smoke" and config.smoke.assert_file:
         run_dir = _run_dir(args, config)

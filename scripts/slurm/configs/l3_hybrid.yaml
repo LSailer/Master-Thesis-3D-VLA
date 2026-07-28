@@ -1,13 +1,14 @@
 extends: hybrid_v1
 job_name: r2d-L3-hybrid
 output_dir: output/runs/r2dreamer-curriculum-l3-hybrid
-run_id: habitat-l3-hybrid
 curriculum_check: data/curriculum/level3_10houses_1goal.json
 comments:
   - "L3 rung of the hybrid CNN + points arm: 10 houses x chair only, the scene-generalization axis. Identical to hybrid_v1 except for the curriculum."
   - "The main axis of the comparison: geometry transfers across houses, goal semantics does not, so this is where a 3D prior should show up. l2_hybrid is the paired negative control."
   - "Do not touch encoder width or learning rate here - a second changed knob makes the rung-to-rung comparison unreadable."
 args:
+  adapter: rgb_pointmap_pose
+  curriculum: L3
   output_dir: output/runs/r2dreamer-curriculum-l3-hybrid/run-${SLURM_JOB_ID}
   wandb_name: l3_hybrid_cnn_points-s${SEED}-${SLURM_JOB_ID}
   wandb_tags: curriculum,level3,10houses,chair-only,hybrid,cnn,wp-cp,jax,3d-encoder

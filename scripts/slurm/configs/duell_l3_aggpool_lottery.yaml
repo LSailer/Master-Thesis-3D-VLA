@@ -1,12 +1,13 @@
 extends: l3_aggregator_pooled
 job_name: r2d-L3du-agglo
 output_dir: output/runs/duell-l3-aggpool-lottery
-run_id: habitat-l3-aggregator-pooled-b200k
 env:
   SEED: "42"
 comments:
   - "Duell 2026-07-27 wave 2, aggressive arm: pooled tokens with the KV cache capped at 200k slots (adapter aggregator_pooled_b200k, src/adapters/global_tokens.py) plus the three lottery knobs from the danijar analysis (prefill 1024, train_ratio 256, act_entropy 1e-1). The budget cap cuts the per-step eviction top_k cost; the jianyuan analysis (prototyp/duell-vggt-integration/2026-07-27/agents/jianyuan-wang/NOTES.md) estimates -20 to -30 ms/step at the price of a ~6-frame context window."
 args:
+  adapter: aggregator_pooled_b200k
+  curriculum: L3
   prefill: 1024
   train_ratio: 256
   act_entropy: 0.1

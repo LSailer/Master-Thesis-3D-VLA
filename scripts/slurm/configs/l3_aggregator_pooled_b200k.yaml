@@ -1,7 +1,6 @@
 extends: l3_aggregator_pooled
 job_name: r2d-L3-agg-b200k
 output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-b200k
-run_id: habitat-l3-aggregator-pooled-b200k
 curriculum_check: data/curriculum/level3_10houses_1goal.json
 env:
   SEED: "42"
@@ -9,6 +8,8 @@ comments:
   - "Prod rung of the KV-budget-capped pooled arm: identical to l3_aggregator_pooled except for the adapter name (aggregator_pooled_b200k, total_budget 200k). Since the default flip that adapter is an alias of aggregator_pooled, so the two configs now describe the same run; this one is kept because the finished b200k runs and their wandb ids point at it. All training knobs stay at the prod defaults - prefill 5000, train_ratio 512, act_entropy 3e-2, 2M steps."
   - "Motivation from Duell 2 (prototyp/duell-vggt-integration/2026-07-27-r2/LEDGER.md): the cap took the steady-state step cost from 134.1 to 66.8 ms in the 30-minute arena. The duel's other knobs (prefill 1024, train_ratio 128, act_entropy 0.1) were tuned for that short window and are deliberately not carried over into the 2M-step run."
 args:
+  adapter: aggregator_pooled_b200k
+  curriculum: L3
   output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-b200k/run-${SLURM_JOB_ID}
   wandb_name: l3_aggregator_pooled_b200k-s${SEED}-${SLURM_JOB_ID}
   wandb_tags: curriculum,level3,10houses,chair-only,vggt,aggregator-pooled,pool-on-device,skip-heads,kv-budget-200k,jax,3d-encoder

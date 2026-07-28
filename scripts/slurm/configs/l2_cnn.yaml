@@ -1,18 +1,19 @@
 extends: _base
 job_name: r2d-L2-cnn
 output_dir: output/runs/r2dreamer-curriculum-l2
-run_id: habitat-l2-cnn
 curriculum_check: data/curriculum/level2_1house_6goals.json
 comments:
   - "Level 2 CNN baseline: 1 house x 6 goal categories - the goal-generalization rung between L1 (1 house, chair only) and L3 (10 houses, chair only)"
   - "2D-RGB CNN encoder (64x64) - baseline control for the VGGT 3D-encoder comparison"
   - "2M steps, 24h wall time (matches the L4 arm's step budget)"
-  - "Scalars-only run (video_log_every=0, val_every=0): episode videos and"
+  - "Scalars-only run (video_log_every=0): episode videos and"
   - "held-out eval metrics are regenerated offline from checkpoints, which keeps"
-  - "the two heaviest habitat GL paths out of training. Same reasoning as l4_cnn."
+  - "the heaviest habitat GL path out of training. Same reasoning as l4_cnn."
 sbatch:
   time: "24:00:00"
 args:
+  adapter: rgb
+  curriculum: L2
   # Ladder budget, shared by all five arms. At ~37 ms/step this arm reaches it
   # in ~15 h, well inside the 24 h wall.
   steps: 1500000
@@ -29,4 +30,3 @@ args:
   wandb_name: r2d-L2-cnn-${SLURM_JOB_ID}
   wandb_tags: curriculum,level2,1house,6goals,cnn,baseline,jax,2d-rgb
   video_log_every: 0
-  val_every: 0
