@@ -35,7 +35,10 @@ if [[ "$MODE" == "ship" ]]; then
         echo "gate: refusing to ship from '$BRANCH' - use a feature branch." >&2
         exit 1
     fi
-    if [[ -n "$(git status --porcelain)" ]]; then
+    # Ratchet baselines are exempt: a prior `check` run may have tightened
+    # them, and ship commits that tightening itself after a green run.
+    if [[ -n "$(git status --porcelain \
+        | grep -Ev ' scripts/gate/[a-z]+-baseline\.json$')" ]]; then
         echo "gate: working tree is dirty - commit or stash first." >&2
         exit 1
     fi
