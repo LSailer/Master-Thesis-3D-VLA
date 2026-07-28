@@ -58,9 +58,16 @@ if [[ "$MODE" == "check" ]]; then
     exit "$check_status"
 fi
 
-pr_body() {
+# The PR body belongs to the agent: whoever ships writes the change
+# description to .gate/pr-description.md before `gate.sh ship`. The gate
+# never touches the body; its verdict lives in exactly ONE PR comment
+# (marked with GATE_MARKER) that later runs edit in place.
+GATE_MARKER="<!-- gate-report -->"
+
+gate_report() {
     local verdict=$1
     {
+        echo "$GATE_MARKER"
         echo "## Gate"
         echo
         echo "Verdict: $verdict after $((attempts + 1)) run(s) on \`$BRANCH\`."
@@ -81,37 +88,54 @@ pr_body() {
         else
             echo "No new pylint-disable comments in this branch."
         fi
-    } >.gate/pr-body.md
+    } >.gate/gate-report.md
 }
 
 open_or_update_pr() {
     local draft_flag=$1
-    local title
+    local title pr_number
     title=$(git log -1 --pretty=%s)
-    local existing
-    existing=$(gh pr list --head "$BRANCH" --state open --json number,isDraft \
+    pr_number=$(gh pr list --head "$BRANCH" --state open --json number \
         --jq '.[0].number' 2>/dev/null || true)
-    if [[ -n "$existing" ]]; then
-        gh pr edit "$existing" --body-file .gate/pr-body.md >/dev/null
-        if [[ "$draft_flag" == "ready" ]]; then
-            gh pr ready "$existing" >/dev/null 2>&1 || true
+    if [[ -z "$pr_number" ]]; then
+        local body_args=(--fill)
+        if [[ -f .gate/pr-description.md ]]; then
+            body_args=(--title "$title" --body-file .gate/pr-description.md)
         fi
-        echo "gate: updated PR #$existing"
-    elif [[ "$draft_flag" == "draft" ]]; then
-        gh pr create --draft --title "$title" --body-file .gate/pr-body.md
+        local draft_args=()
+        [[ "$draft_flag" == "draft" ]] && draft_args=(--draft)
+        gh pr create "${draft_args[@]}" "${body_args[@]}"
+        pr_number=$(gh pr list --head "$BRANCH" --state open --json number \
+            --jq '.[0].number')
+    elif [[ "$draft_flag" == "ready" ]]; then
+        gh pr ready "$pr_number" >/dev/null 2>&1 || true
+        echo "gate: PR #$pr_number is ready for review."
+    fi
+
+    # Upsert the single gate comment: edit the marked one if it exists.
+    local repo comment_id
+    repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+    comment_id=$(gh api "repos/$repo/issues/$pr_number/comments" \
+        --jq ".[] | select(.body | startswith(\"$GATE_MARKER\")) | .id" \
+        2>/dev/null | head -n 1)
+    if [[ -n "$comment_id" ]]; then
+        gh api -X PATCH "repos/$repo/issues/comments/$comment_id" \
+            -F body=@.gate/gate-report.md >/dev/null
+        echo "gate: updated gate comment on PR #$pr_number."
     else
-        gh pr create --title "$title" --body-file .gate/pr-body.md
+        gh pr comment "$pr_number" --body-file .gate/gate-report.md >/dev/null
+        echo "gate: posted gate comment on PR #$pr_number."
     fi
 }
 
 if ((check_status == 0)); then
-    # Ratchet may have tightened the pylint baseline during the check.
-    if [[ -n "$(git status --porcelain scripts/gate/pylint-baseline.json)" ]]; then
-        git add scripts/gate/pylint-baseline.json
-        git commit -q -m "chore(gate): tighten pylint baseline"
-        echo "gate: committed tightened pylint baseline."
+    # The ratchets may have tightened their baselines during the check.
+    if [[ -n "$(git status --porcelain scripts/gate/*-baseline.json)" ]]; then
+        git add scripts/gate/*-baseline.json
+        git commit -q -m "chore(gate): tighten ratchet baselines"
+        echo "gate: committed tightened ratchet baselines."
     fi
-    pr_body "GREEN"
+    gate_report "GREEN"
     git push -u origin "$BRANCH"
     open_or_update_pr ready
     rm -f "$COUNTER_FILE"
@@ -132,7 +156,7 @@ fi
 # the findings, then reset the counter - the next pushes face the full gate
 # again.
 echo "gate: RED for the ${MAX_ATTEMPTS}rd time - escalating as DRAFT PR." >&2
-pr_body "ESCALATED (still red after $MAX_ATTEMPTS attempts)"
+gate_report "ESCALATED (still red after $MAX_ATTEMPTS attempts)"
 git push -u origin "$BRANCH"
 open_or_update_pr draft
 rm -f "$COUNTER_FILE"
