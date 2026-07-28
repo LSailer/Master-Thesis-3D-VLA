@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -84,17 +85,23 @@ def _first_declared(chain: list[str], *keys: str) -> Any:
     raise AssertionError(f"no config in {chain} declares {keys}")
 
 
-def _first_launchable() -> str:
-    """Any config that names a run; abstract ``extends`` parents null their run_id."""
+def _first_full_shape() -> str:
+    """The first config carrying both a step budget and a smoke artifact gate.
+
+    Several launcher-behavior tests read ``args["steps"]`` or the smoke pass
+    gate off whichever config they are handed, so the stand-in has to be one
+    that declares them rather than simply the alphabetically first.
+    """
     for name in CONFIGS:
-        if launch.load_config(name).run_id is not None:
+        config = launch.load_config(name)
+        if "steps" in config.args and config.smoke.assert_file:
             return name
-    raise AssertionError(f"no launchable config among {CONFIGS}")
+    raise AssertionError(f"no fully-shaped config among {CONFIGS}")
 
 
 # Stand-in for "some real config" in tests about launcher behavior rather than
 # about one experiment arm.
-ANY_CONFIG = _first_launchable()
+ANY_CONFIG = _first_full_shape()
 
 
 def run_launch(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -108,32 +115,29 @@ def run_launch(*args: str, env: dict[str, str] | None = None) -> subprocess.Comp
     )
 
 
-def training_command(text: str) -> tuple[str, str, str | None, dict[str, str | None]]:
-    """Extract (python_cmd, script, run_id, {flag: value}) from a rendered
-    sbatch's training invocation (the python line followed by `--flag value`
-    continuations).
+# The training invocation head: an unindented interpreter prefix followed by the
+# ``-m <module>`` entrypoint, with or without a line continuation. Anchored at
+# column zero on purpose - the curriculum-check guard runs
+# ``generate_curriculum.py`` from inside an indented ``if`` block, and a config
+# with no args renders its command without a trailing backslash.
+COMMAND_HEAD = re.compile(r"^(?P<python>\S.*python) (?P<script>-m \S+)(?: \\)?$")
 
-    ``run_id`` is the optional leading positional emitted for dispatcher
-    entrypoints (``run.py``), else ``None``. The invocation head is the first
-    unindented, non-comment line naming a ``.py`` script: the curriculum-check
-    ``generate_curriculum.py`` guard sits inside an ``if`` block and is indented,
-    and a config with no args renders its command without a trailing backslash.
+
+def training_command(text: str) -> tuple[str, str, dict[str, str | None]]:
+    """Extract (python_cmd, script, {flag: value}) from a rendered sbatch's
+    training invocation (the python line followed by `--flag value`
+    continuations).
 
     A boolean YAML arg renders as a bare ``--flag`` with no value token; those
     map to ``None`` rather than to the empty string, which stays reserved for an
     explicitly empty value (``--flag ""``)."""
 
     lines = text.splitlines()
-    idx = next(
-        i for i, line in enumerate(lines)
-        if ".py" in line and not line.startswith(("#", " ", "\t"))
+    idx, head = next(
+        (i, match)
+        for i, line in enumerate(lines)
+        if (match := COMMAND_HEAD.match(line))
     )
-    head = lines[idx].strip().rstrip(" \\")
-    tokens = head.split()
-    s = next(j for j, tok in enumerate(tokens) if tok.endswith(".py"))
-    python_cmd = " ".join(tokens[:s])
-    script = tokens[s]
-    run_id = tokens[s + 1] if len(tokens) > s + 1 else None
     flags: dict[str, str | None] = {}
     for line in lines[idx + 1:]:
         stripped = line.strip().rstrip(" \\")
@@ -141,7 +145,7 @@ def training_command(text: str) -> tuple[str, str, str | None, dict[str, str | N
             break
         flag, sep, value = stripped.partition(" ")
         flags[flag] = value.strip().strip('"') if sep else None
-    return python_cmd, script, run_id, flags
+    return head["python"], head["script"], flags
 
 
 # --------------------------------------------------------------------------- #
@@ -168,7 +172,7 @@ def test_every_config_resolves_and_renders_both_modes(name: str) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# s1 — preserved contract                                                      #
+# s1 - preserved contract                                                      #
 # --------------------------------------------------------------------------- #
 
 
@@ -203,8 +207,8 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
     """A config missing a required structural field (job_name) must fail fast,
     before any sbatch process is started.
 
-    (``script`` is now supplied by ``_base`` — the shared run.py dispatcher — so
-    ``job_name`` is the structural field a leaf can still omit.)"""
+    (``script`` is supplied by ``_base`` - the shared ``-m src.main`` entry
+    point - so ``job_name`` is the structural field a leaf can still omit.)"""
 
     broken = CONFIG_DIR / "broken_missing_job_name.yaml"
     broken.write_text(
@@ -233,7 +237,7 @@ def test_missing_required_field_fails_validation_before_sbatch(tmp_path: Path) -
 
 
 # --------------------------------------------------------------------------- #
-# s2 — recursive `extends`                                                     #
+# s2 - recursive `extends`                                                     #
 # --------------------------------------------------------------------------- #
 
 
@@ -299,13 +303,16 @@ def test_sweep_submits_every_variant(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("name", CONFIGS)
-def test_strict_bash_is_opt_in_for_prod_and_always_on_for_smoke(name: str) -> None:
-    config = launch.load_config(name)
+def test_strict_bash_is_smoke_only(name: str) -> None:
+    """Smokes abort on the first failing line; prod runs do not.
 
-    prod = launch.render_sbatch(config, mode="prod")
+    A prod job that loses one setup hook should still reach the training
+    command and fail there, where the run dir and the logs say why.
+    """
+    prod = launch.render_sbatch(launch.load_config(name), mode="prod")
     smoke = launch.render_sbatch(launch.load_config(name), mode="smoke")
 
-    assert ("set -euo pipefail" in prod) is config.strict_bash
+    assert "set -euo pipefail" not in prod
     assert "set -euo pipefail" in smoke
 
 
@@ -338,20 +345,23 @@ def test_setup_hooks_are_rendered_before_the_training_command(name: str) -> None
 
 
 @pytest.mark.parametrize("name", CONFIGS)
-def test_standalone_scripts_keep_their_own_interpreter_and_take_no_run_id(
-    name: str,
-) -> None:
-    """Profiling-style configs run a script directly, with no run id and no --steps."""
-    config = launch.load_config(name)
-    if config.script.endswith("run.py"):
-        pytest.skip(f"{name} uses the run.py dispatcher")
-    rendered = launch.render_sbatch(config, mode="smoke")
-    _python_cmd, script, run_id, flags = training_command(rendered)
+def test_every_config_launches_the_single_entry_point(name: str) -> None:
+    """No config carries a dispatcher positional any more: the arm is a flag.
 
-    assert f"{config.python} {config.script}" in rendered
-    assert script == config.script
-    assert run_id is None
-    assert "--steps" not in flags
+    A leftover positional would be read by ``src.main``'s parser as an unknown
+    argument and kill the job at startup, after the node was allocated.
+    """
+    config = launch.load_config(name)
+    assert config.script == "-m src.main"
+
+    for mode in ("prod", "smoke"):
+        rendered = launch.render_sbatch(launch.load_config(name), mode=mode)
+        _python_cmd, script, flags = training_command(rendered)
+
+        assert script == "-m src.main"
+        assert flags["--env"] == "habitat"
+        assert flags["--adapter"]
+        assert flags["--curriculum"]
 
 
 # --------------------------------------------------------------------------- #
@@ -382,7 +392,7 @@ def test_true_boolean_renders_as_a_bare_flag(mode: str) -> None:
     assert config.args["full_bf16"] is True, "config no longer carries a YAML boolean"
 
     rendered = launch.render_sbatch(config, mode=mode)
-    _python_cmd, _script, _run_id, flags = training_command(rendered)
+    _python_cmd, _script, flags = training_command(rendered)
 
     assert "--full_bf16" in flags
     assert flags["--full_bf16"] is None
@@ -401,66 +411,63 @@ def test_false_boolean_renders_no_line_at_all() -> None:
     with temp_config("bool_false_probe", body) as name:
         rendered = launch.render_sbatch(launch.load_config(name), mode="prod")
 
-    _python_cmd, _script, _run_id, flags = training_command(rendered)
+    _python_cmd, _script, flags = training_command(rendered)
     assert "--full_bf16" not in flags
     assert "full_bf16" not in rendered
     # The remaining args still render, so the omission is surgical.
     assert flags["--steps"] == "2000000"
 
 
-def test_quoted_boolean_string_is_rejected_by_name() -> None:
-    """A YAML-quoted "true" is a string and would render as `--flag true`."""
+# Every spelling a reader takes for a boolean but the loader hands back as a
+# string: the quoted YAML 1.2 booleans, plus the YAML 1.1 words that ruamel's
+# safe loader no longer resolves. Mixed case included, since the guard folds it.
+BOOLEAN_LOOKING_STRINGS = [
+    '"true"', '"false"', '"False"', "yes", "no", "on", "off", "Yes", "OFF",
+]
+
+
+@pytest.mark.parametrize("literal", BOOLEAN_LOOKING_STRINGS)
+def test_boolean_looking_string_is_rejected_by_name(literal: str) -> None:
+    """A string that reads as a boolean would render as a `--flag <word>` pair.
+
+    What that pair means depends on the target parser - a value for a
+    value-taking flag, a stray positional for a ``store_true`` one - so the
+    launcher refuses it instead of guessing, naming the offending key.
+    """
     body = (
         "extends: _base\n"
-        "job_name: bool-quoted-probe\n"
-        "output_dir: output/bool-quoted-probe\n"
-        'args:\n'
-        '  full_bf16: "true"\n'
+        "job_name: bool-string-probe\n"
+        "output_dir: output/bool-string-probe\n"
+        "args:\n"
+        f"  full_bf16: {literal}\n"
     )
     with (
-        temp_config("bool_quoted_probe", body) as name,
-        pytest.raises(ValueError, match="full_bf16") as excinfo,
+        temp_config("bool_string_probe", body) as name,
+        pytest.raises(ValueError, match="args.full_bf16") as excinfo,
     ):
         launch.load_config(name)
 
-    assert "quoted string" in str(excinfo.value)
+    assert "not a boolean" in str(excinfo.value)
 
 
-def test_quoted_boolean_under_smoke_args_is_rejected_too() -> None:
+@pytest.mark.parametrize("literal", BOOLEAN_LOOKING_STRINGS)
+def test_boolean_looking_string_under_smoke_args_is_rejected_too(literal: str) -> None:
     """`smoke.args` is merged into the rendered command, so it validates alike."""
     body = (
         "extends: _base\n"
-        "job_name: bool-smoke-quoted-probe\n"
-        "output_dir: output/bool-smoke-quoted-probe\n"
+        "job_name: bool-smoke-string-probe\n"
+        "output_dir: output/bool-smoke-string-probe\n"
         "smoke:\n"
         "  args:\n"
-        '    full_bf16: "false"\n'
+        f"    full_bf16: {literal}\n"
     )
     with (
-        temp_config("bool_smoke_quoted_probe", body) as name,
+        temp_config("bool_smoke_string_probe", body) as name,
         pytest.raises(ValueError, match="smoke.args.full_bf16") as excinfo,
     ):
         launch.load_config(name)
 
-    assert "quoted string" in str(excinfo.value)
-
-
-def test_quoted_false_string_is_rejected_too() -> None:
-    # The dangerous half: `--flag false` renders as a pair whose meaning depends
-    # on the target parser - a value for a value-taking one, a stray positional
-    # for a store_true one - so it is rejected rather than guessed at.
-    body = (
-        "extends: _base\n"
-        "job_name: bool-quoted-false-probe\n"
-        "output_dir: output/bool-quoted-false-probe\n"
-        'args:\n'
-        '  full_bf16: "False"\n'
-    )
-    with (
-        temp_config("bool_quoted_false_probe", body) as name,
-        pytest.raises(ValueError, match="full_bf16"),
-    ):
-        launch.load_config(name)
+    assert "not a boolean" in str(excinfo.value)
 
 
 def test_valueless_arg_is_rejected_as_a_non_scalar() -> None:
@@ -486,59 +493,62 @@ def test_valueless_arg_is_rejected_as_a_non_scalar() -> None:
     assert "NoneType" in str(excinfo.value)
 
 
-def test_bare_boolean_flag_still_parses_with_the_train_parser() -> None:
-    """The rendered bf16 arm must survive argparse, bare flag included.
+# A rendered value keeps its shell placeholders (`${SEED}`, `${SLURM_JOB_ID}`,
+# `${TIMESTAMP}`) because bash expands them on the node. argparse does not, and
+# `--seed ${SEED}` is not an int, so the drift test substitutes a value that is
+# valid for every flag type the launcher can render.
+SHELL_PLACEHOLDER = re.compile(r"\$\{[^}]+\}")
 
-    The train parser takes ``--full_bf16`` with ``nargs="?"``/``const=True``, so
-    the bare form is already accepted; this pins that the launcher and the CLI
-    agree end to end rather than only on the option spelling.
-    """
-    from src.r2dreamer.launch.parser import _build_parser_train
 
-    rendered = launch.render_sbatch(launch.load_config(BOOL_CONFIG), mode="prod")
-    _python_cmd, _script, _run_id, flags = training_command(rendered)
-
+def rendered_argv(text: str) -> list[str]:
+    """The training command's flags as an argv list argparse can consume."""
+    _python_cmd, _script, flags = training_command(text)
     argv: list[str] = []
     for flag, value in flags.items():
         argv.append(flag)
         if value is not None:
-            argv.append(value)
+            argv.append(SHELL_PLACEHOLDER.sub("1", value))
+    return argv
 
-    args = _build_parser_train().parse_args(argv)
+
+def test_bare_boolean_flag_still_parses_with_the_launch_parser() -> None:
+    """The rendered bf16 arm must survive argparse, bare flag included.
+
+    ``--full_bf16`` is a ``store_true``, so the bare flag the launcher renders
+    for ``full_bf16: true`` is the only form it accepts; this pins that the
+    launcher and the CLI agree end to end rather than only on the spelling.
+    """
+    from src.launch.parser import build_parser
+
+    rendered = launch.render_sbatch(launch.load_config(BOOL_CONFIG), mode="prod")
+
+    args = build_parser().parse_args(rendered_argv(rendered))
     assert args.full_bf16 is True
 
 
-def _train_parser_option_strings() -> set[str]:
-    from src.r2dreamer.launch.parser import _build_parser_train
-
-    return {
-        option
-        for action in _build_parser_train()._actions
-        for option in action.option_strings
-    }
-
-
 @pytest.mark.parametrize("name", CONFIGS)
-def test_every_rendered_flag_is_accepted_by_the_train_parser(name: str) -> None:
-    """A config may only render flags the train CLI still defines.
+def test_every_rendered_command_parses_with_the_launch_parser(name: str) -> None:
+    """Every config, in both modes, must render a command ``src.main`` accepts.
 
-    The launcher passes ``args:`` through verbatim, so a knob deleted from the
-    parser leaves a config that renders fine and then dies at ``argparse`` on the
-    cluster. This is the only place that drift is visible without submitting.
+    The launcher passes ``args:`` through verbatim, so a knob renamed or deleted
+    in the parser leaves a config that renders fine and then dies at argparse on
+    the cluster, after the node was allocated. Parsing the rendered argv (rather
+    than comparing option-string sets) also catches a wrong value type or an
+    out-of-range choice, which is the other half of the same drift.
     """
-    config = launch.load_config(name)
-    if not config.script.endswith("run.py"):
-        pytest.skip(f"{name} runs a standalone script with its own flags")
-    known = _train_parser_option_strings()
+    from src.launch.parser import build_parser
 
     for mode in ("prod", "smoke"):
-        _sbatch, args = launch._resolve_mode(launch.load_config(name), mode)
-        unknown = sorted(
-            launch._flag(key, config.arg_style)
-            for key in args
-            if launch._flag(key, config.arg_style) not in known
-        )
-        assert not unknown, f"{name} ({mode}) renders unknown train flags: {unknown}"
+        rendered = launch.render_sbatch(launch.load_config(name), mode=mode)
+        argv = rendered_argv(rendered)
+        try:
+            parsed = build_parser().parse_args(argv)
+        except SystemExit as exc:  # argparse exits on an unknown or bad flag
+            raise AssertionError(
+                f"{name} ({mode}) renders a command src.main rejects: {argv}"
+            ) from exc
+
+        assert parsed.mode == "train"  # no config overrides the parser default
 
 
 def test_rendered_sbatch_logs_gpu_memory_csv() -> None:
@@ -620,9 +630,10 @@ def test_launch_wrapper_time_override_uses_default_prod_mode() -> None:
 
 def test_full_tokens_smoke_run_shape() -> None:
     rendered = launch.render_sbatch(launch.load_config("full_tokens_l1"), mode="smoke")
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-full-tokens"
+    assert flags["--adapter"] == "rgb_full_tokens"
+    assert flags["--curriculum"] == "L1"
     assert "#SBATCH --job-name=smoke-rgb-full-tokens-l1" in rendered
     assert flags["--output_dir"] == "output/smoke/rgb-full-tokens-${TIMESTAMP}"
     assert flags["--wandb_name"] == "rgb-full-tokens-smoke-${TIMESTAMP}"
@@ -634,9 +645,10 @@ def test_full_tokens_smoke_run_shape() -> None:
 
 def test_global_tokens_smoke_run_shape() -> None:
     rendered = launch.render_sbatch(launch.load_config("global_tokens_l1"), mode="smoke")
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-vggt-house-global-tokens-nogate"
+    assert flags["--adapter"] == "rgb_global_tokens"
+    assert flags["--curriculum"] == "L1"
     assert "#SBATCH --job-name=smoke-rgb-global-tokens-l1" in rendered
     assert flags["--output_dir"] == "output/smoke/rgb-global-tokens-${TIMESTAMP}"
     assert flags["--buffer_capacity"] == "1000"
@@ -645,11 +657,12 @@ def test_global_tokens_smoke_run_shape() -> None:
 
 def test_aggregator_pooled_prod_args() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_pooled_l1"), mode="prod")
-    python_cmd, script, run_id, flags = training_command(rendered)
+    python_cmd, script, flags = training_command(rendered)
 
     assert python_cmd == "uv run python"
-    assert script.endswith("run.py")
-    assert run_id == "habitat-l1-aggregator-pooled"
+    assert script == "-m src.main"
+    assert flags["--adapter"] == "aggregator_pooled"
+    assert flags["--curriculum"] == "L1"
     assert flags["--steps"] == "1500000"
     assert flags["--prefill"] == "5000"
     assert flags["--checkpoint_every"] == "100000"
@@ -660,7 +673,7 @@ def test_aggregator_pooled_prod_args() -> None:
 
 def test_aggregator_pooled_smoke_overrides() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_pooled_l1"), mode="smoke")
-    python_cmd, _, _, flags = training_command(rendered)
+    python_cmd, _, flags = training_command(rendered)
 
     # Smokes skip the slow uv dependency resync.
     assert python_cmd == "uv run --no-sync python"
@@ -677,9 +690,9 @@ def test_house_context_long_smoke_runs_past_warmup_with_buffer() -> None:
     rendered = launch.render_sbatch(
         launch.load_config("house_context_l1_long_smoke"), mode="smoke",
     )
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-vggt-house-context"
+    assert flags["--adapter"] == "rgb_house_cloud_episodes"
     assert "#SBATCH --job-name=smoke-vggt-house-context-l1-long-smoke" in rendered
     assert "#SBATCH --partition=gpu_h100_short" in rendered
     assert "#SBATCH --time=00:30:00" in rendered
@@ -703,9 +716,9 @@ def test_gnn_smoke_config_renders_stability_gate() -> None:
     rendered = launch.render_sbatch(
         launch.load_config("gnn_house_points_pose_l1_live"), mode="smoke",
     )
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-gnn-house-points-pose"
+    assert flags["--adapter"] == "rgb_house_voxels_gnn"
     assert flags["--steps"] == "4500"
     assert flags["--prefill"] == "1000"
     assert "#SBATCH --partition=gpu_h100_short" in rendered
@@ -719,9 +732,9 @@ def test_gnn_plydump_smoke_keeps_the_parent_shape_under_its_own_name() -> None:
     rendered = launch.render_sbatch(
         launch.load_config("gnn_house_points_pose_l1_live_plydump"), mode="smoke",
     )
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-gnn-house-points-pose"
+    assert flags["--adapter"] == "rgb_house_voxels_gnn"
     assert "#SBATCH --job-name=smoke-gnn-house-points-pose-l1-live-plydump" in rendered
     assert flags["--steps"] == "4500"
     assert "gnn-house-points-pose-live-plydump" in flags["--output_dir"]
@@ -730,13 +743,13 @@ def test_gnn_plydump_smoke_keeps_the_parent_shape_under_its_own_name() -> None:
 
 def test_hybrid_house_points_smoke_config_inherits_parent_shape() -> None:
     # The additive-hybrid variant reuses the parent's validated smoke shape
-    # (1000 prefill + 2000 train) and maps to its own run_id/output tree.
+    # (1000 prefill + 2000 train) and names its own adapter and output tree.
     rendered = launch.render_sbatch(
         launch.load_config("hybrid_house_points_pose_l1_live"), mode="smoke"
     )
-    _, _, run_id, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
-    assert run_id == "habitat-l1-vggt-hybrid-house-points-pose"
+    assert flags["--adapter"] == "rgb_house_voxels"
     assert flags["--steps"] == "2000"
     assert flags["--prefill"] == "1000"
     assert "vggt-hybrid-house-points-pose-live" in flags["--output_dir"]
@@ -765,17 +778,16 @@ DTYPE_PROBE_CONFIGS = _configs_tagged("dtype-plumbing-noop")
 def test_l1_replay_capacity_ablation_configs(variant: str) -> None:
     config = launch.load_config(variant)
     rendered = launch.render_sbatch(config, mode="prod")
-    _, script, run_id, flags = training_command(rendered)
+    _, script, flags = training_command(rendered)
 
-    assert script.endswith("run.py")
-    assert run_id == config.run_id
+    assert script == "-m src.main"
+    assert flags["--adapter"] == config.args["adapter"]
     # The ablation varies capacity only: the seed and the scalars-only logging
     # shape are shared, or the success-rate comparison is not apples to apples.
     assert flags["--seed"] == "42"
     assert flags["--buffer_capacity"] == str(config.args["buffer_capacity"])
     assert "3d-63" in flags["--wandb_tags"]
     assert flags["--video_log_every"] == "0"
-    assert flags["--val_every"] == "0"
 
 
 def test_replay_capacity_ablation_covers_more_than_one_capacity() -> None:
@@ -788,7 +800,7 @@ def test_replay_capacity_ablation_covers_more_than_one_capacity() -> None:
 
 def test_capacity_override_does_not_drag_batch_defaults_along() -> None:
     rendered = launch.render_sbatch(launch.load_config("l1_cnn_cap10k"), mode="prod")
-    _, _, _, flags = training_command(rendered)
+    _, _, flags = training_command(rendered)
 
     assert flags["--buffer_capacity"] == "10000"
     assert "--batch_size" not in flags
@@ -800,10 +812,10 @@ def test_capacity_override_does_not_drag_batch_defaults_along() -> None:
 def test_3d87_probe_configs_render_expected_flags_paths_and_tags(variant: str) -> None:
     config = launch.load_config(variant)
     rendered = launch.render_sbatch(config, mode="prod")
-    _, script, run_id, flags = training_command(rendered)
+    _, script, flags = training_command(rendered)
 
-    assert script.endswith("run.py")
-    assert run_id == config.run_id
+    assert script == "-m src.main"
+    assert flags["--adapter"] == config.args["adapter"]
     assert flags["--steps"] == "50000"
     assert flags["--prefill"] == "5000"
     assert flags["--checkpoint_every"] == "1000000"
@@ -811,7 +823,6 @@ def test_3d87_probe_configs_render_expected_flags_paths_and_tags(variant: str) -
     assert flags["--seed"] == "42"
     assert flags["--wandb_name"] == config.args["wandb_name"]
     assert flags["--video_log_every"] == "0"
-    assert flags["--val_every"] == "0"
     # The probe family exists to compare dtypes, so each arm must name one.
     assert flags["--compute_dtype"] == config.args["compute_dtype"]
     for fragment in ("3d-87", "seed-42"):

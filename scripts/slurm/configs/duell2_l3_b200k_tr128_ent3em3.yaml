@@ -1,12 +1,13 @@
 extends: l3_aggregator_pooled
 job_name: r2d-L3d2-ent3
 output_dir: output/runs/duell2-l3-b200k-tr128-ent3em3
-run_id: habitat-l3-aggregator-pooled-b200k
 env:
   SEED: "42"
 comments:
   - "Duell 2 (2026-07-27-r2) finale Welle: wie duell2_l3_b200k_tr128_ent3em4, aber act_entropy 3e-3 als konservative Klammer zwischen Repo-Default 3e-2 und DreamerV3-Wert 3e-4. Zusammen bracketing des Entropie-Hebels aus dem Danijar-Befund (uniforme Aktionsverteilung in allen bisherigen Armen)."
 args:
+  adapter: aggregator_pooled_b200k
+  curriculum: L3
   prefill: 1024
   train_ratio: 128
   act_entropy: 0.003

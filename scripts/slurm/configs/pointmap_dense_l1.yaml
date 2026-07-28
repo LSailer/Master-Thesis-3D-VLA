@@ -1,7 +1,6 @@
 extends: _base
 job_name: pointmap-dense-l1
 output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-dense
-run_id: habitat-l1-pointmap-dense
 curriculum_check: data/curriculum/level1_1house_1goal.json
 setup:
   - scripts/slurm/hooks/link_external.sh
@@ -13,6 +12,8 @@ sbatch:
   # ~8 GB obs buffer plus habitat and the JAX host side; bump for headroom.
   mem: 96G
 args:
+  adapter: pointmap_dense
+  curriculum: L1
   steps: 2000000
   prefill: 5000
   checkpoint_every: 100000
@@ -28,7 +29,6 @@ args:
   wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-dense,full-res-518,conv-points,geometry-only,3d-53,jax,3d-encoder
   render_resolution: 518
   video_log_every: 0
-  val_every: 0
 smoke:
   time: "00:20:00"
   args:

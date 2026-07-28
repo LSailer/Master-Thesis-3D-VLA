@@ -1,7 +1,6 @@
 extends: _base
 job_name: pointmap-pose-l1
 output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose
-run_id: habitat-l1-pointmap-pose
 curriculum_check: data/curriculum/level1_1house_1goal.json
 setup:
   - scripts/slurm/hooks/link_external.sh
@@ -10,6 +9,8 @@ comments:
   - "Paired with habitat-l1-hybrid (adapter rgb_pointmap_pose), which is the same pipeline plus the image field; the pair isolates what appearance contributes."
   - "The MLP branch runs at the routed encoder's default depth. --mlp_layers still reaches it (the adapter-routing migration rewired the flag onto the MLP branch); it is simply not swept here."
 args:
+  adapter: pointmap_pose
+  curriculum: L1
   # Ladder budget, shared by all five arms. Known not to be reachable here: at
   # the 106-121 ms/step measured on rx29922r / 7ty9rj26 this arm covers roughly
   # 1.3-1.4M of it before the 48 h wall (the partition maximum), i.e. ~90%.
@@ -30,7 +31,6 @@ args:
   wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-pose,geometry-only,3d-52,jax,3d-encoder
   render_resolution: 518
   video_log_every: 0
-  val_every: 0
 smoke:
   time: "00:20:00"
   args:

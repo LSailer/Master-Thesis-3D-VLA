@@ -15,7 +15,6 @@ args:
   log_every: 100
   checkpoint_every: 1000000
   video_log_every: 0
-  val_every: 0
   output_dir: output/probes/step-time-opt/hybrid-control-prodshape/run-${SLURM_JOB_ID}
   wandb_name: hybrid-control-prodshape-probe-${SLURM_JOB_ID}
   wandb_tags: step-time-opt,prodshape-probe,control,hybrid,b16,t64,ratio512,seed-42
