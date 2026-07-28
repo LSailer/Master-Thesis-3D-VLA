@@ -28,9 +28,10 @@ class PointMapPoseAdapter:
     observation and needs no live slot. Nothing accumulates across steps: this
     is the per-frame-geometry arm.
 
-    Metric XYZ stays float32: the values are world coordinates in meters, whose
-    magnitude exceeds bfloat16's resolution. The encoder casts to its own
-    compute dtype after normalization.
+    XYZ stays float32: the values are raw world coordinates in VGGT's
+    scale-free frame (first-frame reference, not meters), whose magnitude
+    exceeds bfloat16's resolution. The encoder casts to its own compute dtype
+    after normalization.
 
     Two class constants define the family: ``WP_SIDE`` sets the reduction, and
     ``WITH_RGB`` decides whether the appearance channel is observed at all.

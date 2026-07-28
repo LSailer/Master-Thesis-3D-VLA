@@ -40,7 +40,7 @@ class Encoder(Enum):
     """
 
     CONV = auto()
-    # Spatial convolution over a metric point map rather than an image: same
+    # Spatial convolution over a world-point map rather than an image: same
     # architecture, but symlog compression instead of RGB centering, because
     # world coordinates are unbounded.
     CONV_POINTS = auto()

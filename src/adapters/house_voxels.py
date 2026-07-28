@@ -87,9 +87,9 @@ class HouseVoxelsAdapter:
     HOUSE_POINTS = 16384
     VOXEL_SIZE_M = 0.01
     CONFIDENCE_SCORE = 1.5
-    # 1 cm voxels on full-res input reach ~210k points in 50 steps on one L1
-    # scene; a whole house is bounded by surface area (~500 m^2 -> ~5M voxels),
-    # so 2^23 (~293 MB device memory) covers any realistic scene outright.
+    # 0.01-unit voxels on full-res input reach ~210k points in 50 steps on one
+    # L1 scene (the cloud is scale-free, so the pitch is relative, not 1 cm);
+    # 2^23 (~293 MB device memory) leaves ~40x headroom over that growth.
     BUFFER_CAPACITY = 1 << 23
     BUFFER_HASH_TABLE_SIZE = 1 << 24
 
@@ -158,10 +158,12 @@ class HouseVoxelsAdapter:
         below replaces that padding with a cycle over the valid rows, so the
         cloud branch needs no validity mask.
 
-        float16 rather than the repo-default bfloat16: these are metric world
-        coordinates, and bfloat16's 8-bit mantissa resolves ~3 cm at 10 m - three
-        times coarser than the 1 cm voxel grid being stored. The cloud branch
-        re-centers in float32 before casting to its compute dtype.
+        float16 rather than the repo-default bfloat16: these are raw world
+        coordinates in VGGT's scale-free frame, stored on a 0.01-unit voxel
+        grid, and bfloat16's 8-bit mantissa resolves only ~1/256 of a
+        coordinate's magnitude - too coarse to keep neighboring voxels distinct
+        away from the origin. The cloud branch re-centers in float32 before
+        casting to its compute dtype.
         """
         snapshot, count = buffer.house_context_array(self.HOUSE_POINTS, jnp.float16)
         indices = jnp.arange(self.HOUSE_POINTS) % jnp.maximum(count, 1)
@@ -210,7 +212,8 @@ class HouseVoxelsAdapter:
                 key="camera_pose",
                 encoder=Encoder.MLP,
                 buffer=True,
-                # Metric pose: float32, same reasoning as the cloud's float16.
+                # Raw world-frame pose: float32, same reasoning as the cloud's
+                # float16.
                 value=jnp.ravel(features.camera_pose).astype(jnp.float32),
             ),
             AdapterField(
