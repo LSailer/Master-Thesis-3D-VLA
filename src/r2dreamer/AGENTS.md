@@ -10,7 +10,8 @@ and Crafter. This package contains the library code; runnable drivers live in
 
 ## Where to look
 
-- `agent.py`: params, optimiser, slow critic, JIT `train_step()`/`act()`.
+- `agent.py`: module bundle, optimiser, slow critic, and the two directly
+  jitted entry points `act()`/`train_step()`.
   The composition root itself is `src/main.py`.
 - `src/configs/agent_config.py`: `R2DreamerConfig`, size presets, hyperparameters.
 - `world_model/`: RSSM, prediction heads, world-model loss, `rssm_factory.py`.
@@ -32,7 +33,14 @@ and Crafter. This package contains the library code; runnable drivers live in
 - **Observation layout:** images are HWC and normalized inside `ConvEncoder`;
   metric/feature fields must not be `/255` normalized.
 - **Params:** plain dict pytree keyed by module groups (`encoder`, `rssm`, `actor`, etc.).
-- **JIT/PRNG:** `train_step` and `act` are JIT-compiled; always split JAX keys explicitly.
+- **JIT/PRNG:** `act` and `train_step` are directly jitted with static `self`
+  (hashed by identity, traced once per instance), so their bodies read
+  architecture off `self` but never mutable state: params, the acting carry and
+  the train state are arguments and return values. Callers thread the carry and
+  reassign `agent.train_state`; `train_step` metrics are device arrays,
+  converted at the log sites via `materialize_metrics` (`materialize=False`
+  returns `{}`). The `agent.py` docstrings own the full hazard. Always split
+  JAX keys explicitly.
 - **Checkpoints:** pickle params/opt/slow critic/EMA/step only. The encoder is
   rebuilt from the adapter routing at load time and `_assert_params_match`
   catches drift.
