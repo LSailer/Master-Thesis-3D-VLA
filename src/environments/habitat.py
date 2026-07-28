@@ -88,9 +88,7 @@ def validate_habitat_mode(mode: str) -> None:
         ValueError: If ``mode`` is not ``train`` or ``eval``.
     """
     if mode not in ("train", "eval"):
-        raise ValueError(
-            f"Curriculum runs need mode 'train' or 'eval', got {mode!r}"
-        )
+        raise ValueError(f"Curriculum runs need mode 'train' or 'eval', got {mode!r}")
 
 
 def _validate_goal_distance(dist: float) -> float:
@@ -215,8 +213,7 @@ class HabitatObjectNavEnv:
 
         # Keys are [episode_id, object_category, scene_name] triples
         key_set = {
-            (k[0], k[1], k[2])
-            for k in curriculum[f"{config.mode}_episode_keys"]
+            (k[0], k[1], k[2]) for k in curriculum[f"{config.mode}_episode_keys"]
         }
         dataset = self._env._dataset
         before = len(dataset.episodes)
@@ -250,8 +247,7 @@ class HabitatObjectNavEnv:
                 ep
                 for ep in dataset.episodes
                 if ep.info is not None
-                and ep.info.get("geodesic_distance", float("inf"))
-                < config.max_geodesic
+                and ep.info.get("geodesic_distance", float("inf")) < config.max_geodesic
             ]
             after = len(dataset.episodes)
             assert after > 0, (
@@ -281,9 +277,7 @@ class HabitatObjectNavEnv:
             )
             self._env._setup_episode_iterator()
             self._env.current_episode = next(self._env.episode_iterator)
-            print(
-                f"Filtered (step count): {before} → {after} episodes (steps < 200)"
-            )
+            print(f"Filtered (step count): {before} → {after} episodes (steps < 200)")
 
         self._prev_dist = 0.0
         self._step_count = 0
@@ -503,7 +497,6 @@ class HabitatObjectNavEnv:
     def _obs_to_image(self, obs) -> jnp.ndarray:
         return obs["rgb"][:, :, :3]  # (H, W, 3) uint8
 
-
     def _compute_reward(self, dist: float) -> float:
         dist = _validate_goal_distance(dist)
         if self._cfg.reward_type == "sparse":
@@ -522,4 +515,3 @@ class HabitatObjectNavEnv:
     def close(self):
         """Close the wrapped Habitat environment."""
         self._env.close()
-

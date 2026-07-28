@@ -27,8 +27,11 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
 
 ## Contracts and gotchas
 
-- The repo-root `conftest.py` handles markers/skips only. Shared fakes and
-  factories belong in a `conftest.py`, not copy-pasted per file.
+- The repo-root `conftest.py` handles markers/skips plus the autouse fixture
+  that drops JAX's jit caches after any test that built an agent (static `self`
+  makes JAX pin every instance and its executable for the session). It is
+  load-bearing for memory, not cosmetic - see its docstring before touching it.
+  Shared fakes and factories belong in a `conftest.py`, not copy-pasted per file.
 - `@pytest.mark.gpu` covers `world_model/test_decoder_probe_overfit_gpu.py`; run
   it through `srun`.
 - CPU-safe VGGT tests use a fake extractor exposing only `.extract(frame)`, the

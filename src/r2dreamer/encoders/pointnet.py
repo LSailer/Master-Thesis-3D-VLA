@@ -167,7 +167,7 @@ class PointNetCloudEncoder(nn.Module):
 
         embed = x.max(axis=0)
         if self.mlp2[-1] != self.embed_dim:
-            embed = nn.Dense(
-                self.embed_dim, dtype=self.compute_dtype, name="proj"
-            )(embed)
+            embed = nn.Dense(self.embed_dim, dtype=self.compute_dtype, name="proj")(
+                embed
+            )
         return embed
