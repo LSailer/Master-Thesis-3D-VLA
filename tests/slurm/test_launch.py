@@ -463,6 +463,29 @@ def test_quoted_false_string_is_rejected_too() -> None:
         launch.load_config(name)
 
 
+def test_valueless_arg_is_rejected_as_a_non_scalar() -> None:
+    """A bare `key:` loads as ``None``, which is not one of the four scalars.
+
+    ``_validate_args`` promises its caller a ``dict[str, Scalar]``, so it admits
+    exactly str/int/float/bool; a null would otherwise have rendered the literal
+    ``--full_bf16 None``.
+    """
+    body = (
+        "extends: _base\n"
+        "job_name: null-arg-probe\n"
+        "output_dir: output/null-arg-probe\n"
+        "args:\n"
+        "  full_bf16:\n"
+    )
+    with (
+        temp_config("null_arg_probe", body) as name,
+        pytest.raises(ValueError, match="full_bf16 must be a scalar") as excinfo,
+    ):
+        launch.load_config(name)
+
+    assert "NoneType" in str(excinfo.value)
+
+
 def test_bare_boolean_flag_still_parses_with_the_train_parser() -> None:
     """The rendered bf16 arm must survive argparse, bare flag included.
 

@@ -31,6 +31,11 @@ CONFIG_DIR = ROOT / "scripts" / "slurm" / "configs"
 
 Mode = Literal["prod", "smoke"]
 
+# Exactly the YAML leaf types an ``args`` entry may hold: what the renderer can
+# turn into a flag. Everything else (dict, list, and the other things a YAML
+# scalar can load as, such as null or a date) is rejected by ``_validate_args``.
+Scalar = str | int | float | bool
+
 
 class SbatchConfig(BaseModel):
     """#SBATCH resource directives shared by all modes."""
@@ -45,17 +50,29 @@ class SbatchConfig(BaseModel):
     time: str
 
 
-def _validate_args(value: dict[str, Any], *, prefix: str) -> dict[str, Any]:
+def _validate_args(value: dict[str, object], *, prefix: str) -> dict[str, Scalar]:
     """Reject args entries the renderer cannot turn into a well-formed flag.
 
     Applied to every mapping that feeds the rendered command - both the
     top-level ``args`` and ``smoke.args``, which is merged onto it in smoke
     mode - so the same config is accepted or rejected regardless of the mode
     it would be submitted in.
+
+    Args:
+      value: Raw ``args`` mapping straight off the YAML loader, so its values
+        are still unproven.
+      prefix: Path used in error messages, e.g. ``args`` or ``smoke.args``.
+
+    Returns:
+      The same mapping, with every value proven to be a ``Scalar``.
+
+    Raises:
+      ValueError: If a value is not a scalar, or is a quoted boolean string.
     """
 
+    validated: dict[str, Scalar] = {}
     for key, item in value.items():
-        if isinstance(item, (dict, list)):
+        if not isinstance(item, (str, int, float, bool)):
             raise ValueError(
                 f"{prefix}.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
             )
@@ -68,7 +85,8 @@ def _validate_args(value: dict[str, Any], *, prefix: str) -> dict[str, Any]:
                 f"{prefix}.{key} is the quoted string {item!r}, not a boolean; "
                 f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
             )
-    return value
+        validated[key] = item
+    return validated
 
 
 class SmokeConfig(BaseModel):
@@ -84,7 +102,7 @@ class SmokeConfig(BaseModel):
 
     @field_validator("args")
     @classmethod
-    def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
+    def _args_scalar(cls, value: dict[str, object]) -> dict[str, Scalar]:
         return _validate_args(value, prefix="smoke.args")
 
 
@@ -122,7 +140,7 @@ class LaunchConfig(BaseModel):
 
     @field_validator("args")
     @classmethod
-    def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
+    def _args_scalar(cls, value: dict[str, object]) -> dict[str, Scalar]:
         return _validate_args(value, prefix="args")
 
 
@@ -206,7 +224,7 @@ def _needs_quote(value: str) -> bool:
     return value == "" or any(ch in value for ch in " \t$,")
 
 
-def _format_arg(name: str, value: Any, arg_style: str) -> str | None:
+def _format_arg(name: str, value: Scalar, arg_style: str) -> str | None:
     """Render one ``args`` entry as an indented command-line continuation.
 
     Booleans are rendered as switches rather than as ``--flag value`` pairs:
