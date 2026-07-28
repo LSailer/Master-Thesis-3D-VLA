@@ -23,10 +23,18 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import wandb as _wandb_module
+from jax.typing import ArrayLike
 
 from src.buffer.replay_buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig, TrainerConfig
-from src.r2dreamer.agent import materialize_metrics
+from src.r2dreamer.agent import (
+    ActState,
+    DeviceMetrics,
+    EncoderObs,
+    ParamTree,
+    R2DTrainState,
+    materialize_metrics,
+)
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
@@ -50,32 +58,37 @@ class R2DreamerAgentLike(Protocol):
     """
 
     cfg: Any
-    train_state: Any
     params: Any
     opt_state: Any
     slow_critic_params: Any
     ema_state: Any
 
-    def initial_act_state(self) -> Any: ...
+    @property
+    def train_state(self) -> R2DTrainState: ...
+
+    @train_state.setter
+    def train_state(self, state: R2DTrainState) -> None: ...
+
+    def initial_act_state(self) -> ActState: ...
 
     def train_step(
         self,
-        train_state: Any,
+        train_state: R2DTrainState,
         batch: ReplayBatch,
-        rng_key: jnp.ndarray,
+        rng_key: jax.Array,
         *,
         materialize: bool = True,
-    ) -> tuple[Any, dict[str, Any]]: ...
+    ) -> tuple[R2DTrainState, DeviceMetrics]: ...
 
     def act(
         self,
-        params: Any,
-        obs: Any,
-        is_first: Any,
-        state: Any,
-        rng_key: jnp.ndarray,
-        training: Any = True,
-    ) -> tuple[jnp.ndarray, Any]: ...
+        params: ParamTree,
+        obs: EncoderObs,
+        is_first: ArrayLike,
+        state: ActState,
+        rng_key: jax.Array,
+        training: ArrayLike = True,
+    ) -> tuple[jax.Array, ActState]: ...
 
     # ``(target, recon)`` as device arrays, or None without a decoder. The
     # second element is the raw Flax ``apply`` result: its static type is a

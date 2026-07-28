@@ -20,11 +20,13 @@ gradient signal under one `jax.grad`.
 import functools
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, NamedTuple, cast
+from typing import Any, Dict, NamedTuple, SupportsFloat, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
 import optax
+from flax.typing import VariableDict
+from jax.typing import ArrayLike
 
 from src.adapters.contract import (
     AdapterOutput,
@@ -47,6 +49,20 @@ from .representation.loss import representation_loss
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss
 from .world_model.rssm_factory import compute_dtype_kwargs, rssm_from_config
+
+
+# One parameter subtree per Flax module ("encoder", "rssm", "actor", ...); each
+# subtree is exactly what that module's ``apply`` expects.
+ParamTree: TypeAlias = Mapping[str, VariableDict]
+
+# One env step as the encoder consumes it: routed key -> value, or a bare array
+# for a single-branch encoder. ``EncoderObs`` is the raw live layout (no batch
+# dim); ``BatchedObs`` is what ``_batch_live_obs`` returns.
+EncoderObs: TypeAlias = Mapping[str, ArrayLike] | ArrayLike
+BatchedObs: TypeAlias = dict[str, jax.Array] | jax.Array
+
+# Metric name -> 0-d device scalar, as the jitted train step returns them.
+DeviceMetrics: TypeAlias = dict[str, jax.Array]
 
 
 class ActState(NamedTuple):
@@ -82,7 +98,9 @@ def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     return ckpt
 
 
-def _batch_live_obs(encoder_obs: Any, global_keys: tuple[str, ...]) -> Any:
+def _batch_live_obs(
+    encoder_obs: EncoderObs, global_keys: tuple[str, ...]
+) -> BatchedObs:
     """Add the single-env batch dim to one live observation tree.
 
     Trace-safe: it is called from inside the jitted ``act`` body, where the
@@ -104,7 +122,7 @@ def _batch_live_obs(encoder_obs: Any, global_keys: tuple[str, ...]) -> Any:
     if not isinstance(encoder_obs, Mapping):
         return jnp.asarray(encoder_obs)[None]
 
-    def batched(key: str, value: Any) -> jnp.ndarray:
+    def batched(key: str, value: ArrayLike) -> jax.Array:
         array = jnp.asarray(value)
         return array if key in global_keys else array[None]
 
@@ -115,7 +133,7 @@ def _batch_live_obs(encoder_obs: Any, global_keys: tuple[str, ...]) -> Any:
     }
 
 
-def materialize_metrics(metrics: Mapping[str, Any]) -> dict[str, float]:
+def materialize_metrics(metrics: Mapping[str, SupportsFloat]) -> dict[str, float]:
     """Block on device metrics and return them as host floats.
 
     This is the device->host sync that ``R2DreamerAgent.train_step`` cannot do
@@ -521,12 +539,12 @@ class R2DreamerAgent:
     @functools.partial(jax.jit, static_argnums=(0,))
     def act(
         self,
-        params: Dict[str, Any],
-        obs: Any,
-        is_first: Any,
+        params: ParamTree,
+        obs: EncoderObs,
+        is_first: ArrayLike,
         state: ActState,
-        rng_key: jnp.ndarray,
-        training: Any = True,
+        rng_key: jax.Array,
+        training: ArrayLike = True,
     ) -> tuple[jax.Array, ActState]:
         """Select one action and advance the single-env acting carry.
 
@@ -556,15 +574,17 @@ class R2DreamerAgent:
             themselves; habitat's ``env.step`` only wraps ``int``/``np.integer``
             into ``{"action": ...}`` and a raw JAX array raises there.
         """
-        obs = _batch_live_obs(obs, self._global_keys())
-        is_first = jnp.asarray(is_first, dtype=jnp.bool_)
+        batched_obs = _batch_live_obs(obs, self._global_keys())
+        reset = jnp.asarray(is_first, dtype=jnp.bool_)
         state = jax.lax.cond(
-            is_first,
+            reset,
             lambda _: self.initial_act_state(),
             lambda current: current,
             state,
         )
-        embed = cast(jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs))
+        embed = cast(
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batched_obs)
+        )
         rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = cast(
             tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
@@ -663,10 +683,10 @@ class R2DreamerAgent:
         self,
         train_state: R2DTrainState,
         batch: ReplayBatch,
-        rng_key: jnp.ndarray,
+        rng_key: jax.Array,
         *,
         materialize: bool = True,
-    ) -> tuple[R2DTrainState, Dict[str, Any]]:
+    ) -> tuple[R2DTrainState, DeviceMetrics]:
         """One LaProp step on ``batch``, returning the advanced train state.
 
         .. warning::
