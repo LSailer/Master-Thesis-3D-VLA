@@ -191,6 +191,11 @@ smoke:                    # mode overrides; smoke.args deep-merges onto args
 - **`args`** is a free mapping. Each entry renders as a `--flag value` line in
   YAML order; flag style follows `arg_style`; values containing whitespace,
   `$`, or `,` are quoted (matching the hand-written sbatch convention).
+- **Booleans** are the one exception: `full_bf16: true` renders as the bare
+  switch `--full_bf16` (no value token), and `full_bf16: false` renders no line
+  at all. A *quoted* `"true"`/`"false"` is a string, not a boolean, and is
+  rejected at validation time naming the offending key - it would otherwise
+  render as `--flag false`, which every parser reads as "on".
 - **`${TIMESTAMP}`** in any rendered value emits a `TIMESTAMP=$(date ...)` line.
 - **`${SLURM_JOB_ID}`** and other env vars are expanded by Slurm/bash at runtime.
 

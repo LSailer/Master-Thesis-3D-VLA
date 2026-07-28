@@ -10,11 +10,13 @@ their config on purpose, and should be deleted with the arm.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -106,7 +108,7 @@ def run_launch(*args: str, env: dict[str, str] | None = None) -> subprocess.Comp
     )
 
 
-def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
+def training_command(text: str) -> tuple[str, str, str | None, dict[str, str | None]]:
     """Extract (python_cmd, script, run_id, {flag: value}) from a rendered
     sbatch's training invocation (the python line followed by `--flag value`
     continuations).
@@ -115,7 +117,11 @@ def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
     entrypoints (``run.py``), else ``None``. The invocation head is the first
     unindented, non-comment line naming a ``.py`` script: the curriculum-check
     ``generate_curriculum.py`` guard sits inside an ``if`` block and is indented,
-    and a config with no args renders its command without a trailing backslash."""
+    and a config with no args renders its command without a trailing backslash.
+
+    A boolean YAML arg renders as a bare ``--flag`` with no value token; those
+    map to ``None`` rather than to the empty string, which stays reserved for an
+    explicitly empty value (``--flag ""``)."""
 
     lines = text.splitlines()
     idx = next(
@@ -128,13 +134,13 @@ def training_command(text: str) -> tuple[str, str, str | None, dict[str, str]]:
     python_cmd = " ".join(tokens[:s])
     script = tokens[s]
     run_id = tokens[s + 1] if len(tokens) > s + 1 else None
-    flags: dict[str, str] = {}
+    flags: dict[str, str | None] = {}
     for line in lines[idx + 1:]:
         stripped = line.strip().rstrip(" \\")
         if not stripped.startswith("--"):
             break
-        flag, _, value = stripped.partition(" ")
-        flags[flag] = value.strip().strip('"')
+        flag, sep, value = stripped.partition(" ")
+        flags[flag] = value.strip().strip('"') if sep else None
     return python_cmd, script, run_id, flags
 
 
@@ -346,6 +352,117 @@ def test_standalone_scripts_keep_their_own_interpreter_and_take_no_run_id(
     assert script == config.script
     assert run_id is None
     assert "--steps" not in flags
+
+
+# --------------------------------------------------------------------------- #
+# Boolean rendering                                                            #
+# --------------------------------------------------------------------------- #
+
+
+# The one arm that carries a YAML boolean (`full_bf16: true`); if it is retired,
+# point these at whatever config replaces it rather than deleting the contract.
+BOOL_CONFIG = "hybrid_hpp_bf16_prodshape_probe"
+
+
+@contextlib.contextmanager
+def temp_config(name: str, body: str) -> Iterator[str]:
+    """Write ``body`` as a throwaway config in the real config dir, yield its name."""
+    path = CONFIG_DIR / f"{name}.yaml"
+    path.write_text(body)
+    try:
+        yield name
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("mode", ["prod", "smoke"])
+def test_true_boolean_renders_as_a_bare_flag(mode: str) -> None:
+    """`full_bf16: true` must render `--full_bf16`, never `--full_bf16 True`."""
+    config = launch.load_config(BOOL_CONFIG)
+    assert config.args["full_bf16"] is True, "config no longer carries a YAML boolean"
+
+    rendered = launch.render_sbatch(config, mode=mode)
+    _python_cmd, _script, _run_id, flags = training_command(rendered)
+
+    assert "--full_bf16" in flags
+    assert flags["--full_bf16"] is None
+    assert "--full_bf16 " not in rendered
+    assert "True" not in rendered
+
+
+def test_false_boolean_renders_no_line_at_all() -> None:
+    body = (
+        "extends: _base\n"
+        "job_name: bool-false-probe\n"
+        "output_dir: output/bool-false-probe\n"
+        "args:\n"
+        "  full_bf16: false\n"
+    )
+    with temp_config("bool_false_probe", body) as name:
+        rendered = launch.render_sbatch(launch.load_config(name), mode="prod")
+
+    _python_cmd, _script, _run_id, flags = training_command(rendered)
+    assert "--full_bf16" not in flags
+    assert "full_bf16" not in rendered
+    # The remaining args still render, so the omission is surgical.
+    assert flags["--steps"] == "2000000"
+
+
+def test_quoted_boolean_string_is_rejected_by_name() -> None:
+    """A YAML-quoted "true" is a string and would render as `--flag true`."""
+    body = (
+        "extends: _base\n"
+        "job_name: bool-quoted-probe\n"
+        "output_dir: output/bool-quoted-probe\n"
+        'args:\n'
+        '  full_bf16: "true"\n'
+    )
+    with (
+        temp_config("bool_quoted_probe", body) as name,
+        pytest.raises(ValueError, match="full_bf16") as excinfo,
+    ):
+        launch.load_config(name)
+
+    assert "quoted string" in str(excinfo.value)
+
+
+def test_quoted_false_string_is_rejected_too() -> None:
+    # The dangerous half: `--flag false` is truthy for a value-taking parser and
+    # a stray positional for a store_true one, so it can never mean "off".
+    body = (
+        "extends: _base\n"
+        "job_name: bool-quoted-false-probe\n"
+        "output_dir: output/bool-quoted-false-probe\n"
+        'args:\n'
+        '  full_bf16: "False"\n'
+    )
+    with (
+        temp_config("bool_quoted_false_probe", body) as name,
+        pytest.raises(ValueError, match="full_bf16"),
+    ):
+        launch.load_config(name)
+
+
+def test_bare_boolean_flag_still_parses_with_the_train_parser() -> None:
+    """The rendered bf16 arm must survive argparse, bare flag included.
+
+    The train parser takes ``--full_bf16`` with ``nargs="?"``/``const=True``, so
+    the bare form is already accepted; this pins that the launcher and the CLI
+    agree end to end rather than only on the option spelling.
+    """
+    from src.r2dreamer.launch.parser import _build_parser_train
+
+    rendered = launch.render_sbatch(launch.load_config(BOOL_CONFIG), mode="prod")
+    _python_cmd, _script, _run_id, flags = training_command(rendered)
+
+    argv: list[str] = []
+    for flag, value in flags.items():
+        argv.append(flag)
+        if value is not None:
+            argv.append(value)
+
+    args = _build_parser_train().parse_args(argv)
+    assert args.full_bf16 is True
 
 
 def _train_parser_option_strings() -> set[str]:

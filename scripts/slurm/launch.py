@@ -8,7 +8,8 @@ raises *before* any job is submitted.
 
 The schema is intentionally job-family-agnostic. A config supplies a ``script``
 entrypoint plus a free-form ``args`` mapping; the renderer turns each ``args``
-entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted).
+entry into a ``--flag value`` line (hyphen- or underscore-styled, auto-quoted),
+except booleans, which render as a bare ``--flag`` (true) or not at all (false).
 Optional ``env``/``setup``/``curriculum_check`` blocks cover env vars, pre-run
 hooks, and the curriculum-generation guard used by the habitat training jobs.
 """
@@ -96,6 +97,15 @@ class LaunchConfig(BaseModel):
                 raise ValueError(
                     f"args.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
                 )
+            # A quoted boolean is a string, so it would render as `--flag true`
+            # instead of the bare flag a real bool renders as. That is truthy on
+            # both spellings of the value, which makes `"false"` silently mean
+            # "on" - reject it and ask for the unquoted YAML boolean.
+            if isinstance(item, str) and item.lower() in ("true", "false"):
+                raise ValueError(
+                    f"args.{key} is the quoted string {item!r}, not a boolean; "
+                    f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
+                )
         return value
 
 
@@ -179,11 +189,31 @@ def _needs_quote(value: str) -> bool:
     return value == "" or any(ch in value for ch in " \t$,")
 
 
-def _format_arg(name: str, value: Any, arg_style: str) -> str:
+def _format_arg(name: str, value: Any, arg_style: str) -> str | None:
+    """Render one ``args`` entry as an indented command-line continuation.
+
+    Booleans are rendered as switches rather than as ``--flag value`` pairs:
+    ``True`` emits the bare flag, ``False`` emits nothing at all. Every other
+    value keeps the ``--flag value`` form, quoted when shell-significant.
+
+    Args:
+      name: The YAML ``args`` key.
+      value: The YAML value; ``bool`` is special-cased, anything else is
+        stringified.
+      arg_style: ``"underscore"`` or ``"hyphen"`` flag spelling.
+
+    Returns:
+      The rendered line, or ``None`` when the entry contributes no line
+      (a boolean that is ``False``).
+    """
+
+    flag = _flag(name, arg_style)
+    if isinstance(value, bool):
+        return f"    {flag}" if value else None
     rendered = str(value)
     if _needs_quote(rendered):
         rendered = f'"{rendered}"'
-    return f"    {_flag(name, arg_style)} {rendered}"
+    return f"    {flag} {rendered}"
 
 
 def _python_cmd(config: LaunchConfig, mode: Mode) -> str:
@@ -283,7 +313,11 @@ def render_sbatch(
 
     python_cmd = _python_cmd(config, mode)
     entrypoint = config.script if config.run_id is None else f"{config.script} {config.run_id}"
-    arg_lines = [_format_arg(name, value, config.arg_style) for name, value in args.items()]
+    arg_lines = [
+        line
+        for name, value in args.items()
+        if (line := _format_arg(name, value, config.arg_style)) is not None
+    ]
     if arg_lines:
         lines.append(f"{python_cmd} {entrypoint} \\")
         lines.extend(f"{line} \\" for line in arg_lines[:-1])
