@@ -1,13 +1,13 @@
-"""Tests for src/r2dreamer/launch/loops.py — the training loop functions.
+"""Tests for the run loop in ``src.main`` (run_loop / prefill / session).
 
-Ports the old Trainer tests (ADR 0006): the loops are plain functions taking
-protocol-typed collaborators, so they are driven directly with a scripted env
-inside a real ``ExperienceCollector``, a real tiny agent, and a fake logger.
+The loop is a plain function taking protocol-typed collaborators, so it is
+driven directly with a scripted env inside a real ``ExperienceCollector``, a
+real tiny agent, and a fake logger.
 
 The collector takes a plain adapter callable and the agent is built from that
 adapter's routed fields, so these tests exercise the same composition
-``src.main.train`` performs — only the env is scripted (Habitat is Linux-only and
-slow to start).
+``src.main.main`` performs - only the env is scripted (Habitat is Linux-only
+and slow to start).
 """
 
 import jax

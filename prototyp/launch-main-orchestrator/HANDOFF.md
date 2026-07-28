@@ -1,5 +1,26 @@
 # Handoff state
 
+## 2026-07-28 evening - T3 core implemented by firstmate (commit 8407b7a)
+
+- New: src/launch/{parser,session,eval_artifacts,random_policy}.py, rewritten
+  src/main.py (run_loop/inference/prefill/overfit, run_session CM).
+  src/r2dreamer/launch/ deleted; apply_resume -> checkpointing.py; TrainerConfig
+  val_* fields gone, seed default 42. Tests rewritten (parser 18, loops 17,
+  launch 28+22 green); pyright 0 errors on new code.
+- Documented deviations from the interview record:
+  - --curriculum_path dropped from the parser: nothing in the launch path
+    consumed it (only the standalone random-agent baseline CLI uses paths).
+  - Final checkpoint + adapter summary live in main's session BODY, not in the
+    CM itself (skipped automatically on failure; same behavior, simpler CM).
+  - overfit no longer writes a final checkpoint (old run_training did).
+  - Eval runs now get RunLogger => MANIFEST.json + metrics.csv + W&B in eval
+    output dirs too; random eval manifests carry a default agent config.
+- E2E note: crafter module is not installed in the shared venv, so the quick
+  CPU E2E through main() was not possible; the real E2E is the SLURM smoke
+  (l1_cnn YAML) after the launcher migration lands.
+- In flight: YAML/launcher agent (scripts/slurm + tests/slurm), full suite on
+  a dev_cpu node.
+
 ## 2026-07-28 - interview complete, implementation not started
 
 - Design interview (batch-grill-me) ran over 5 rounds; ALL 43 decisions are
