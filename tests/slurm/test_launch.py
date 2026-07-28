@@ -446,8 +446,9 @@ def test_quoted_boolean_under_smoke_args_is_rejected_too() -> None:
 
 
 def test_quoted_false_string_is_rejected_too() -> None:
-    # The dangerous half: `--flag false` is truthy for a value-taking parser and
-    # a stray positional for a store_true one, so it can never mean "off".
+    # The dangerous half: `--flag false` renders as a pair whose meaning depends
+    # on the target parser - a value for a value-taking one, a stray positional
+    # for a store_true one - so it is rejected rather than guessed at.
     body = (
         "extends: _base\n"
         "job_name: bool-quoted-false-probe\n"

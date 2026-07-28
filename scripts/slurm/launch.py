@@ -59,10 +59,10 @@ def _validate_args(value: dict[str, Any], *, prefix: str) -> dict[str, Any]:
             raise ValueError(
                 f"{prefix}.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
             )
-        # A quoted boolean is a string, so it would render as `--flag true`
-        # instead of the bare flag a real bool renders as. That is truthy on
-        # both spellings of the value, which makes `"false"` silently mean
-        # "on" - reject it and ask for the unquoted YAML boolean.
+        # A quoted boolean is a string, so it would render as the pair
+        # `--flag false` instead of the bare switch a real bool renders as,
+        # and what that pair means depends on how the target parser declares
+        # the flag. Reject it outright and ask for the unquoted YAML boolean.
         if isinstance(item, str) and item.lower() in ("true", "false"):
             raise ValueError(
                 f"{prefix}.{key} is the quoted string {item!r}, not a boolean; "
