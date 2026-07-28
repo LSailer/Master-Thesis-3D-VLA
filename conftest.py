@@ -19,6 +19,23 @@ def _jax_gpu_available() -> bool:
         return False
 
 
+def _jit_cache_populated(jitted) -> bool:
+    """Return True when ``jitted`` still holds compiled entries.
+
+    ``_cache_size`` is private JAX API, and this probe runs in the teardown of
+    every test. If a JAX version renames or drops it, report the cache as
+    populated so the fixture degrades to clearing a little too eagerly rather
+    than raising an AttributeError in the whole suite.
+    """
+    probe = getattr(jitted, "_cache_size", None)
+    if probe is None:
+        return True
+    try:
+        return bool(probe())
+    except (AttributeError, TypeError):
+        return True
+
+
 @pytest.fixture(autouse=True)
 def _release_agent_jit_caches():
     """Drop JAX's jit caches after any test that built an R2DreamerAgent.
@@ -41,7 +58,8 @@ def _release_agent_jit_caches():
         return
     agent_class = agent_module.R2DreamerAgent
     if any(
-        method._cache_size() for method in (agent_class.act, agent_class.train_step)
+        _jit_cache_populated(method)
+        for method in (agent_class.act, agent_class.train_step)
     ):
         sys.modules["jax"].clear_caches()
 

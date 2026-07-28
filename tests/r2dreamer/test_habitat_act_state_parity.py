@@ -71,6 +71,19 @@ def _tree_allclose(left, right, *, atol=1e-6) -> bool:
     return all(np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in leaves)
 
 
+def _assert_is_first_resets(agent, encoder_obs, stale, act_key) -> None:
+    """Assert ``is_first`` drops a non-zero carry back to the initial one."""
+    assert not _tree_allclose(stale, agent.initial_act_state())
+    reset_action, reset_state = agent.act(
+        agent.params, encoder_obs, True, stale, act_key, False
+    )
+    fresh_action, fresh_state = agent.act(
+        agent.params, encoder_obs, False, agent.initial_act_state(), act_key, False
+    )
+    assert int(fresh_action) == int(reset_action)
+    assert _tree_allclose(fresh_state, reset_state)
+
+
 def test_real_habitat_act_is_pure_and_resets_on_is_first():
     env = None
     try:
@@ -128,7 +141,10 @@ def test_real_habitat_act_is_pure_and_resets_on_is_first():
                 )
                 assert int(fresh_action) == int(action)
                 assert _tree_allclose(fresh_state, state)
-                forced_reset_checked = True
+                # Only a carry that is not already the zeroed one makes the
+                # comparison above say anything about the reset.
+                if not _tree_allclose(stale, agent.initial_act_state()):
+                    forced_reset_checked = True
 
             obs = env.step(int(action))
             if obs.done:
@@ -136,7 +152,11 @@ def test_real_habitat_act_is_pure_and_resets_on_is_first():
             encoder_obs = encoder_obs_from_fields(observe(obs))
             is_first = obs.is_first
 
-        assert forced_reset_checked
+        if not forced_reset_checked:
+            # The episode ended before the synthetic boundary; assert the reset
+            # on the non-zero carry the real stream left behind instead.
+            rng, act_key = jax.random.split(rng)
+            _assert_is_first_resets(agent, encoder_obs, state, act_key)
     finally:
         if env is not None:
             env.close()
