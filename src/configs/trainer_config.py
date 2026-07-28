@@ -10,13 +10,13 @@ class TrainerConfig:
     """Controls the training loop outside ``R2DreamerAgent``.
 
     This config owns replay capacity, sequence sampling, prefill, W&B, resume,
-    validation, and diagnostic loops. It intentionally does not own neural
-    network architecture, optimizer, or loss fields.
+    and diagnostic loops. It intentionally does not own neural network
+    architecture, optimizer, or loss fields.
     """
 
     output_dir: str = "output/runs/r2dreamer"
     total_steps: int = 10_000_000
-    seed: int = 0
+    seed: int = 42
 
     # --- Replay / sampling cadence ---
     buffer_capacity: int = 500_000
@@ -46,14 +46,6 @@ class TrainerConfig:
     wandb_id: str | None = None
     video_log_every: int = 0
     video_log_episodes: int = 0
-
-    # Deterministic Val-Episode-Loop. val_every=0 disables. Requires a
-    # val_env to be passed to Trainer. Default off keeps production runs
-    # scalars-only unless validation is explicitly requested.
-    val_every: int = 0
-    val_episodes: int = 50
-    val_video_episodes: int = 0
-    val_max_episode_steps: int = 500
 
     # Resume from checkpoint (.pkl produced by save_checkpoint). When set,
     # restores agent.{params, opt_state, slow_critic_params, ema_state} and

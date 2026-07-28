@@ -86,3 +86,30 @@ def load_checkpoint(path: str) -> dict[str, Any]:
     """Load checkpoint dict from disk. Returns raw dict — caller restores."""
     with open(path, "rb") as f:
         return _CheckpointUnpickler(f).load()
+
+
+def apply_resume(agent: CheckpointAgentLike, resume_from: str) -> int:
+    """Overwrite freshly-initialised agent state from a checkpoint.
+
+    Args:
+        agent: Agent whose params/opt/EMA state get replaced in place.
+        resume_from: Path to a checkpoint written by ``save_checkpoint``.
+
+    Returns:
+        The checkpoint's step, used as the run loop's start step.
+
+    Raises:
+        FileNotFoundError: If ``resume_from`` does not exist.
+    """
+    if not os.path.exists(resume_from):
+        raise FileNotFoundError(
+            f"resume_from points at non-existent path: {resume_from}"
+        )
+    state = load_checkpoint(resume_from)
+    agent.params = jax.tree.map(jnp.asarray, state["params"])
+    agent.opt_state = jax.tree.map(jnp.asarray, state["opt_state"])
+    agent.slow_critic_params = jax.tree.map(jnp.asarray, state["slow_critic_params"])
+    agent.ema_state = jax.tree.map(jnp.asarray, state["ema_state"])
+    resume_step = int(state["step"])
+    print(f"Resumed agent state from {resume_from} at step {resume_step}")
+    return resume_step
