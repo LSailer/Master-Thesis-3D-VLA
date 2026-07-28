@@ -59,12 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["L1", "L2", "L3", "L4"],
         help="Habitat curriculum level name (L1..L4). Ignored by crafter.",
     )
-    p.add_argument(
-        "--curriculum_path",
-        type=str,
-        default=None,
-        help="Explicit Habitat curriculum JSON path (overrides --curriculum).",
-    )
+
     p.add_argument(
         "--render_resolution",
         type=int,
