@@ -1,0 +1,14 @@
+extends: l3_aggregator_pooled
+job_name: r2d-L3d2-tr128
+output_dir: output/runs/duell2-l3-aggpool-b200k-tr128
+run_id: habitat-l3-aggregator-pooled-b200k
+env:
+  SEED: "42"
+comments:
+  - "Duell 2 (2026-07-27-r2) wave 1, slot C: the duell-1 lottery arm (kv budget 200k, prefill 1024, act_entropy 1e-1) with train_ratio halved again to 128. Rationale: in the 30-minute window metrics/sr is episode lottery, so env throughput (episodes, ms/step) dominates the scoring matrix; train_ratio 128 spends less GPU time on gradient steps per env step. Update parity: credit 128/1024 = 0.125/step, updates land on multiples of 8, log_every 250 meets them at step 1000, 2000, ... so training metrics still log."
+args:
+  prefill: 1024
+  train_ratio: 128
+  act_entropy: 0.1
+  output_dir: output/runs/duell2-l3-aggpool-b200k-tr128/run-${SLURM_JOB_ID}
+  wandb_name: duell2-l3-aggpool-b200k-tr128-s${SEED}-${SLURM_JOB_ID}

@@ -15,7 +15,7 @@ its absence means the arm is deliberately blind to appearance:
     rgb_global_tokens          appearance + the global half of the VGGT tokens
     rgb_full_tokens            appearance + both halves, full-width tokens
     aggregator_pooled          pooled tokens only, no appearance channel
-    aggregator_pooled_b200k    pooled tokens, KV cache capped at 200k slots
+    aggregator_pooled_b200k    alias of aggregator_pooled, kept for old run ids
 
 Everything the run needs to know about a variant is declared on the adapter
 itself, because those are properties of the observation pipeline, not of the

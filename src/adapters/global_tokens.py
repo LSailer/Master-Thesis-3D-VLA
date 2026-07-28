@@ -138,11 +138,33 @@ class AggregatorPooledAdapter(GlobalTokensAdapter):
 
     float32 rather than the token arms' float16: with only three pooled vectors
     left there is no replay pressure to trade precision against.
+
+    The streaming KV cache runs on a 200 000 slot budget rather than the
+    extractor default of 1 200 000 (50 000 per aggregator block). The large
+    budget saturates after ~36 frames, and every step past that pays a
+    full-cache eviction ``top_k`` per block; 200 000 slots shrink the temporal
+    window to ~6 frames and halve the step cost. ``budgets_static`` stays
+    unset, so the extractor derives the per-block cap from the total budget
+    itself and the arm carries one number instead of a hand-written per-block
+    split.
+
+    Measured in Duell 2, see
+    ``prototyp/duell-vggt-integration/2026-07-27-r2/LEDGER.md``: 134.1 -> 66.8
+    ms per step in the 30-minute arena, at a matrix score of +0.0898 (seed 42)
+    and +0.0194 (seed 43) over the 1.2M-budget reference run 6057641. The
+    shorter context window is the explicit trade: reconstruction stays
+    bit-identical up to cache saturation, and past it the deviation is
+    dominated by a rigid shift plus a scale factor rather than by lost local
+    geometry.
     """
 
     TOKEN_KEY = "agg_pooled"
     TOKEN_ENCODER = Encoder.MLP
     WITH_RGB = False
+    EXTRACTOR_KWARGS: dict[str, object] = {
+        "compute_heads": False,
+        "total_budget": 200_000,
+    }
 
     def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
         """Return ``[camera, patch mean, patch max]`` concatenated."""
@@ -158,18 +180,10 @@ class AggregatorPooledAdapter(GlobalTokensAdapter):
 
 
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
-    """The pooled arm with the streaming KV cache capped at 200 000 slots.
+    """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 
-    The extractor default of 1 200 000 slots (50 000 per aggregator block)
-    saturates after ~36 frames; from then on every step pays a full-cache
-    eviction ``top_k`` per block. 200 000 slots shrink the temporal window
-    to ~6 frames and cut that eviction cost. The pooled readout itself is
-    unchanged - the shorter context window is the explicit trade of this
-    variant, matching the 200k budget the streaming benchmark uses as its
-    reference point.
+    The 200 000 slot KV budget this class introduced is the pooled arm's
+    default since the Duell 2 result, so the two are identical. The name stays
+    registered as ``aggregator_pooled_b200k`` so the SLURM configs and the
+    wandb run ids of the finished b200k runs keep resolving.
     """
-
-    EXTRACTOR_KWARGS: dict[str, object] = {
-        "compute_heads": False,
-        "total_budget": 200_000,
-    }
