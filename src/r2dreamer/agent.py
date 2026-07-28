@@ -374,9 +374,7 @@ class R2DreamerAgent:
         # above) is the single place that knows which fields take the
         # single-env batch dim - no zero-filled stand-in to keep in sync.
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        init_obs = _batch_live_obs(
-            encoder_obs_from_fields(fields), self._global_keys()
-        )
+        init_obs = _batch_live_obs(encoder_obs_from_fields(fields), self._global_keys())
         enc_params = self.encoder_mod.init(k1, init_obs)
         embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, init_obs))
         self.embed_size = embed.shape[-1]
