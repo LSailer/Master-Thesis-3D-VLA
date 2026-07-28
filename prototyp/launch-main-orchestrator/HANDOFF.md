@@ -18,8 +18,15 @@
 - E2E note: crafter module is not installed in the shared venv, so the quick
   CPU E2E through main() was not possible; the real E2E is the SLURM smoke
   (l1_cnn YAML) after the launcher migration lands.
-- In flight: YAML/launcher agent (scripts/slurm + tests/slurm), full suite on
-  a dev_cpu node.
+- YAML/launcher migration merged (a168888): script: -m src.main, run_id gone,
+  37 configs with adapter/curriculum, render-and-parse drift test, tests/slurm
+  331 passed / 11 skipped.
+- Full suite on a dedicated cpu-partition node: 353 passed / 59 skipped
+  (tests minus tests/slurm), exit 0. Rendered l1_cnn smoke command verified.
+- PR #222 open (stacked on #220). PR #219 merged by owner. OUTSTANDING before
+  a prod run relies on this path: the T4 GPU A/B probes (l1_cnn + hybrid, old
+  main vs new main, ~5k steps, seed 42; judge by MANIFEST.json, grep sacct
+  for exit 134).
 
 ## 2026-07-28 - interview complete, implementation not started
 
