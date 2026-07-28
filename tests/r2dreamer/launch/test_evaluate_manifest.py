@@ -2,17 +2,16 @@
 
 import json
 from dataclasses import replace
-from types import SimpleNamespace
 
 import jax
 
 from src.adapters.contract import AdapterField, Encoder
+
 from src.configs.agent_config import R2DreamerConfig
 from src.r2dreamer.agent import encoder_overrides_from_config
 from src.r2dreamer.checkpointing import config_snapshot
 from src.r2dreamer.encoders.routed_composite import routed_encoder_from_fields
-from src.r2dreamer.launch import evaluate as eval_module
-from src.r2dreamer.launch.evaluate import (
+from src.launch.eval_artifacts import (
     arch_overrides_from_manifest,
     find_manifest_for_checkpoint,
 )
@@ -141,103 +140,3 @@ def test_arch_overrides_without_manifest_is_empty(tmp_path):
 
     assert arch_overrides_from_manifest(str(ckpt)) == {}
     assert arch_overrides_from_manifest(None) == {}
-
-
-def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_path):
-    class _Position:
-        def __init__(self, values):
-            self._values = values
-
-        def tolist(self):
-            return list(self._values)
-
-    class _FakeSim:
-        def __init__(self, env):
-            self._env = env
-
-        def get_agent_state(self):
-            return SimpleNamespace(
-                position=_Position([float(self._env.step_count), 0.0, 0.0])
-            )
-
-    class _FakeEnv:
-        def __init__(self):
-            self.step_count = 0
-            self._env = SimpleNamespace(sim=_FakeSim(self))
-
-        def step(self, action):
-            self.step_count += 1
-            return SimpleNamespace(
-                id=f"step{self.step_count}",
-                is_first=False,
-                done=False,
-                reward=float(action),
-                success=float(self.step_count),
-                spl=float(self.step_count) / 1000.0,
-            )
-
-        @property
-        def agent_state(self):
-            return self._env.sim.get_agent_state()
-
-    def _observe(obs):
-        """Stand-in frame adapter: one routed field naming the frame it saw."""
-        return [
-            AdapterField(
-                key=f"agent-{obs.id}",
-                encoder=Encoder.CONV,
-                buffer=True,
-                value=jax.numpy.zeros(()),
-            )
-        ]
-
-    class _FakeAgent:
-        def __init__(self):
-            self.seen = []
-            self.params = {}
-
-        def initial_act_state(self):
-            return None
-
-        def act(self, params, obs, is_first, state, act_key, training=False):
-            self.seen.append(sorted(obs))
-            return jax.numpy.asarray(1, dtype=jax.numpy.int32), state
-
-    def _fake_start_episode(env_instance, observe):
-        obs = SimpleNamespace(
-            id="initial", is_first=True, done=False, reward=0.0, success=0.0, spl=0.0
-        )
-        return (
-            obs,
-            {f.key: f.value for f in observe(obs)},
-            True,
-            [0.0, 0.0, 0.0],
-            [],
-            "scene",
-            "chair",
-            [[0.0, 0.0, 0.0]],
-            [0.0],
-        )
-
-    monkeypatch.setattr(eval_module, "_start_eval_episode", _fake_start_episode)
-    monkeypatch.setattr(eval_module, "_get_agent_heading", lambda env_instance: 0.0)
-
-    agent = _FakeAgent()
-    result, _ = eval_module._run_eval_episode(
-        ep_idx=0,
-        args=SimpleNamespace(log_video_episodes=0, render_topdown=False),
-        env_instance=_FakeEnv(),
-        observe=_observe,
-        agent=agent,
-        rng_key=jax.random.PRNGKey(0),
-        wandb_module=None,
-        output_dir=str(tmp_path),
-    )
-
-    assert agent.seen[:3] == [
-        ["agent-initial"],
-        ["agent-step1"],
-        ["agent-step2"],
-    ]
-    assert result["steps"] == 500
-    assert result["success"] == 500.0

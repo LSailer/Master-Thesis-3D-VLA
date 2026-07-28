@@ -7,7 +7,7 @@ R2Dreamer test-suite rules. Inherits repo-root `AGENTS.md`; system under test is
 
 Tests cover agent init/act/train_step, RSSM shapes, the routed encoder branches
 in `encoders/test_routed_branches.py`, optimiser, checkpoint round-trips, the
-argparse surface and eval manifest under `launch/`, video utilities, and
+eval manifest recovery under `launch/`, video utilities, and
 JAX↔PyTorch numerical equivalence. Per-variant adapter routing (registry
 coverage, replay round-trip) lives one level up in `tests/adapters/`, not here.
 Most tests are CPU-safe; only real VGGT/Habitat-style integration paths need GPU.
@@ -17,7 +17,6 @@ Most tests are CPU-safe; only real VGGT/Habitat-style integration paths need GPU
 ```bash
 uv run pytest tests/r2dreamer/ -m "not gpu" -q
 uv run pytest tests/r2dreamer/test_agent.py -v
-uv run pytest tests/r2dreamer/launch/test_shim_invocation.py
 
 srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
   uv run pytest tests/r2dreamer/ -m gpu -v
@@ -42,7 +41,5 @@ srun --partition=dev_gpu_h100 --gres=gpu:1 --time=00:30:00 \
 - Real Habitat-Sim is not unit-tested here. Curriculum/run-id resolution is
   covered; full environment smoke belongs in sbatch/srun runs.
 - Adding a variant needs no edit here: `tests/adapters/` parametrizes over
-  `src.adapters.ADAPTERS`. `launch/test_shim_invocation.py` derives run ids from
-  `RUN_CONFIGS`; update its standalone list only for non-dispatcher `eval_*`
   entrypoints.
 - JAX RNG keys are fixed integers for determinism.

@@ -1,7 +1,6 @@
 extends: pointmap_pose_l1
 job_name: pointmap-pose-64-l1
 output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose-64
-run_id: habitat-l1-pointmap-pose-64
 comments:
   - "Controlled resolution ablation of pointmap_pose_l1 (3D-52/3D-53 follow-up): identical pipeline, ONLY the point-map reduction differs (37x37 patch grid -> 64x64). 64 is not a divisor of 518, so the adapter resizes instead of box-averaging."
   - "obs = 64*64*3 + 9 = 12297 float32 = 49 KB/step; the default 500k-row buffer is ~25 GB host RAM, hence the node RAM bump below."
@@ -9,6 +8,8 @@ comments:
 sbatch:
   mem: 128G
 args:
+  adapter: pointmap_pose_64
+  curriculum: L1
   output_dir: output/runs/r2dreamer-curriculum-l1-pointmap-pose-64/run-${SLURM_JOB_ID}
   wandb_name: l1_pointmap_pose_64-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,vggt,pointmap-pose,pointmap-64,geometry-only,3d-52,jax,3d-encoder

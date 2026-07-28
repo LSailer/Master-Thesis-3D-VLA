@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run ``scripts/r2dreamer/run.py`` under cProfile, surviving ``os._exit``.
+"""Run ``python -m src.main`` under cProfile, surviving ``os._exit``.
 
 The trainer hard-exits via ``os._exit(0)`` on successful completion
 (``hard_exit_on_finish``) to skip habitat_sim's aborting GL teardown, which
@@ -10,7 +10,7 @@ real hard exit, and also dumps on the normal return path.
 Usage::
 
     PROF_OUT=output/profiling/foo.prof \
-        python scripts/profiling/cprofile_run.py <run-id> [train flags...]
+        python scripts/profiling/cprofile_run.py [train flags...]
 """
 import cProfile
 import os
@@ -18,11 +18,10 @@ import runpy
 import sys
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_RUN_PY = os.path.join(_REPO_ROOT, "scripts", "r2dreamer", "run.py")
 
 
 def main():
-    """Profiles the run.py training entry point and dumps stats to $PROF_OUT.
+    """Profiles the src.main entry point and dumps stats to $PROF_OUT.
 
     Returns:
       None. Exits with the training process's exit semantics; the profile is
@@ -51,12 +50,12 @@ def main():
 
     os._exit = exit_with_dump
 
-    # run.py imports its sibling _run_configs; make that resolvable.
-    sys.path.insert(0, os.path.dirname(_RUN_PY))
-    sys.argv = [_RUN_PY, *sys.argv[1:]]
+    # Module mode resolves src against the repo the profiler runs from.
+    sys.path.insert(0, _REPO_ROOT)
+    sys.argv = ["src.main", *sys.argv[1:]]
     profiler.enable()
     try:
-        runpy.run_path(_RUN_PY, run_name="__main__")
+        runpy.run_module("src.main", run_name="__main__")
     finally:
         dump_once()
 

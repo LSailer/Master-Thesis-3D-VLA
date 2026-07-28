@@ -25,4 +25,3 @@ args:
   wandb_name: jax-buffer-stepopt-probe-${SLURM_JOB_ID}
   wandb_tags: stepopt,prodshape-probe,jax-buffer,defer-metric-sync,fused-device-put,b16,t64,bf16,seed-42
   video_log_every: 0
-  val_every: 0

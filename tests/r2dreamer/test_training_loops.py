@@ -1,13 +1,13 @@
-"""Tests for src/r2dreamer/launch/loops.py — the training loop functions.
+"""Tests for the run loop in ``src.main`` (run_loop / prefill / session).
 
-Ports the old Trainer tests (ADR 0006): the loops are plain functions taking
-protocol-typed collaborators, so they are driven directly with a scripted env
-inside a real ``ExperienceCollector``, a real tiny agent, and a fake logger.
+The loop is a plain function taking protocol-typed collaborators, so it is
+driven directly with a scripted env inside a real ``ExperienceCollector``, a
+real tiny agent, and a fake logger.
 
 The collector takes a plain adapter callable and the agent is built from that
 adapter's routed fields, so these tests exercise the same composition
-``src.main.train`` performs — only the env is scripted (Habitat is Linux-only and
-slow to start).
+``src.main.main`` performs - only the env is scripted (Habitat is Linux-only
+and slow to start).
 """
 
 import jax
@@ -22,21 +22,21 @@ from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.config import R2DreamerConfig, TrainerConfig
 from src.environments.observation import ObservationFrame
 from src.r2dreamer.agent import R2DreamerAgent
-from src.r2dreamer.checkpointing import save_checkpoint
+from src.r2dreamer.checkpointing import apply_resume, save_checkpoint
 from src.r2dreamer.experience import ExperienceCollector
-from src.r2dreamer.launch.loops import apply_resume, run_training, train_loop
+from src.launch.session import RunLogger, run_session
+from src.main import prefill, run_loop
 from src.shared.dtypes import compute_jnp_dtype
 
 
-def test_trainer_config_defaults_to_scalars_only_no_validation_or_video():
+def test_trainer_config_defaults_to_scalars_only_no_video():
     cfg = TrainerConfig(output_dir="/tmp/r2dreamer-test")
 
     assert cfg.total_steps == 10_000_000
-    assert cfg.seed == 0
-    assert cfg.val_every == 0
+    assert cfg.seed == 42
     assert cfg.video_log_every == 0
-    assert cfg.val_video_episodes == 0
     assert cfg.video_log_episodes == 0
+    assert not hasattr(cfg, "val_every")
 
 
 def _rgb_fields() -> AdapterOutput:
@@ -166,10 +166,6 @@ class _FakeLogger:
 
     def log_reconstructions(self, target, recon, step: int) -> None:
         pass
-
-    def log_val_metrics(self, metrics, step: int, elapsed: float) -> None:
-        for k, v in metrics.items():
-            self.rows.append([step, k, v])
 
     def log_adapter_summary(self, stats: dict, final_step: int) -> None:
         self.adapter_summaries.append((dict(stats), final_step))
@@ -307,10 +303,9 @@ def _run_train_loop(
     *,
     env=None,
     episode_metrics_fn=None,
-    val_experience=None,
     **tcfg_kwargs,
 ):
-    """Drive ``train_loop`` directly with a scripted env and a fake logger.
+    """Drive ``run_loop`` in train mode with a scripted env and a fake logger.
 
     Args:
         tmp_path: pytest tmp_path for the run's output dir.
@@ -319,7 +314,6 @@ def _run_train_loop(
         env: Env stub; defaults to a never-ending ``_ScriptedEnv``. Habitat is
             Linux-only, so the env is the one collaborator that must be scripted.
         episode_metrics_fn: Optional episode-end metrics callback.
-        val_experience: Optional val collector; enables the validation branch.
         **tcfg_kwargs: Forwarded to TrainerConfig.
 
     Returns:
@@ -332,26 +326,16 @@ def _run_train_loop(
     )
     collector = _make_collector(cfg, env=env, episode_metrics_fn=episode_metrics_fn)
     logger = _FakeLogger()
-    train_loop(
+    run_loop(
         agent,
         collector,
         cfg,
         tcfg,
         logger,
         jax.random.PRNGKey(0),
-        val_experience=val_experience,
+        training=True,
     )
     return logger, collector
-
-
-def _val_collector(cfg):
-    return ExperienceCollector(
-        env=_ScriptedEnv(),
-        observe=RgbAdapter(),
-        num_actions=cfg.num_actions,
-        buffer=None,
-        auto_reset=False,
-    )
 
 
 class TestApplyResume:
@@ -446,11 +430,20 @@ class TestFullPipeline:
             log_every=1,
             checkpoint_every=100,
             wandb_project=None,
-            val_every=0,
         )
         before = [np.asarray(x).copy() for x in jax.tree.leaves(agent.params)]
 
-        run_training(agent, collector, cfg, tcfg)
+        # The composition main() performs, minus argparse: logger + session
+        # around prefill and the run loop.
+        logger = RunLogger(cfg, tcfg)
+        with run_session(logger, collector, hard_exit=False):
+            key = prefill(
+                collector,
+                num_steps=tcfg.prefill_steps,
+                num_actions=cfg.num_actions,
+                rng_key=jax.random.PRNGKey(tcfg.seed),
+            )
+            run_loop(agent, collector, cfg, tcfg, logger, key, training=True)
 
         assert env.closed is True
         assert collector.buffer_size > 0
@@ -508,7 +501,7 @@ class TestTrainLoopCadences:
     ):
         saved: list[int] = []
         monkeypatch.setattr(
-            "src.r2dreamer.launch.loops.save_checkpoint",
+            "src.main.save_checkpoint",
             lambda agent, step, output_dir: saved.append(step),
         )
         cfg, agent, _ = build_agent()
@@ -543,44 +536,6 @@ class TestTrainLoopCadences:
         assert all(metrics for _, metrics in logger.train_metric_calls)
         # materialize is True exactly on the iterations that log.
         assert spy.materialize_flags == [False, True, False, True, False]
-
-    def test_val_loop_runs_on_cadence_when_val_experience_present(
-        self, tmp_path, build_agent, monkeypatch
-    ):
-        called: list[int] = []
-        monkeypatch.setattr(
-            "src.r2dreamer.launch.loops.val_loop",
-            lambda agent, val_exp, tcfg, logger, key, step: called.append(step),
-        )
-        cfg, agent, _ = build_agent()
-
-        _run_train_loop(
-            tmp_path,
-            cfg,
-            agent,
-            total_steps=4,
-            val_every=2,
-            val_experience=_val_collector(cfg),
-        )
-
-        # (step + 1) % val_every == 0 => steps 1 and 3.
-        assert called == [1, 3]
-
-    def test_val_loop_skipped_when_no_val_experience(
-        self, tmp_path, build_agent, monkeypatch
-    ):
-        called: list[int] = []
-        monkeypatch.setattr(
-            "src.r2dreamer.launch.loops.val_loop",
-            lambda agent, val_exp, tcfg, logger, key, step: called.append(step),
-        )
-        cfg, agent, _ = build_agent()
-
-        _run_train_loop(
-            tmp_path, cfg, agent, total_steps=4, val_every=2, val_experience=None
-        )
-
-        assert not called
 
 
 class TestTrainLoopEpisodeHandoff:
@@ -643,3 +598,44 @@ class TestTrainLoopEpisodeHandoff:
         )
 
         assert seen == [3, 3]
+
+
+class TestEvalLoop:
+    """The same loop in eval mode: no gradients, an episode budget, no buffer."""
+
+    def test_eval_mode_stops_at_episode_budget_without_training(
+        self, tmp_path, build_agent
+    ):
+        cfg, agent, spy = build_agent(train_ratio=2)
+        env = _ScriptedEnv(done_every=2)
+        collector = ExperienceCollector(
+            env=env,
+            observe=RgbAdapter(),
+            num_actions=cfg.num_actions,
+            buffer=None,
+            auto_reset=False,
+        )
+        tcfg = TrainerConfig(output_dir=str(tmp_path / "run"), wandb_project=None)
+        logger = _FakeLogger()
+
+        run_loop(
+            agent,
+            collector,
+            cfg,
+            tcfg,
+            logger,
+            jax.random.PRNGKey(0),
+            training=False,
+            episodes=2,
+            max_episode_steps=10,
+        )
+
+        # Two 2-step episodes, then the budget stops the loop: no extra steps,
+        # no gradient updates, and both episodes logged.
+        assert spy.act_calls == 4
+        assert spy.train_steps == 0
+        rewards = [row[2] for row in logger.rows if row[1] == "episode/reward"]
+        assert rewards == [2.0, 2.0]
+        # One reset at loop entry plus one manual reset after episode 1 only:
+        # the budget breaks the loop before a reset for a third episode.
+        assert env.reset_calls == 2
