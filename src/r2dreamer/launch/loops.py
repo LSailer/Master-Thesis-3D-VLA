@@ -64,12 +64,16 @@ class R2DreamerAgentLike(Protocol):
     ema_state: Any
 
     @property
-    def train_state(self) -> R2DTrainState: ...
+    def train_state(self) -> R2DTrainState:
+        """Bundle of all trainable/optimizer state consumed by train_step."""
+        raise NotImplementedError
 
     @train_state.setter
     def train_state(self, state: R2DTrainState) -> None: ...
 
-    def initial_act_state(self) -> ActState: ...
+    def initial_act_state(self) -> ActState:
+        """Return a zeroed functional single-env acting state."""
+        raise NotImplementedError
 
     def train_step(
         self,
@@ -80,7 +84,9 @@ class R2DreamerAgentLike(Protocol):
         materialize: bool = True,
     ) -> tuple[R2DTrainState, DeviceMetrics]: ...
 
-    def act(
+    # Signature mirrors the jitted R2DreamerAgent.act contract; the arg count
+    # is fixed by that API, not free to shrink here.
+    def act(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         params: ParamTree,
         obs: EncoderObs,
