@@ -40,7 +40,7 @@ class HouseCloudEpisodesAdapter:
     VOXELS_PER_EXTENT = 1000
     # Floor for the voxel edge: a degenerate cloud (all points coincident, e.g.
     # a collapsed point map) has zero extent, and a zero edge is not a valid
-    # voxel size. Sub-millimeter, so it never affects a real house.
+    # voxel size. Far below any real cloud extent, so it never binds.
     MIN_VOXEL_M = 1e-6
 
     def __init__(self, extractor: FeatureExtractor) -> None:

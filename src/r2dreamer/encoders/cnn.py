@@ -18,8 +18,8 @@ def _symlog(x: jnp.ndarray) -> jnp.ndarray:
     """Symmetric log compression, ``sign(x) * log1p(|x|)``.
 
     Dreamer's standard transform for unbounded inputs. Used by
-    ``ConvEncoder(input_kind="world_points")`` to tame the metric XYZ range of
-    full-resolution world points.
+    ``ConvEncoder(input_kind="world_points")`` to tame the unbounded XYZ range
+    of full-resolution world points.
     """
     return jnp.sign(x) * jnp.log1p(jnp.abs(x))
 
@@ -27,7 +27,7 @@ def _symlog(x: jnp.ndarray) -> jnp.ndarray:
 class ConvEncoder(nn.Module):
     """Shared spatial convolutional encoder for RGB images or world-point maps.
 
-    ``input_kind`` is explicit because RGB and metric XYZ world points can share
+    ``input_kind`` is explicit because RGB and XYZ world points can share
     the same ``(B, H, W, 3)`` shape but need different preprocessing: RGB uses
     Dreamer's ``obs - 0.5`` centering, world points use symlog. ``embed_dim`` is
     optional for historical RGB compatibility; set it for world-point variants

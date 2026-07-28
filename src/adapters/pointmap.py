@@ -25,11 +25,12 @@ def pool_point_map(world_points: jnp.ndarray, side: int) -> jnp.ndarray:
     """Downsample an HWC point map to ``(side, side, 3)``.
 
     An exact integer factor (the production case, 518 -> 37) is a box mean,
-    which keeps metric coordinates unbiased; other ratios fall back to an
+    which keeps the coordinates unbiased; other ratios fall back to an
     antialiased linear resize.
 
     Args:
-        world_points: ``(H, W, 3)`` or ``(1, H, W, 3)`` metric point map.
+        world_points: ``(H, W, 3)`` or ``(1, H, W, 3)`` scale-free world-point
+            map (first-frame reference, not metric).
         side: Target side length.
 
     Returns:

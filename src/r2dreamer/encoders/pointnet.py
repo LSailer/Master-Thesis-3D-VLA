@@ -130,7 +130,7 @@ class PointNetCloudEncoder(nn.Module):
         n_points = points.shape[0]
         m = min(self.num_points, n_points)
         sample_idx = (jnp.arange(m, dtype=jnp.int32) * n_points) // m
-        # Centering/scale in float32: metric world offsets exceed reduced-
+        # Centering/scale in float32: raw world offsets exceed reduced-
         # precision resolution, and the 1e-6 floor below is subnormal in
         # float16 - it flushes to zero, turning a degenerate (zero-extent)
         # cloud into 0/0 = NaN. The normalized cloud is O(1), so casting down

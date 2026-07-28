@@ -18,7 +18,7 @@ from src.vggt.jax.feature_extractor import VGGT_IMAGE_SIZE
 class PointMapDenseAdapter:
     """Routes the unpooled ``(518, 518, 3)`` point map to a spatial conv branch.
 
-    No pooling and no appearance channel: the conv stack sees metric world
+    No pooling and no appearance channel: the conv stack sees raw world
     coordinates at render resolution, so the geometry keeps its spatial structure
     instead of being flattened into a vector. ``Encoder.CONV_POINTS`` selects the
     symlog input transform - RGB centering would be meaningless on unbounded
