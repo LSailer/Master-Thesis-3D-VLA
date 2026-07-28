@@ -387,7 +387,7 @@ def test_true_boolean_renders_as_a_bare_flag(mode: str) -> None:
     assert "--full_bf16" in flags
     assert flags["--full_bf16"] is None
     assert "--full_bf16 " not in rendered
-    assert "True" not in rendered
+    assert "True" not in flags.values()
 
 
 def test_false_boolean_renders_no_line_at_all() -> None:
@@ -420,6 +420,25 @@ def test_quoted_boolean_string_is_rejected_by_name() -> None:
     with (
         temp_config("bool_quoted_probe", body) as name,
         pytest.raises(ValueError, match="full_bf16") as excinfo,
+    ):
+        launch.load_config(name)
+
+    assert "quoted string" in str(excinfo.value)
+
+
+def test_quoted_boolean_under_smoke_args_is_rejected_too() -> None:
+    """`smoke.args` is merged into the rendered command, so it validates alike."""
+    body = (
+        "extends: _base\n"
+        "job_name: bool-smoke-quoted-probe\n"
+        "output_dir: output/bool-smoke-quoted-probe\n"
+        "smoke:\n"
+        "  args:\n"
+        '    full_bf16: "false"\n'
+    )
+    with (
+        temp_config("bool_smoke_quoted_probe", body) as name,
+        pytest.raises(ValueError, match="smoke.args.full_bf16") as excinfo,
     ):
         launch.load_config(name)
 

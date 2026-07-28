@@ -45,6 +45,32 @@ class SbatchConfig(BaseModel):
     time: str
 
 
+def _validate_args(value: dict[str, Any], *, prefix: str) -> dict[str, Any]:
+    """Reject args entries the renderer cannot turn into a well-formed flag.
+
+    Applied to every mapping that feeds the rendered command - both the
+    top-level ``args`` and ``smoke.args``, which is merged onto it in smoke
+    mode - so the same config is accepted or rejected regardless of the mode
+    it would be submitted in.
+    """
+
+    for key, item in value.items():
+        if isinstance(item, (dict, list)):
+            raise ValueError(
+                f"{prefix}.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
+            )
+        # A quoted boolean is a string, so it would render as `--flag true`
+        # instead of the bare flag a real bool renders as. That is truthy on
+        # both spellings of the value, which makes `"false"` silently mean
+        # "on" - reject it and ask for the unquoted YAML boolean.
+        if isinstance(item, str) and item.lower() in ("true", "false"):
+            raise ValueError(
+                f"{prefix}.{key} is the quoted string {item!r}, not a boolean; "
+                f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
+            )
+    return value
+
+
 class SmokeConfig(BaseModel):
     """Mode-specific overrides for short dev-cluster smoke submissions."""
 
@@ -55,6 +81,11 @@ class SmokeConfig(BaseModel):
     args: dict[str, Any] = Field(default_factory=dict)
     assert_file: str | None = None  # path under the run dir the smoke must produce
     assert_min_rows: int | None = None  # minimum `wc -l` for assert_file (if a table)
+
+    @field_validator("args")
+    @classmethod
+    def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
+        return _validate_args(value, prefix="smoke.args")
 
 
 class LaunchConfig(BaseModel):
@@ -92,21 +123,7 @@ class LaunchConfig(BaseModel):
     @field_validator("args")
     @classmethod
     def _args_scalar(cls, value: dict[str, Any]) -> dict[str, Any]:
-        for key, item in value.items():
-            if isinstance(item, (dict, list)):
-                raise ValueError(
-                    f"args.{key} must be a scalar (str/int/float/bool), got {type(item).__name__}"
-                )
-            # A quoted boolean is a string, so it would render as `--flag true`
-            # instead of the bare flag a real bool renders as. That is truthy on
-            # both spellings of the value, which makes `"false"` silently mean
-            # "on" - reject it and ask for the unquoted YAML boolean.
-            if isinstance(item, str) and item.lower() in ("true", "false"):
-                raise ValueError(
-                    f"args.{key} is the quoted string {item!r}, not a boolean; "
-                    f"write `{key}: {item.lower()}` unquoted so it renders as a flag"
-                )
-        return value
+        return _validate_args(value, prefix="args")
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
