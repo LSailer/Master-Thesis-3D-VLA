@@ -290,9 +290,12 @@ def _run_eval_episode(
                 )
         else:
             rng_key, act_key = jax.random.split(rng_key)
-            action, act_state = agent.act_with_state(
-                encoder_obs, is_first, act_state, act_key, training=False
+            action_array, act_state = agent.act(
+                agent.params, encoder_obs, is_first, act_state, act_key, False
             )
+            # habitat's env.step only wraps int/np.integer into
+            # {"action": ...}; the jitted act returns a 0-d device array.
+            action = int(action_array)
             next_obs = env_instance.step(action)
         next_encoder_obs = encoder_obs_from_fields(observe(next_obs))
         next_is_first = next_obs.is_first

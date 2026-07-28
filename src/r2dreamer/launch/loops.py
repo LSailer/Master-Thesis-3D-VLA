@@ -26,6 +26,7 @@ import wandb as _wandb_module
 
 from src.buffer.replay_buffer import ReplayBatch
 from src.configs.config import R2DreamerConfig, TrainerConfig
+from src.r2dreamer.agent import materialize_metrics
 from src.r2dreamer.checkpointing import (
     config_snapshot,
     load_checkpoint,
@@ -49,26 +50,32 @@ class R2DreamerAgentLike(Protocol):
     """
 
     cfg: Any
+    train_state: Any
     params: Any
     opt_state: Any
     slow_critic_params: Any
     ema_state: Any
 
+    def initial_act_state(self) -> Any: ...
+
     def train_step(
         self,
+        train_state: Any,
         batch: ReplayBatch,
         rng_key: jnp.ndarray,
         *,
         materialize: bool = True,
-    ) -> dict[str, Any]: ...
+    ) -> tuple[Any, dict[str, Any]]: ...
 
     def act(
         self,
-        encoder_obs: Any,
-        is_first: bool,
+        params: Any,
+        obs: Any,
+        is_first: Any,
+        state: Any,
         rng_key: jnp.ndarray,
-        training: bool = True,
-    ) -> int: ...
+        training: Any = True,
+    ) -> tuple[jnp.ndarray, Any]: ...
 
     # ``(target, recon)`` as device arrays, or None without a decoder. The
     # second element is the raw Flax ``apply`` result: its static type is a
@@ -408,8 +415,10 @@ def train_loop(
     """Run the act -> collect -> train-ratio loop from start_step to total_steps.
 
     Args:
-        agent: Agent providing ``act`` and ``train_step`` (encoder params are
-            updated inside ``train_step``; the loop never touches them).
+        agent: Agent providing ``act`` and ``train_step``. Both are pure: the
+            loop threads the acting carry as a local and writes the train state
+            each gradient step back to ``agent.train_state``, which is what
+            checkpointing and ``agent.params`` read.
         experience: Recording collector for on-policy rollouts and sampling.
         acfg: Agent config (batch_size, seq_len, train_ratio, decoder flag).
         tcfg: Loop-control config (total_steps, cadences).
@@ -423,6 +432,7 @@ def train_loop(
     """
     print(f"Training from step {start_step} to {tcfg.total_steps}...")
     agent_step = experience.reset()
+    act_state = agent.initial_act_state()
     logger.start_timing(start_step)
     batch_steps = acfg.batch_size * acfg.seq_len
     train_credit = 0.0
@@ -433,8 +443,14 @@ def train_loop(
 
     for step in range(start_step, tcfg.total_steps):
         rng_key, act_key = jax.random.split(rng_key)
-        action = agent.act(agent_step.encoder_obs, agent_step.is_first, act_key)
-        result = experience.step(action)
+        action_array, act_state = agent.act(
+            agent.params,
+            agent_step.encoder_obs,
+            agent_step.is_first,
+            act_state,
+            act_key,
+        )
+        result = experience.step(int(action_array))
         agent_step = result.agent_step
 
         if result.episode is not None:
@@ -462,11 +478,13 @@ def train_loop(
             while train_credit >= 1.0:
                 rng_key, train_key = jax.random.split(rng_key)
                 batch = experience.sample(acfg.batch_size, acfg.seq_len)
-                metrics = agent.train_step(batch, train_key, materialize=will_log)
+                agent.train_state, metrics = agent.train_step(
+                    agent.train_state, batch, train_key, materialize=will_log
+                )
                 train_credit -= 1.0
 
             if will_log and metrics is not None:
-                logger.log_train_metrics(metrics, step)
+                logger.log_train_metrics(materialize_metrics(metrics), step)
                 log_pending = False
                 if (
                     getattr(acfg, "decoder", False)
@@ -499,23 +517,6 @@ def train_loop(
 # ---------------------------------------------------------------------------
 
 
-def _snapshot_act_state(agent: R2DreamerAgentLike) -> Any | None:
-    """Return a copy of the stateful acting latent, when the agent has one."""
-    snapshot = getattr(agent, "snapshot_act_state", None)
-    if snapshot is None:
-        return None
-    return snapshot()
-
-
-def _restore_act_state(agent: R2DreamerAgentLike, state: Any | None) -> None:
-    """Restore stateful acting latent after validation rollouts."""
-    if state is None:
-        return
-    restore = getattr(agent, "restore_act_state", None)
-    if restore is not None:
-        restore(state)
-
-
 def _run_single_val_episode(
     agent: R2DreamerAgentLike,
     val_experience: ExperienceSource,
@@ -527,15 +528,21 @@ def _run_single_val_episode(
     step: int,
 ) -> tuple[dict[str, Any], jnp.ndarray]:
     agent_step = val_experience.reset()
+    act_state = agent.initial_act_state()
     if record_video:
         val_experience.start_video_capture()
 
     for _ in range(tcfg.val_max_episode_steps):
         rng_key, act_key = jax.random.split(rng_key)
-        action = agent.act(
-            agent_step.encoder_obs, agent_step.is_first, act_key, training=False
+        action_array, act_state = agent.act(
+            agent.params,
+            agent_step.encoder_obs,
+            agent_step.is_first,
+            act_state,
+            act_key,
+            training=False,
         )
-        result = val_experience.step(action)
+        result = val_experience.step(int(action_array))
         if result.done:
             break
         agent_step = result.agent_step
@@ -559,8 +566,8 @@ def val_loop(
     Runs ``val_episodes`` greedy rollouts in the pinned eval env and logs
     rolling val/* metrics. The first val_video_episodes are captured as W&B
     videos (deterministic playback — same scene across runs because the eval
-    episode order is pinned by the curriculum JSON). The agent's stateful
-    acting latent is snapshotted and restored around the rollouts.
+    episode order is pinned by the curriculum JSON). Each val episode threads
+    its own acting carry, so the training rollout's carry is untouched.
 
     Args:
         agent: Agent to evaluate (acting with ``training=False``).
@@ -573,29 +580,23 @@ def val_loop(
     Returns:
         The advanced PRNG key.
     """
-    act_state = _snapshot_act_state(agent)
     last_val_metrics: dict[str, Any] = {}
     videos_recorded = 0
     val_t0 = time.time()
 
-    try:
-        for _ep_idx in range(tcfg.val_episodes):
-            record_video = (
-                videos_recorded < tcfg.val_video_episodes and logger.wandb_active
-            )
-            last_val_metrics, rng_key = _run_single_val_episode(
-                agent,
-                val_experience,
-                tcfg,
-                logger,
-                rng_key,
-                record_video=record_video,
-                step=step,
-            )
-            if record_video:
-                videos_recorded += 1
-    finally:
-        _restore_act_state(agent, act_state)
+    for _ep_idx in range(tcfg.val_episodes):
+        record_video = videos_recorded < tcfg.val_video_episodes and logger.wandb_active
+        last_val_metrics, rng_key = _run_single_val_episode(
+            agent,
+            val_experience,
+            tcfg,
+            logger,
+            rng_key,
+            record_video=record_video,
+            step=step,
+        )
+        if record_video:
+            videos_recorded += 1
 
     # The final episode's tracker snapshot is logged; the rolling-mean fields
     # already reflect the whole val loop (the tracker is shared across
@@ -661,7 +662,10 @@ def overfit_loop(
     first_loss = last_loss = 0.0
     for step in range(tcfg.overfit_steps):
         rng_key, train_key = jax.random.split(rng_key)
-        metrics = agent.train_step(batch, train_key)
+        agent.train_state, device_metrics = agent.train_step(
+            agent.train_state, batch, train_key
+        )
+        metrics = materialize_metrics(device_metrics)
         last_loss = metrics["total_loss"]
         if step == 0:
             first_loss = last_loss

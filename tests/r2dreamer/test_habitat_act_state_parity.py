@@ -1,4 +1,10 @@
-"""Real Habitat parity for mutable and functional R2Dreamer acting state.
+"""Real Habitat parity for the functional R2Dreamer acting carry.
+
+The jitted ``act`` takes ``self`` as a static argument, so nothing may ride on
+the agent object between steps: replaying a step from the same carry, key and
+observation must reproduce it exactly, and ``is_first`` must reset the carry.
+Both are asserted against a real Habitat observation stream, because the CPU
+tests feed synthetic fields.
 
 Run on a GPU node with Habitat-Sim/HM3D available:
 
@@ -65,7 +71,7 @@ def _tree_allclose(left, right, *, atol=1e-6) -> bool:
     return all(np.allclose(np.asarray(a), np.asarray(b), atol=atol) for a, b in leaves)
 
 
-def test_real_habitat_act_with_state_matches_mutable_acting():
+def test_real_habitat_act_is_pure_and_resets_on_is_first():
     env = None
     try:
         try:
@@ -92,24 +98,39 @@ def test_real_habitat_act_with_state_matches_mutable_acting():
 
         for step in range(6):
             # Fold reset parity into the real stream: step 0 is env reset, step 3
-            # forces a synthetic episode boundary through both APIs.
+            # forces a synthetic episode boundary.
             compare_is_first = is_first
             if step == 3:
                 compare_is_first = True
-                forced_reset_checked = True
 
             rng, act_key = jax.random.split(rng)
-            mutable_action = agent.act(
-                encoder_obs, compare_is_first, act_key, training=False
+            stale = state
+            action, state = agent.act(
+                agent.params, encoder_obs, compare_is_first, stale, act_key, False
             )
-            state_action, state = agent.act_with_state(
-                encoder_obs, compare_is_first, state, act_key, training=False
+            replay_action, replay_state = agent.act(
+                agent.params, encoder_obs, compare_is_first, stale, act_key, False
             )
 
-            assert state_action == mutable_action
-            assert _tree_allclose(state, agent.snapshot_act_state())
+            # Purity: no hidden state on the agent between two identical calls.
+            assert int(replay_action) == int(action)
+            assert _tree_allclose(replay_state, state)
 
-            obs = env.step(mutable_action)
+            if compare_is_first:
+                # is_first must drop the carry, whatever it held before.
+                fresh_action, fresh_state = agent.act(
+                    agent.params,
+                    encoder_obs,
+                    False,
+                    agent.initial_act_state(),
+                    act_key,
+                    False,
+                )
+                assert int(fresh_action) == int(action)
+                assert _tree_allclose(fresh_state, state)
+                forced_reset_checked = True
+
+            obs = env.step(int(action))
             if obs.done:
                 break
             encoder_obs = encoder_obs_from_fields(observe(obs))

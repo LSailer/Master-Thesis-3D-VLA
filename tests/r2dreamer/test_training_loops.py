@@ -249,20 +249,24 @@ class _AgentSpy:
     def __init__(self, agent: R2DreamerAgent):
         self.actions: list[int] = []
         self.materialize_flags: list[bool] = []
+        # Bind the jitted descriptors once; the instance attributes below
+        # shadow them, so the spy must keep its own handle on the real ones.
         self._real_act = agent.act
         self._real_train_step = agent.train_step
         agent.act = self._act
         agent.train_step = self._train_step
 
-    def _act(self, encoder_obs, is_first, rng_key, training: bool = True) -> int:
-        action = self._real_act(encoder_obs, is_first, rng_key, training=training)
+    def _act(self, params, obs, is_first, state, rng_key, training=True):
+        action, next_state = self._real_act(
+            params, obs, is_first, state, rng_key, training
+        )
         self.actions.append(int(action))
-        return action
+        return action, next_state
 
-    def _train_step(self, batch, rng_key, **kwargs) -> dict:
+    def _train_step(self, train_state, batch, rng_key, **kwargs):
         # Mirror the real keyword-only default (agent.train_step: materialize=True).
         self.materialize_flags.append(bool(kwargs.get("materialize", True)))
-        return self._real_train_step(batch, rng_key, **kwargs)
+        return self._real_train_step(train_state, batch, rng_key, **kwargs)
 
     @property
     def act_calls(self) -> int:

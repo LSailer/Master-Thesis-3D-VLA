@@ -107,11 +107,21 @@ def test_routed_pipeline_trains_and_acts(name, fake_extractor):
     # Routing survives the round trip through the buffer.
     assert routing_from_batch(batch) == {f.key: f.encoder for f in fields}
 
-    metrics = agent.train_step(batch, jax.random.PRNGKey(1))
+    agent.train_state, metrics = agent.train_step(
+        agent.train_state, batch, jax.random.PRNGKey(1)
+    )
     assert metrics["total_loss"] == metrics["total_loss"]  # not NaN
 
-    action = agent.act(step.encoder_obs, step.is_first, jax.random.PRNGKey(2))
-    assert 0 <= action < env.num_actions
+    action, act_state = agent.act(
+        agent.params,
+        step.encoder_obs,
+        step.is_first,
+        agent.initial_act_state(),
+        jax.random.PRNGKey(2),
+        True,
+    )
+    assert 0 <= int(action) < env.num_actions
+    assert act_state.deter.shape == (1, agent.cfg.deter_size)
 
 
 @pytest.mark.parametrize("name", sorted(ADAPTERS))
