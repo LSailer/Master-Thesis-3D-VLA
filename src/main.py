@@ -775,7 +775,7 @@ def run_loop(
                 summary = collector.finish_episode()
                 logger.log_episode(summary, step)
                 if recorder is not None:
-                    recorder.finish_episode(summary)
+                    recorder.finish_episode(summary, step=step)
                 episodes_done += 1
                 if episodes_done >= episodes:
                     break
@@ -797,6 +797,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     training = args.mode == "train"
     if not training and not args.random and args.checkpoint is None:
         raise ValueError("eval mode requires --checkpoint (or --random)")
+    if training and (args.checkpoint is not None or args.random):
+        # Mode defaults to train, so a forgotten --mode eval would otherwise
+        # silently start a fresh multi-million-step training run.
+        raise ValueError(
+            "--checkpoint/--random select the eval workflow; pass --mode eval"
+        )
     output_dir = args.output_dir or _DEFAULT_OUTPUT_DIR
 
     composed = compose_run(args, output_dir=output_dir)

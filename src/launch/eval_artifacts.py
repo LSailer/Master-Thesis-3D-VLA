@@ -184,12 +184,19 @@ class EvalRecorder:
         self._trajectory.append(self._env.agent_state.position.tolist())
         self._headings.append(_get_agent_heading(self._env))
 
-    def finish_episode(self, summary: EpisodeSummary) -> dict[str, Any]:
+    def finish_episode(
+        self, summary: EpisodeSummary, *, step: int
+    ) -> dict[str, Any]:
         """Build the episode's result row and write its artifacts.
 
         Args:
             summary: The collector's episode summary; ``metrics/sr`` and
                 ``metrics/spl`` are the success/SPL the run is scored on.
+            step: Global rollout step the episode ended on. Videos log under
+                this step: the run loop already logged the episode metrics at
+                it, and W&B silently drops writes below its current step, so
+                an episode-indexed axis would lose every video after the
+                first multi-step episode.
 
         Returns:
             The result row appended to :attr:`results`.
@@ -225,7 +232,7 @@ class EvalRecorder:
                 self._wandb,
                 f"eval/episode_video_{ep_idx}",
                 summary.video_frames,
-                ep_idx,
+                step,
             )
         print(
             f"Episode {ep_idx}: steps={summary.steps:3d}  "
