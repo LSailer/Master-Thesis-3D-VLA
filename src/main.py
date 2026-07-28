@@ -650,7 +650,9 @@ def _should_record_video(
     )
 
 
-def run_loop(
+# main owning the whole run loop in one function is the orchestrator
+# refactor's core decision (PR #222); see prototyp/launch-main-orchestrator.
+def run_loop(  # pylint: disable=too-many-statements,too-many-nested-blocks
     agent: R2DreamerAgent | RandomPolicy,
     collector: ExperienceCollector,
     acfg: R2DreamerConfig,

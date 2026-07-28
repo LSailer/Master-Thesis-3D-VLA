@@ -120,7 +120,9 @@ def _extract_goal_positions(env: Any) -> list[list[float]]:
     return goal_positions
 
 
-class EvalRecorder:
+# One recorder owns every eval artifact sink by design (see the
+# launch-main-orchestrator prototype); splitting it would re-scatter them.
+class EvalRecorder:  # pylint: disable=too-many-instance-attributes
     """Per-episode eval bookkeeping, driven by the run loop in ``src.main``.
 
     The loop owns acting and env stepping; this class only records. Habitat

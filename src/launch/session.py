@@ -43,7 +43,8 @@ class RunLoggerLike(Protocol):
     def write_row(self, step: int, key: str, value: Any) -> None: ...
 
 
-class RunLogger:
+# "All sinks in one place" is this class's contract; each sink is one attr.
+class RunLogger:  # pylint: disable=too-many-instance-attributes
     """All run sinks in one place: metrics.csv, W&B, console, MANIFEST.json.
 
     Owns the CSV/W&B/manifest lifecycle so the run loop never touches file

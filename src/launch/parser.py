@@ -20,7 +20,9 @@ ENVS = ("habitat", "crafter")
 MODES = ("train", "eval")
 
 
-def build_parser() -> argparse.ArgumentParser:
+# The single flat parser is the point of this module (one add_argument per
+# flag); statement count grows with the flag surface, not with complexity.
+def build_parser() -> argparse.ArgumentParser:  # pylint: disable=too-many-statements
     """Build the one parser every entry point uses.
 
     Flags are grouped by what they drive, not by which workflow reads them: a
