@@ -597,7 +597,7 @@ def train(
         A ``TrainingRun`` handle (agent + collectors + effective configs) for
         programmatic (notebook) callers.
     """
-    args = _build_parser_train().parse_args(argv if argv is not None else sys.argv[1:])
+    args = build_parser_train().parse_args(argv if argv is not None else sys.argv[1:])
     eff_curriculum = _effective_curriculum(env=env, args=args, curriculum=curriculum)
     eff_output_dir, eff_wandb_name, eff_wandb_tags = _effective_run_metadata(
         args=args,

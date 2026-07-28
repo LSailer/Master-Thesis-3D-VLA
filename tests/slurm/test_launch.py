@@ -493,7 +493,7 @@ def test_bare_boolean_flag_still_parses_with_the_train_parser() -> None:
     the bare form is already accepted; this pins that the launcher and the CLI
     agree end to end rather than only on the option spelling.
     """
-    from src.r2dreamer.launch.parser import _build_parser_train
+    from src.r2dreamer.launch.parser import build_parser_train
 
     rendered = launch.render_sbatch(launch.load_config(BOOL_CONFIG), mode="prod")
     _python_cmd, _script, _run_id, flags = training_command(rendered)
@@ -504,7 +504,7 @@ def test_bare_boolean_flag_still_parses_with_the_train_parser() -> None:
         if value is not None:
             argv.append(value)
 
-    args = _build_parser_train().parse_args(argv)
+    args = build_parser_train().parse_args(argv)
     assert args.full_bf16 is True
 
 
