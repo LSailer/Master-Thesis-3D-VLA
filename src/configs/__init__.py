@@ -5,3 +5,5 @@ from src.configs.config import (
     R2DreamerConfig,
     TrainerConfig,
 )
+
+__all__ = ["LATENT_PRESETS", "R2DreamerConfig", "TrainerConfig"]

@@ -39,7 +39,7 @@ def _stack_array_grid(values: list[list[ArrayObservation]]) -> jax.Array:
 
 def _transition_observation(transition: ReplayTransition) -> ReplayObservation:
     """Return a transition observation, including structured adapter mappings."""
-    return cast(ReplayObservation, transition.obs)
+    return transition.obs
 
 
 def _stack_hybrid_observations(

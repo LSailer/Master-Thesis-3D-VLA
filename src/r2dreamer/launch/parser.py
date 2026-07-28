@@ -326,7 +326,7 @@ def _add_adapter_train_args(p: argparse.ArgumentParser) -> None:
     )
 
 
-def _build_parser_train() -> argparse.ArgumentParser:
+def build_parser_train() -> argparse.ArgumentParser:
     """Build CLI parser for train(). Union of flags from all r2dreamer entrypoints."""
     p = argparse.ArgumentParser(add_help=True)
     _add_basic_train_args(p)
@@ -340,7 +340,7 @@ def _build_parser_train() -> argparse.ArgumentParser:
     return p
 
 
-def _build_parser_eval() -> argparse.ArgumentParser:
+def build_parser_eval() -> argparse.ArgumentParser:
     """Build CLI parser for evaluate()."""
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--checkpoint", type=str, default=None)

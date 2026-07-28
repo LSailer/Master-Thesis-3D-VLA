@@ -349,11 +349,11 @@ def test_standalone_scripts_keep_their_own_interpreter_and_take_no_run_id(
 
 
 def _train_parser_option_strings() -> set[str]:
-    from src.r2dreamer.launch.parser import _build_parser_train
+    from src.r2dreamer.launch.parser import build_parser_train
 
     return {
         option
-        for action in _build_parser_train()._actions
+        for action in build_parser_train()._actions
         for option in action.option_strings
     }
 

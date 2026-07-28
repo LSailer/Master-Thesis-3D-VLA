@@ -83,5 +83,5 @@ __archiv__/baselines/plot_random_baseline.py
 coverage.xml
 coverage.json
 
-# no-mistakes run artifacts (the .no-mistakes.yaml config itself IS tracked)
-.no-mistakes/
+# Gate state (attempt counters, last check summary, PR body drafts)
+.gate/

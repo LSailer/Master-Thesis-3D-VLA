@@ -33,7 +33,7 @@ from src.environments.observation import ObservationFrame  # noqa: E402
 from src.shared.ply_io import write_world_points_ply  # noqa: E402
 from src.vggt.jax.aggregator import (  # noqa: E402
     Aggregator,
-    _calculate_dynamic_budgets,
+    calculate_dynamic_budgets,
 )
 from src.vggt.jax.heads.camera_head import CameraHead  # noqa: E402
 from src.vggt.jax.heads.dpt_head import DPTHead  # noqa: E402
@@ -246,7 +246,7 @@ def compile_camera_head_apply(camera_head: Any) -> Any:
     return jax.jit(_cam_fn)
 
 
-def _pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarray:
+def pool_dense_world_points(pts_nhwc: jnp.ndarray, out_size: int) -> jnp.ndarray:
     """Average-pool ``(N, 518, 518, C)`` to ``(N, out_size, out_size, C)``.
 
     Divisible sizes use exact block means, e.g. ``37`` maps to 14x14 cells.
@@ -476,7 +476,7 @@ class JAXVGGTFeatureExtractor:
           Per-block token budgets as Python ints, usable as JIT static args.
         """
         bud = jnp.asarray(
-            _calculate_dynamic_budgets(
+            calculate_dynamic_budgets(
                 jnp.asarray(last_scores, dtype=jnp.float32),
                 self._total_budget,
             )
@@ -579,7 +579,7 @@ class JAXVGGTFeatureExtractor:
         """Convert a compact 2-tuple (or None) into padded 3-tuple form."""
         if entry is None:
             return self._new_padded_cache_entry()
-        if isinstance(entry, tuple) and len(entry) == 3:
+        if len(entry) == 3:
             return entry
         keys, values = entry
         batch, num_heads, seq_len, head_dim = keys.shape

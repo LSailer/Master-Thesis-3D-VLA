@@ -1,18 +1,23 @@
 {
-  "include": ["src", "tests"],
+  "include": ["src"],
   "extraPaths": ["."],
   "exclude": [
     "**/__pycache__",
     "external",
     "output",
-    "wandb",
-    "tests/*",
-    "scripts/*"
+    "wandb"
   ],
   "typeCheckingMode": "standard",
   "pythonVersion": "3.12",
   "venvPath": ".",
   "venv": ".venv",
   "reportMissingImports": "none",
-  "reportPrivateImportUsage": "none"
+  "reportPrivateImportUsage": "none",
+  "reportUnusedImport": "error",
+  "reportUnusedFunction": "error",
+  "reportPrivateUsage": "error",
+  "reportUnnecessaryCast": "error",
+  "reportUnnecessaryComparison": "error",
+  "reportUnnecessaryIsInstance": "error",
+  "reportExplicitAny": "error"
 }

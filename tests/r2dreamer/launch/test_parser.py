@@ -8,15 +8,15 @@ plus ``_renamed_agent_flags`` (the handful whose names or values differ).
 
 from src.configs.config import LATENT_PRESETS, R2DreamerConfig
 from src.main import _agent_config, _config_from_args, _renamed_agent_flags
-from src.r2dreamer.launch.parser import _build_parser_eval, _build_parser_train
+from src.r2dreamer.launch.parser import build_parser_eval, build_parser_train
 
 
 def _train_args(*argv: str):
-    return _build_parser_train().parse_args(list(argv))
+    return build_parser_train().parse_args(list(argv))
 
 
 def test_train_parser_does_not_expose_encoder_era_flags():
-    parser = _build_parser_train()
+    parser = build_parser_train()
     args = parser.parse_args([])
     help_text = parser.format_help()
 
@@ -33,7 +33,7 @@ def test_train_parser_does_not_expose_encoder_era_flags():
 
 
 def test_mlp_layers_help_describes_the_routed_mlp_branch():
-    help_text = " ".join(_build_parser_train().format_help().split())
+    help_text = " ".join(build_parser_train().format_help().split())
 
     assert "Depth of the composite encoder's MLP branch" in help_text
     assert "Only affects variants that route a field to the MLP branch" in help_text
@@ -50,13 +50,13 @@ def test_train_parser_defaults_to_scalars_only_no_validation_or_video():
 
 
 def test_eval_parser_defaults_to_no_video_logging():
-    args = _build_parser_eval().parse_args([])
+    args = build_parser_eval().parse_args([])
 
     assert args.log_video_episodes == 0
 
 
 def test_buffer_capacity_override_accepts_hyphen_and_underscore_aliases():
-    parser = _build_parser_train()
+    parser = build_parser_train()
 
     hyphen = parser.parse_args(["--buffer-capacity", "500000"])
     underscore = parser.parse_args(["--buffer_capacity", "100000"])

@@ -110,7 +110,7 @@ ignored-modules = [
 ]
 
 [tool.pylint.typecheck]
-extension-pkg-allow-list = ["jax", "jaxlib"]
+extension-pkg-allow-list = ["jax", "jaxlib", "numpy"]
 
 [tool.uv]
 python-preference = "only-managed"

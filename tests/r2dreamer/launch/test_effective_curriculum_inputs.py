@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.main import _build_parser, _effective_curriculum
-from src.r2dreamer.launch.parser import _build_parser_train
+from src.r2dreamer.launch.parser import build_parser_train
 
 
 def _call(env, *, curriculum=None, args_curriculum=None, curriculum_path=None):
@@ -24,7 +24,7 @@ def _from_cli(*argv):
     top, rest = _build_parser().parse_known_args(list(argv))
     return _effective_curriculum(
         env=top.env,
-        args=_build_parser_train().parse_args(rest),
+        args=build_parser_train().parse_args(rest),
         curriculum=top.curriculum,
     )
 

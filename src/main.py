@@ -35,7 +35,7 @@ from src.r2dreamer.launch.evaluate import (
     run_evaluation,
 )
 from src.r2dreamer.launch.loops import apply_resume, run_training
-from src.r2dreamer.launch.parser import _build_parser_eval, _build_parser_train
+from src.r2dreamer.launch.parser import build_parser_eval, build_parser_train
 from src.shared.dtypes import compute_jnp_dtype
 
 ENVS = ("habitat", "crafter")
@@ -597,7 +597,7 @@ def train(
         A ``TrainingRun`` handle (agent + collectors + effective configs) for
         programmatic (notebook) callers.
     """
-    args = _build_parser_train().parse_args(
+    args = build_parser_train().parse_args(
         argv if argv is not None else sys.argv[1:]
     )
     eff_curriculum = _effective_curriculum(env=env, args=args, curriculum=curriculum)
@@ -694,7 +694,7 @@ def evaluate(
     Returns:
         Metrics dict with ``results`` and ``meta`` keys.
     """
-    args = _build_parser_eval().parse_args(argv if argv is not None else sys.argv[1:])
+    args = build_parser_eval().parse_args(argv if argv is not None else sys.argv[1:])
     eff_checkpoint, eff_output_dir = resolve_eval_settings(
         args, checkpoint=checkpoint, output_dir=output_dir
     )
