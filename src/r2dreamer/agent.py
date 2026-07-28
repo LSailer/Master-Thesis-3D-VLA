@@ -1,7 +1,10 @@
 """R2DreamerAgent — composition root.
 
-The agent is a thin orchestrator: it owns parameters, the LaProp optimizer,
-the slow-target EMA, the acting state, and the JIT'd train/eval entry points.
+The agent is a thin orchestrator: it owns the module bundle, the LaProp
+optimizer, the slow-target EMA, and the two jitted entry points ``act`` and
+``train_step``. Both are pure: every piece of mutable state (params, acting
+carry, optimizer state) travels as an explicit argument and comes back as a
+return value; the agent object itself carries only architecture.
 The actual loss math lives in three subpackages, each with its own loss file:
 
     world_model/loss.py     — KL (dyn + rep) + reward + continue heads
@@ -17,11 +20,13 @@ gradient signal under one `jax.grad`.
 import functools
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, NamedTuple, cast
+from typing import Any, Dict, NamedTuple, SupportsFloat, TypeAlias, cast
 
 import jax
 import jax.numpy as jnp
 import optax
+from flax.typing import VariableDict
+from jax.typing import ArrayLike
 
 from src.adapters.contract import (
     AdapterOutput,
@@ -44,6 +49,20 @@ from .representation.loss import representation_loss
 from .world_model.heads import R2MLP, R2TwoHotDist
 from .world_model.loss import world_model_loss
 from .world_model.rssm_factory import compute_dtype_kwargs, rssm_from_config
+
+
+# One parameter subtree per Flax module ("encoder", "rssm", "actor", ...); each
+# subtree is exactly what that module's ``apply`` expects.
+ParamTree: TypeAlias = Mapping[str, VariableDict]
+
+# One env step as the encoder consumes it: routed key -> value, or a bare array
+# for a single-branch encoder. ``EncoderObs`` is the raw live layout (no batch
+# dim); ``BatchedObs`` is what ``_batch_live_obs`` returns.
+EncoderObs: TypeAlias = Mapping[str, ArrayLike] | ArrayLike
+BatchedObs: TypeAlias = dict[str, jax.Array] | jax.Array
+
+# Metric name -> 0-d device scalar, as the jitted train step returns them.
+DeviceMetrics: TypeAlias = dict[str, jax.Array]
 
 
 class ActState(NamedTuple):
@@ -77,6 +96,59 @@ def load_policy_checkpoint(path: str | Path) -> dict[str, Any]:
     if missing:
         raise KeyError(f"checkpoint {path} is missing required keys: {sorted(missing)}")
     return ckpt
+
+
+def _batch_live_obs(
+    encoder_obs: EncoderObs, global_keys: tuple[str, ...]
+) -> BatchedObs:
+    """Add the single-env batch dim to one live observation tree.
+
+    Trace-safe: it is called from inside the jitted ``act`` body, where the
+    values are tracers and only the key structure is static.
+
+    Live (``buffer=False``) fields are one global event that the encoder
+    broadcasts itself, so they must NOT gain a batch dim - the branch would
+    see an extra axis and its shape check would fail.
+
+    Args:
+        encoder_obs: One live observation in the layout the encoder consumes;
+            either a mapping of routed key to value, or a bare array.
+        global_keys: Routed keys the encoder treats as global, taken from the
+            composite encoder (static structure).
+
+    Returns:
+        The same tree with a leading batch axis on every non-global field.
+    """
+    if not isinstance(encoder_obs, Mapping):
+        return jnp.asarray(encoder_obs)[None]
+
+    def batched(key: str, value: ArrayLike) -> jax.Array:
+        array = jnp.asarray(value)
+        return array if key in global_keys else array[None]
+
+    return {
+        key: batched(key, value)
+        for key, value in encoder_obs.items()
+        if key != "is_first"
+    }
+
+
+def materialize_metrics(metrics: Mapping[str, SupportsFloat]) -> dict[str, float]:
+    """Block on device metrics and return them as host floats.
+
+    This is the device->host sync that ``R2DreamerAgent.train_step`` cannot do
+    itself any more: the step is directly jitted, so ``float()`` on its outputs
+    has to happen at the call site. Call it only on steps that actually log -
+    every call serializes JAX's async dispatch.
+
+    Args:
+        metrics: Metric name to 0-d device array, as returned by
+            :meth:`R2DreamerAgent.train_step` with ``materialize=True``.
+
+    Returns:
+        The same mapping with Python floats as values.
+    """
+    return {key: float(value) for key, value in metrics.items()}
 
 
 def _weighted_total_loss(cfg: R2DreamerConfig, losses: dict[str, Any]):
@@ -185,8 +257,18 @@ class R2DreamerAgent:
     """R2-Dreamer agent with a single LaProp optimizer over all parameters.
 
     All Flax modules are *stateless* — parameters live in a flat pytree dict
-    exposed as ``self.params``.  Training state is bundled in
+    exposed as ``self.params``. Training state is bundled in
     ``self.train_state`` and threaded through one JIT-compiled pure step.
+
+    .. warning::
+        ``act`` and ``train_step`` are jitted with ``static_argnums=(0,)``, so
+        ``self`` is hashed by identity and captured once at trace time. Their
+        bodies may only read *architecture* off ``self`` (modules, ``cfg``,
+        ``tx``, ``twohot``). Reading a mutable attribute - ``self.params``,
+        ``self.train_state`` - inside either body silently freezes step-0
+        values into the compiled kernel and training would appear to run while
+        learning nothing. Mutable state is passed in and returned, never read
+        off ``self``.
     """
 
     @property
@@ -306,11 +388,11 @@ class R2DreamerAgent:
 
         # Forward the real first-frame observation to discover embed_size.
         # ``fields`` already holds live values in the acting layout, so
-        # ``_batch_live_obs`` (which needs ``encoder_mod`` for ``global_keys``,
-        # assigned above) is the single place that knows which fields take the
+        # ``_batch_live_obs`` (fed the encoder's ``global_keys``, assigned
+        # above) is the single place that knows which fields take the
         # single-env batch dim - no zero-filled stand-in to keep in sync.
         rng_key, k1, k2, k3 = jax.random.split(rng_key, 4)
-        init_obs = self._batch_live_obs(encoder_obs_from_fields(fields))
+        init_obs = _batch_live_obs(encoder_obs_from_fields(fields), self._global_keys())
         enc_params = self.encoder_mod.init(k1, init_obs)
         embed = cast(jnp.ndarray, self.encoder_mod.apply(enc_params, init_obs))
         self.embed_size = embed.shape[-1]
@@ -436,16 +518,13 @@ class R2DreamerAgent:
             ema_state=ema_state,
         )
 
-        # ---- Acting state (for legacy single-env stepping wrapper) ----
-        self._act_state = self.initial_act_state()
-
-        # ---- JIT-compiled functions ----
-        self._jitted_train_step = cast(Any, jax.jit(self._train_step_pure))
-        self._jit_act_with_state = cast(Any, jax.jit(self.act_with_state_pure))
-
     # ------------------------------------------------------------------
     # Acting
     # ------------------------------------------------------------------
+
+    def _global_keys(self) -> tuple[str, ...]:
+        """Routed keys the composite encoder broadcasts itself (static)."""
+        return tuple(getattr(self.encoder_mod, "global_keys", ()))
 
     def initial_act_state(self) -> ActState:
         """Return a zeroed functional single-env acting state."""
@@ -457,95 +536,55 @@ class R2DreamerAgent:
             prev_action=jnp.zeros((1, self.cfg.num_actions), dtype=jnp.float32),
         )
 
-    def snapshot_act_state(self) -> ActState:
-        """Copy the legacy mutable wrapper's acting state."""
-        return jax.tree.map(jnp.copy, self._act_state)
-
-    def restore_act_state(self, state: ActState) -> None:
-        """Restore the legacy mutable wrapper's acting state."""
-        self._act_state = state
-
-    def _batch_live_obs(self, encoder_obs: Any) -> Any:
-        """Add the single-env batch dim to one live observation tree.
-
-        Live (``buffer=False``) fields are one global event that the encoder
-        broadcasts itself, so they must NOT gain a batch dim - the branch would
-        see an extra axis and its shape check would fail.
-        """
-        if not isinstance(encoder_obs, Mapping):
-            return jnp.asarray(encoder_obs)[None]
-        global_keys = getattr(self.encoder_mod, "global_keys", ())
-
-        def batched(key: str, value: Any) -> jnp.ndarray:
-            array = jnp.asarray(value)
-            return array if key in global_keys else array[None]
-
-        return {
-            key: batched(key, value)
-            for key, value in encoder_obs.items()
-            if key != "is_first"
-        }
-
+    @functools.partial(jax.jit, static_argnums=(0,))
     def act(
         self,
-        encoder_obs: Any,
-        is_first: bool,
-        rng_key: jnp.ndarray,
-        training: bool = True,
-    ) -> int:
-        """Select an action for a single prepared environment step.
+        params: ParamTree,
+        obs: EncoderObs,
+        is_first: ArrayLike,
+        state: ActState,
+        rng_key: jax.Array,
+        training: ArrayLike = True,
+    ) -> tuple[jax.Array, ActState]:
+        """Select one action and advance the single-env acting carry.
+
+        .. warning::
+            ``self`` is a STATIC jit argument: it is hashed by identity and the
+            body is traced exactly once per agent instance, never retraced. Only
+            architecture may be read off ``self`` here (``encoder_mod``,
+            ``rssm_mod``, ``actor_mod``, ``cfg``). ``params`` and ``state`` are
+            explicit arguments precisely so a stale step-0 copy cannot be baked
+            into the compiled kernel. ``self.cfg`` is an unfrozen dataclass and
+            therefore unhashable - it can only be reached through static
+            ``self``, never be passed as a static argument of its own.
 
         Args:
-            encoder_obs: one live observation in the layout consumed by the encoder.
-                The agent adds the single-env batch dimension internally.
-            is_first: whether the step starts an episode and should reset RSSM state.
-            rng_key: PRNG key.
-            training: if False, use argmax (greedy).
+            params: The agent parameter pytree to act with.
+            obs: One live observation in the layout the encoder consumes,
+                without the single-env batch dim - it is added inside the jit.
+            is_first: Whether this step starts an episode; resets the carry.
+            state: The acting carry returned by the previous call, or
+                :meth:`initial_act_state` at the start of a rollout.
+            rng_key: PRNG key for this step.
+            training: If falsy, act greedily (argmax) instead of sampling.
 
         Returns:
-            Integer action in [0, num_actions).
+            ``(action, next_state)`` where ``action`` is a 0-d int32 device
+            array. Callers that step an environment convert it with ``int()``
+            themselves; habitat's ``env.step`` only wraps ``int``/``np.integer``
+            into ``{"action": ...}`` and a raw JAX array raises there.
         """
+        batched_obs = _batch_live_obs(obs, self._global_keys())
         reset = jnp.asarray(is_first, dtype=jnp.bool_)
-        batched_obs = self._batch_live_obs(encoder_obs)
-        action_int, self._act_state = self._jit_act_with_state(
-            self.params, batched_obs, self._act_state, reset, rng_key, training
-        )
-
-        # Honor the ``-> int`` contract: the jitted core returns a 0-d JAX array,
-        # but callers (env.step, action_counts indexing) need a host Python int.
-        # habitat's env.step only wraps int/np.integer into {"action": ...}; a
-        # raw JAX array slips through to string indexing and raises.
-        return int(action_int)
-
-    def act_with_state(
-        self,
-        encoder_obs: Any,
-        is_first: bool,
-        state: ActState,
-        rng_key: jnp.ndarray,
-        training: bool = True,
-    ) -> tuple[int, ActState]:
-        """Functional acting wrapper for one raw live encoder observation."""
-        reset = jnp.asarray(is_first, dtype=jnp.bool_)
-        batched_obs = self._batch_live_obs(encoder_obs)
-        action_int, new_state = self._jit_act_with_state(
-            self.params, batched_obs, state, reset, rng_key, training
-        )
-        # As in ``act``: return a host int action (state pytree passes through
-        # untouched so the next jitted call still sees stable shapes/dtypes).
-        return int(action_int), new_state
-
-    def act_with_state_pure(
-        self, params, obs, state: ActState, is_first, rng_key, training
-    ):
-        """JIT-able acting logic. Returns (action_int, next ActState)."""
         state = jax.lax.cond(
-            is_first,
+            reset,
             lambda _: self.initial_act_state(),
             lambda current: current,
             state,
         )
-        embed = cast(jnp.ndarray, self.encoder_mod.apply(params["encoder"], obs))
+        embed = cast(
+            jnp.ndarray, self.encoder_mod.apply(params["encoder"], batched_obs)
+        )
         rng_key, k_sample = jax.random.split(rng_key)
         new_stoch, new_deter, _ = cast(
             tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray],
@@ -639,56 +678,51 @@ class R2DreamerAgent:
     # Training
     # ------------------------------------------------------------------
 
+    @functools.partial(jax.jit, static_argnums=(0,), static_argnames=("materialize",))
     def train_step(
         self,
+        train_state: R2DTrainState,
         batch: ReplayBatch,
-        rng_key: jnp.ndarray,
+        rng_key: jax.Array,
         *,
         materialize: bool = True,
-    ) -> Dict[str, Any]:
-        """One LaProp step on `batch`.
+    ) -> tuple[R2DTrainState, DeviceMetrics]:
+        """One LaProp step on ``batch``, returning the advanced train state.
+
+        .. warning::
+            ``self`` is a STATIC jit argument: it is hashed by identity and the
+            body is traced exactly once per ``(agent, materialize)`` pair, never
+            retraced. Only architecture may be read off ``self`` here
+            (``cfg``, ``tx``, ``_modules``, ``return_ema``). Every mutable
+            tensor lives in ``train_state``, which is passed in and returned;
+            reading ``self.params`` or ``self.train_state`` inside this body
+            would freeze the step-0 values into the compiled kernel and the run
+            would train against them forever. The caller owns the reassignment
+            (``agent.train_state = new_state``). ``self.cfg`` is an unfrozen
+            dataclass and therefore unhashable - it can only be reached through
+            static ``self``, never be passed as a static argument of its own.
 
         Args:
-          batch: The replay batch to train on.
-          rng_key: PRNG key for the step.
-          materialize: When ``True`` (default), block and return Python-float
-            metrics. When ``False``, return the raw device-array metrics
-            without forcing a device->host sync. The hot training loop passes
-            ``False`` on non-logging steps so JAX async dispatch is not
-            serialized ~every step for metrics that would be discarded.
+            train_state: Params, optimizer state, slow critic params, EMA state.
+            batch: The replay batch to train on.
+            rng_key: PRNG key for the step.
+            materialize: Static, keyword-only. ``True`` (default) returns the
+                full metrics dict; the caller turns it into host floats with
+                :func:`materialize_metrics`. ``False`` returns an empty dict, so
+                the diagnostic-only metrics are dropped from the compiled graph
+                and no device->host sync is possible. The hot training loop
+                passes ``False`` on non-logging steps so JAX async dispatch is
+                not serialized ~every step for metrics that would be discarded.
+                The two values compile two separate kernels.
 
         Returns:
-          A dict of metric name to value. Python floats when ``materialize``,
-          otherwise device ``jax.Array`` scalars.
+            ``(new_train_state, metrics)``; ``metrics`` maps metric name to a
+            0-d device array, and is empty when ``materialize`` is ``False``.
         """
-        self.train_state, metrics = self._jitted_train_step(
-            self.train_state,
-            batch,
-            rng_key,
-        )
-        if materialize:
-            return {k: float(v) for k, v in metrics.items()}
-        return dict(metrics)
-
-    def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
-        """Evaluate the current objective on a batch without updating state."""
-        _total_loss, aux = self._loss_fn(
-            self.params,
-            slow_critic_params=self.slow_critic_params,
-            ema_state=self.ema_state,
-            batch=batch,
-            rng_key=rng_key,
-        )
-        metrics = dict(aux.metrics)
-        metrics["total_loss"] = aux.agent_loss
-        return {k: float(v) for k, v in metrics.items()}
-
-    def _train_step_pure(self, state: R2DTrainState, batch, rng_key):
-        """Pure-functional training step (JIT-able)."""
-        params = state.params
-        opt_state = state.opt_state
-        slow_critic_params = state.slow_critic_params
-        ema_state = state.ema_state
+        params = train_state.params
+        opt_state = train_state.opt_state
+        slow_critic_params = train_state.slow_critic_params
+        ema_state = train_state.ema_state
 
         # Slow critic EMA: update BEFORE loss (matches PyTorch _update_slow_target)
         tau = self.cfg.slow_target_fraction
@@ -733,17 +767,33 @@ class R2DreamerAgent:
             lambda new, old: jnp.where(is_finite, new, old), new_ema_state, ema_state
         )
 
-        metrics = aux.metrics
-        metrics["opt_loss"] = total_loss
-        metrics["total_loss"] = aux.agent_loss
-        metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         new_state = R2DTrainState(
             params=new_params,
             opt_state=new_opt_state,
             slow_critic_params=new_slow,
             ema_state=new_ema_state,
         )
+        if not materialize:
+            return new_state, {}
+
+        metrics = aux.metrics
+        metrics["opt_loss"] = total_loss
+        metrics["total_loss"] = aux.agent_loss
+        metrics["nan_skipped"] = 1.0 - is_finite.astype(jnp.float32)
         return new_state, metrics
+
+    def eval_loss(self, batch: Any, rng_key: jnp.ndarray) -> Dict[str, float]:
+        """Evaluate the current objective on a batch without updating state."""
+        _total_loss, aux = self._loss_fn(
+            self.params,
+            slow_critic_params=self.slow_critic_params,
+            ema_state=self.ema_state,
+            batch=batch,
+            rng_key=rng_key,
+        )
+        metrics = dict(aux.metrics)
+        metrics["total_loss"] = aux.agent_loss
+        return {k: float(v) for k, v in metrics.items()}
 
     # ------------------------------------------------------------------
     # Composition root: shared forward + 3 sub-losses
