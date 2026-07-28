@@ -168,7 +168,7 @@ setup:                    # raw bash lines run before the training command
   - ./scripts/setup_worktree.sh
   - bash scripts/slurm/hooks/link_external.sh
 
-args:                     # free mapping -> `--<key> <value>` (auto-quoted, order preserved)
+args:                     # free mapping -> command-line flags; see "How rendering works"
   steps: 2000000
   output_dir: output/.../run-${SLURM_JOB_ID}
   wandb_tags: curriculum,level4,10houses,6goals
@@ -191,6 +191,13 @@ smoke:                    # mode overrides; smoke.args deep-merges onto args
 - **`args`** is a free mapping. Each entry renders as a `--flag value` line in
   YAML order; flag style follows `arg_style`; values containing whitespace,
   `$`, or `,` are quoted (matching the hand-written sbatch convention).
+- **Booleans** are the one exception: `full_bf16: true` renders as the bare
+  switch `--full_bf16` (no value token), and `full_bf16: false` renders no line
+  at all. A *quoted* `"true"`/`"false"` is a string, not a boolean, so it would
+  render as the pair `--full_bf16 false` rather than as a switch, and what that
+  means then depends on how the target parser declares the flag. It is instead
+  rejected at validation time naming the offending key (in `args` and in
+  `smoke.args` alike); write the YAML boolean unquoted.
 - **`${TIMESTAMP}`** in any rendered value emits a `TIMESTAMP=$(date ...)` line.
 - **`${SLURM_JOB_ID}`** and other env vars are expanded by Slurm/bash at runtime.
 

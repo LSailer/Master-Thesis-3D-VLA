@@ -149,8 +149,7 @@ def transition_from_fields(
     live = [f for f in fields if not f.buffer]
     if len(live) > 1:
         raise ValueError(
-            f"only one live (buffer=False) field supported, got "
-            f"{[f.key for f in live]}"
+            f"only one live (buffer=False) field supported, got {[f.key for f in live]}"
         )
     encoders = {f.key: f.encoder.value for f in fields}
     return ReplayTransition.from_frame(

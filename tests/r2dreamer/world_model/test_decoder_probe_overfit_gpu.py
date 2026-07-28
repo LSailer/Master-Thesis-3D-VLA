@@ -16,7 +16,7 @@ from PIL import Image
 
 from src.adapters.contract import AdapterField, AdapterOutput, Encoder
 from src.buffer.replay_buffer import ReplayBatch
-from src.r2dreamer.agent import R2DreamerAgent
+from src.r2dreamer.agent import R2DreamerAgent, materialize_metrics
 from src.configs.config import R2DreamerConfig
 
 
@@ -169,7 +169,10 @@ def _run_decoder_overfit_probe(
     metrics = {}
     for _ in range(steps):
         rng, step_key = jax.random.split(rng)
-        metrics = agent.train_step(batch, step_key)
+        agent.train_state, device_metrics = agent.train_step(
+            agent.train_state, batch, step_key
+        )
+        metrics = materialize_metrics(device_metrics)
     final = _recon_mse(agent, batch)
 
     if artifact_prefix is not None:

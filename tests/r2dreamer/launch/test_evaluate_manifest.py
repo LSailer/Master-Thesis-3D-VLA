@@ -194,13 +194,14 @@ def test_run_eval_episode_updates_obs_after_nonterminal_step(monkeypatch, tmp_pa
     class _FakeAgent:
         def __init__(self):
             self.seen = []
+            self.params = {}
 
         def initial_act_state(self):
             return None
 
-        def act_with_state(self, encoder_obs, is_first, state, act_key, training=False):
-            self.seen.append(sorted(encoder_obs))
-            return 1, state
+        def act(self, params, obs, is_first, state, act_key, training=False):
+            self.seen.append(sorted(obs))
+            return jax.numpy.asarray(1, dtype=jax.numpy.int32), state
 
     def _fake_start_episode(env_instance, observe):
         obs = SimpleNamespace(
