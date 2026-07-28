@@ -1,13 +1,14 @@
 extends: global_tokens_l1
 job_name: rgb-full-tokens-l1
 output_dir: output/runs/r2dreamer-curriculum-l1-rgb-full-tokens
-run_id: habitat-l1-full-tokens
 comments:
   - "L1 full-width token context (3D-77): the sibling of global_tokens_l1 with both halves of the final aggregator tokens instead of the global half only - replay stores RGB_64 plus 1374x2048 tokens, and the agent runs CNN(image) + Transformer(tokens). VGGT point/camera heads are off."
   - "buffer_capacity is half the global arm's: a token row is 5.6 MB here, so 10000 rows already cost ~56 GB host RAM - hence the node RAM bump too."
 sbatch:
   mem: 96G
 args:
+  adapter: rgb_full_tokens
+  curriculum: L1
   buffer_capacity: 10000
   output_dir: output/runs/r2dreamer-curriculum-l1-rgb-full-tokens/run-${SLURM_JOB_ID}
   wandb_name: l1_rgb_full_tokens-${SLURM_JOB_ID}

@@ -13,7 +13,7 @@ from src.adapters import ADAPTERS
 from src.adapters.house_voxels import DUMP_SUBDIR
 from src.adapters.rgb import RgbAdapter
 from src.main import _adapter_kwargs, make_adapter
-from src.r2dreamer.launch.parser import _build_parser_train
+from src.launch.parser import build_parser
 
 from tests.adapters.conftest import FakeEnv, FakeExtractor
 
@@ -108,7 +108,7 @@ def test_a_schedule_without_a_run_directory_is_refused(fake_extractor):
 
 def test_a_variant_that_claims_no_knob_still_builds():
     """The generic wiring must leave every other variant exactly as it was."""
-    args = _build_parser_train().parse_args([])
+    args = build_parser().parse_args([])
 
     adapter = make_adapter(RgbAdapter, args)
 
@@ -117,7 +117,7 @@ def test_a_variant_that_claims_no_knob_still_builds():
 
 def test_asking_an_unclaiming_variant_to_dump_is_an_error():
     """Silently ignoring the flag would waste the cluster job it was set for."""
-    args = _build_parser_train().parse_args(["--pointcloud_dump_steps", "2,4"])
+    args = build_parser().parse_args(["--pointcloud_dump_steps", "2,4"])
 
     with pytest.raises(ValueError, match="pointcloud_dump_steps"):
         make_adapter(RgbAdapter, args)
@@ -125,7 +125,7 @@ def test_asking_an_unclaiming_variant_to_dump_is_an_error():
 
 def test_the_dump_uses_the_run_directory_not_the_raw_flag():
     """A preset launch names its run directory as a kwarg, never as --output_dir."""
-    args = _build_parser_train().parse_args(
+    args = build_parser().parse_args(
         ["--pointcloud_dump_steps", "2,4", "--output_dir", "output/ignored"]
     )
 
@@ -138,7 +138,7 @@ def test_the_dump_uses_the_run_directory_not_the_raw_flag():
 
 def test_a_rollout_that_owns_no_artifacts_gets_no_run_directory():
     """The validation collector must not write over the training run's dumps."""
-    args = _build_parser_train().parse_args(["--output_dir", "output/runs/actual"])
+    args = build_parser().parse_args(["--output_dir", "output/runs/actual"])
 
     kwargs = _adapter_kwargs(ADAPTERS["rgb_house_voxels"], args, output_dir=None)
 
@@ -148,6 +148,6 @@ def test_a_rollout_that_owns_no_artifacts_gets_no_run_directory():
 @pytest.mark.parametrize("name", sorted(ADAPTERS))
 def test_every_claimed_flag_exists_on_the_train_cli(name):
     """A claim on a deleted flag is a job that dies at argparse on the cluster."""
-    known = set(_build_parser_train().parse_args([]).__dict__)
+    known = set(build_parser().parse_args([]).__dict__)
 
     assert not set(getattr(ADAPTERS[name], "RUN_FLAGS", ())) - known

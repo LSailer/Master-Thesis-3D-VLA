@@ -16,4 +16,3 @@ args:
   wandb_name: l1-cnn-cap1m-fp32-seed42-probe-${SLURM_JOB_ID}
   wandb_tags: 3d-87,cnn-baseline,dtype-plumbing-noop,fp32,seed-42,cap-1m
   video_log_every: 0
-  val_every: 0

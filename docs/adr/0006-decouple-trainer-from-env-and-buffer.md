@@ -1,6 +1,12 @@
 # ADR 0006: Decouple environment and replay buffer from the Trainer
 
-Status: implemented 2026-07-22 (golden-equivalence verified: bit-identical
+Status: superseded 2026-07-28 by the src.main orchestrator refactor - the
+loop functions described here (`src/r2dreamer/launch/loops.py`) moved into
+`src/main.py` (`run_loop`/`prefill`/`overfit`), `train_step` and `act` became
+directly jitted pure entry points with explicit state, and the snapshot/restore
+acting-state dance was replaced by a functional carry. The decoupling this ADR
+argued for (env/replay outside the agent) still stands.
+Previously: implemented 2026-07-22 (golden-equivalence verified: bit-identical
 metrics.csv vs. the pre-refactor Trainer on a fixed-seed 40-step run)
 Date: 2026-07-22
 

@@ -20,7 +20,6 @@ and Crafter. This package contains the library code; runnable drivers live in
 - `encoders/`: the Flax branch modules; `routed_composite.py` composes one
   branch per routed adapter field.
 - `experience.py`: env loop -> adapter -> replay collector.
-- `launch/`: argparse surface, training/eval loops, Habitat eval driver.
 - `src/adapters/`: per-variant observation adapters; each field declares its
   encoder branch, whether it is replayed, and whether it is the decoder target.
 
@@ -55,9 +54,9 @@ Add the adapter in `src/adapters/`, register it in `src/adapters/__init__.py`
 (`ADAPTERS`), and route each field to an `Encoder` member. A branch that does
 not exist yet goes in `encoders/` and is wired into
 `encoders/routed_composite.py`. `tests/adapters/` covers every registered
-variant automatically. To make it launchable, add a run preset in
-`scripts/r2dreamer/_run_configs.py` and a `scripts/slurm/configs/*.yaml`
-pointing at that run id.
+variant automatically. To make it launchable, add a
+`scripts/slurm/configs/*.yaml` whose `args:` name the adapter (and curriculum);
+the variant reaches `python -m src.main` as `--adapter <name>`.
 
 A variant that differs only in a constant (a coarser reduction, another cloud
 branch, no appearance channel) is a subclass overriding that constant, not a

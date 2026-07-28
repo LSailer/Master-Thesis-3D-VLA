@@ -1,12 +1,13 @@
 extends: aggregator_pooled_l1
 job_name: r2d-L3-agg-pooled
 output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled
-run_id: habitat-l3-aggregator-pooled
 curriculum_check: data/curriculum/level3_10houses_1goal.json
 comments:
   - "L3 rung of the pooled-token arm: 10 houses x chair only, the scene-generalization axis. Identical to aggregator_pooled_l1 except for the curriculum."
   - "The pooled readout is the floor of the token family: whatever it already explains is not evidence for the sequence arms above it."
 args:
+  adapter: aggregator_pooled
+  curriculum: L3
   output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled/run-${SLURM_JOB_ID}
   wandb_name: l3_aggregator_pooled-s${SEED}-${SLURM_JOB_ID}
   wandb_tags: curriculum,level3,10houses,chair-only,vggt,aggregator-pooled,pool-on-device,skip-heads,jax,3d-encoder

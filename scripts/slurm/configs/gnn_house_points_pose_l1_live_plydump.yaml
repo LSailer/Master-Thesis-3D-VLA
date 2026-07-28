@@ -1,10 +1,11 @@
 extends: gnn_house_points_pose_l1_live
 job_name: gnn-house-points-pose-l1-live-plydump
 output_dir: output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose-plydump
-run_id: habitat-l1-gnn-house-points-pose
 comments:
   - "Same GNN house-points-pose run as the parent, plus accumulated house-context PLY dumps at 500k/1M/1.5M/2M adapter steps (one per observed env frame, reset frames included) and at the end of the first episode. Dumps land in <output_dir>/pointcloud_dumps/{step_000500000,...,end_of_first_episode}/<scene>/step_00000_context.ply. Diagnostics only: buffer.save() adds an occasional host sync but does not touch training."
 args:
+  adapter: rgb_house_voxels_gnn
+  curriculum: L1
   output_dir: output/runs/r2dreamer-curriculum-l1-gnn-house-points-pose-plydump/run-${SLURM_JOB_ID}
   wandb_name: l1_gnn_house_points_pose_plydump-${SLURM_JOB_ID}
   # Comma-separated milestones (launcher args must be scalars, so this is a

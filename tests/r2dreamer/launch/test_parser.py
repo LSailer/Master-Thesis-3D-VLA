@@ -8,15 +8,15 @@ plus ``_renamed_agent_flags`` (the handful whose names or values differ).
 
 from src.configs.config import LATENT_PRESETS, R2DreamerConfig
 from src.main import _agent_config, _config_from_args, _renamed_agent_flags
-from src.r2dreamer.launch.parser import _build_parser_eval, _build_parser_train
+from src.launch.parser import build_parser
 
 
 def _train_args(*argv: str):
-    return _build_parser_train().parse_args(list(argv))
+    return build_parser().parse_args(list(argv))
 
 
-def test_train_parser_does_not_expose_encoder_era_flags():
-    parser = _build_parser_train()
+def test_parser_does_not_expose_encoder_era_flags():
+    parser = build_parser()
     args = parser.parse_args([])
     help_text = parser.format_help()
 
@@ -33,30 +33,35 @@ def test_train_parser_does_not_expose_encoder_era_flags():
 
 
 def test_mlp_layers_help_describes_the_routed_mlp_branch():
-    help_text = " ".join(_build_parser_train().format_help().split())
+    help_text = " ".join(build_parser().format_help().split())
 
     assert "Depth of the composite encoder's MLP branch" in help_text
     assert "Only affects variants that route a field to the MLP branch" in help_text
 
 
-def test_train_parser_defaults_to_scalars_only_no_validation_or_video():
+def test_parser_defaults_to_scalars_only_no_video():
     args = _train_args()
 
+    assert args.mode == "train"
+    assert args.seed == 42
+    assert args.curriculum == "L1"
+    assert args.max_episode_steps == 500
     assert args.latent_preset == "12m"
-    assert args.val_every == 0
     assert args.video_log_every == 0
-    assert args.val_video_episodes == 0
     assert args.video_log_episodes == 0
-
-
-def test_eval_parser_defaults_to_no_video_logging():
-    args = _build_parser_eval().parse_args([])
-
     assert args.log_video_episodes == 0
 
 
+def test_val_flags_are_gone():
+    # The val-episode loop was removed with the orchestrator refactor; a YAML
+    # still rendering val_every must fail at parse time, not be ignored.
+    args = _train_args()
+    for flag in ("val_every", "val_episodes", "val_video_episodes"):
+        assert not hasattr(args, flag)
+
+
 def test_buffer_capacity_override_accepts_hyphen_and_underscore_aliases():
-    parser = _build_parser_train()
+    parser = build_parser()
 
     hyphen = parser.parse_args(["--buffer-capacity", "500000"])
     underscore = parser.parse_args(["--buffer_capacity", "100000"])
@@ -146,7 +151,6 @@ class TestAgentConfig:
     def _config(self, *argv: str) -> R2DreamerConfig:
         return _agent_config(
             args=_train_args(*argv),
-            adapter="rgb",
             num_actions=4,
             output_dir="/tmp/r2dreamer-test",
         )

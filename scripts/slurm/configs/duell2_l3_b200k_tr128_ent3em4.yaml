@@ -1,12 +1,13 @@
 extends: l3_aggregator_pooled
 job_name: r2d-L3d2-ent4
 output_dir: output/runs/duell2-l3-b200k-tr128-ent3em4
-run_id: habitat-l3-aggregator-pooled-b200k
 env:
   SEED: "42"
 comments:
   - "Duell 2 (2026-07-27-r2) finale Welle: Welle-1-Leader C (kv200k, prefill 1024, train_ratio 128) mit act_entropy 3e-4 statt 0.1. Danijar-Befund: alle Duell-Arme blieben bei uniformer Aktionsverteilung (action/forward_pct ~0.25), weil der Entropie-Term bei 0.1 den Actor auf uniform haelt; DreamerV3-Referenzwert ist 3e-4. Siehe agents/danijar-hafner/NOTES.md."
 args:
+  adapter: aggregator_pooled_b200k
+  curriculum: L3
   prefill: 1024
   train_ratio: 128
   act_entropy: 0.0003

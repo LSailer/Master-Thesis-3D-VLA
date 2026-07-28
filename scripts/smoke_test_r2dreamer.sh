@@ -54,7 +54,7 @@ echo "[PASS] Val data collected"
 echo ""
 echo "=== Step 2/4: R2-Dreamer training ==="
 TRAIN_DIR="${OUTDIR}/train"
-uv run python scripts/r2dreamer/run.py habitat-l1-cnn \
+uv run python -m src.main --env habitat --adapter rgb --curriculum L1 \
     --steps 500 \
     --prefill 200 \
     --output_dir "$TRAIN_DIR" \
@@ -83,10 +83,10 @@ echo "=== Step 3/4: Checkpoint evaluation (semantic + topdown) ==="
 CHECKPOINT=$(ls -t "${TRAIN_DIR}/checkpoints/"*.pkl | head -1)
 EVAL_DIR="${OUTDIR}/eval"
 EVAL_OUTPUT="${EVAL_DIR}/eval_results.json"
-uv run python scripts/r2dreamer/eval_habitat.py \
+uv run python -m src.main --mode eval --env habitat --adapter rgb --curriculum L1 \
+    --output_dir "$EVAL_DIR" \
     --checkpoint "$CHECKPOINT" \
     --episodes 2 \
-    --mode eval \
     --semantic \
     --render_topdown \
     --output_dir "$EVAL_DIR"

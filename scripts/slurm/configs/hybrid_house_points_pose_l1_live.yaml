@@ -1,12 +1,13 @@
-extends: house_points_pose_l1_live
+extends: _house_points_pose_l1_live
 job_name: vggt-hybrid-house-points-pose-l1-live
 output_dir: output/runs/r2dreamer-curriculum-l1-vggt-hybrid-house-points-pose
-run_id: habitat-l1-vggt-hybrid-house-points-pose
 comments:
   - "Additive hybrid (src/r2dreamer/encoders/mlp.py HybridHousePointsCameraEncoder): rgb64 CNN backbone (the image-only baseline branch, ungated) + zero-init-gated camera-pose and pooled live house-points branches. At init the embedding equals the CNN baseline's information; training must learn to admit the 3D context."
   - "Same live per-scene buffer + PERSIST_SCENE pipeline as the parent; the adapter (VGGTHybridHousePointsPoseObsAdapter) additionally replays the 64x64 frame per step (uint8, normalized on sample)."
   - "Motivation: map-as-replacement reached ~half the CNN baseline's success at matched steps (0.34 vs 0.70 @400-650k, docs/notes/2026-07-06-house-points-vs-cnn-baseline-review.md); this tests map-as-addition against the strong baseline. Watch the gate_camera/gate_house params to see whether the world model uses the extra branches."
 args:
+  adapter: rgb_house_voxels
+  curriculum: L1
   output_dir: output/runs/r2dreamer-curriculum-l1-vggt-hybrid-house-points-pose/run-${SLURM_JOB_ID}
   wandb_name: l1_hybrid_house_points_pose-${SLURM_JOB_ID}
   wandb_tags: curriculum,level1,1house,chair-only,vggt,house-points,live-buffer,camera-pose-replay,point-mlp,cnn-backbone,additive-hybrid,gated,persist-scene,jax,3d-encoder
