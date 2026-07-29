@@ -55,6 +55,7 @@ from src.adapters.global_tokens import (
     AggregatorPooledFrameMeanAdapter,
     AggregatorPooledFrameOnlyAdapter,
     AggregatorPooledFullAdapter,
+    AggregatorPooledFullDeepAdapter,
     AggregatorPooledFullDeltaAdapter,
     AggregatorPooledFullQuadAdapter,
     AggregatorPooledFullSplitAdapter,
@@ -90,6 +91,7 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_full_split": AggregatorPooledFullSplitAdapter,
     "aggregator_pooled_full_quad": AggregatorPooledFullQuadAdapter,
     "aggregator_pooled_frame": AggregatorPooledFrameOnlyAdapter,
+    "aggregator_pooled_full_deep": AggregatorPooledFullDeepAdapter,
 }
 
 __all__ = [
@@ -99,6 +101,7 @@ __all__ = [
     "AggregatorPooledFrameMeanAdapter",
     "AggregatorPooledFrameOnlyAdapter",
     "AggregatorPooledFullAdapter",
+    "AggregatorPooledFullDeepAdapter",
     "AggregatorPooledFullDeltaAdapter",
     "AggregatorPooledFullQuadAdapter",
     "AggregatorPooledFullSplitAdapter",

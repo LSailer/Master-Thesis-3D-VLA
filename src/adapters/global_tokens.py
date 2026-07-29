@@ -379,6 +379,19 @@ class AggregatorPooledFrameOnlyAdapter(AggregatorPooledFullAdapter):
         ).astype(jnp.float32)
 
 
+class AggregatorPooledFullDeepAdapter(AggregatorPooledFullAdapter):
+    """P1's readout into a deeper, wider MLP branch - the encoder axis.
+
+    Identical observation vector and replay contract to
+    :class:`AggregatorPooledFullAdapter`; only the MLP branch grows from one
+    1024 hidden block to two 2048 blocks. Measures whether the full-width
+    pooled vector is encoder-limited rather than information-limited, at zero
+    replay cost and negligible ms/step.
+    """
+
+    ENCODER_OVERRIDES: dict[str, object] = {"mlp_hidden": 2048, "mlp_layers": 2}
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 

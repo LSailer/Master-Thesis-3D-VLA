@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p8deep
+output_dir: output/runs/duell3-l3-p8-deep
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P8: P1's 6144 vector into a deeper, wider MLP branch (mlp_hidden 2048, mlp_layers 2 via ENCODER_OVERRIDES, adapter aggregator_pooled_full_deep). The encoder axis: measures whether the full-width pooled vector is encoder-limited rather than information-limited. Same replay contract as P1 (24 KB/row). Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_full_deep
+  output_dir: output/runs/duell3-l3-p8-deep/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p8-deep-s${SEED}-${SLURM_JOB_ID}
