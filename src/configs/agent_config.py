@@ -177,7 +177,7 @@ class R2DreamerConfig:
     total_steps: int = 1_000_000
     log_every: int = 250
     save_every: int = 50_000
-    seed: int = 0
+    seed: int = 42
     logdir: str = "output/runs/r2dreamer"
 
     @property

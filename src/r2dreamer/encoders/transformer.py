@@ -262,7 +262,7 @@ class TokenTransformerEncoder(nn.Module):
                 name=f"block{i}",
             )(x, train=train)
 
-        readout = self._readout(x, patch_start)
+        readout = self.ed_readout(x, patch_start)
         readout = _make_norm(self.norm_kind, self.compute_dtype, "readout_norm")(
             readout
         )

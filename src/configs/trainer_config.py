@@ -16,7 +16,7 @@ class TrainerConfig:
 
     output_dir: str = "output/runs/r2dreamer"
     total_steps: int = 10_000_000
-    seed: int = 43
+    seed: int = 42
 
     # --- Replay / sampling cadence ---
     buffer_capacity: int = 500_000

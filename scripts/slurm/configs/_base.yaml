@@ -27,7 +27,7 @@ env:
   # submission with `launch.sh <variant> --env SEED=2`; the same value pins
   # every arm of one comparison. The seed reaches habitat's episode ordering
   # (src/environments/habitat.py), so this is what makes arms paired.
-  SEED: "43"
+  SEED: "42"
 args:
   # Every config here is a habitat arm; crafter is an ad-hoc CLI run only.
   env: habitat
@@ -51,7 +51,7 @@ smoke:
     # smoke keeps matching prod if batch_size or seq_len grow moderately.
     prefill: 2048
     checkpoint_every: 1000000
-    seed: 43
+    seed: 42
     log_every: 50
     # All smoke runs log to a dedicated W&B project, kept separate from the
     # prod 3d-vla-objectnav project. Inherited by every config that `extends:
