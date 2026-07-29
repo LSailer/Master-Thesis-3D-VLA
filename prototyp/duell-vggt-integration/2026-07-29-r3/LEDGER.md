@@ -163,6 +163,7 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | A | P1 full-pooled | 6087073 | 42 | 1 | 0.1016 | 5.636 | 0.0141 | 69.3 | 37 | 18255 | **+0.0504** | softspl +17%, dtg -12%, spl +19% ggue. C |
 | B | P2 frame-mean | 6087075 | 42 | 1 | 0.1115 | 5.665 | 0.0134 | 70.0 | 39 | 19255 | **+0.0621** | bestes softspl (+29%); der Frame-Mean allein traegt |
 | C | P3 cam-delta | 6087077 | 42 | 1 | 0.0938 | 5.907 | 0.0134 | 69.9 | 39 | 19255 | +0.0258 | positiv, aber unter P1 - der Delta-Block verwaessert |
+| D | P5 split | 6087078 | 42 | 1 | 0.1048 | 5.606 | 0.0141 | 69.0 | 37 | 18255 | **+0.0572** | Platz 2; getrennte MLP-Zweige > eine 6144er-Projektion |
 
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
