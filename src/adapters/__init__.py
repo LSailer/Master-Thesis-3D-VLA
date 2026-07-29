@@ -53,6 +53,7 @@ from src.adapters.global_tokens import (
     AggregatorPooledAdapter,
     AggregatorPooledBudget200kAdapter,
     AggregatorPooledCamPoolAdapter,
+    AggregatorPooledCamPoolMeanMaxAdapter,
     AggregatorPooledFrameMeanAdapter,
     AggregatorPooledFrameOnlyAdapter,
     AggregatorPooledFullAdapter,
@@ -94,6 +95,7 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_frame": AggregatorPooledFrameOnlyAdapter,
     "aggregator_pooled_full_deep": AggregatorPooledFullDeepAdapter,
     "aggregator_pooled_campool": AggregatorPooledCamPoolAdapter,
+    "aggregator_pooled_campool_meanmax": AggregatorPooledCamPoolMeanMaxAdapter,
 }
 
 __all__ = [
@@ -101,6 +103,7 @@ __all__ = [
     "AggregatorPooledAdapter",
     "AggregatorPooledBudget200kAdapter",
     "AggregatorPooledCamPoolAdapter",
+    "AggregatorPooledCamPoolMeanMaxAdapter",
     "AggregatorPooledFrameMeanAdapter",
     "AggregatorPooledFrameOnlyAdapter",
     "AggregatorPooledFullAdapter",

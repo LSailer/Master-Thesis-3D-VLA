@@ -417,6 +417,32 @@ class AggregatorPooledCamPoolAdapter(AggregatorPooledFullAdapter):
         return pooled.mean(axis=0).astype(jnp.float32)
 
 
+class AggregatorPooledCamPoolMeanMaxAdapter(AggregatorPooledCamPoolAdapter):
+    """Mean and max over camera token plus patches, no dedicated camera block.
+
+    ``[mean(camera + patches), max(camera + patches)]`` = 2 x 2048 = 4096
+    float32 (16 KB per replay row). Sits between the single-mean readout and
+    P1: it restores the max statistic but keeps the camera token folded into
+    the pooling instead of standing as its own block.
+    """
+
+    TOKEN_KEY = "agg_pooled_campool_mm"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return mean and max over camera token plus patches."""
+        tokens = self._full_width(features)
+        pooled = jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX : AGG_CAMERA_TOKEN_IDX + 1],
+                tokens[AGG_PATCH_START_IDX:],
+            ],
+            axis=0,
+        )
+        return jnp.concatenate(
+            [pooled.mean(axis=0), pooled.max(axis=0)]
+        ).astype(jnp.float32)
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 
