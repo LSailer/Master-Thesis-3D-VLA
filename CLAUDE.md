@@ -38,8 +38,12 @@ delegate work that is faster to just do.
 - Never let two concurrent agents write the same file.
 - Continue an existing agent with `SendMessage`; a fresh `Agent` call starts
   with zero context. Check for a running agent before spawning a new one.
-- Merging and pushing. Subagents may open a PR via the `no-mistakes` skill,
-  they never merge.
+- Merging and pushing. Subagents ship via `scripts/gate.sh ship` (the gate
+  runs typecheck, pylint ratchet and the CPU test suite, then pushes and
+  opens the PR itself), they never merge. Write the PR description to
+  `.gate/pr-description.md` before shipping - the body belongs to the agent,
+  the gate only maintains its single verdict comment. Raw `git push` is
+  blocked by a global hook; `scripts/gate.sh check` iterates without pushing.
 
 ## Escalation and reporting
 Interrupt the user only for a design decision with real tradeoffs, a failure

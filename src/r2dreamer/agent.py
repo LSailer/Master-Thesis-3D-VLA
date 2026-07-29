@@ -537,7 +537,9 @@ class R2DreamerAgent:
         )
 
     @functools.partial(jax.jit, static_argnums=(0,))
-    def act(
+    # Every jit input is an explicit positional leaf by design (see warning
+    # below); collapsing them into a bundle would change the traced signature.
+    def act(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         params: ParamTree,
         obs: EncoderObs,

@@ -16,7 +16,7 @@ import jax.numpy as jnp
 from src.r2dreamer.learning_types import BehaviorLossResult, WorldModelForward
 from src.r2dreamer.value_targets import LambdaReturnInputs, lambda_return
 
-from .imagination import _imagine
+from .imagination import imagine
 
 
 def behavior_loss(
@@ -64,7 +64,7 @@ def behavior_loss(
         forward.post_deters.reshape(B * T, cfg.deter_size)
     )
 
-    rollout = _imagine(
+    rollout = imagine(
         params["rssm"],
         params["actor"],
         modules["rssm"],
@@ -74,7 +74,7 @@ def behavior_loss(
         cfg_horizon,
         rng_key,
     )
-    # Already-frozen inside _imagine, but guard at the boundary too
+    # Already-frozen inside imagine, but guard at the boundary too
     imag_feats = jax.lax.stop_gradient(rollout.feats)
     imag_actions = jax.lax.stop_gradient(rollout.actions)
 

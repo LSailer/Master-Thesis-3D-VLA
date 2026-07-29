@@ -1,0 +1,7 @@
+{
+  "counts": {
+    "reportExplicitAny": 142,
+    "reportPrivateUsage": 32,
+    "reportUnnecessaryComparison": 2
+  }
+}

@@ -1087,10 +1087,10 @@ class TestLevel3DynamicBudget:
     """
 
     def test_dynamic_budget_formula_matches_pytorch(self, pytorch_ivggt_module):
-        """Unit test — ``_calculate_dynamic_budgets`` vs PyTorch reference."""
+        """Unit test — ``calculate_dynamic_budgets`` vs PyTorch reference."""
         import torch
         from streamvggt.models.aggregator import Aggregator as PtAggregator
-        from src.vggt.jax.aggregator import _calculate_dynamic_budgets
+        from src.vggt.jax.aggregator import calculate_dynamic_budgets
 
         pt_agg = PtAggregator(img_size=518, patch_size=14, embed_dim=1024)
         # Fabricate a non-uniform last_scores to exercise the allocator.
@@ -1102,7 +1102,7 @@ class TestLevel3DynamicBudget:
         pt_budgets = pt_agg._calculate_dynamic_budgets(total_budget).cpu().numpy()
 
         jx_budgets = np.asarray(
-            _calculate_dynamic_budgets(jnp.asarray(last), total_budget)
+            calculate_dynamic_budgets(jnp.asarray(last), total_budget)
         )
 
         assert pt_budgets.shape == jx_budgets.shape == (24,)
@@ -1184,7 +1184,7 @@ class TestLevel3DynamicBudget:
     def jx_run(self, jx_params, frames_and_budget):
         from src.vggt.jax.aggregator import (
             Aggregator,
-            _calculate_dynamic_budgets,
+            calculate_dynamic_budgets,
         )
 
         frames, total_budget = frames_and_budget
@@ -1199,7 +1199,7 @@ class TestLevel3DynamicBudget:
                 else jnp.zeros((24,), dtype=jnp.float32)
             )
             budgets_per_frame.append(
-                np.asarray(_calculate_dynamic_budgets(ls, total_budget))
+                np.asarray(calculate_dynamic_budgets(ls, total_budget))
             )
             one = jnp.asarray(frame[None, None])
             out_list, _, past, last_scores = cast(
@@ -1241,7 +1241,7 @@ class TestLevel3DynamicBudget:
         jx_outs, _, _, _ = jx_run
         # 6 frames + dynamic budget → more fp32-noise accumulation than the
         # 4-frame uniform-budget (6b) test. Minor softmax rounding in
-        # _calculate_dynamic_budgets can shift a handful of retained
+        # calculate_dynamic_budgets can shift a handful of retained
         # candidates across blocks; measured drift is ~1.3e-3 at frame 4.
         atol = 2e-3
         for i, (pt, jx) in enumerate(zip(pt_outs, jx_outs)):

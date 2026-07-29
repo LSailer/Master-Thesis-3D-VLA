@@ -77,7 +77,7 @@ def _make_causal_global_mask(S: int, P: int, dtype=jnp.float32) -> jnp.ndarray:
     return future.astype(dtype) * jnp.finfo(dtype).min
 
 
-def _calculate_dynamic_budgets(
+def calculate_dynamic_budgets(
     last_scores: jnp.ndarray, total_budget: int
 ) -> jnp.ndarray:
     """Port of ``aggregator._calculate_dynamic_budgets``.
@@ -178,7 +178,7 @@ def _prepare_cache_state(
         current_budgets = (
             list(current_budgets_static)
             if current_budgets_static is not None
-            else _calculate_dynamic_budgets(last_scores, total_budget)
+            else calculate_dynamic_budgets(last_scores, total_budget)
         )
     return _CacheState(True, past_kvs, last_scores, padded_mode, current_budgets)
 

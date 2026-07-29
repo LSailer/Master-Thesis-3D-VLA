@@ -31,7 +31,7 @@ import numpy as np
 
 from src.vggt.jax.feature_extractor import (
     JAXVGGTFeatureExtractor,
-    _pool_dense_world_points,
+    pool_dense_world_points,
 )
 
 WARMUP_FRAMES = 3
@@ -125,7 +125,7 @@ def _profile_one_frame(
 
     # 5. Pool dense points + transfer head outputs to host arrays.
     t0 = time.perf_counter()
-    world_points = _pool_dense_world_points(pts3d, ext.wp_pool_size)
+    world_points = pool_dense_world_points(pts3d, ext.wp_pool_size)
     world_points_np = np.asarray(world_points[0], dtype=np.float32)
     camera_pose_np = np.asarray(camera_pose[0], dtype=np.float32)
     t["pool_transfer"] = (time.perf_counter() - t0) * 1000.0

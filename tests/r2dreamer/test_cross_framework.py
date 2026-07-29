@@ -46,7 +46,7 @@ from src.r2dreamer.world_model.rssm import RMSNorm, BlockLinear, R2RSSM
 from src.r2dreamer.encoders.cnn import ConvEncoder
 from src.r2dreamer.world_model.heads import R2MLP, onehot_mode_st
 from src.r2dreamer.world_model.loss import kl_loss
-from src.r2dreamer.behavior.imagination import _lambda_return
+from src.r2dreamer.behavior.imagination import lambda_return_positional
 
 
 # =========================================================================
@@ -684,7 +684,7 @@ class TestLambdaReturn:
         value = np.random.randn(B, T, 1).astype(np.float32) * 0.1
         boot = value.copy()
 
-        # PyTorch reference (from dreamer.py _lambda_return)
+        # PyTorch reference (from dreamer.py lambda_return_positional)
         def pt_lambda_return(last, term, reward, value, boot, disc, lamb):
             last = torch.tensor(last)
             term = torch.tensor(term)
@@ -703,7 +703,7 @@ class TestLambdaReturn:
         pt_ret = _to_np(pt_lambda_return(last, term, reward, value, boot, disc, lamb))
 
         # JAX
-        jax_ret = np.array(_lambda_return(
+        jax_ret = np.array(lambda_return_positional(
             jnp.array(last), jnp.array(term), jnp.array(reward),
             jnp.array(value), jnp.array(boot), disc, lamb,
         ))

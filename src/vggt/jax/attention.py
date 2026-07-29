@@ -202,9 +202,7 @@ class Attention(nn.Module):
             q = apply_rope_2d(q, positions, cos_table, sin_table)
             k = apply_rope_2d(k, positions, cos_table, sin_table)
 
-        is_padded_cache = (
-            past_kv is not None and isinstance(past_kv, tuple) and len(past_kv) == 3
-        )
+        is_padded_cache = past_kv is not None and len(past_kv) == 3
 
         if use_cache and is_padded_cache:
             return self._padded_cache_forward(

@@ -91,7 +91,7 @@ def validate_habitat_mode(mode: str) -> None:
         raise ValueError(f"Curriculum runs need mode 'train' or 'eval', got {mode!r}")
 
 
-def _validate_goal_distance(dist: float) -> float:
+def _validate_goal_distance(dist: float | None) -> float:
     if dist is None or not jnp.isfinite(dist) or dist < 0.0:
         raise ValueError(
             f"distance_to_goal must be a finite non-negative value, got {dist!r}"
