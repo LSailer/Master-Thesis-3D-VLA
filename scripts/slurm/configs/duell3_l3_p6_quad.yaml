@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p6quad
+output_dir: output/runs/duell3-l3-p6-quad
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P6: P1 plus 2x2 spatial quadrant means over the 37x37 patch grid ([camera_full, mean, max, q00, q01, q10, q11] = 14336, adapter aggregator_pooled_full_quad). mean/max discard all spatial structure; four quadrant means are the cheapest step that restores any. 56 KB/row, 28 GB at 500k capacity, under the 32 GB cap. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_full_quad
+  output_dir: output/runs/duell3-l3-p6-quad/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p6-quad-s${SEED}-${SLURM_JOB_ID}

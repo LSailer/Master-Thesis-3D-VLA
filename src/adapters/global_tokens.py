@@ -318,6 +318,67 @@ class AggregatorPooledFullSplitAdapter(AggregatorPooledFullAdapter):
         ]
 
 
+class AggregatorPooledFullQuadAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled readout plus 2x2 spatial quadrant means.
+
+    Appends the mean of each quadrant of the 37 x 37 patch grid to the P1
+    triple: ``[camera, mean, max, q00, q01, q10, q11]`` = 7 x 2048 = 14336
+    float32 (56 KB per replay row, 28 GB at 500k capacity). mean/max discard
+    all spatial structure; four quadrant means are the cheapest step that
+    restores any - roughly "what is left/right/above/below of me" at zero
+    VGGT cost.
+    """
+
+    TOKEN_KEY = "agg_pooled_full_quad"
+    # 1369 patches = 37 x 37, the VGGT patch grid at 518 px / patch 14.
+    PATCH_GRID = 37
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the P1 triple plus the four quadrant means."""
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        grid = patches.reshape(self.PATCH_GRID, self.PATCH_GRID, -1)
+        half = self.PATCH_GRID // 2
+        quadrants = [
+            grid[:half, :half],
+            grid[:half, half:],
+            grid[half:, :half],
+            grid[half:, half:],
+        ]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+                *[q.mean(axis=(0, 1)) for q in quadrants],
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFrameOnlyAdapter(AggregatorPooledFullAdapter):
+    """The pooled triple over the frame half alone.
+
+    ``[camera_f, patch mean_f, patch max_f]`` = 3072 float32 (12 KB per replay
+    row) - the exact mirror of the global-half pooled arm. Against P1 and the
+    pooled arm it separates "the frame half adds information" from "the frame
+    half is where the information lives".
+    """
+
+    TOKEN_KEY = "agg_pooled_frame"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return ``[camera, patch mean, patch max]`` over the frame half."""
+        tokens = jnp.asarray(features.frame_tokens)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 

@@ -53,8 +53,10 @@ from src.adapters.global_tokens import (
     AggregatorPooledAdapter,
     AggregatorPooledBudget200kAdapter,
     AggregatorPooledFrameMeanAdapter,
+    AggregatorPooledFrameOnlyAdapter,
     AggregatorPooledFullAdapter,
     AggregatorPooledFullDeltaAdapter,
+    AggregatorPooledFullQuadAdapter,
     AggregatorPooledFullSplitAdapter,
     FullTokensAdapter,
     GlobalTokensAdapter,
@@ -86,6 +88,8 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_meanf": AggregatorPooledFrameMeanAdapter,
     "aggregator_pooled_full_delta": AggregatorPooledFullDeltaAdapter,
     "aggregator_pooled_full_split": AggregatorPooledFullSplitAdapter,
+    "aggregator_pooled_full_quad": AggregatorPooledFullQuadAdapter,
+    "aggregator_pooled_frame": AggregatorPooledFrameOnlyAdapter,
 }
 
 __all__ = [
@@ -93,8 +97,10 @@ __all__ = [
     "AggregatorPooledAdapter",
     "AggregatorPooledBudget200kAdapter",
     "AggregatorPooledFrameMeanAdapter",
+    "AggregatorPooledFrameOnlyAdapter",
     "AggregatorPooledFullAdapter",
     "AggregatorPooledFullDeltaAdapter",
+    "AggregatorPooledFullQuadAdapter",
     "AggregatorPooledFullSplitAdapter",
     "FullTokensAdapter",
     "GlobalTokensAdapter",
