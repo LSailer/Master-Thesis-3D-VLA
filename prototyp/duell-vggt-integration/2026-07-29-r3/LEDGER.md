@@ -161,8 +161,9 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | # | Arm | SLURM | Seed | Treffer | softspl | dtg | spl | ms/Step | Ep. | N | Score | Kommentar |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | A | P1 full-pooled | 6087073 | 42 | 1 | 0.1016 | 5.636 | 0.0141 | 69.3 | 37 | 18255 | **+0.0504** | softspl +17%, dtg -12%, spl +19% ggue. C |
+| B | P2 frame-mean | 6087075 | 42 | 1 | 0.1115 | 5.665 | 0.0134 | 70.0 | 39 | 19255 | **+0.0621** | bestes softspl (+29%); der Frame-Mean allein traegt |
 
-Quellen: runs/6087073-A-p1full/metrics.csv (Kopie), TIMEOUT nach 30:14.
+Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
 **Headline (nachtraeglich): Die Frame-Haelfte plus beide Kamera-Tokens
 verbessern den gepoolten Arm.** P1 gegen C auf Seed 42: +0.0504, getragen
