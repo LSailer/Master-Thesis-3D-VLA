@@ -51,7 +51,7 @@ smoke:
     # smoke keeps matching prod if batch_size or seq_len grow moderately.
     prefill: 2048
     checkpoint_every: 1000000
-    seed: 42
+    seed: 43
     log_every: 50
     # All smoke runs log to a dedicated W&B project, kept separate from the
     # prod 3d-vla-objectnav project. Inherited by every config that `extends:
