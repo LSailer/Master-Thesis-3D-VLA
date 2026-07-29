@@ -52,6 +52,7 @@ from __future__ import annotations
 from src.adapters.global_tokens import (
     AggregatorPooledAdapter,
     AggregatorPooledBudget200kAdapter,
+    AggregatorPooledCamPoolAdapter,
     AggregatorPooledFrameMeanAdapter,
     AggregatorPooledFrameOnlyAdapter,
     AggregatorPooledFullAdapter,
@@ -92,12 +93,14 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_full_quad": AggregatorPooledFullQuadAdapter,
     "aggregator_pooled_frame": AggregatorPooledFrameOnlyAdapter,
     "aggregator_pooled_full_deep": AggregatorPooledFullDeepAdapter,
+    "aggregator_pooled_campool": AggregatorPooledCamPoolAdapter,
 }
 
 __all__ = [
     "ADAPTERS",
     "AggregatorPooledAdapter",
     "AggregatorPooledBudget200kAdapter",
+    "AggregatorPooledCamPoolAdapter",
     "AggregatorPooledFrameMeanAdapter",
     "AggregatorPooledFrameOnlyAdapter",
     "AggregatorPooledFullAdapter",

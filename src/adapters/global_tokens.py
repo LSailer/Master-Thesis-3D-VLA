@@ -392,6 +392,31 @@ class AggregatorPooledFullDeepAdapter(AggregatorPooledFullAdapter):
     ENCODER_OVERRIDES: dict[str, object] = {"mlp_hidden": 2048, "mlp_layers": 2}
 
 
+class AggregatorPooledCamPoolAdapter(AggregatorPooledFullAdapter):
+    """One mean over camera token plus patches - the minimal pooled readout.
+
+    ``mean(camera + patches)`` over the full-width tokens = 2048 float32
+    (8 KB per replay row), no max block and no dedicated camera block. The
+    register tokens stay dropped. The most radical reduction of the family:
+    it asks whether a single mean already carries what the multi-block
+    readouts carry - knowing the camera token is diluted to 1/1370 in it.
+    """
+
+    TOKEN_KEY = "agg_pooled_campool"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the mean over camera token plus patches."""
+        tokens = self._full_width(features)
+        pooled = jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX : AGG_CAMERA_TOKEN_IDX + 1],
+                tokens[AGG_PATCH_START_IDX:],
+            ],
+            axis=0,
+        )
+        return pooled.mean(axis=0).astype(jnp.float32)
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 
