@@ -80,38 +80,124 @@ Eingriff in fremde Jobs ist nicht Sache des Agenten.
 
 | # | Config | SLURM | Seed | Treffer | softspl | dtg | spl | ms/Step | Ep. | N | Score | Verdikt |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | | | | | |
+| A | duell3_l3_p1_full | 6087073 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| B | duell3_l3_p2_meanf | 6087075 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| C | duell3_l3_p3_delta | 6087077 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| D | duell3_l3_p5_split | 6087078 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| E | duell3_l3_p1_full SEED=43 | 6087472 | 43 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| F | duell2_l3_aggpool_b200k_tr128 (Kontrolle) | 6087473 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| G | duell3_l3_p6_quad | 6087474 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
+| H | duell3_l3_p8_deep | 6087475 | 42 | - | - | - | - | - | - | - | - | gescheitert (Queue-Starvation) |
 
 Verdikt-Vokabular: `besser` / `schlechter` / `neutral` / `gescheitert`
 (gescheitert = Job kam nicht durch, keine verwertbare Zahl).
 
+**Queue-Starvation, der Hergang:** Welle 1 submittet 06:23-06:27 UTC
+(Resubmit 06:33-06:35, s. Welle-1-Anmerkung), Welle 2 blind 07:41. Bis zum
+Duell-Ende 09:10 UTC hat gpu_h100_short keinen einzigen Slot vergeben; alle
+vier Welle-1-Jobs standen durchgehend `PENDING/Priority` mit Start-Estimate
+2026-07-30 vormittags (sacct/squeue-Snapshots 06:29, 06:35, 07:39, 08:34).
+Zum Vergleich: die r2-Jobs starteten am 27.07. um 15:21 lokal binnen
+10-70 s auf derselben Partition mit identischen Anforderungen (8 CPU, 64G,
+1 GPU, 30 min, Prio 10758, QOS normal - sacct 6060404 vs. scontrol 6087073).
+Der Unterschied ist reine Cluster-Kontention am Dienstagvormittag; fremde
+Jobs sind per PrivateData unsichtbar. Einziger sichtbarer Blocker: 20
+pending Curriculum-Jobs des eigenen Accounts (6045920-6046070, Prio 12660
+gegen unsere 10758) auf den ueberlappenden H100-Partitionen. Ein Eingriff in
+Lucas Jobs stand dem Agenten nicht zu; Push-Benachrichtigung an Luca ging
+07:42 raus. RULES 4 (ausschliesslich gpu_h100_short) liess keinen
+Partition-Ausweich zu.
+
+**Die 8 Jobs bleiben absichtlich in der Queue.** Sie sind korrekt gerendert
+(30 min --prod, SEED gebacken, --no-sync) und laufen nach dem Duell-Fenster
+von selbst; die Ergebnisse landen in output/runs/duell3-*/run-<jobid>/ und
+output/runs/duell2-l3-aggpool-b200k-tr128/run-6087473/. Auswertung danach:
+`bash <scratchpad>/eval_wave.sh` bzw. score.py (Kopien unter
+agents/orchestrator/, s. u.) - ausserhalb der Duell-Wertung, aber die
+wissenschaftliche Frage beantworten sie trotzdem.
+
 ## Headline: P1 gegen C - bringen Frame-Tokens etwas?
 
-<Score von P1 gegen C, Einzelbeitraege, und die Antwort in einem Satz.>
+Unbeantwortet - P1 (6087073) hat bis Duell-Ende keinen GPU-Slot bekommen.
+Die Messanordnung steht vollstaendig (Adapter, Config, Seed-Paarung) und
+laeuft nach; die Antwort liegt nach Joblauf in
+output/runs/duell3-l3-p1-full/run-6087073/metrics.csv gegen 6060404.
 
 ## Interne Rangliste gegen P1
 
-| Arm | Aenderung gegenueber P1 | Delta zu P1 | Verdikt |
-|---|---|---|---|
-| | | | |
+Entfaellt mangels Laeufen. Die vorbereitete Rangliste waere P2 (Frame-Mean
+allein), P3 (Kamera-Delta), P5 (Split-Felder), P6 (Quadranten), P8 (Deep-MLP)
+gegen P1 gewesen; P7 (frame-only) ist gebaut und registriert, aber ohne
+Job-Slot geblieben (2 Welle-2-Plaetze, P6/P8 vorgezogen).
 
 ## Kontrolllauf
 
-<Cs frische Ziehung auf Seed 42 gegen 6060404. Beziffert, wie viel des
-beobachteten Abstands blosse Ziehungsvarianz ist. r2-Erwartung: ~+/-0.04.>
+Nicht gelaufen (6087473 pending, dep afterany:6087075). Die r2-Erwartung
+~+/-0.04 Score Ziehungsvarianz bleibt der Massstab fuer die nachlaufende
+Auswertung.
 
 ## Erkenntnisse
 
-(folgen)
+1. **Queue-Wartezeit ist die unbudgetierte Achse des Drei-Stunden-Formats.**
+   r2 lief nachmittags auf praktisch leerer Short-Partition (Start in 10-70 s),
+   r3 stand am Dienstagvormittag 2:45 h komplett still - bei identischen
+   Job-Anforderungen. Ein Duell-Format, das Queue-Zeit auf die Uhr rechnet
+   und die Partition festnagelt, ist eine Wette auf die Tageszeit. Fuer r4:
+   entweder Startzeit nach Cluster-Lage waehlen (sacct-Historie der Partition
+   vorab pruefen) oder eine Partition-Fallback-Regel in die RULES schreiben.
+2. **Der Worktree hatte kein uv.lock, und launch.py prod rendert `uv run`
+   mit Sync** - die Kombination haette beim (gleichzeitigen) Start der vier
+   pending Jobs die geteilte .venv zerlegt (das r2-Race, Slot B/6060403,
+   nur vierfach). Gefixt auf dem Branch: uv.lock aus Main kopiert, launch.py
+   rendert immer `uv run --no-sync python` (Commit 4921263). Der Fix ist
+   unabhaengig vom Duell-Ausgang PR-wuerdig.
+3. **Ein voller Sequenz-Arm ist im 30-min-Fenster rechnerisch tot, bevor er
+   startet:** 1374 x 2048 fp16 = 5.6 MB/Zeile heisst 5.7 GB pro
+   Trainingsbatch (16 x 64 = 1024 Zeilen) durch den Replay-Sampler. Die
+   Vorstufe l3_global_tokens (halbe Zeile) lief schon 254 ms/Step, r2-Arm H
+   scorte -0.58 ueber den Tempo-Malus. Gelerntes Pooling braucht deshalb
+   einen anderen Ort als den Replay (offener Faden).
+4. **Die Adapter-Familie traegt sechs Varianten ohne Pipeline-Kopie:** alle
+   sechs neuen Arme (P1, P2, P3, P5, P6, P7, P8) sind Subklassen von
+   AggregatorPooledAdapter mit ueberschriebenem `_tokens`/`__call__` bzw.
+   nur ENCODER_OVERRIDES; tests/adapters deckte sie ohne neue Testdatei ab
+   (94 passed). Das AGENTS.md-Muster (Subklasse statt Kopie) hat sich unter
+   Zeitdruck bewaehrt.
 
 ## Sackgassen
 
-(folgen)
+- **Voller Sequenz-Arm mit gelerntem Attention-Pooling** (P4 aus GOAL.md):
+  nicht gebaut, Begruendung in Erkenntnis 3 (Replay-Bandbreite, nicht
+  Encoder-Kosten, ist der Killer). Zahlen: 5.6 MB/Zeile, Kapazitaetsdeckel
+  ~5 700 Zeilen, 5.7 GB/Batch.
+- **QOS/Prioritaets-Hebel gegen die Queue:** Account hat nur `normal`
+  (sacctmgr 08:34); kein legitimer Hebel innerhalb der RULES.
 
 ## Offene Faeden
 
-(folgen)
+- **Die 8 submitteten Jobs laufen nach dem Duell von selbst** (Welle 2 per
+  afterany an Welle 1 gekettet). Auswertung: score.py + eval_wave.sh
+  (Kopien in agents/orchestrator/) gegen 6060404 (s42) bzw. 6061173 (s43).
+  Damit ist die Duell-Frage (P1 vs. C) *nachtraeglich* beantwortbar - nur
+  nicht innerhalb der drei Stunden.
+- **Gelerntes Pooling ohne Sequenz-Replay:** die Pooling-Gewichte muessten
+  VOR dem Replay sitzen (im eingefrorenen Extractor-Pfad) oder der Replay
+  muesste Token-Subsets statt der vollen Sequenz speichern (z. B. top-k nach
+  Attention-Gewicht des Kamera-Tokens, im Adapter berechenbar, 0 Lernparameter).
+  Letzteres waere ein r4-Kandidat: gepoolte Zeilengroesse, datenabhaengige
+  Auswahl.
+- **P7 (frame-only Triple)** ist gebaut, registriert und getestet
+  (aggregator_pooled_frame, Config duell3_l3_p7_frameonly), hat aber keinen
+  Slot bekommen. Trennt "Frame-Haelfte ergaenzt" von "Frame-Haelfte genuegt" -
+  ein billiger Nachzuegler-Lauf.
+- **Pylint-Ratchet:** die neuen Adapter-Subklassen erzeugen 8x R0903
+  (too-few-public-methods) in global_tokens.py - vor einem PR gegen die
+  Ratchet-Baseline pruefen.
 
 ## Pull Request
 
-<PR-Nummer und Score, oder: keiner, mit Begruendung an der Schwelle.>
+Keiner. Kein Arm hat einen Score (alle 8 Slots Queue-Starvation, s. o.),
+die PR-Schwelle Mittel >= +0.10 gegen C ist damit nicht erreichbar.
+verify.sh am Duell-Ende: PASS (08:35 UTC). Der Branch
+duell/2026-07-29-r3-frame-camera-tokens haelt die sechs Arme, die Configs
+und den Launcher-Fix fuer die nachlaufende Auswertung bereit.

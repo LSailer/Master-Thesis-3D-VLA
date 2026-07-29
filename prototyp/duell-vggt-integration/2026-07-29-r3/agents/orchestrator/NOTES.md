@@ -63,3 +63,24 @@
 
 - Nach Welle-1-Submit (06:35): 4 Arme in der Queue (nach Resubmit wegen
   uv-sync-Gefahr), Scores stehen aus. P6/P7/P8 fuer Welle 2 fertig.
+
+## Endphase (07:39-08:40)
+
+- 07:39 T+1:29: Welle 1 unveraendert pending -> Szenario B, Welle 2 blind
+  submittet 07:41 (E=P1 s43 6087472, F=Kontrolle C 6087473, G=P6 6087474,
+  H=P8 6087475), je afterany an einen Welle-1-Job gekettet (4-Job-Limit).
+- 07:42 Push an Luca (Queue-Starvation, seine il-Jobs sind der sichtbare
+  Blocker).
+- 08:34 T+2:24: weiterhin kein Start; Endergebnis ins Ledger geschrieben,
+  Jobs bewusst in der Queue gelassen (laufen nach, Ergebnisse nachtraeglich
+  auswertbar mit score.py/eval_wave.sh hier im Ordner).
+- Zwischenfall 06:50: ein no-op `git stash push` + `pop` hat Lucas alten
+  Stash stash@{0} (preserve-vggt-reference-refactor, von main) in den
+  Worktree entladen -> Konflikte. `git reset --hard HEAD` hat den Baum
+  bereinigt; der Pop schlug vorher fehl ("could not restore untracked
+  files"), darum blieb der Stash-Eintrag intakt erhalten. Alle drei
+  Stash-Eintraege unveraendert vorhanden, keine Duell-Commits verloren.
+  Merke: nie stash-basierte Baseline-Tricks in einem Repo mit fremden
+  Stashes.
+- score.py-Validierung: C (6060404) gegen die eigene Referenz = -0.0001
+  (Rundung der publizierten Referenzwerte) - Formel korrekt.
