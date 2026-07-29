@@ -85,3 +85,8 @@ coverage.json
 
 # Gate state (attempt counters, last check summary, PR body drafts)
 .gate/
+
+# Generated class/package diagrams dropped at the repo root (pyreverse,
+# graphviz). Scoped to the root on purpose: thesis figures under docs/ are
+# tracked and must stay visible to git.
+/*.svg
