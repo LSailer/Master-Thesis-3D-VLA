@@ -4,10 +4,14 @@ Gepflegt vom Orchestrator. Eine Zeile pro Versuch, sofort nach der Auswertung.
 
 ## Rahmen
 
-- Start (Wall-Clock): <UTC, erster Tool-Call>
-- Deadline: Start + 3:00. Letzte Welle spaetestens Start + 1:45.
+- Start (Wall-Clock): 2026-07-29 06:10 UTC (erster Tool-Call)
+- Deadline: 09:10 UTC. Letzte Welle spaetestens 07:55 UTC (T+1:45).
 - Eingefrorener Seed: 42 (Bestaetigung des Fuehrenden: SEED=43 per CLI)
-- verify.sh beim Start: <PASS/FAIL, Uhrzeit>
+- verify.sh beim Start: PASS (06:10 UTC); nach den Welle-1-YAMLs: PASS
+  (06:22 UTC, alle vier neuen Configs SEED=42)
+- Branch: duell/2026-07-29-r3-frame-camera-tokens
+- CPU-Gate vor Welle 1: tests/adapters 94 passed (06:22 UTC, deckt die vier
+  neuen Registry-Eintraege automatisch mit ab)
 
 ## Referenz (die Latte, paarweise gewertet)
 
@@ -31,14 +35,25 @@ Seed 42 gegen 6060404, Seed 43 gegen 6061173.
 Ablesung: Treffer = Zeilen mit `episode/success == 1`; Rest = letzter
 geloggter Wert. `metrics.csv` ist Langformat `step,metric,value`.
 
-## Welle 1 (submittet <UTC>, T+<h:mm>)
+## Welle 1 (Submit 06:23-06:27 UTC, T+0:14; Resubmit 06:33-06:35, s. u.)
 
 | Slot | Config | Adapter / Encoder | Zeile / Kapazitaet | SLURM | Status |
 |---|---|---|---|---|---|
-| A | | P1 - `aggregator_pooled_full`, MLP wie C | 24 KB / 500 000 | | |
-| B | | | | | |
-| C | | | | | |
-| D | | | | | |
+| A | duell3_l3_p1_full | P1 - `aggregator_pooled_full` [cam_full, mean, max] = 6144, MLP wie C | 24 KB / 500 000 (12 GB) | 6087073 | pending |
+| B | duell3_l3_p2_meanf | P2 - `aggregator_pooled_meanf` [cam_g, mean_g, max_g, mean_f] = 4096, MLP wie C | 16 KB / 500 000 (8 GB) | 6087075 | pending |
+| C | duell3_l3_p3_delta | P3 - `aggregator_pooled_full_delta` P1 + (cam_t - cam_0) = 8192, MLP wie C | 32 KB / 500 000 (16 GB) | 6087077 | pending |
+| D | duell3_l3_p5_split | P5 - `aggregator_pooled_full_split` 3 Felder a 2048, je MLP-Zweig + Fusion-Dense | 3x8 KB / 500 000 (12 GB) | 6087078 | pending |
+
+Alle vier Configs extends duell2_l3_aggpool_b200k_tr128 (Knobs eingefroren),
+Code src/adapters/global_tokens.py, Commit 54d0d9b.
+
+Erst-Submit 6087059/6087060/6087061/6087064 um 06:33 gecancelt und neu
+abgesetzt: der Worktree hatte kein uv.lock, und launch.py prod rendert
+`uv run python` (mit Sync). Bei gleichzeitigem Start aller vier pending Jobs
+haette das uv-sync-Race die geteilte .venv zerlegt (r2, Slot B/6060403).
+Fix: uv.lock aus dem Main-Checkout kopiert + launch.py rendert immer
+`uv run --no-sync python` (Commit auf dem Duell-Branch). Kein Laufzeitverlust,
+die Jobs waren noch pending.
 
 ## Welle 2 (submittet <UTC>, T+<h:mm>)
 
