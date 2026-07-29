@@ -52,6 +52,10 @@ from __future__ import annotations
 from src.adapters.global_tokens import (
     AggregatorPooledAdapter,
     AggregatorPooledBudget200kAdapter,
+    AggregatorPooledFrameMeanAdapter,
+    AggregatorPooledFullAdapter,
+    AggregatorPooledFullDeltaAdapter,
+    AggregatorPooledFullSplitAdapter,
     FullTokensAdapter,
     GlobalTokensAdapter,
 )
@@ -78,12 +82,20 @@ ADAPTERS: dict[str, type] = {
     "rgb_full_tokens": FullTokensAdapter,
     "aggregator_pooled": AggregatorPooledAdapter,
     "aggregator_pooled_b200k": AggregatorPooledBudget200kAdapter,
+    "aggregator_pooled_full": AggregatorPooledFullAdapter,
+    "aggregator_pooled_meanf": AggregatorPooledFrameMeanAdapter,
+    "aggregator_pooled_full_delta": AggregatorPooledFullDeltaAdapter,
+    "aggregator_pooled_full_split": AggregatorPooledFullSplitAdapter,
 }
 
 __all__ = [
     "ADAPTERS",
     "AggregatorPooledAdapter",
     "AggregatorPooledBudget200kAdapter",
+    "AggregatorPooledFrameMeanAdapter",
+    "AggregatorPooledFullAdapter",
+    "AggregatorPooledFullDeltaAdapter",
+    "AggregatorPooledFullSplitAdapter",
     "FullTokensAdapter",
     "GlobalTokensAdapter",
     "HouseCloudEpisodesAdapter",

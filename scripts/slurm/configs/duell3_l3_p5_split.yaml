@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p5split
+output_dir: output/runs/duell3-l3-p5-split
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P5: the P1 blocks as three separate 2048 fields (camera, patch mean, patch max), one MLP branch each plus the composite fusion Dense, instead of one 6144 -> 1024 projection (adapter aggregator_pooled_full_split). Same information and replay cost as P1; measures whether per-block encoder capacity beats one wide projection. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_full_split
+  output_dir: output/runs/duell3-l3-p5-split/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p5-split-s${SEED}-${SLURM_JOB_ID}

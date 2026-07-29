@@ -179,6 +179,145 @@ class AggregatorPooledAdapter(GlobalTokensAdapter):
         ).astype(jnp.float32)
 
 
+class AggregatorPooledFullAdapter(AggregatorPooledAdapter):
+    """The pooled readout over the full-width tokens instead of the global half.
+
+    Concatenates ``frame_tokens`` and ``global_tokens`` back to the ``(1374,
+    2048)`` full-width block - frame half first, as the legacy readout did -
+    and pools it exactly like the parent: ``[camera token, patch mean, patch
+    max]``, now 3 x 2048 = 6144 float32 (24 KB per replay row). The camera
+    token therefore carries both halves' camera tokens; the register tokens
+    stay dropped.
+
+    This is the one-variable comparison against the pooled arm: same MLP
+    encoder, same KV budget, same pooling, only the frame half added. What the
+    frame half carries that the global half does not is exactly what this arm
+    measures (Duell 3, ``prototyp/duell-vggt-integration/2026-07-29-r3/``).
+    """
+
+    TOKEN_KEY = "agg_pooled_full"
+
+    def _full_width(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the ``(num_tokens, 2048)`` full-width tokens, frame half first."""
+        return jnp.concatenate(
+            [jnp.asarray(features.frame_tokens), self._global_half(features)], axis=-1
+        )
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return ``[camera, patch mean, patch max]`` over the full width."""
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFrameMeanAdapter(AggregatorPooledFullAdapter):
+    """The global pooled triple plus only the frame half's patch mean.
+
+    ``[camera_g, patch mean_g, patch max_g, patch mean_f]`` = 4096 float32
+    (16 KB per replay row). The cheap half-step between the pooled arm and
+    :class:`AggregatorPooledFullAdapter`: it isolates whether the frame half's
+    mean alone already carries the effect of the full-width readout.
+    """
+
+    TOKEN_KEY = "agg_pooled_meanf"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the global triple with the frame patch mean appended."""
+        global_half = self._global_half(features)
+        frame_half = jnp.asarray(features.frame_tokens)
+        global_patches = global_half[AGG_PATCH_START_IDX:]
+        frame_patches = frame_half[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                global_half[AGG_CAMERA_TOKEN_IDX],
+                global_patches.mean(axis=0),
+                global_patches.max(axis=0),
+                frame_patches.mean(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFullDeltaAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled readout plus a camera-token delta to frame 0.
+
+    Appends ``camera_t - camera_0`` as a fourth 2048 block (8192 float32,
+    32 KB per replay row), where ``camera_0`` is the camera token of the
+    episode's first frame. The delta is the latent stand-in for relative pose:
+    frame 0 is the episode's cache anchor, so the difference encodes where the
+    agent has moved since the start without the camera head being computed.
+
+    The anchor is per-episode state on the adapter, reset on ``is_first`` -
+    mirroring the extractor's own episode-reset boundary, so anchor and cache
+    always restart together.
+    """
+
+    TOKEN_KEY = "agg_pooled_full_delta"
+
+    def __init__(self, extractor: FeatureExtractor) -> None:
+        """Bind the extractor and start with no episode anchor."""
+        super().__init__(extractor)
+        self._camera_anchor: jnp.ndarray | None = None
+
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
+        """Drop the anchor on episode start, then route as usual."""
+        if frame.is_first:
+            self._camera_anchor = None
+        return super().__call__(frame)
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the full-width triple plus the camera delta block."""
+        tokens = self._full_width(features)
+        camera = tokens[AGG_CAMERA_TOKEN_IDX]
+        if self._camera_anchor is None:
+            self._camera_anchor = camera
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                camera,
+                patches.mean(axis=0),
+                patches.max(axis=0),
+                camera - self._camera_anchor,
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFullSplitAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled blocks as three routed fields, one MLP branch each.
+
+    Same information as :class:`AggregatorPooledFullAdapter`, but camera token,
+    patch mean and patch max are separate 2048 fields. Each gets its own MLP
+    branch and the composite encoder fuses the three embeddings, instead of one
+    6144 -> 1024 projection mixing the blocks in a single layer. Replay cost is
+    identical to the single-field arm (3 x 8 KB per row).
+    """
+
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
+        """Route the three pooled blocks as separate MLP fields."""
+        features = self._extractor.extract(frame)
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        blocks = (
+            ("agg_camera", tokens[AGG_CAMERA_TOKEN_IDX]),
+            ("agg_patch_mean", patches.mean(axis=0)),
+            ("agg_patch_max", patches.max(axis=0)),
+        )
+        return [
+            AdapterField(
+                key=key,
+                encoder=Encoder.MLP,
+                buffer=True,
+                value=value.astype(jnp.float32),
+            )
+            for key, value in blocks
+        ]
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 

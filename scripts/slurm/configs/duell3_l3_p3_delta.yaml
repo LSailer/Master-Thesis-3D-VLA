@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p3delta
+output_dir: output/runs/duell3-l3-p3-delta
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P3: P1 plus the camera-token delta to the episode's first frame ([camera_full, mean, max, camera_t - camera_0] = 8192, adapter aggregator_pooled_full_delta). Jianyuan's open thread from the r2 ledger: the latent stand-in for relative pose, 0 ms VGGT cost. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_full_delta
+  output_dir: output/runs/duell3-l3-p3-delta/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p3-delta-s${SEED}-${SLURM_JOB_ID}
