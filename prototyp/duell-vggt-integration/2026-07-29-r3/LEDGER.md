@@ -151,6 +151,26 @@ Nicht gelaufen (6087473 pending, dep afterany:6087075). Die r2-Erwartung
 ~+/-0.04 Score Ziehungsvarianz bleibt der Massstab fuer die nachlaufende
 Auswertung.
 
+## Nachlauf-Auswertung (nach der 09:10-Deadline, ausserhalb der Wertung)
+
+Die Jobs liefen nach Duell-Ende durch; Scores nach identischem Protokoll
+(score.py, paarweise gegen 6060404/6061173), aber **ausserhalb des
+Drei-Stunden-Fensters** - sie zaehlen nicht fuer die Duell-Wertung und
+begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
+
+| # | Arm | SLURM | Seed | Treffer | softspl | dtg | spl | ms/Step | Ep. | N | Score | Kommentar |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A | P1 full-pooled | 6087073 | 42 | 1 | 0.1016 | 5.636 | 0.0141 | 69.3 | 37 | 18255 | **+0.0504** | softspl +17%, dtg -12%, spl +19% ggue. C |
+
+Quellen: runs/6087073-A-p1full/metrics.csv (Kopie), TIMEOUT nach 30:14.
+
+**Headline (nachtraeglich): Die Frame-Haelfte plus beide Kamera-Tokens
+verbessern den gepoolten Arm.** P1 gegen C auf Seed 42: +0.0504, getragen
+von den dichten Metriken (softspl 0.1016 vs. 0.0866, dtg 5.64 vs. 6.38,
+spl 0.0141 vs. 0.0119) bei kostenneutralem Tempo (69.3 vs. 66.8 ms/Step).
+Vorbehalt: einzelner Seed, und die r2-Ziehungsvarianz (~+/-0.04) deckt einen
+Teil des Abstands; Kontrolllauf F und Seed-43-Lauf E laufen nach.
+
 ## Erkenntnisse
 
 1. **Queue-Wartezeit ist die unbudgetierte Achse des Drei-Stunden-Formats.**
