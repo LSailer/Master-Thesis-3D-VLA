@@ -170,6 +170,7 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | D | P5 split | 6087078 | 42 | 1 | 0.1048 | 5.606 | 0.0141 | 69.0 | 37 | 18255 | **+0.0572** | Platz 2; getrennte MLP-Zweige > eine 6144er-Projektion |
 | E | P1 full-pooled, Seed 43 | 6087472 | 43 | 1 | 0.0260 | 5.280 | 0.0065 | 69.1 | 39 | 19267 | **-0.0841** | Bestaetigung GESCHEITERT: softspl -52% ggue. Referenz s43 |
 | F | Kontrolle C (frische Ziehung) | 6087473 | 42 | 1 | 0.0908 | 5.986 | 0.0131 | 66.3 | 40 | 19543 | **+0.0226** | Ziehungsvarianz-Nullpunkt: C scort gegen sich selbst +0.02 |
+| G | P6 quad | 6087474 | 42 | 1 | 0.0989 | 5.767 | 0.0138 | 70.4 | 38 | 18751 | +0.0391 | unter P1 - Quadranten-Bloecke zahlen sich nicht aus |
 
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
