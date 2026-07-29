@@ -8,6 +8,11 @@ set -euo pipefail
 #                           once anyway and open a DRAFT PR carrying the
 #                           findings (escalation for human review)
 #
+# `ship` requires .gate/pr-description-<branch>.md to exist and refuses to run
+# without it. The PR text belongs to whoever ships; the gate only carries it.
+# There is no fallback that invents a description, because a fallback that
+# fires on missing input produces a PR nobody can review and does it silently.
+#
 # Checks run in ONE SLURM CPU allocation (login node stays free):
 # basedpyright (type check + explicit-Any baseline) -> pylint ratchet ->
 # CPU pytest suite. See scripts/gate/checks.sh.
@@ -30,6 +35,13 @@ if [[ "$MODE" != "check" && "$MODE" != "ship" ]]; then
 fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# Per branch, using the same slug as the attempt counter. A single repo-wide
+# file would let one branch ship carrying another branch's PR text, and now
+# that the --fill fallback is gone that stale description would be the silent
+# failure - worse than the missing one, because it reads as authored.
+PR_DESCRIPTION=".gate/pr-description-${BRANCH//\//_}.md"
+PR_BODY=".gate/pr-body-${BRANCH//\//_}.md"
+
 if [[ "$MODE" == "ship" ]]; then
     if [[ "$BRANCH" == "main" || "$BRANCH" == "HEAD" ]]; then
         echo "gate: refusing to ship from '$BRANCH' - use a feature branch." >&2
@@ -40,6 +52,14 @@ if [[ "$MODE" == "ship" ]]; then
     if [[ -n "$(git status --porcelain \
         | grep -Ev ' scripts/gate/[a-z]+-baseline\.json$')" ]]; then
         echo "gate: working tree is dirty - commit or stash first." >&2
+        exit 1
+    fi
+    # Checked before the SLURM allocation, not after: burning 20 minutes of
+    # checks only to discover the PR text is missing is the expensive order.
+    if [[ ! -f "$PR_DESCRIPTION" ]]; then
+        echo "gate: missing $PR_DESCRIPTION - write the PR text first." >&2
+        echo "gate: an opening '# Title' line names the PR, the rest is the" >&2
+        echo "gate: body; without it the last commit subject is the title." >&2
         exit 1
     fi
 fi
@@ -97,17 +117,23 @@ gate_report() {
 open_or_update_pr() {
     local draft_flag=$1
     local title pr_number
-    title=$(git log -1 --pretty=%s)
     pr_number=$(gh pr list --head "$BRANCH" --state open --json number \
         --jq '.[0].number' 2>/dev/null || true)
     if [[ -z "$pr_number" ]]; then
-        local body_args=(--fill)
-        if [[ -f .gate/pr-description.md ]]; then
-            body_args=(--title "$title" --body-file .gate/pr-description.md)
+        # Title and body come from the same file, so they cannot drift apart:
+        # an opening "# Title" line names the PR and is stripped from the body,
+        # otherwise the last commit subject is used. An existing PR is never
+        # retitled or rewritten here - only the gate comment below is upserted.
+        if [[ $(head -n 1 "$PR_DESCRIPTION") == "# "* ]]; then
+            title=$(head -n 1 "$PR_DESCRIPTION" | sed 's/^# *//')
+            tail -n +2 "$PR_DESCRIPTION" | sed '/./,$!d' >"$PR_BODY"
+        else
+            title=$(git log -1 --pretty=%s)
+            cp "$PR_DESCRIPTION" "$PR_BODY"
         fi
         local draft_args=()
         [[ "$draft_flag" == "draft" ]] && draft_args=(--draft)
-        gh pr create "${draft_args[@]}" "${body_args[@]}"
+        gh pr create "${draft_args[@]}" --title "$title" --body-file "$PR_BODY"
         pr_number=$(gh pr list --head "$BRANCH" --state open --json number \
             --jq '.[0].number')
     elif [[ "$draft_flag" == "ready" ]]; then
