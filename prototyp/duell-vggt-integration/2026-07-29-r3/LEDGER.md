@@ -138,12 +138,21 @@ Die Messanordnung steht vollstaendig (Adapter, Config, Seed-Paarung) und
 laeuft nach; die Antwort liegt nach Joblauf in
 output/runs/duell3-l3-p1-full/run-6087073/metrics.csv gegen 6060404.
 
-## Interne Rangliste gegen P1
+## Interne Rangliste gegen P1 (nachtraeglich, Seed 42)
 
-Entfaellt mangels Laeufen. Die vorbereitete Rangliste waere P2 (Frame-Mean
-allein), P3 (Kamera-Delta), P5 (Split-Felder), P6 (Quadranten), P8 (Deep-MLP)
-gegen P1 gewesen; P7 (frame-only) ist gebaut und registriert, aber ohne
-Job-Slot geblieben (2 Welle-2-Plaetze, P6/P8 vorgezogen).
+| Arm | Aenderung gegenueber P1 | Score | Delta zu P1 (+0.0504) | Verdikt |
+|---|---|---|---|---|
+| P2 frame-mean | nur mean_f statt voller Breite (4096 statt 6144) | +0.0621 | +0.012 | bester Arm - weniger ist mehr |
+| P5 split | gleiche Info, 3 getrennte MLP-Zweige + Fusion | +0.0572 | +0.007 | leicht besser, im Rauschen |
+| P6 quad | + 4 Quadranten-Means (14336) | +0.0391 | -0.011 | Raumstruktur zahlt nicht |
+| P3 cam-delta | + (cam_t - cam_0) Block (8192) | +0.0258 | -0.025 | Delta verwaessert, = Kontrolle |
+| P8 deep | gleicher Vektor, MLP 2x2048 | +0.0207 | -0.030 | nicht encoder-limitiert |
+
+Muster: **die schlanken Varianten gewinnen, jede Zutat ueber [Triple + mean_f]
+hinaus kostet.** Alle Deltas liegen allerdings innerhalb bzw. am Rand der
+Ziehungsvarianz (Kontrolle +0.0226); belastbar ist nur die Richtung, nicht
+die Reihenfolge der Top 3. P7 (frame-only) blieb ohne Slot - als
+Diskriminator "ergaenzt vs. genuegt" weiterhin offen.
 
 ## Kontrolllauf
 
@@ -171,6 +180,10 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | E | P1 full-pooled, Seed 43 | 6087472 | 43 | 1 | 0.0260 | 5.280 | 0.0065 | 69.1 | 39 | 19267 | **-0.0841** | Bestaetigung GESCHEITERT: softspl -52% ggue. Referenz s43 |
 | F | Kontrolle C (frische Ziehung) | 6087473 | 42 | 1 | 0.0908 | 5.986 | 0.0131 | 66.3 | 40 | 19543 | **+0.0226** | Ziehungsvarianz-Nullpunkt: C scort gegen sich selbst +0.02 |
 | G | P6 quad | 6087474 | 42 | 1 | 0.0989 | 5.767 | 0.0138 | 70.4 | 38 | 18751 | +0.0391 | unter P1 - Quadranten-Bloecke zahlen sich nicht aus |
+| H | P8 deep | 6087475 | 42 | 1 | 0.0913 | 6.045 | 0.0131 | 67.2 | 40 | 19751 | +0.0207 | = Kontrolle; der Vektor ist nicht encoder-limitiert |
+
+Alle 8 Jobs TIMEOUT nach ~30 min (voller Messlauf), sacct 10:28. Damit ist
+jeder geplante Arm gelaufen - nur eben 1:38 h bis 3:18 h nach Duell-Ende.
 
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
@@ -212,6 +225,20 @@ Kostenneutralitaet haelt dagegen auf beiden Seeds (69.3 / 69.1 ms).
    nur ENCODER_OVERRIDES; tests/adapters deckte sie ohne neue Testdatei ab
    (94 passed). Das AGENTS.md-Muster (Subklasse statt Kopie) hat sich unter
    Zeitdruck bewaehrt.
+5. **(Nachlauf) Auf Seed 42 schlaegt jeder Frame-Arm C, aber nur um
+   Varianz-Randbetraege.** Rangliste +0.0621 (P2) bis +0.0207 (P8) bei
+   Kontrolle +0.0226; die Top 3 liegen 0.028-0.040 ueber der frischen
+   C-Ziehung. Die Seed-43-Bestaetigung von P1 kippt auf -0.0841 (softspl
+   -52%). Ergebnis der Duell-Frage: Richtung positiv, Effekt nicht von
+   Ziehungsvarianz trennbar; das Format "1 Seed + 1 Bestaetigung" ist fuer
+   Effekte dieser Groesse zu grob.
+6. **(Nachlauf) Weniger ist mehr im gepoolten Vektor:** P2 (globales Triple
+   + nur Frame-Mean, 4096) schlaegt alle breiteren Varianten; Quadranten,
+   Kamera-Delta und Deep-MLP kosten jeweils Score. Der Frame-Beitrag steckt
+   im Patch-Mean, nicht im Kamera-Token voller Breite oder im Max.
+7. **(Nachlauf) Kostenneutralitaet bestaetigt auf beiden Seeds:** P1 69.3 /
+   69.1 ms, P2 70.0, P8 67.2 gegen Cs 66.8/69.1 - die Frame-Haelfte ist im
+   Extractor gratis, wie GOAL.md vorhersagte.
 
 ## Sackgassen
 
@@ -224,11 +251,10 @@ Kostenneutralitaet haelt dagegen auf beiden Seeds (69.3 / 69.1 ms).
 
 ## Offene Faeden
 
-- **Die 8 submitteten Jobs laufen nach dem Duell von selbst** (Welle 2 per
-  afterany an Welle 1 gekettet). Auswertung: score.py + eval_wave.sh
-  (Kopien in agents/orchestrator/) gegen 6060404 (s42) bzw. 6061173 (s43).
-  Damit ist die Duell-Frage (P1 vs. C) *nachtraeglich* beantwortbar - nur
-  nicht innerhalb der drei Stunden.
+- **[erledigt 10:35] Die 8 Jobs sind nachgelaufen und ausgewertet** - siehe
+  "Nachlauf-Auswertung". Naechster sinnvoller Schritt fuer die Frage: P2
+  (bester Arm, nur 4 KB mehr Replay-Zeile als C) auf 3-5 Seeds gegen C mit
+  je einem Kontrollpaar - erst das trennt +0.04 Effekt von +/-0.04 Varianz.
 - **Gelerntes Pooling ohne Sequenz-Replay:** die Pooling-Gewichte muessten
   VOR dem Replay sitzen (im eingefrorenen Extractor-Pfad) oder der Replay
   muesste Token-Subsets statt der vollen Sequenz speichern (z. B. top-k nach
