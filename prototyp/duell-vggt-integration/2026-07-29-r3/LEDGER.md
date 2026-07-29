@@ -147,9 +147,13 @@ Job-Slot geblieben (2 Welle-2-Plaetze, P6/P8 vorgezogen).
 
 ## Kontrolllauf
 
-Nicht gelaufen (6087473 pending, dep afterany:6087075). Die r2-Erwartung
-~+/-0.04 Score Ziehungsvarianz bleibt der Massstab fuer die nachlaufende
-Auswertung.
+Nachgelaufen (6087473, TIMEOUT ~09:58): Cs unveraenderte Config, frische
+Ziehung, Seed 42, gegen den config-identischen Zwilling 6060404: **+0.0226**
+(softspl 0.0908 vs. 0.0866, dtg 5.99 vs. 6.38, ms 66.3 vs. 66.8). Die
+r2-Schaetzung ~+/-0.04 Ziehungsvarianz bestaetigt sich. Konsequenz fuer die
+Seed-42-Rangliste: P3 (+0.0258) ist von der Kontrolle ununterscheidbar;
+P1/P5/P2 liegen nur 0.028-0.040 ueber ihr - an der Varianzgrenze, nicht
+darueber hinaus.
 
 ## Nachlauf-Auswertung (nach der 09:10-Deadline, ausserhalb der Wertung)
 
@@ -165,6 +169,7 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | C | P3 cam-delta | 6087077 | 42 | 1 | 0.0938 | 5.907 | 0.0134 | 69.9 | 39 | 19255 | +0.0258 | positiv, aber unter P1 - der Delta-Block verwaessert |
 | D | P5 split | 6087078 | 42 | 1 | 0.1048 | 5.606 | 0.0141 | 69.0 | 37 | 18255 | **+0.0572** | Platz 2; getrennte MLP-Zweige > eine 6144er-Projektion |
 | E | P1 full-pooled, Seed 43 | 6087472 | 43 | 1 | 0.0260 | 5.280 | 0.0065 | 69.1 | 39 | 19267 | **-0.0841** | Bestaetigung GESCHEITERT: softspl -52% ggue. Referenz s43 |
+| F | Kontrolle C (frische Ziehung) | 6087473 | 42 | 1 | 0.0908 | 5.986 | 0.0131 | 66.3 | 40 | 19543 | **+0.0226** | Ziehungsvarianz-Nullpunkt: C scort gegen sich selbst +0.02 |
 
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
