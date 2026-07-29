@@ -164,15 +164,20 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 | B | P2 frame-mean | 6087075 | 42 | 1 | 0.1115 | 5.665 | 0.0134 | 70.0 | 39 | 19255 | **+0.0621** | bestes softspl (+29%); der Frame-Mean allein traegt |
 | C | P3 cam-delta | 6087077 | 42 | 1 | 0.0938 | 5.907 | 0.0134 | 69.9 | 39 | 19255 | +0.0258 | positiv, aber unter P1 - der Delta-Block verwaessert |
 | D | P5 split | 6087078 | 42 | 1 | 0.1048 | 5.606 | 0.0141 | 69.0 | 37 | 18255 | **+0.0572** | Platz 2; getrennte MLP-Zweige > eine 6144er-Projektion |
+| E | P1 full-pooled, Seed 43 | 6087472 | 43 | 1 | 0.0260 | 5.280 | 0.0065 | 69.1 | 39 | 19267 | **-0.0841** | Bestaetigung GESCHEITERT: softspl -52% ggue. Referenz s43 |
 
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
-**Headline (nachtraeglich): Die Frame-Haelfte plus beide Kamera-Tokens
-verbessern den gepoolten Arm.** P1 gegen C auf Seed 42: +0.0504, getragen
-von den dichten Metriken (softspl 0.1016 vs. 0.0866, dtg 5.64 vs. 6.38,
-spl 0.0141 vs. 0.0119) bei kostenneutralem Tempo (69.3 vs. 66.8 ms/Step).
-Vorbehalt: einzelner Seed, und die r2-Ziehungsvarianz (~+/-0.04) deckt einen
-Teil des Abstands; Kontrolllauf F und Seed-43-Lauf E laufen nach.
+**Headline (nachtraeglich, revidiert nach E): Die Frame-Haelfte verbessert
+den gepoolten Arm auf Seed 42, repliziert aber nicht auf Seed 43.**
+P1 gegen C: Seed 42 +0.0504 (softspl +17%, dtg -12%, spl +19%,
+kostenneutral 69.3 ms), Seed 43 **-0.0841** (softspl 0.0260 vs. 0.0539,
+-52%), **Mittel -0.0169**. Auf Seed 42 schlagen alle vier Frame-Arme C
+(+0.026 bis +0.062) - die Richtung ist dort konsistent ueber vier
+unabhaengige Laeufe -, aber die einzige Seed-43-Ziehung kehrt das Vorzeichen
+um. Damit ist der Frame-Haelften-Effekt nicht bestaetigt; er ist von
+Ziehungsvarianz (r2: ~+/-0.04, hier offenbar groesser) nicht zu trennen.
+Kostenneutralitaet haelt dagegen auf beiden Seeds (69.3 / 69.1 ms).
 
 ## Erkenntnisse
 
