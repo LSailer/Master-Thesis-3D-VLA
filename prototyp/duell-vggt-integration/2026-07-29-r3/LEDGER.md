@@ -5,6 +5,7 @@ Gepflegt vom Orchestrator. Eine Zeile pro Versuch, sofort nach der Auswertung.
 ## Rahmen
 
 - Start (Wall-Clock): 2026-07-29 06:10 UTC (erster Tool-Call)
+- Ende (Wall-Clock): 09:08 UTC, Ledger final (Deadline 09:10)
 - Deadline: 09:10 UTC. Letzte Welle spaetestens 07:55 UTC (T+1:45).
 - Eingefrorener Seed: 42 (Bestaetigung des Fuehrenden: SEED=43 per CLI)
 - verify.sh beim Start: PASS (06:10 UTC); nach den Welle-1-YAMLs: PASS
@@ -93,10 +94,24 @@ Verdikt-Vokabular: `besser` / `schlechter` / `neutral` / `gescheitert`
 (gescheitert = Job kam nicht durch, keine verwertbare Zahl).
 
 **Queue-Starvation, der Hergang:** Welle 1 submittet 06:23-06:27 UTC
-(Resubmit 06:33-06:35, s. Welle-1-Anmerkung), Welle 2 blind 07:41. Bis zum
-Duell-Ende 09:10 UTC hat gpu_h100_short keinen einzigen Slot vergeben; alle
-vier Welle-1-Jobs standen durchgehend `PENDING/Priority` mit Start-Estimate
-2026-07-30 vormittags (sacct/squeue-Snapshots 06:29, 06:35, 07:39, 08:34).
+(Resubmit 06:33-06:35, s. Welle-1-Anmerkung), Welle 2 blind 07:41. Bis 08:48
+UTC hat gpu_h100_short keinen einzigen Slot vergeben; alle vier Welle-1-Jobs
+standen durchgehend `PENDING/Priority` mit Start-Estimate 2026-07-30
+vormittags (sacct/squeue-Snapshots 06:29, 06:35, 07:39, 08:34). Ab T+2:38
+loeste sich der Stau zu spaet: A/6087073 startete 08:48, B/6087075 08:55,
+C/6087077 08:58 (Ende 09:18-09:28, alle nach der 09:10-Deadline); D und die
+gesamte Welle 2 blieben pending. Kein Lauf war innerhalb des Fensters als
+30-min-Messung auswertbar; ein Anschnitt der laufenden Jobs wuerde gegen die
+eingefrorene Messdefinition (GOAL.md: 30-Minuten-Lauf) verstossen und wird
+nicht gewertet.
+
+**Live-Befund vor Duell-Ende (Bonus, keine Wertung):** P1/6087073 kam sauber
+hoch - MANIFEST git_sha d64ec47 (Branch, clean), W&B 0gk3k17b, metrics.csv
+tickt; `perf/ms_per_step_interval` bei Step 1503: 73.5 ms, bei Step 6255:
+68.1 ms (Quelle: output/runs/duell3-l3-p1-full/run-6087073/metrics.csv).
+Cs Referenz liegt bei 66.8 ms. Die GOAL.md-These "P1 ist VGGT-kostenneutral"
+haelt damit im Livebetrieb; der --no-sync-Launcher-Fix und die komplette
+P1-Pipeline (Adapter, Routing, Replay-Zeile 24 KB) sind produktiv validiert.
 Zum Vergleich: die r2-Jobs starteten am 27.07. um 15:21 lokal binnen
 10-70 s auf derselben Partition mit identischen Anforderungen (8 CPU, 64G,
 1 GPU, 30 min, Prio 10758, QOS normal - sacct 6060404 vs. scontrol 6087073).
@@ -196,8 +211,10 @@ Auswertung.
 
 ## Pull Request
 
-Keiner. Kein Arm hat einen Score (alle 8 Slots Queue-Starvation, s. o.),
-die PR-Schwelle Mittel >= +0.10 gegen C ist damit nicht erreichbar.
-verify.sh am Duell-Ende: PASS (08:35 UTC). Der Branch
+Keiner. Kein Arm hat einen Score (alle 8 Slots Queue-Starvation bzw. Start
+nach T+2:38, s. o.), die PR-Schwelle Mittel >= +0.10 gegen C ist damit nicht
+erreichbar. verify.sh am Duell-Ende: PASS (09:03 UTC). Der Branch
 duell/2026-07-29-r3-frame-camera-tokens haelt die sechs Arme, die Configs
-und den Launcher-Fix fuer die nachlaufende Auswertung bereit.
+und den Launcher-Fix fuer die nachlaufende Auswertung bereit; die Jobs
+laufen nach Deadline durch und sind mit agents/orchestrator/score.py
+paarweise gegen 6060404/6061173 auswertbar.
