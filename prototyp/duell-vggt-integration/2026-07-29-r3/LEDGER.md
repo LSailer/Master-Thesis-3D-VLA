@@ -55,14 +55,26 @@ Fix: uv.lock aus dem Main-Checkout kopiert + launch.py rendert immer
 `uv run --no-sync python` (Commit auf dem Duell-Branch). Kein Laufzeitverlust,
 die Jobs waren noch pending.
 
-## Welle 2 (submittet <UTC>, T+<h:mm>)
+## Welle 2 (submittet 07:41 UTC, T+1:31 - blind, s. Anmerkung)
 
 | Slot | Config | Zweck | SLURM | Status |
 |---|---|---|---|---|
-| E | | Seed-43-Bestaetigung des Fuehrenden | | |
-| F | | Kontrolllauf C, Seed 42 (Ziehungsvarianz) | | |
-| G | | | | |
-| H | | | | |
+| E | duell3_l3_p1_full + SEED=43 | Seed-43-Bestaetigung des mutmasslichen Fuehrenden P1 | 6087472 | pending, dep afterany:6087073 |
+| F | duell2_l3_aggpool_b200k_tr128 | Kontrolllauf C, Seed 42 (Ziehungsvarianz) | 6087473 | pending, dep afterany:6087075 |
+| G | duell3_l3_p6_quad | P6 - `aggregator_pooled_full_quad` P1 + 2x2-Quadranten-Means = 14336, 56 KB / 500 000 (28 GB) | 6087474 | pending, dep afterany:6087077 |
+| H | duell3_l3_p8_deep | P8 - `aggregator_pooled_full_deep` P1-Vektor, MLP 2x2048 (ENCODER_OVERRIDES), 24 KB / 500 000 (12 GB) | 6087475 | pending, dep afterany:6087078 |
+
+Blind submittet: Welle 1 stand um 07:39 (T+1:29) noch komplett pending
+(Reason=Priority, Start-Estimate 2026-07-30 13:10-13:30), Scores existierten
+also nicht. Der Wellenplan verlangt Submit bis T+1:45; E ist daher auf P1
+gesetzt (Headline-Arm als mutmasslicher Fuehrender), G/H auf die staerksten
+vorbereiteten Kandidaten. Jeder Welle-2-Job haengt per
+`sbatch --dependency=afterany:` 1:1 an einem Welle-1-Job, damit nie mehr als
+4 GPU-Jobs parallel laufen (RULES 4). Quelle: runs/wave2_submit.log.
+
+07:42: Push an Luca - die Queue hungert das Duell aus; seine 20 pending
+Curriculum-Jobs (Prio 12660 vs. unsere 10758) reservieren die H100-Knoten.
+Eingriff in fremde Jobs ist nicht Sache des Agenten.
 
 ## Versuche (Scores gegen C)
 
