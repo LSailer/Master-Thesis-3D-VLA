@@ -27,7 +27,7 @@ env:
   # submission with `launch.sh <variant> --env SEED=2`; the same value pins
   # every arm of one comparison. The seed reaches habitat's episode ordering
   # (src/environments/habitat.py), so this is what makes arms paired.
-  SEED: "1"
+  SEED: "43"
 args:
   # Every config here is a habitat arm; crafter is an ad-hoc CLI run only.
   env: habitat
