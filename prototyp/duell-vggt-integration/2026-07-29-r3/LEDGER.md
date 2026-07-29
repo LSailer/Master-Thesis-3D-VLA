@@ -185,6 +185,17 @@ begruenden keinen PR durch den Agenten. Sie beantworten die Frage des Duells.
 Alle 8 Jobs TIMEOUT nach ~30 min (voller Messlauf), sacct 10:28. Damit ist
 jeder geplante Arm gelaufen - nur eben 1:38 h bis 3:18 h nach Duell-Ende.
 
+## Nachtests auf Lucas Wunsch (ab 10:55 UTC)
+
+| # | Arm | SLURM | Seed | Treffer | softspl | dtg | spl | ms/Step | Ep. | N | Score | Kommentar |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| I | P2 frame-mean, Seed 43 | 6089423 | 43 | 1 | 0.0438 | 5.070 | 0.0065 | 66.9 | 39 | 19267 | **-0.0249** | Bestaetigung negativ, aber milder als P1-s43; P2-Mittel +0.0186 |
+
+Geplant/laufend: P1-s43 zweite Ziehung (6089424), P9 mean(cam+patches)
+2048 (6089590), P10 [mean, max](cam+patches) 4096 (6089600), P11 grid 2x2
+8192 (6090857), P12 grid 4x4 32768 bei buffer_capacity 200k (6090858).
+P11/P12 per afterany hinter P9/P10 (max. 4 parallel).
+
 Quellen: runs/<jobid>-<slot>/metrics.csv (Kopien), alle TIMEOUT nach ~30 min.
 
 **Headline (nachtraeglich, revidiert nach E): Die Frame-Haelfte verbessert
