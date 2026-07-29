@@ -443,6 +443,52 @@ class AggregatorPooledCamPoolMeanMaxAdapter(AggregatorPooledCamPoolAdapter):
         ).astype(jnp.float32)
 
 
+class AggregatorPooledGridAdapter(AggregatorPooledFullAdapter):
+    """Spatial average pooling: one mean per cell of a GRID x GRID kernel.
+
+    The 37 x 37 patch grid of the full-width tokens is divided into
+    ``GRID x GRID`` near-equal cells (adaptive boundaries, 37 is odd) and each
+    cell is averaged - local kernel pooling instead of the global mean. No
+    camera block and no max: together with the single-mean readout (grid 1)
+    this forms a pure pooling-resolution ladder. ``GRID = 2`` is 4 x 2048 =
+    8192 float32 (32 KB per replay row).
+    """
+
+    TOKEN_KEY = "agg_pooled_grid2"
+    GRID = 2
+    PATCH_GRID = AggregatorPooledFullQuadAdapter.PATCH_GRID
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the concatenated per-cell means of the patch grid."""
+        tokens = self._full_width(features)
+        grid = tokens[AGG_PATCH_START_IDX:].reshape(
+            self.PATCH_GRID, self.PATCH_GRID, -1
+        )
+        bounds = [
+            round(i * self.PATCH_GRID / self.GRID) for i in range(self.GRID + 1)
+        ]
+        cells = [
+            grid[bounds[i] : bounds[i + 1], bounds[j] : bounds[j + 1]].mean(
+                axis=(0, 1)
+            )
+            for i in range(self.GRID)
+            for j in range(self.GRID)
+        ]
+        return jnp.concatenate(cells).astype(jnp.float32)
+
+
+class AggregatorPooledGrid4Adapter(AggregatorPooledGridAdapter):
+    """The 4 x 4 rung of the spatial pooling ladder.
+
+    16 x 2048 = 32768 float32 is 128 KB per replay row, so runs must cap
+    ``--buffer_capacity`` at 200 000 (26 GB) to stay under the 32 GB
+    preallocation ceiling.
+    """
+
+    TOKEN_KEY = "agg_pooled_grid4"
+    GRID = 4
+
+
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):
     """Alias of :class:`AggregatorPooledAdapter`, kept for existing run ids.
 

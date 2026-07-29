@@ -61,6 +61,8 @@ from src.adapters.global_tokens import (
     AggregatorPooledFullDeltaAdapter,
     AggregatorPooledFullQuadAdapter,
     AggregatorPooledFullSplitAdapter,
+    AggregatorPooledGrid4Adapter,
+    AggregatorPooledGridAdapter,
     FullTokensAdapter,
     GlobalTokensAdapter,
 )
@@ -96,6 +98,8 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_full_deep": AggregatorPooledFullDeepAdapter,
     "aggregator_pooled_campool": AggregatorPooledCamPoolAdapter,
     "aggregator_pooled_campool_meanmax": AggregatorPooledCamPoolMeanMaxAdapter,
+    "aggregator_pooled_grid2": AggregatorPooledGridAdapter,
+    "aggregator_pooled_grid4": AggregatorPooledGrid4Adapter,
 }
 
 __all__ = [
@@ -111,6 +115,8 @@ __all__ = [
     "AggregatorPooledFullDeltaAdapter",
     "AggregatorPooledFullQuadAdapter",
     "AggregatorPooledFullSplitAdapter",
+    "AggregatorPooledGrid4Adapter",
+    "AggregatorPooledGridAdapter",
     "FullTokensAdapter",
     "GlobalTokensAdapter",
     "HouseCloudEpisodesAdapter",
