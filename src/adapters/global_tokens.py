@@ -1,5 +1,10 @@
 """The token family: VGGT aggregator tokens, global, full-width, or pooled."""
 
+# Every class in this module is an adapter variant whose public surface is a
+# single ``__call__`` by contract (src/adapters/contract.py), so the
+# class-size heuristic does not apply here.
+# pylint: disable=too-few-public-methods
+
 from __future__ import annotations
 
 import jax.numpy as jnp
