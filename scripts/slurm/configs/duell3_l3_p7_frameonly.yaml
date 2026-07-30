@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p7frame
+output_dir: output/runs/duell3-l3-p7-frameonly
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P7: the pooled triple over the frame half alone ([camera_f, mean_f, max_f] = 3072, adapter aggregator_pooled_frame). Exact mirror of the global-half pooled arm C; against P1 and C it separates 'the frame half adds information' from 'the frame half is where the information lives'. 12 KB/row. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_frame
+  output_dir: output/runs/duell3-l3-p7-frameonly/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p7-frameonly-s${SEED}-${SLURM_JOB_ID}

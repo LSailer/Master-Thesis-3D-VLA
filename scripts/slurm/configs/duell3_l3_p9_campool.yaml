@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p9campool
+output_dir: output/runs/duell3-l3-p9-campool
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 follow-up P9: one mean over camera token plus patches, nothing else (mean(cam+patches) = 2048, adapter aggregator_pooled_campool). The minimal pooled readout - asks whether a single mean already carries what the multi-block readouts carry. 8 KB/row. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_campool
+  output_dir: output/runs/duell3-l3-p9-campool/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p9-campool-s${SEED}-${SLURM_JOB_ID}

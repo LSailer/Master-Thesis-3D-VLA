@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p1full
+output_dir: output/runs/duell3-l3-p1-full
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P1, the mandatory arm: the pooled readout over the full-width aggregator tokens ([camera_full, patch mean, patch max] = 6144, adapter aggregator_pooled_full) on the confirmed duell-2 winner config C (kv budget 200k, prefill 1024, train_ratio 128, act_entropy 0.1). One variable against C: the frame half in or out. Same MLP encoder, unchanged."
+args:
+  adapter: aggregator_pooled_full
+  output_dir: output/runs/duell3-l3-p1-full/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p1-full-s${SEED}-${SLURM_JOB_ID}

@@ -1,0 +1,12 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p12grid4
+output_dir: output/runs/duell3-l3-p12-grid4
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 follow-up P12: spatial average pooling, 4x4 kernel over the 37x37 patch grid (16 cell means = 32768, adapter aggregator_pooled_grid4). Top rung of the pooling-resolution ladder P9 (grid 1) / P11 (grid 2) / P12. Row is 128 KB, so buffer_capacity is capped at 200000 (26 GB, under the 32 GB preallocation ceiling). Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_grid4
+  buffer_capacity: 200000
+  output_dir: output/runs/duell3-l3-p12-grid4/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p12-grid4-s${SEED}-${SLURM_JOB_ID}

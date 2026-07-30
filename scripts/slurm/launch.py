@@ -252,9 +252,12 @@ def _format_arg(name: str, value: Scalar) -> str | None:
 
 
 def _python_cmd(mode: Mode) -> str:
-    # Skip the (slow) dependency resync on smokes, which run under a 30-minute
-    # partition cap and cannot afford it.
-    return "uv run --no-sync python" if mode == "smoke" else "uv run python"
+    # Never resync from a job: the .venv is shared across checkouts and
+    # worktrees, and concurrently starting jobs racing `uv sync` against it
+    # has corrupted it before (Duell 2, job 6060403). The venv is synced from
+    # the login node instead; jobs only consume it.
+    del mode
+    return "uv run --no-sync python"
 
 
 def _run_dir(args: dict[str, Any], config: LaunchConfig) -> str:

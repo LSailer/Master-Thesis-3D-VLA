@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p2meanf
+output_dir: output/runs/duell3-l3-p2-meanf
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 (2026-07-29-r3) P2: the global pooled triple plus only the frame half's patch mean ([camera_g, mean_g, max_g, mean_f] = 4096, adapter aggregator_pooled_meanf). The cheap half-step to P1: isolates whether the frame mean alone already carries the full-width effect. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_meanf
+  output_dir: output/runs/duell3-l3-p2-meanf/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p2-meanf-s${SEED}-${SLURM_JOB_ID}

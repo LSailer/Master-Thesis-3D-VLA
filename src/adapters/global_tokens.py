@@ -1,5 +1,10 @@
 """The token family: VGGT aggregator tokens, global, full-width, or pooled."""
 
+# Every class in this module is an adapter variant whose public surface is a
+# single ``__call__`` by contract (src/adapters/contract.py), so the
+# class-size heuristic does not apply here.
+# pylint: disable=too-few-public-methods
+
 from __future__ import annotations
 
 import jax.numpy as jnp
@@ -177,6 +182,316 @@ class AggregatorPooledAdapter(GlobalTokensAdapter):
                 patches.max(axis=0),
             ]
         ).astype(jnp.float32)
+
+
+class AggregatorPooledFullAdapter(AggregatorPooledAdapter):
+    """The pooled readout over the full-width tokens instead of the global half.
+
+    Concatenates ``frame_tokens`` and ``global_tokens`` back to the ``(1374,
+    2048)`` full-width block - frame half first, as the legacy readout did -
+    and pools it exactly like the parent: ``[camera token, patch mean, patch
+    max]``, now 3 x 2048 = 6144 float32 (24 KB per replay row). The camera
+    token therefore carries both halves' camera tokens; the register tokens
+    stay dropped.
+
+    This is the one-variable comparison against the pooled arm: same MLP
+    encoder, same KV budget, same pooling, only the frame half added. What the
+    frame half carries that the global half does not is exactly what this arm
+    measures (Duell 3, ``prototyp/duell-vggt-integration/2026-07-29-r3/``).
+    """
+
+    TOKEN_KEY = "agg_pooled_full"
+
+    def _full_width(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the ``(num_tokens, 2048)`` full-width tokens, frame half first."""
+        return jnp.concatenate(
+            [jnp.asarray(features.frame_tokens), self._global_half(features)], axis=-1
+        )
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return ``[camera, patch mean, patch max]`` over the full width."""
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFrameMeanAdapter(AggregatorPooledFullAdapter):
+    """The global pooled triple plus only the frame half's patch mean.
+
+    ``[camera_g, patch mean_g, patch max_g, patch mean_f]`` = 4096 float32
+    (16 KB per replay row). The cheap half-step between the pooled arm and
+    :class:`AggregatorPooledFullAdapter`: it isolates whether the frame half's
+    mean alone already carries the effect of the full-width readout.
+    """
+
+    TOKEN_KEY = "agg_pooled_meanf"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the global triple with the frame patch mean appended."""
+        global_half = self._global_half(features)
+        frame_half = jnp.asarray(features.frame_tokens)
+        global_patches = global_half[AGG_PATCH_START_IDX:]
+        frame_patches = frame_half[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                global_half[AGG_CAMERA_TOKEN_IDX],
+                global_patches.mean(axis=0),
+                global_patches.max(axis=0),
+                frame_patches.mean(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFullDeltaAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled readout plus a camera-token delta to frame 0.
+
+    Appends ``camera_t - camera_0`` as a fourth 2048 block (8192 float32,
+    32 KB per replay row), where ``camera_0`` is the camera token of the
+    episode's first frame. The delta is the latent stand-in for relative pose:
+    frame 0 is the episode's cache anchor, so the difference encodes where the
+    agent has moved since the start without the camera head being computed.
+
+    The anchor is per-episode state on the adapter, reset on ``is_first`` -
+    mirroring the extractor's own episode-reset boundary, so anchor and cache
+    always restart together.
+    """
+
+    TOKEN_KEY = "agg_pooled_full_delta"
+
+    def __init__(self, extractor: FeatureExtractor) -> None:
+        """Bind the extractor and start with no episode anchor."""
+        super().__init__(extractor)
+        self._camera_anchor: jnp.ndarray | None = None
+
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
+        """Drop the anchor on episode start, then route as usual."""
+        if frame.is_first:
+            self._camera_anchor = None
+        return super().__call__(frame)
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the full-width triple plus the camera delta block."""
+        tokens = self._full_width(features)
+        camera = tokens[AGG_CAMERA_TOKEN_IDX]
+        if self._camera_anchor is None:
+            self._camera_anchor = camera
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                camera,
+                patches.mean(axis=0),
+                patches.max(axis=0),
+                camera - self._camera_anchor,
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFullSplitAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled blocks as three routed fields, one MLP branch each.
+
+    Same information as :class:`AggregatorPooledFullAdapter`, but camera token,
+    patch mean and patch max are separate 2048 fields. Each gets its own MLP
+    branch and the composite encoder fuses the three embeddings, instead of one
+    6144 -> 1024 projection mixing the blocks in a single layer. Replay cost is
+    identical to the single-field arm (3 x 8 KB per row).
+    """
+
+    def __call__(self, frame: ObservationFrame) -> AdapterOutput:
+        """Route the three pooled blocks as separate MLP fields."""
+        features = self._extractor.extract(frame)
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        blocks = (
+            ("agg_camera", tokens[AGG_CAMERA_TOKEN_IDX]),
+            ("agg_patch_mean", patches.mean(axis=0)),
+            ("agg_patch_max", patches.max(axis=0)),
+        )
+        return [
+            AdapterField(
+                key=key,
+                encoder=Encoder.MLP,
+                buffer=True,
+                value=value.astype(jnp.float32),
+            )
+            for key, value in blocks
+        ]
+
+
+class AggregatorPooledFullQuadAdapter(AggregatorPooledFullAdapter):
+    """The full-width pooled readout plus 2x2 spatial quadrant means.
+
+    Appends the mean of each quadrant of the 37 x 37 patch grid to the P1
+    triple: ``[camera, mean, max, q00, q01, q10, q11]`` = 7 x 2048 = 14336
+    float32 (56 KB per replay row, 28 GB at 500k capacity). mean/max discard
+    all spatial structure; four quadrant means are the cheapest step that
+    restores any - roughly "what is left/right/above/below of me" at zero
+    VGGT cost.
+    """
+
+    TOKEN_KEY = "agg_pooled_full_quad"
+    # 1369 patches = 37 x 37, the VGGT patch grid at 518 px / patch 14.
+    PATCH_GRID = 37
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the P1 triple plus the four quadrant means."""
+        tokens = self._full_width(features)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        grid = patches.reshape(self.PATCH_GRID, self.PATCH_GRID, -1)
+        half = self.PATCH_GRID // 2
+        quadrants = [
+            grid[:half, :half],
+            grid[:half, half:],
+            grid[half:, :half],
+            grid[half:, half:],
+        ]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+                *[q.mean(axis=(0, 1)) for q in quadrants],
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFrameOnlyAdapter(AggregatorPooledFullAdapter):
+    """The pooled triple over the frame half alone.
+
+    ``[camera_f, patch mean_f, patch max_f]`` = 3072 float32 (12 KB per replay
+    row) - the exact mirror of the global-half pooled arm. Against P1 and the
+    pooled arm it separates "the frame half adds information" from "the frame
+    half is where the information lives".
+    """
+
+    TOKEN_KEY = "agg_pooled_frame"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return ``[camera, patch mean, patch max]`` over the frame half."""
+        tokens = jnp.asarray(features.frame_tokens)
+        patches = tokens[AGG_PATCH_START_IDX:]
+        return jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX],
+                patches.mean(axis=0),
+                patches.max(axis=0),
+            ]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledFullDeepAdapter(AggregatorPooledFullAdapter):
+    """P1's readout into a deeper, wider MLP branch - the encoder axis.
+
+    Identical observation vector and replay contract to
+    :class:`AggregatorPooledFullAdapter`; only the MLP branch grows from one
+    1024 hidden block to two 2048 blocks. Measures whether the full-width
+    pooled vector is encoder-limited rather than information-limited, at zero
+    replay cost and negligible ms/step.
+    """
+
+    ENCODER_OVERRIDES: dict[str, object] = {"mlp_hidden": 2048, "mlp_layers": 2}
+
+
+class AggregatorPooledCamPoolAdapter(AggregatorPooledFullAdapter):
+    """One mean over camera token plus patches - the minimal pooled readout.
+
+    ``mean(camera + patches)`` over the full-width tokens = 2048 float32
+    (8 KB per replay row), no max block and no dedicated camera block. The
+    register tokens stay dropped. The most radical reduction of the family:
+    it asks whether a single mean already carries what the multi-block
+    readouts carry - knowing the camera token is diluted to 1/1370 in it.
+    """
+
+    TOKEN_KEY = "agg_pooled_campool"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the mean over camera token plus patches."""
+        tokens = self._full_width(features)
+        pooled = jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX : AGG_CAMERA_TOKEN_IDX + 1],
+                tokens[AGG_PATCH_START_IDX:],
+            ],
+            axis=0,
+        )
+        return pooled.mean(axis=0).astype(jnp.float32)
+
+
+class AggregatorPooledCamPoolMeanMaxAdapter(AggregatorPooledCamPoolAdapter):
+    """Mean and max over camera token plus patches, no dedicated camera block.
+
+    ``[mean(camera + patches), max(camera + patches)]`` = 2 x 2048 = 4096
+    float32 (16 KB per replay row). Sits between the single-mean readout and
+    P1: it restores the max statistic but keeps the camera token folded into
+    the pooling instead of standing as its own block.
+    """
+
+    TOKEN_KEY = "agg_pooled_campool_mm"
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return mean and max over camera token plus patches."""
+        tokens = self._full_width(features)
+        pooled = jnp.concatenate(
+            [
+                tokens[AGG_CAMERA_TOKEN_IDX : AGG_CAMERA_TOKEN_IDX + 1],
+                tokens[AGG_PATCH_START_IDX:],
+            ],
+            axis=0,
+        )
+        return jnp.concatenate(
+            [pooled.mean(axis=0), pooled.max(axis=0)]
+        ).astype(jnp.float32)
+
+
+class AggregatorPooledGridAdapter(AggregatorPooledFullAdapter):
+    """Spatial average pooling: one mean per cell of a GRID x GRID kernel.
+
+    The 37 x 37 patch grid of the full-width tokens is divided into
+    ``GRID x GRID`` near-equal cells (adaptive boundaries, 37 is odd) and each
+    cell is averaged - local kernel pooling instead of the global mean. No
+    camera block and no max: together with the single-mean readout (grid 1)
+    this forms a pure pooling-resolution ladder. ``GRID = 2`` is 4 x 2048 =
+    8192 float32 (32 KB per replay row).
+    """
+
+    TOKEN_KEY = "agg_pooled_grid2"
+    GRID = 2
+    PATCH_GRID = AggregatorPooledFullQuadAdapter.PATCH_GRID
+
+    def _tokens(self, features: VGGTExtractOutput) -> jnp.ndarray:
+        """Return the concatenated per-cell means of the patch grid."""
+        tokens = self._full_width(features)
+        grid = tokens[AGG_PATCH_START_IDX:].reshape(
+            self.PATCH_GRID, self.PATCH_GRID, -1
+        )
+        bounds = [
+            round(i * self.PATCH_GRID / self.GRID) for i in range(self.GRID + 1)
+        ]
+        cells = [
+            grid[bounds[i] : bounds[i + 1], bounds[j] : bounds[j + 1]].mean(
+                axis=(0, 1)
+            )
+            for i in range(self.GRID)
+            for j in range(self.GRID)
+        ]
+        return jnp.concatenate(cells).astype(jnp.float32)
+
+
+class AggregatorPooledGrid4Adapter(AggregatorPooledGridAdapter):
+    """The 4 x 4 rung of the spatial pooling ladder.
+
+    16 x 2048 = 32768 float32 is 128 KB per replay row, so runs must cap
+    ``--buffer_capacity`` at 200 000 (26 GB) to stay under the 32 GB
+    preallocation ceiling.
+    """
+
+    TOKEN_KEY = "agg_pooled_grid4"
+    GRID = 4
 
 
 class AggregatorPooledBudget200kAdapter(AggregatorPooledAdapter):

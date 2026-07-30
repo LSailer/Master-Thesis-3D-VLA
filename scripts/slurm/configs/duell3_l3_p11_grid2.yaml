@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p11grid2
+output_dir: output/runs/duell3-l3-p11-grid2
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 follow-up P11: spatial average pooling, 2x2 kernel over the 37x37 patch grid of the full-width tokens (4 cell means = 8192, adapter aggregator_pooled_grid2). Pure pooling-resolution ladder together with P9 (grid 1) and P12 (grid 4) - no camera block, no max. 32 KB/row. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_grid2
+  output_dir: output/runs/duell3-l3-p11-grid2/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p11-grid2-s${SEED}-${SLURM_JOB_ID}

@@ -1,0 +1,11 @@
+extends: duell2_l3_aggpool_b200k_tr128
+job_name: r2d-L3d3-p10cpmm
+output_dir: output/runs/duell3-l3-p10-campool-mm
+env:
+  SEED: "42"
+comments:
+  - "Duell 3 follow-up P10: mean and max over camera token plus patches, no dedicated camera block ([mean(cam+patches), max(cam+patches)] = 4096, adapter aggregator_pooled_campool_meanmax). Between P9 (single mean) and P1 (three blocks): restores the max statistic, keeps the camera folded in. 16 KB/row. Training knobs frozen to C."
+args:
+  adapter: aggregator_pooled_campool_meanmax
+  output_dir: output/runs/duell3-l3-p10-campool-mm/run-${SLURM_JOB_ID}
+  wandb_name: duell3-l3-p10-campool-mm-s${SEED}-${SLURM_JOB_ID}
