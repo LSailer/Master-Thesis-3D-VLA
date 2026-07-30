@@ -30,15 +30,11 @@ args:
   render_resolution: 518
   video_log_every: 0
 smoke:
-  time: "00:20:00"
+  # Inherits the prod-shaped _base smoke profile (steps 1500, prefill 2048,
+  # prod batch/seq/train_ratio). The old tiny profile (800/200, batch 4 x 16,
+  # train_ratio 16) predates the 200k KV-budget default and is no longer
+  # needed for speed.
   args:
-    steps: 800
-    prefill: 200
-    batch_size: 4
-    seq_len: 16
-    train_ratio: 16
-    log_every: 50
-    checkpoint_every: 10000
     output_dir: output/smoke/aggregator-pooled-${TIMESTAMP}
     wandb_name: aggregator-pooled-smoke-${TIMESTAMP}
     wandb_tags: aggregator-pooled,skip-heads,smoke

@@ -1,8 +1,6 @@
 extends: l3_aggregator_pooled
 job_name: r2d-L3-agg-meanf
 output_dir: output/runs/r2dreamer-curriculum-l3-aggregator-pooled-meanf
-env:
-  SEED: "42"
 comments:
   - "L3 rung of the frame-mean token arm: the global-half pooled triple plus the mean of the frame-half patches ([camera_g, mean_g, max_g, mean_f] = 4096, adapter aggregator_pooled_meanf). Selected as the token variant in the Duell-3 pooled-readout ablation (prototyp/duell-vggt-integration/2026-07-29-r3/LEDGER.md): best seed-42 endpoint metrics at unchanged step cost. Identical to l3_aggregator_pooled except for the adapter, so the run is ladder-comparable to the global-half arm."
 args:

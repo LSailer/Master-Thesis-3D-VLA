@@ -659,7 +659,9 @@ def test_aggregator_pooled_prod_args() -> None:
     rendered = launch.render_sbatch(launch.load_config("aggregator_pooled_l1"), mode="prod")
     python_cmd, script, flags = training_command(rendered)
 
-    assert python_cmd == "uv run python"
+    # Prod also skips the resync: a job re-syncing the shared .venv mid-run
+    # races other checkouts (see the prod-mode uv sync race).
+    assert python_cmd == "uv run --no-sync python"
     assert script == "-m src.main"
     assert flags["--adapter"] == "aggregator_pooled"
     assert flags["--curriculum"] == "L1"
@@ -677,9 +679,12 @@ def test_aggregator_pooled_smoke_overrides() -> None:
 
     # Smokes skip the slow uv dependency resync.
     assert python_cmd == "uv run --no-sync python"
-    assert flags["--steps"] == "800"
-    assert flags["--prefill"] == "200"
-    assert "#SBATCH --time=00:20:00" in rendered
+    # The pooled family inherits the prod-shaped _base smoke profile; the old
+    # tiny profile (800/200, batch 4 x 16) predated the 200k KV-budget default.
+    assert flags["--steps"] == "1500"
+    assert flags["--prefill"] == "2048"
+    assert "--batch_size" not in flags  # prod shape from code defaults
+    assert "#SBATCH --time=00:30:00" in rendered
     assert "smoke" in flags["--wandb_tags"]
     # Timestamp-based run id requires a TIMESTAMP definition in the script body.
     assert "TIMESTAMP=$(date +%Y%m%d-%H%M%S)" in rendered

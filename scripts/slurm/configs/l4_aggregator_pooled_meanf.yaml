@@ -1,0 +1,15 @@
+extends: l4_aggregator_pooled
+job_name: r2d-L4-agg-meanf
+output_dir: output/runs/r2dreamer-curriculum-l4-aggregator-pooled-meanf
+comments:
+  - "L4 rung of the frame-mean token arm: the global-half pooled triple plus the mean of the frame-half patches ([camera_g, mean_g, max_g, mean_f] = 4096, adapter aggregator_pooled_meanf). Selected as the token variant in the Duell-3 pooled-readout ablation (prototyp/duell-vggt-integration/2026-07-29-r3/LEDGER.md): best seed-42 endpoint metrics at unchanged step cost. Identical to l4_aggregator_pooled except for the adapter, so the run is ladder-comparable to the global-half arm."
+args:
+  adapter: aggregator_pooled_meanf
+  output_dir: output/runs/r2dreamer-curriculum-l4-aggregator-pooled-meanf/run-${SLURM_JOB_ID}
+  wandb_name: l4_aggregator_pooled_meanf-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,vggt,aggregator-pooled,frame-mean,pool-on-device,skip-heads,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l4-aggregator-pooled-meanf-${TIMESTAMP}
+    wandb_name: l4-aggregator-pooled-meanf-smoke-${TIMESTAMP}
+    wandb_tags: aggregator-pooled,frame-mean,skip-heads,level4,smoke
