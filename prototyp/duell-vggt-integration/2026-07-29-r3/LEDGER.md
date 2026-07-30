@@ -193,6 +193,16 @@ jeder geplante Arm gelaufen - nur eben 1:38 h bis 3:18 h nach Duell-Ende.
 | J | P1 full-pooled, Seed 43 (2. Ziehung) | 6089424 | 43 | 1 | 0.0330 | 5.161 | 0.0064 | 68.0 | 40 | 20007 | **-0.0607** | E war kein Ausreisser: P1 verliert auf s43 konsistent (softspl 0.026/0.033 vs. 0.0539) |
 | K | P9 campool, nur mean(cam+patches) 2048 | 6089590 | 42 | 1 | 0.0974 | 5.643 | 0.0034 | 73.8 | 37 | 18503 | **-0.0541** | einziger s42-Verlierer: spl -72% - der Max-Block ist tragend |
 | L | P10 campool [mean, max] 4096 | 6089600 | 42 | 1 | 0.0986 | 5.808 | 0.0138 | 68.8 | 38 | 18751 | +0.0399 | ~P6-Niveau; eigener Kamera-Block (P1) kostet nur wenig |
+| M | P11 grid 2x2 (4 Zellen-Means) 8192 | 6090857 | 42 | 1 | 0.0815 | 5.982 | 0.0035 | 67.0 | 38 | 19007 | **-0.0771** | gleiche spl-Kollaps-Signatur wie P9 (ohne Max) |
+| N | P12 grid 4x4 (16 Zellen-Means) 32768, cap 200k | 6090858 | 42 | **0** | 0.1053 | 5.664 | 0.0000 | 74.7 | 34 | 17007 | **-0.5241** | 0 Treffer trotz bestem softspl-Kurs - Score von der Treffer-Lotterie dominiert |
+
+**Befund der Pooling-Treppe (mean-only: P9 grid1 -0.054, P11 grid2 -0.077,
+P12 grid4 -0.524):** Jede Variante ohne Max-Statistik verliert, immer ueber
+spl/Treffer, nie ueber softspl/dtg - P12 faehrt sogar das beste softspl der
+Reihe (0.1053) und trifft trotzdem nie. Der Max-Block traegt offenbar die
+Information, die aus "nah dran" ein "getroffen" macht; raeumliche Aufloesung
+der Means ersetzt ihn nicht. Alle mean+max-Arme (C, P1, P2, P5, P6, P10)
+scoren auf s42 positiv, alle mean-only-Arme negativ.
 
 Geplant/laufend: P1-s43 zweite Ziehung (6089424), P9 mean(cam+patches)
 2048 (6089590), P10 [mean, max](cam+patches) 4096 (6089600), P11 grid 2x2
