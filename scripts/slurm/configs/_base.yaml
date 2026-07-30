@@ -13,6 +13,11 @@ sbatch:
   cpus_per_task: 8
   mem: 64G
   time: "48:00:00"
+  # uc3n089 aborts habitat GL sensor reads (exit 134 mid-prefill) since
+  # 2026-07-20; confirmed again 2026-07-30 when all four CNN smokes died on it
+  # and passed cleanly elsewhere. Remove once the admins fix the node. A
+  # launch.sh --exclude flag overrides (not merges with) this default.
+  exclude: uc3n089
 env:
   # Hard-exit a completed habitat run before habitat_sim's GL teardown
   # SIGABRTs ("no current context") and poisons the exit code, handled in

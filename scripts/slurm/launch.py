@@ -61,6 +61,10 @@ class SbatchConfig(BaseModel):
     cpus_per_task: int
     mem: str
     time: str
+    # Node blocklist rendered as ``#SBATCH --exclude=...``. A ``--exclude``
+    # passed on the sbatch command line (launch.sh --exclude) overrides this
+    # directive rather than merging with it.
+    exclude: str | None = None
 
 
 def _validate_args(value: dict[str, object], *, prefix: str) -> dict[str, Scalar]:
@@ -295,6 +299,8 @@ def render_sbatch(
         f"#SBATCH --error={log_dir}/slurm-%j.err",
         "",
     ]
+    if sbatch.exclude:
+        lines.insert(-1, f"#SBATCH --exclude={sbatch.exclude}")
 
     if mode == "smoke":
         lines.extend(["set -euo pipefail", ""])
