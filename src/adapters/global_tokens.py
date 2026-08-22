@@ -248,6 +248,29 @@ class AggregatorPooledFrameMeanAdapter(AggregatorPooledFullAdapter):
         ).astype(jnp.float32)
 
 
+class RgbAggregatorPooledFrameMeanAdapter(AggregatorPooledFrameMeanAdapter):
+    """The frame-mean pooled readout with the appearance channel kept.
+
+    The token twin of the ``rgb_pointmap_pose`` hybrid: the RGB_64 frame goes
+    to a conv branch and the same ``[camera_g, patch mean_g, patch max_g, patch
+    mean_f]`` vector its token-only parent observes goes to an MLP branch, and
+    the composite encoder fuses the two embeddings. The pointmap hybrid pairs
+    the frame with per-frame geometry; this arm pairs it with the pooled VGGT
+    context instead, so the pair isolates which of the two frozen readouts a
+    conv policy actually gains from.
+
+    Only ``WITH_RGB`` changes: token payload, KV budget and heads-off extractor
+    policy are the parent's, which is what keeps this arm comparable to the
+    token-only ladder rung as well.
+
+    Replay cost is the sum of both fields: 12 KB for the uint8 image plus 16 KB
+    for the 4096 float32 tokens, ~28 KB per row, so 1M rows are ~28 GB and the
+    job needs more than the 64 GB default node memory.
+    """
+
+    WITH_RGB = True
+
+
 class AggregatorPooledFullDeltaAdapter(AggregatorPooledFullAdapter):
     """The full-width pooled readout plus a camera-token delta to frame 0.
 

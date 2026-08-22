@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from src.adapters import ADAPTERS
@@ -19,12 +20,13 @@ from src.adapters.contract import (
     routing_from_batch,
     transition_from_fields,
 )
+from src.adapters.replay_image import REPLAY_IMAGE_SIZE
 from src.buffer.replay_buffer import ReplayBuffer
 from src.configs.config import R2DreamerConfig
 from src.r2dreamer.agent import R2DreamerAgent
 from src.r2dreamer.experience import ExperienceCollector
 
-from tests.adapters.conftest import FakeEnv, FakeExtractor
+from tests.adapters.conftest import AGG_HALF_DIM, FakeEnv, FakeExtractor
 
 # The fakes are resolution-agnostic, so VGGT variants run at a small render size:
 # the point clouds they accumulate stay cheap on CPU while the wiring is identical.
@@ -214,3 +216,46 @@ def test_live_field_rides_along_as_global_feature(fake_extractor):
     transition = transition_from_fields(stepped.step(0), fields)
     assert set(transition.obs) == {f.key for f in fields if f.buffer}
     assert transition.global_feature is not None
+
+
+def test_rgb_token_hybrid_replays_the_frame_and_the_pooled_tokens(fake_extractor):
+    """The token twin of the pointmap hybrid: one conv field, one MLP field.
+
+    Both are replayed per step, so the row is the ~12 KB image plus the 16 KB
+    readout, and the token payload must stay the one its token-only parent
+    observes - that identity is what makes the two arms comparable.
+    """
+    env = FakeEnv(resolution=REPLAY_IMAGE_SIZE)
+    env.reset()
+    # A stepped frame, not the reset one: a replay transition needs an action.
+    frame = env.step(0)
+    hybrid = ADAPTERS["rgb_aggregator_pooled_meanf"](fake_extractor)
+    tokens_only = ADAPTERS["aggregator_pooled_meanf"](fake_extractor)
+
+    fields = hybrid(frame)
+    by_key = {f.key: f for f in fields}
+    assert set(by_key) == {"agg_pooled_meanf", "image"}
+
+    tokens = by_key["agg_pooled_meanf"]
+    assert tokens.encoder is Encoder.MLP
+    assert tokens.buffer and not tokens.decoder_target
+    # [camera_g, patch mean_g, patch max_g, patch mean_f] over the 1024-wide half.
+    assert tokens.value.shape == (4 * AGG_HALF_DIM,)
+    assert tokens.value.dtype == jnp.float32
+
+    image = by_key["image"]
+    assert image.encoder is Encoder.CONV
+    assert image.buffer and image.decoder_target
+    assert image.value.dtype == jnp.uint8
+
+    transition = transition_from_fields(frame, fields)
+    assert transition.global_feature is None
+    # The env already renders at replay size here, so the image round-trips
+    # untouched: the hybrid stores the frame, not a re-encoding of it.
+    np.testing.assert_array_equal(
+        transition.obs["image"], np.asarray(frame.image, np.uint8)
+    )
+    np.testing.assert_array_equal(
+        transition.obs["agg_pooled_meanf"],
+        np.asarray(tokens_only(frame)[0].value),
+    )

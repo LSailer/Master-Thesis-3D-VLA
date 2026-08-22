@@ -1,0 +1,63 @@
+extends: _base
+job_name: hybrid-cnn-tokens-v1
+output_dir: output/runs/r2dreamer-curriculum-l1-hybrid-tokens-meanf
+curriculum_check: data/curriculum/level1_1house_1goal.json
+setup:
+  # This arm runs VGGT, so it needs the external repos linked when launched
+  # from a worktree (a no-op in the main checkout).
+  - scripts/slurm/hooks/link_external.sh
+comments:
+  - "Hybrid token arm: CNN(RGB_64) + MLP([camera_g, mean_g, max_g, mean_f] = 4096, adapter rgb_aggregator_pooled_meanf), fused by the composite encoder. The token twin of hybrid_v1, which pairs the same frame with per-frame point-map geometry instead."
+  - "meanf readout rather than the token transformer: the sequence arm (rgb_global_tokens) attends over 1374 tokens per replay step and died on 2026-08-02 with RESOURCE_EXHAUSTED, 179.66 GiB in jit_train_step (job 6115427, L3). The pooled readout is a 4096 vector through one MLP branch, so the token branch costs a fraction of the frame's conv branch. It was also the Duell-3 winner among the pooled readouts (prototyp/duell-vggt-integration/2026-07-29-r3/LEDGER.md)."
+  - "Paired with l1_aggregator_pooled_meanf (same tokens, no appearance channel) and l1_cnn (same frame, no tokens), so the two-branch arm is readable against both of its halves."
+  - "VGGT point/camera heads are off and the KV budget is 200k slots (EXTRACTOR_KWARGS on the adapter): this arm reads aggregator tokens only."
+env:
+  # A completed run os._exit(0)s before habitat_sim's GL teardown, which
+  # otherwise SIGABRTs ("no current context") and poisons the exit code of an
+  # otherwise-successful run (see Trainer.hard_exit_on_finish / d09ad3c).
+  R2DREAMER_HARD_EXIT_ON_FINISH: "1"
+sbatch:
+  # 96G rather than the 64G default: a replay row is the 12 KB RGB_64 image
+  # plus the 16 KB token vector, ~28 KB, so the 1M-row buffer preallocates
+  # ~28 GB and has to fit next to habitat, VGGT and the JAX arenas.
+  mem: 96G
+  time: "48:00:00"
+args:
+  adapter: rgb_aggregator_pooled_meanf
+  curriculum: L1
+  # The 2M-step ladder budget shared with the other curriculum arms. Whether it
+  # is reachable inside the 48 h wall depends on the measured ms/step of this
+  # arm; a truncated run is disclosed in the comparison rather than silently
+  # relaunched at a lower budget.
+  steps: 2000000
+  prefill: 5000
+  checkpoint_every: 100000
+  output_dir: output/runs/r2dreamer-curriculum-l1-hybrid-tokens-meanf/run-${SLURM_JOB_ID}
+  seed: ${SEED}
+  log_every: 250
+  # Pinned rather than inherited from the code default, so every rung of this
+  # arm replays the same capacity even if the default moves.
+  buffer_capacity: 1000000
+  wandb_project: 3d-vla-objectnav
+  wandb_name: l1_hybrid_tokens_meanf-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level1,1house,chair-only,hybrid,tokens,meanf,vggt,cnn,skip-heads,jax,3d-encoder
+  render_resolution: 518
+smoke:
+  time: "00:20:00"
+  args:
+    steps: 800
+    prefill: 200
+    # Small batch/seq so batch_steps (batch_size*seq_len) is reached early and
+    # train_step actually fires in a short run (default 16*64=1024 > the ~1000
+    # transitions an 800-step smoke collects, so the encoder never trains).
+    # Low train_ratio bounds the number of full-size train_steps for wall-time.
+    batch_size: 4
+    seq_len: 16
+    train_ratio: 16
+    log_every: 50
+    checkpoint_every: 10000
+    output_dir: output/smoke/hybrid-tokens-${TIMESTAMP}
+    # wandb_project intentionally omitted: inherits the shared smoke project
+    # (3d-vla-objectnav-smoke) from _base.yaml so all smokes land together.
+    wandb_name: hybrid-tokens-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,tokens,meanf,smoke,cnn+vggt

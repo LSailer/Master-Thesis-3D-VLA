@@ -16,6 +16,8 @@ its absence means the arm is deliberately blind to appearance:
     rgb_full_tokens            appearance + both halves, full-width tokens
     aggregator_pooled          pooled tokens only, no appearance channel
     aggregator_pooled_b200k    alias of aggregator_pooled, kept for old run ids
+    rgb_aggregator_pooled_meanf
+                               appearance + the pooled frame-mean token readout
 
 Everything the run needs to know about a variant is declared on the adapter
 itself, because those are properties of the observation pipeline, not of the
@@ -65,6 +67,7 @@ from src.adapters.global_tokens import (
     AggregatorPooledGridAdapter,
     FullTokensAdapter,
     GlobalTokensAdapter,
+    RgbAggregatorPooledFrameMeanAdapter,
 )
 from src.adapters.house_cloud_episodes import HouseCloudEpisodesAdapter
 from src.adapters.house_voxels import HouseVoxelsAdapter, HouseVoxelsGnnAdapter
@@ -91,6 +94,7 @@ ADAPTERS: dict[str, type] = {
     "aggregator_pooled_b200k": AggregatorPooledBudget200kAdapter,
     "aggregator_pooled_full": AggregatorPooledFullAdapter,
     "aggregator_pooled_meanf": AggregatorPooledFrameMeanAdapter,
+    "rgb_aggregator_pooled_meanf": RgbAggregatorPooledFrameMeanAdapter,
     "aggregator_pooled_full_delta": AggregatorPooledFullDeltaAdapter,
     "aggregator_pooled_full_split": AggregatorPooledFullSplitAdapter,
     "aggregator_pooled_full_quad": AggregatorPooledFullQuadAdapter,
@@ -127,4 +131,5 @@ __all__ = [
     "PointMapPoseAdapter",
     "PointMapPoseOnlyAdapter",
     "RgbAdapter",
+    "RgbAggregatorPooledFrameMeanAdapter",
 ]

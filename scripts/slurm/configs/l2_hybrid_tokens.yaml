@@ -1,0 +1,18 @@
+extends: hybrid_tokens_v1
+job_name: r2d-L2-hybrid-tokens
+output_dir: output/runs/r2dreamer-curriculum-l2-hybrid-tokens-meanf
+curriculum_check: data/curriculum/level2_1house_6goals.json
+comments:
+  - "L2 rung of the hybrid CNN + pooled-token arm: 1 house x 6 goal categories, the goal-generalization axis. Identical to hybrid_tokens_v1 except for the curriculum - same conv(RGB_64) + MLP(4096 meanf readout) fusion, same replay capacity, same step budget."
+  - "Negative control for l3_hybrid_tokens: accumulated VGGT context should help on the scene axis and not on the goal axis. That sign prediction is what a pure added-parameters explanation cannot make."
+args:
+  adapter: rgb_aggregator_pooled_meanf
+  curriculum: L2
+  output_dir: output/runs/r2dreamer-curriculum-l2-hybrid-tokens-meanf/run-${SLURM_JOB_ID}
+  wandb_name: l2_hybrid_tokens_meanf-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level2,1house,6goals,hybrid,tokens,meanf,vggt,cnn,skip-heads,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l2-hybrid-tokens-${TIMESTAMP}
+    wandb_name: l2-hybrid-tokens-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,tokens,meanf,level2,smoke,cnn+vggt

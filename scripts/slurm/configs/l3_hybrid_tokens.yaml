@@ -1,0 +1,19 @@
+extends: hybrid_tokens_v1
+job_name: r2d-L3-hybrid-tokens
+output_dir: output/runs/r2dreamer-curriculum-l3-hybrid-tokens-meanf
+curriculum_check: data/curriculum/level3_10houses_1goal.json
+comments:
+  - "L3 rung of the hybrid CNN + pooled-token arm: 10 houses x chair only, the scene-generalization axis. Identical to hybrid_tokens_v1 except for the curriculum."
+  - "The main axis of the comparison: house context accumulated in the VGGT KV cache transfers across houses, goal semantics does not, so this is where the token branch should show up. l2_hybrid_tokens is the paired negative control."
+  - "Do not touch encoder width or learning rate here - a second changed knob makes the rung-to-rung comparison unreadable."
+args:
+  adapter: rgb_aggregator_pooled_meanf
+  curriculum: L3
+  output_dir: output/runs/r2dreamer-curriculum-l3-hybrid-tokens-meanf/run-${SLURM_JOB_ID}
+  wandb_name: l3_hybrid_tokens_meanf-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level3,10houses,chair-only,hybrid,tokens,meanf,vggt,cnn,skip-heads,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l3-hybrid-tokens-${TIMESTAMP}
+    wandb_name: l3-hybrid-tokens-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,tokens,meanf,level3,smoke,cnn+vggt

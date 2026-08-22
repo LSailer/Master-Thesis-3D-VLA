@@ -1,0 +1,18 @@
+extends: hybrid_tokens_v1
+job_name: r2d-L4-hybrid-tokens
+output_dir: output/runs/r2dreamer-curriculum-l4-hybrid-tokens-meanf
+curriculum_check: data/curriculum/level4_10houses_6goals.json
+comments:
+  - "L4 rung of the hybrid CNN + pooled-token arm: 10 houses x 6 goal categories. Identical to hybrid_tokens_v1 except for the curriculum."
+  - "L4 superimposes the goal axis (L2) and the scene axis (L3), so it isolates neither; it is the combined-difficulty endpoint of the ladder."
+args:
+  adapter: rgb_aggregator_pooled_meanf
+  curriculum: L4
+  output_dir: output/runs/r2dreamer-curriculum-l4-hybrid-tokens-meanf/run-${SLURM_JOB_ID}
+  wandb_name: l4_hybrid_tokens_meanf-s${SEED}-${SLURM_JOB_ID}
+  wandb_tags: curriculum,level4,10houses,6goals,hybrid,tokens,meanf,vggt,cnn,skip-heads,jax,3d-encoder
+smoke:
+  args:
+    output_dir: output/smoke/l4-hybrid-tokens-${TIMESTAMP}
+    wandb_name: l4-hybrid-tokens-smoke-${TIMESTAMP}
+    wandb_tags: hybrid,tokens,meanf,level4,smoke,cnn+vggt
