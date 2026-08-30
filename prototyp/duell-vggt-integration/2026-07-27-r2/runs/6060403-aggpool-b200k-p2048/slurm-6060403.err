@@ -1,3 +1,0 @@
-   Building master-thesis-3d-vla @ file:///pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/.claude/worktrees/duell-2-vggt-dreamer-1c1f56
-      Built master-thesis-3d-vla @ file:///pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/.claude/worktrees/duell-2-vggt-dreamer-1c1f56
-error: failed to remove directory `/pfs/data6/home/ul/ul_student/ul_hfj15/Master-Thesis-3D-VLA/.claude/worktrees/duell-2-vggt-dreamer-1c1f56/.venv/lib/python3.11/site-packages/flax/nnx/training`: No such file or directory (os error 2)
